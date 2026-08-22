@@ -87,30 +87,30 @@ def main():
     south = north + rows * gt[5]
     tol = abs(gt[1]) / 2
 
-    # Number the regions and rasterise the numbers, so every per-region figure
-    # below is one pass of bincount rather than a loop over six thousand polygons
-    n = 0
-    envelopes = {}
+    # Only the regions which reach the edge of the zone are wanted, so they go
+    # straight into a byte mask. Numbering every region and rasterising the
+    # numbers instead would cost an Int32 array the size of the zone - 1.7 GB
+    # for roantra at 1 arcsecond, on a server with 6 GB
+    sea_ds = mem.Create('s', cols, rows, 1, gdal.GDT_Byte)
+    sea_ds.SetGeoTransform(gt)
+    sea_ds.SetProjection(proj)
+    sea_layer_ds = drv.CreateDataSource('sl')
+    sea_layer = sea_layer_ds.CreateLayer('sea', geom_type=ogr.wkbPolygon)
+
+    kept = total = 0
     for feat in layer:
-        n += 1
-        feat.SetField('v', n)
-        layer.SetFeature(feat)
-        envelopes[n] = feat.GetGeometryRef().GetEnvelope()
-
-    label_ds = mem.Create('l', cols, rows, 1, gdal.GDT_Int32)
-    label_ds.SetGeoTransform(gt)
-    label_ds.SetProjection(proj)
-    label_ds.GetRasterBand(1).Fill(0)
-    gdal.RasterizeLayer(label_ds, [1], layer, options=['ATTRIBUTE=v'])
-    labels = label_ds.GetRasterBand(1).ReadAsArray()
-
-
-    is_sea = np.zeros(n + 1, dtype=bool)
-    for i, (x0, x1, y0, y1) in envelopes.items():
-        is_sea[i] = (x0 <= west + tol or x1 >= east - tol
-                     or y0 <= south + tol or y1 >= north - tol)
-    sea = is_sea[labels]
-    kept, total = int(is_sea[1:].sum()), n
+        total += 1
+        x0, x1, y0, y1 = feat.GetGeometryRef().GetEnvelope()
+        if (x0 <= west + tol or x1 >= east - tol
+                or y0 <= south + tol or y1 >= north - tol):
+            out_feat = ogr.Feature(sea_layer.GetLayerDefn())
+            out_feat.SetGeometry(feat.GetGeometryRef().Clone())
+            sea_layer.CreateFeature(out_feat)
+            kept += 1
+    if kept:
+        gdal.RasterizeLayer(sea_ds, [1], sea_layer, burn_values=[1])
+    sea = sea_ds.GetRasterBand(1).ReadAsArray().astype(bool)
+    sea_ds = mask_ds = None
 
     # Anything the water mask covers is water, whether or not it reaches the
     # edge of the zone
@@ -124,14 +124,21 @@ def main():
 
     # Sea reads exactly zero. Land keeps its elevation but never reads zero, so
     # it cannot be mistaken for sea by a ramp which makes zero transparent.
-    # Enclosed cells the fill never reached have no information at all and become
-    # 1 m, which is what they are: land of unknown low elevation.
-    out = np.where(sea, 0, np.maximum(np.where(dem == NODATA, 1, dem), 1))
-    out = out.astype('int16')
-    # anything the squares burned is authoritative and is put back untouched,
-    # so a contour or coastline drawn at zero stays at zero
+    # Cells the fill never reached hold no information and become 1 m, which is
+    # what they are: land of unknown low elevation.
+    #
+    # Done in place on the Int16 array. np.where against Python integers
+    # promotes the result to Int64, which for roantra at 1 arcsecond is a 3.4 GB
+    # array by itself
+    out = dem
+    np.maximum(out, np.int16(1), out=out)
+    out[sea] = 0
+    del sea
+    # anything the squares burned is authoritative and goes back untouched, so a
+    # contour or a coastline drawn at zero stays at zero
     burned = cont != NODATA
-    out[burned] = cont[burned].astype('int16')
+    out[burned] = cont[burned]
+    del burned
 
     drv_tif = gdal.GetDriverByName('GTiff')
     out_ds = drv_tif.Create(out_path, cols, rows, 1, gdal.GDT_Int16,

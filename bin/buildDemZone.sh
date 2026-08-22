@@ -110,6 +110,12 @@ print(f'SQUARES={len(squares)}')
 print(f'WEST={min(lons)} EAST={max(lons) + 1} SOUTH={min(lats)} NORTH={max(lats) + 1}')
 print(f'TE="{min(lons) - h:.9f} {min(lats) - h:.9f} '
       f'{max(lons) + 1 + h:.9f} {max(lats) + 1 + h:.9f}"')
+# The 3 arcsecond products are grid registered on their own spacing, not the
+# master's. Using the master's extent leaves a fractional number of samples per
+# degree and SRTMHGT, which demands exactly 1201 square, refuses every slice
+hh = 3 / 7200
+print(f'TE_HGT="{min(lons) - hh:.9f} {min(lats) - hh:.9f} '
+      f'{max(lons) + 1 + hh:.9f} {max(lats) + 1 + hh:.9f}"')
 PY
 )
 echo "  ${SQUARES} squares, ${WEST}..${EAST} by ${SOUTH}..${NORTH}"
@@ -142,7 +148,9 @@ ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null | grep -i 'feature count' | se
 # ---------------------------------------------------------------- rasterise
 say "rasterise at ${ARCSEC}\""
 rm -f ${WORK}/cont.tif
-gdal_rasterize -q -a ele -a_nodata -9999 -init -9999 -ot Int32 \
+# Int16, not Int32: elevations fit with room to spare and so does the nodata,
+# and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set
+gdal_rasterize -q -a ele -a_nodata -9999 -init -9999 -ot Int16 \
 	-tr ${RES} ${RES} -te ${TE} -co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/contours.gpkg ${WORK}/cont.tif
 gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
@@ -214,9 +222,10 @@ gdal_translate -q -ot Int16 -co TILED=YES -co COMPRESS=DEFLATE \
 # triples what the render databases hold to draw a line 0.2 to 0.6 px wide
 say "3\" derivative, for contours, hgt and the legacy zip"
 rm -f ${WORK}/dem-hgtres.tif
-gdalwarp -q -overwrite -r average -te ${TE} -tr ${HGT_RES} ${HGT_RES} \
+gdalwarp -q -overwrite -r average -te ${TE_HGT} -tr ${HGT_RES} ${HGT_RES} \
 	-ot Int16 -co TILED=YES -co COMPRESS=DEFLATE -co PREDICTOR=2 \
 	${WORK}/dem.tif ${WORK}/dem-hgtres.tif
+gdalinfo ${WORK}/dem-hgtres.tif | sed -n 's/^Size is/  3 arcsec size/p'
 
 # ---------------------------------------------------------------- rasters
 # Mercator, as the styles expect, and hillshaded there rather than in degrees -
