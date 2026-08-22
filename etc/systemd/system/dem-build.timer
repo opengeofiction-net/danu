@@ -1,0 +1,13 @@
+[Unit]
+Description=Rebuild changed OpenGeofiction elevation zones
+
+[Timer]
+# weekly, early Wednesday: contour submissions arrive at no particular rate, and
+# a zone is only rebuilt when its squares have actually changed, so this is
+# nearly always a no-op costing one hash of each zone's squares
+OnCalendar=Wed 03:17
+Persistent=true
+Unit=dem-build.service
+
+[Install]
+WantedBy=timers.target

@@ -324,4 +324,13 @@ install -m 644 ${WORK}/tiff-${ZONE}.zip             ${PUB}/
 mkdir -p ${PUB}/hgt && install -m 644 ${WORK}/hgt/*.hgt ${PUB}/hgt/
 
 du -sh ${PUB} | sed 's/^/  published /'
+
+# The distribution, against the previous build of this zone. An aggregate error
+# figure hides exactly the faults this pipeline produces - three separate land
+# and sea bugs each moved roantra's RMS by under 0.1 m while making the map
+# visibly wrong - so the shares are what gets watched
+say distribution
+mkdir -p ${BASE}/stats
+${TOOLS}/bin/demZoneStats.py ${WORK}/dem.tif ${BASE}/stats/${ZONE}.json
+
 say done
