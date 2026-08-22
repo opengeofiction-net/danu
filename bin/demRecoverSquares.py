@@ -393,6 +393,11 @@ def main():
                          'when no water file exists, and a crude one: bodies '
                          'joined to the sea by a river at zero come out as one, '
                          'so inland water gets missed')
+    ap.add_argument('--force', action='store_true',
+                    help='write into an output directory which already holds '
+                         'squares. Refused by default: recovery is the start of '
+                         'the work, not the end - the squares get edited by hand '
+                         'afterwards, and re-running would throw that away')
     ap.add_argument('--suffix', default='recovered',
                     help="filename suffix after the square name")
     args = ap.parse_args()
@@ -432,6 +437,18 @@ def main():
     south = math.floor(gt[3] + h * gt[5] + abs(gt[5]) / 2 + 1e-9)
 
     water = load_zero_lines(args.water) if args.water else []
+
+    # Recovery is where the work starts, not where it ends: the squares get
+    # edited by hand afterwards, and re-running would throw that away without
+    # saying so. Which is not hypothetical - it happened to zone-izaland.
+    if os.path.isdir(args.outdir) and not args.force:
+        existing = sorted(f for f in os.listdir(args.outdir)
+                          if f.endswith('.osm'))
+        if existing:
+            sys.exit(f'{args.outdir} already holds {len(existing)} squares '
+                     f'({existing[0]} ...). They may have been edited since '
+                     f'they were recovered, and this would overwrite them. '
+                     f'--force if that is what you want.')
 
     os.makedirs(args.outdir, exist_ok=True)
     print(f'{args.dem}: {w}x{h}, covering {square_name(west, south)} '
