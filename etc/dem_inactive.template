@@ -1,25 +1,23 @@
 # Zones which are built and published but which the renderers should not load.
 #
-# One zone name per line. Say why, and date it: a zone with no reason recorded
-# stays inactive long after anyone remembers what the reason was, which is how
-# zone-tekan came to have five years of published data that was never drawn.
+#   <zone> <reason>   # note
+#
+# Everything built is published either way. A zone listed here stays
+# downloadable and stops being drawn: the tile servers take a zone that leaves
+# the manifest out of their rasters and out of their contour database.
+#
+# The reason is required, and one of:
+#
+#   withdrawn   the territory has been withdrawn or wiped, so the contours
+#               describe ground that is no longer there
+#   quality     the input squares are not good enough to render from
+#   wip         work in progress - being drawn, reviewed or recovered, and not
+#               ready to appear on the map yet
+#
+# Date the note. A zone with no reason recorded stays inactive long after
+# anyone remembers what the reason was, which is how zone-tekan came to have
+# five years of published data that was never drawn.
 #
 # Leaving a zone out of the render is not the same as retiring it. To stop
 # building a zone at all, move its squares out of osm-squares; its published
 # output then stays as it was and nothing regenerates it.
-
-# The four zones whose source contour squares are lost. Their derived output is
-# still on the old server and none of them is in the render today, so nothing
-# changes by leaving them out - but the new process cannot reproduce them until
-# their squares are recovered, and rendering data that cannot be rebuilt is how
-# it came to be lost in the first place.
-#
-# mergany and udzdanarat can be recovered from their published .hgt, the way
-# roantra and tekan were on 2026-08-22. izaland and kojo have no .hgt either,
-# so their only surviving copy is raw.tif inside their published tiff zip.
-#
-# The wiki also lists udzdanarat as inactive on its own account.
-izaland
-kojo
-mergany
-udzdanarat

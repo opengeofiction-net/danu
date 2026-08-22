@@ -38,6 +38,9 @@ gdal.UseExceptions()
 ogr.UseExceptions()
 
 
+SRTM_VOID = -32768
+
+
 def square_name(lon, lat):
     """SRTM naming, by south west corner, always N/SxxE/Wxxx."""
     ns = 'N' if lat >= 0 else 'S'
@@ -257,7 +260,7 @@ def water_rings(dem_path, lon, lat, water_lines, min_cells=16, keep_away=3,
     # water/land boundary rasterises into the first land cell and burns zero
     # over the shore, cutting it off from its own contours - which costs more on
     # land than it saves on water
-    w = (a <= 0)
+    w = (a <= 0) & (a != SRTM_VOID)
     for _ in range(erode):
         e = w.copy()
         for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -322,6 +325,12 @@ def contours_for_square(dem, lon, lat, interval, simplify, min_vertices):
 
     src = gdal.Open(tmp)
     band = src.GetRasterBand(1)
+    # SRTM marks a void -32768, and zone-udzdanarat's DEM carries them. Left
+    # alone they contour as terrain 32 km below sea level and count as water
+    nodata = band.GetNoDataValue()
+    if nodata is None:
+        nodata = SRTM_VOID
+        band.SetNoDataValue(nodata)
     lo, hi = band.ComputeRasterMinMax(False)
 
     drv = ogr.GetDriverByName('MEM')
@@ -329,7 +338,7 @@ def contours_for_square(dem, lon, lat, interval, simplify, min_vertices):
     layer = ds.CreateLayer('contour', geom_type=ogr.wkbLineString)
     layer.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
 
-    gdal.ContourGenerate(band, interval, 0, [], 0, 0, layer, -1, 0)
+    gdal.ContourGenerate(band, interval, 0, [], 1, nodata, layer, -1, 0)
 
     out = {}
     for feat in layer:
@@ -353,13 +362,16 @@ def main():
     ap.add_argument('outdir')
     ap.add_argument('--interval', type=float, default=10.0,
                     help='contour interval in metres (default 10)')
-    ap.add_argument('--simplify', type=float, default=0.0002,
+    ap.add_argument('--simplify', type=float, default=None,
                     help='simplify tolerance in degrees, 0 to keep every vertex. '
-                         'The default is about a quarter of a 3 arcsecond cell. '
-                         'Do not raise it much: Douglas-Peucker lets the line '
-                         'deviate by the whole tolerance, and topology is only '
-                         'preserved per feature, so at cell scale neighbouring '
-                         'contours facet badly and start crossing each other')
+                         'Defaults to a quarter of the source DEM cell, which is '
+                         'not a fixed number of degrees: zone-mergany was built '
+                         'at 1 arcsecond where every other zone is 3, and a '
+                         'tolerance sized for 3 is most of a cell there. Do not '
+                         'raise it: Douglas-Peucker lets the line deviate by the '
+                         'whole tolerance and topology is preserved only within '
+                         'one feature, so at cell scale neighbouring contours '
+                         'facet badly and then cross each other')
     ap.add_argument('--smooth', type=int, default=0, metavar='N',
                     help='box filter the DEM over N cells before contouring, '
                          'which gives smooth curves instead of raster stair '
@@ -406,6 +418,10 @@ def main():
 
     dem = gdal.Open(dem_path)
     gt = dem.GetGeoTransform()
+    if args.simplify is None:
+        args.simplify = abs(gt[1]) / 4
+        print(f'source cell {abs(gt[1]) * 3600:.2f} arcsec, simplifying at '
+              f'{args.simplify:.7f} degrees', file=sys.stderr)
     w, h = dem.RasterXSize, dem.RasterYSize
 
     # Grid registered rasters sit half a pixel outside the degree line, so round
