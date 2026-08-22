@@ -23,6 +23,8 @@ import math
 import os
 import shutil
 import sys
+
+import numpy as np
 import tempfile
 
 from osgeo import gdal, ogr
@@ -184,31 +186,69 @@ def clip_lines(lines, lon, lat):
     return out
 
 
-def water_rings(dem_path, lon, lat, coast, min_cells=16):
-    """Boundaries of water bodies in one square that no coastline way touches.
+def water_rings(dem_path, lon, lat, water_lines, min_cells=16, keep_away=3,
+                erode=2):
+    """Zero metre edges in one square that the water file does not already give.
 
-    An inland sea is often natural=water on the main map rather than
-    natural=coastline (Roantra), so no coastline way exists to pin it to zero.
-    Left unconstrained, interpolation drifts the whole body upward from the
-    surrounding land contours. A closed ring tagged ele 0 fixes it: every
-    constraint bounding the water reads zero, so the fill reads zero throughout,
-    and no planet data is needed.
+    Where a zone has no water file, or the file does not reach everywhere, water
+    left without a zero constraint interpolates upward from the surrounding land
+    - 46 m RMS in one roantra square, biased high, which is the single largest
+    error left in a rebuild. For a recovered zone the DEM's own zeros are data,
+    so its water edges can be traced straight off it.
 
-    Bodies which do have coastline are skipped - that geometry is authoritative
-    and already in the square.
+    Filtering is per segment, not per body. An earlier version skipped any water
+    polygon a water line touched, which fails exactly where it matters: a river
+    at zero joins an inland sea to the ocean, the two polygonize as one body,
+    that body touches coastline, and the inland shore is silently dropped.
+    Instead the water lines are rasterised and dilated by keep_away cells, and
+    ring vertices landing on that mask are discarded, so what is emitted is only
+    the shoreline the file does not already cover.
     """
     tmp = f'/vsimem/w_{square_name(lon, lat)}.tif'
     gdal.Translate(tmp, dem_path, projWin=[lon, lat + 1, lon + 1, lat],
                    projWinSRS='EPSG:4326')
     src = gdal.Open(tmp)
-    band = src.GetRasterBand(1)
-    a = band.ReadAsArray()
+    gt = src.GetGeoTransform()
+    a = src.GetRasterBand(1).ReadAsArray()
 
-    mask_drv = gdal.GetDriverByName('MEM')
-    mask = mask_drv.Create('m', src.RasterXSize, src.RasterYSize, 1, gdal.GDT_Byte)
-    mask.SetGeoTransform(src.GetGeoTransform())
-    mask.SetProjection(src.GetProjection())
-    mask.GetRasterBand(1).WriteArray((a <= 0).astype('uint8'))
+    def blank(dtype=gdal.GDT_Byte):
+        m = gdal.GetDriverByName('MEM').Create('m', src.RasterXSize,
+                                               src.RasterYSize, 1, dtype)
+        m.SetGeoTransform(gt)
+        m.SetProjection(src.GetProjection())
+        return m
+
+    # already-covered mask: the water file's lines, dilated
+    covered = None
+    if water_lines:
+        cov = blank()
+        drv = ogr.GetDriverByName('MEM')
+        lds = drv.CreateDataSource('l')
+        llayer = lds.CreateLayer('l', geom_type=ogr.wkbLineString)
+        for g in water_lines:
+            f = ogr.Feature(llayer.GetLayerDefn())
+            f.SetGeometry(g)
+            llayer.CreateFeature(f)
+        gdal.RasterizeLayer(cov, [1], llayer, burn_values=[1])
+        c = cov.GetRasterBand(1).ReadAsArray().astype(bool)
+        covered = c.copy()
+        for dy in range(-keep_away, keep_away + 1):
+            for dx in range(-keep_away, keep_away + 1):
+                covered |= np.roll(np.roll(c, dy, axis=0), dx, axis=1)
+
+    # Erode the water mask by erode cells before tracing it. Polygonize returns
+    # boundaries running along cell edges, so a ring taken straight off the
+    # water/land boundary rasterises into the first land cell and burns zero
+    # over the shore, cutting it off from its own contours - which costs more on
+    # land than it saves on water
+    w = (a <= 0)
+    for _ in range(erode):
+        e = w.copy()
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            e &= np.roll(np.roll(w, dy, axis=0), dx, axis=1)
+        w = e
+    mask = blank()
+    mask.GetRasterBand(1).WriteArray(w.astype('uint8'))
 
     drv = ogr.GetDriverByName('MEM')
     ds = drv.CreateDataSource('p')
@@ -216,26 +256,41 @@ def water_rings(dem_path, lon, lat, coast, min_cells=16):
     layer.CreateField(ogr.FieldDefn('v', ogr.OFTInteger))
     gdal.Polygonize(mask.GetRasterBand(1), mask.GetRasterBand(1), layer, 0)
 
-    px = abs(src.GetGeoTransform()[1] * src.GetGeoTransform()[5])
-    rings, skipped = [], 0
+    px = abs(gt[1] * gt[5])
+    rings, dropped = [], 0
     for feat in layer:
         if feat.GetField('v') != 1:
             continue
         geom = feat.GetGeometryRef()
         if geom.GetArea() < min_cells * px:
             continue
-        if any(line.Intersects(geom) for line in coast):
-            skipped += 1
-            continue
         for i in range(geom.GetGeometryCount()):
             r = geom.GetGeometryRef(i)
             pts = [(r.GetX(j), r.GetY(j)) for j in range(r.GetPointCount())]
-            if len(pts) >= 4:
-                rings.append(pts)
+            if covered is None:
+                if len(pts) >= 4:
+                    rings.append(pts)
+                continue
+            # keep contiguous runs of vertices the water file does not cover
+            run = []
+            for x, y in pts:
+                col = int((x - gt[0]) / gt[1])
+                row = int((y - gt[3]) / gt[5])
+                inside = (0 <= row < covered.shape[0] and 0 <= col < covered.shape[1])
+                if inside and covered[row, col]:
+                    if len(run) >= 4:
+                        rings.append(run)
+                    elif run:
+                        dropped += 1
+                    run = []
+                else:
+                    run.append((x, y))
+            if len(run) >= 4:
+                rings.append(run)
 
     src = None
     gdal.Unlink(tmp)
-    return rings, skipped
+    return rings, dropped
 
 
 def contours_for_square(dem, lon, lat, interval, simplify, min_vertices):
@@ -398,7 +453,7 @@ def main():
                      if levels else f'no contours, {lo:.0f}..{hi:.0f} m')
             print(f'  {name}: {where}, {len(shore)} coast, '
                   f'{len(wrings)} water rings'
-                  f'{f" ({wskip} bodies already had coastline)" if wskip else ""}, '
+                  f'{f" ({wskip} runs too short to keep)" if wskip else ""}, '
                   f'{osm.ways} ways, {osm.nodes} nodes'
                   f'{f", zeroline {len(zero)} ways" if zero else ""}',
                   file=sys.stderr)
