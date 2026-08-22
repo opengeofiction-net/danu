@@ -441,10 +441,15 @@ def main():
                     tags['natural'] = natural
                 osm.way(pts, tags)
 
+            # Nothing is asserted about a square with no contours at all. The
+            # source DEM holds zero for both sea and absent data, so tracing a
+            # water edge round an entirely zero square would claim it is sea on
+            # no evidence - and it would stop the build trimming its extent to
+            # where the data actually is
             wrings, wskip = water_rings(
                 dem_path, lon, lat, [ogr.CreateGeometryFromWkt(
                     'LINESTRING(' + ','.join(f'{x} {y}' for x, y in pts) + ')')
-                    for pts, _ in shore]) if args.water_rings else ([], 0)
+                    for pts, _ in shore]) if (args.water_rings and levels) else ([], 0)
             for pts in wrings:
                 osm.way(pts, {'ele': '0',
                               'note': 'water body edge, derived from the DEM'})

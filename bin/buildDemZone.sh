@@ -142,8 +142,23 @@ for f in ${SRC}/*.osm; do
 			-where "ele IS NOT NULL" -nln contour >/dev/null
 	fi
 done
-[ -f ${WORK}/contours.gpkg ] || { echo "${ZONE}: nothing collected" >&2; exit 1; }
-ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null | grep -i 'feature count' | sed 's/^/  /'
+FEATURES=$(ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null |
+	sed -n 's/^Feature Count: //p')
+if [ ! -f ${WORK}/contours.gpkg ] || [ "${FEATURES:-0}" -eq 0 ]; then
+	# Not a failure. A zone's directory holds the blank templates handed out to
+	# mappers - one frame way, no contours - and a zone which is all templates
+	# has nothing to build yet rather than something wrong with it
+	echo "${ZONE}: no contours in any square, nothing to build yet" >&2
+	exit 0
+fi
+echo "  ${FEATURES} constraint lines"
+
+# Trim the extent to the squares which actually hold something, since those
+# blank templates would otherwise enlarge the raster over ground with no data
+# in it - for roantra, 11 squares of 35 and a third of the pixels
+eval $(${TOOLS}/bin/demZoneExtent.py ${WORK}/contours.gpkg ${ARCSEC} \
+	${WEST} ${EAST} ${SOUTH} ${NORTH})
+echo "  data covers ${WEST}..${EAST} by ${SOUTH}..${NORTH}, ${SQ_DEGREES} square degrees"
 
 # ---------------------------------------------------------------- rasterise
 say "rasterise at ${ARCSEC}\""
