@@ -46,6 +46,11 @@ HGT_ARCSEC=${HGT_ARCSEC:-3}             # .hgt archive and legacy zip stay at 12
 FILL_METRES=${FILL_METRES:-1850}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
+# Water areas for the zone, if there are any: coastline plus whatever is mapped
+# as natural=water instead, which for an inland sea is usual. Used only to tell
+# land at sea level from the sea itself - the squares remain the elevation
+# source of truth. Without it enclosed water reads 1 m instead of 0
+WATER=$(ls ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf 2>/dev/null | head -1)
 OSMCONF=${TOOLS}/etc/dem_osmconf.ini
 
 # GDAL's default osmconf.ini ignores ele on every layer, so reading a contour
@@ -144,14 +149,44 @@ gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
 
 # ---------------------------------------------------------------- interpolate
 say interpolate
-rm -f ${WORK}/filled.tif ${WORK}/dem.tif
+rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 gdal_fillnodata.py -q -md ${FILL_CELLS} -si 0 ${WORK}/cont.tif ${WORK}/filled.tif
 # What the bounded fill could not reach has no elevation information at all, and
 # becomes zero - which is what the old process did implicitly by initialising
 # its tiles to zero
-gdal_calc.py --quiet --hideNoData -A ${WORK}/filled.tif --outfile=${WORK}/dem.tif \
-	--calc="where(A==-9999,0,A)" --type=Int16 \
+# rint, not truncation: the fill returns floats, and truncating puts every
+# coastal cell below a metre onto zero
+gdal_calc.py --quiet --hideNoData -A ${WORK}/filled.tif --outfile=${WORK}/rounded.tif \
+	--calc="where(A==-9999,-9999,rint(A))" --type=Int16 --NoDataValue=-9999 --overwrite \
 	--co TILED=YES --co COMPRESS=DEFLATE --co PREDICTOR=2
+
+# Water areas as a mask, where the zone has a water file. natural=water states
+# that its interior is water; a closed coastline ring does not, being equally
+# able to describe an island
+WATER_MASK=
+if [ -n "${WATER}" ]; then
+	say "water areas from $(basename ${WATER})"
+	rm -f ${WORK}/water-areas.gpkg ${WORK}/water-mask.tif
+	ogr2ogr -f GPKG ${WORK}/water-areas.gpkg "${WATER}" multipolygons \
+		-where "natural='water'" -nln water >/dev/null
+	ogrinfo -so -al ${WORK}/water-areas.gpkg 2>/dev/null |
+		grep -i 'feature count' | sed 's/^/  /'
+	gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
+		-co TILED=YES -co COMPRESS=DEFLATE \
+		${WORK}/water-areas.gpkg ${WORK}/water-mask.tif
+	WATER_MASK=${WORK}/water-mask.tif
+else
+	echo "  no water file at ${BASE}/water/${ZONE}.osm - enclosed water will" >&2
+	echo "  read 1 m rather than 0, which shows in the relief rasters" >&2
+fi
+
+# Land at sea level is not the sea. Flat coastal ground whose nearest constraint
+# is the coastline interpolates to zero, and zero is transparent in the relief
+# ramp, so it would vanish from the map - 64% of the low land in zone-roantra
+# did
+rm -f ${WORK}/dem.tif
+${TOOLS}/bin/demLandClamp.py ${WORK}/rounded.tif ${WORK}/cont.tif ${WORK}/dem.tif \
+	${WATER_MASK}
 
 # ---------------------------------------------------------------- smooth
 # Box filter through a VRT kernel, which GDAL streams block by block, so this

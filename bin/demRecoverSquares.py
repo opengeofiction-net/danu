@@ -128,6 +128,19 @@ def load_zero_lines(path):
 
     coords = {}
     wanted = set()
+    water_members = set()
+
+    # A multipolygon's member ways carry no tags of their own, so the water
+    # tagging has to come off the relation. This matters more than it looks:
+    # natural=water states that the interior is water, whereas a closed
+    # coastline ring is ambiguous - it could be a lake or an island - and
+    # without it there is no way to tell land at sea level from the sea itself
+    class Relations(osmium.SimpleHandler):
+        def relation(self, r):
+            if r.tags.get('natural') == 'water':
+                for m in r.members:
+                    if m.type == 'w':
+                        water_members.add(m.ref)
 
     class Ways(osmium.SimpleHandler):
         def way(self, w):
@@ -152,9 +165,12 @@ def load_zero_lines(path):
             for lon, lat in pts:
                 g.AddPoint_2D(lon, lat)
             natural = w.tags.get('natural')
+            if natural is None and w.id in water_members:
+                natural = 'water'
             self.lines.append((g, natural))
             self.kinds[natural] = self.kinds.get(natural, 0) + 1
 
+    Relations().apply_file(path)
     Ways().apply_file(path)
     Nodes().apply_file(path)
     b = Build()
