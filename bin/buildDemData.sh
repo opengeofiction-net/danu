@@ -23,6 +23,11 @@ TOOLS=${TOOLS:-${OGF}/OGF-terrain-tools}
 BASE=${BASE:-${OGF}/elevation}
 SQUARES=${BASE}/osm-squares
 STAMPS=${BASE}/stamps
+PUB=${PUB:-${OGF}/sync-to-ogf/dem}
+# Zones which are built and published but which the renderers should not load.
+# One per line, and say why: "inactive" with no reason recorded is how a zone
+# stays inactive long after anyone remembers what the reason was
+INACTIVE=${BASE}/inactive
 
 [ -d "${SQUARES}" ] || { echo "no ${SQUARES}" >&2; exit 1; }
 mkdir -p ${STAMPS}
@@ -37,7 +42,10 @@ fi
 # Size and mtime of every square, which is enough to notice an edit without
 # reading a few hundred megabytes per zone
 stamp_of() {
-	find ${SQUARES}/$1 -name '*.osm' -printf '%f %s %T@\n' 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+	# -L so a zone directory which is a symlink is followed; without it find
+	# does not descend and every zone hashes to the same empty digest
+	find -L ${SQUARES}/$1 -name '*.osm' -printf '%f %s %T@\n' 2>/dev/null |
+		sort | sha256sum | cut -d' ' -f1
 }
 
 if [ $# -gt 0 ]; then
@@ -77,9 +85,34 @@ for zone in ${zones}; do
 	fi
 done
 
+# The manifest of what to render. Everything built is published either way, so
+# an inactive zone stays downloadable and only stops being drawn - the tile
+# servers take a zone that leaves this list out of their rasters and out of
+# their contour database.
+inactive_list=$(sed 's/#.*//' ${INACTIVE} 2>/dev/null | tr -s '[:space:]' '\n' | sed '/^$/d' | sort)
+mkdir -p ${PUB}
+{
+	echo "# Elevation zones the renderers should load, one per line."
+	echo "#"
+	echo "# Written by buildDemData.sh - do not edit here. A zone is published"
+	echo "# whether or not it appears below; this list is only about rendering,"
+	echo "# so a zone left out stays downloadable and stops being drawn."
+	echo "#"
+	echo "# $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+	(cd ${PUB} && for d in */; do
+		d=${d%/}
+		[ -f "${d}/dem-${d}.tif" ] || continue
+		echo "${d}"
+	done) | grep -vxF "${inactive_list:-@@none@@}" || true
+} > ${PUB}/active-zones.txt
+
 echo
 echo "=== built ${#built[@]}: ${built[*]:-none}"
 echo "=== unchanged ${#skipped[@]}: ${skipped[*]:-none}"
+if [ -n "${inactive_list}" ]; then
+	echo "=== published but not rendered: $(echo ${inactive_list} | tr '\n' ' ')"
+fi
+echo "=== renderers load $(grep -vc '^#' ${PUB}/active-zones.txt) zones"
 if [ ${#failed[@]} -gt 0 ]; then
 	echo "=== FAILED ${#failed[@]}: ${failed[*]}" >&2
 	exit 1

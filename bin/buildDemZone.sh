@@ -80,45 +80,18 @@ HGT_RES=$(python3 -c "print(${HGT_ARCSEC}/3600)")
 say() { echo "=== ${ZONE}: $* ==="; }
 
 # ---------------------------------------------------------------- extent
-# Taken from the square filenames rather than the geometry. The name is the
-# south west corner in the SRTM convention and is what defines the square, so a
-# contour drawn slightly outside its square cannot quietly enlarge the zone.
-#
-# SRTM is grid registered: 1201 samples per degree with pixel centres on whole
-# arcseconds, which puts the raster corner half a pixel outside the degree line.
-# Every grid here follows, or the .hgt slices come out half a cell adrift.
+# Which degree squares actually hold constraints, and the grids to build them
+# on - see demZoneExtent.py for why that is decided by reading the files rather
+# than by taking the extent of the collected geometry
 say extent
-eval $(python3 - "${SRC}" "${ARCSEC}" <<'PY'
-import glob, os, re, sys
-src, arcsec = sys.argv[1], float(sys.argv[2])
-squares = []
-for path in sorted(glob.glob(os.path.join(src, '*.osm'))):
-    m = re.match(r'([NS])(\d{2})([EW])(\d{3})', os.path.basename(path))
-    if not m:
-        print(f"echo 'ignoring {os.path.basename(path)}, not a degree square' >&2")
-        continue
-    ns, lat, ew, lon = m.groups()
-    squares.append((int(lon) * (1 if ew == 'E' else -1),
-                    int(lat) * (1 if ns == 'N' else -1)))
-if not squares:
-    print("echo 'no degree squares found' >&2; exit 1")
-    raise SystemExit
-lons = [s[0] for s in squares]
-lats = [s[1] for s in squares]
-h = arcsec / 7200
-print(f'SQUARES={len(squares)}')
-print(f'WEST={min(lons)} EAST={max(lons) + 1} SOUTH={min(lats)} NORTH={max(lats) + 1}')
-print(f'TE="{min(lons) - h:.9f} {min(lats) - h:.9f} '
-      f'{max(lons) + 1 + h:.9f} {max(lats) + 1 + h:.9f}"')
-# The 3 arcsecond products are grid registered on their own spacing, not the
-# master's. Using the master's extent leaves a fractional number of samples per
-# degree and SRTMHGT, which demands exactly 1201 square, refuses every slice
-hh = 3 / 7200
-print(f'TE_HGT="{min(lons) - hh:.9f} {min(lats) - hh:.9f} '
-      f'{max(lons) + 1 + hh:.9f} {max(lats) + 1 + hh:.9f}"')
-PY
-)
-echo "  ${SQUARES} squares, ${WEST}..${EAST} by ${SOUTH}..${NORTH}"
+eval $(${TOOLS}/bin/demZoneExtent.py ${SRC} ${ARCSEC})
+if [ "${SQUARES:-0}" -eq 0 ]; then
+	# Not a failure: templates are laid out before the drawing starts, so a zone
+	# can legitimately have nothing in it yet
+	echo "  ${BLANK:-0} squares, none with contours - nothing to build yet" >&2
+	exit 0
+fi
+echo "  ${SQUARES} squares with contours (${BLANK} blank), ${WEST}..${EAST} by ${SOUTH}..${NORTH}, ${SQ_DEGREES} square degrees"
 
 # fill distance in cells, from a distance in metres, so that changing ARCSEC
 # does not silently change how far the fill reaches
@@ -152,13 +125,6 @@ if [ ! -f ${WORK}/contours.gpkg ] || [ "${FEATURES:-0}" -eq 0 ]; then
 	exit 0
 fi
 echo "  ${FEATURES} constraint lines"
-
-# Trim the extent to the squares which actually hold something, since those
-# blank templates would otherwise enlarge the raster over ground with no data
-# in it - for roantra, 11 squares of 35 and a third of the pixels
-eval $(${TOOLS}/bin/demZoneExtent.py ${WORK}/contours.gpkg ${ARCSEC} \
-	${WEST} ${EAST} ${SOUTH} ${NORTH})
-echo "  data covers ${WEST}..${EAST} by ${SOUTH}..${NORTH}, ${SQ_DEGREES} square degrees"
 
 # ---------------------------------------------------------------- rasterise
 say "rasterise at ${ARCSEC}\""
