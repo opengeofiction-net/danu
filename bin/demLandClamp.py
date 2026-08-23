@@ -45,6 +45,21 @@ NODATA = -9999
 
 
 
+
+def ogr_memory_driver():
+    """The OGR in-memory driver, by whichever name this GDAL calls it.
+
+    Renamed from Memory to MEM in GDAL 3.11. Trixie, and so the servers, ship
+    3.10, where MEM does not exist and GetDriverByName returns None rather than
+    raising - so asking for the wrong one fails later and elsewhere, as an
+    AttributeError on None.
+    """
+    for name in ('MEM', 'Memory'):
+        drv = ogr.GetDriverByName(name)
+        if drv is not None:
+            return drv
+    raise RuntimeError('no OGR in-memory driver: tried MEM and Memory')
+
 def main():
     if len(sys.argv) not in (4, 5):
         sys.exit(__doc__.strip().splitlines()[2].strip())
@@ -76,7 +91,7 @@ def main():
 
     # Polygonize to get connected regions - GDAL already does the connectivity,
     # so this needs no scipy
-    drv = ogr.GetDriverByName('MEM')
+    drv = ogr_memory_driver()
     ds = drv.CreateDataSource('p')
     layer = ds.CreateLayer('poly', geom_type=ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn('v', ogr.OFTInteger))

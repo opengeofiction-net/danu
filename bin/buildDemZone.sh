@@ -84,7 +84,7 @@ say() { echo "=== ${ZONE}: $* ==="; }
 # on - see demZoneExtent.py for why that is decided by reading the files rather
 # than by taking the extent of the collected geometry
 say extent
-eval $(${TOOLS}/bin/demZoneExtent.py ${SRC} ${ARCSEC})
+eval "$(${TOOLS}/bin/demZoneExtent.py ${SRC} ${ARCSEC})"
 if [ "${SQUARES:-0}" -eq 0 ]; then
 	# Not a failure: templates are laid out before the drawing starts, so a zone
 	# can legitimately have nothing in it yet

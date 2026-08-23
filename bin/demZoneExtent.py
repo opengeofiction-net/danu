@@ -62,7 +62,11 @@ def main():
             continue
         m = NAME.match(name)
         if not m:
-            print(f"echo '  ignoring {name}, not a degree square' >&2")
+            # straight to stderr. Emitting a shell echo here put it on stdout,
+            # which is eval'd - and with an unquoted command substitution the
+            # newlines collapse, so the echo swallowed every assignment after it
+            # as its own arguments and the zone came out looking empty
+            print(f'  ignoring {name}, not a degree square', file=sys.stderr)
             continue
         if not has_constraints(os.path.join(src, name)):
             blank += 1
