@@ -387,12 +387,15 @@ def main():
                          'instead. Clipped into each square as ele 0. Without '
                          'it the sea is unconstrained and the rebuilt DEM '
                          'drifts upward over water, by 30 m RMS in testing')
-    ap.add_argument('--water-rings', action='store_true',
-                    help='additionally derive ele 0 rings around water bodies '
-                         'in the DEM which no --water line touches. A fallback '
-                         'when no water file exists, and a crude one: bodies '
-                         'joined to the sea by a river at zero come out as one, '
-                         'so inland water gets missed')
+    ap.add_argument('--no-water-rings', dest='water_rings', default=True,
+                    action='store_false',
+                    help='do not derive ele 0 rings around water in the DEM '
+                         'which no --water line reaches. On by default because '
+                         'water left with nothing holding it at sea level '
+                         'reconstructs 46 m high, and a water file is rarely '
+                         'complete for a zone whose source was lost. The cost '
+                         'where it is complete is trivial - six extra ways in '
+                         'seventy-nine on zone-kojo, and no change in size')
     ap.add_argument('--force', action='store_true',
                     help='write into an output directory which already holds '
                          'squares. Refused by default: recovery is the start of '

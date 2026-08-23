@@ -126,6 +126,19 @@ if [ ! -f ${WORK}/contours.gpkg ] || [ "${FEATURES:-0}" -eq 0 ]; then
 fi
 echo "  ${FEATURES} constraint lines"
 
+# Water with nothing holding it at sea level is the largest error this pipeline
+# can produce - 46 m RMS over the water in the one roantra square the water file
+# did not reach - and it is silent, because the result looks like plausible
+# terrain. A zone with no zero constraint anywhere either has no sea, which is
+# fine, or has sea nobody has drawn a coastline for, which is not
+ZEROS=$(ogrinfo -q -al -where "ele = 0" ${WORK}/contours.gpkg 2>/dev/null |
+	grep -c '^OGRFeature' || true)
+echo "  ${ZEROS} of them at ele 0, holding sea level"
+if [ "${ZEROS}" -eq 0 ]; then
+	echo "  WARNING: no ele 0 constraint anywhere in this zone. If it has sea," >&2
+	echo "  its squares need coastline, or the water will interpolate upward" >&2
+fi
+
 # ---------------------------------------------------------------- rasterise
 say "rasterise at ${ARCSEC}\""
 rm -f ${WORK}/cont.tif
