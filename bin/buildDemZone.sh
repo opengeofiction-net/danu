@@ -152,7 +152,8 @@ gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
 # ---------------------------------------------------------------- interpolate
 say interpolate
 rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
-gdal_fillnodata.py -q -md ${FILL_CELLS} -si 0 ${WORK}/cont.tif ${WORK}/filled.tif
+gdal_fillnodata.py -q -md ${FILL_CELLS} -si 0 -co TILED=YES -co COMPRESS=DEFLATE \
+	${WORK}/cont.tif ${WORK}/filled.tif
 # What the bounded fill could not reach has no elevation information at all, and
 # becomes zero - which is what the old process did implicitly by initialising
 # its tiles to zero
@@ -318,6 +319,23 @@ install -m 644 ${WORK}/tiff-${ZONE}.zip             ${PUB}/
 mkdir -p ${PUB}/hgt && install -m 644 ${WORK}/hgt/*.hgt ${PUB}/hgt/
 
 du -sh ${PUB} | sed 's/^/  published /'
+
+# Everything here is either published or regenerable, and a big zone leaves two
+# gigabytes of it. util has 36 GB for twenty-nine zones and the published set,
+# so the working files go unless KEEP_WORK says otherwise
+if [ -z "${KEEP_WORK:-}" ]; then
+	WAS=$(du -sm ${WORK} | cut -f1)
+	rm -rf ${WORK}/legacy ${WORK}/hgt
+	rm -f ${WORK}/cont.tif ${WORK}/filled.tif ${WORK}/rounded.tif \
+		${WORK}/smooth.tif ${WORK}/smooth.vrt ${WORK}/water-mask.tif \
+		${WORK}/water-areas.gpkg ${WORK}/merc-*.tif ${WORK}/dem-hgtres.tif \
+		${WORK}/hillshade-*.tif ${WORK}/relief-*.tif ${WORK}/contours-out.gpkg \
+		${WORK}/contours-${ZONE}.gpkg ${WORK}/contours-${ZONE}.gpkg.zip \
+		${WORK}/contours-${ZONE}.osm.pbf ${WORK}/tiff-${ZONE}.zip
+	# dem.tif and contours.gpkg are kept: small next to the rest, and the two
+	# things worth having to hand when a build looks wrong
+	echo "  working files ${WAS} MB -> $(du -sm ${WORK} | cut -f1) MB (KEEP_WORK to keep them)"
+fi
 
 # The distribution, against the previous build of this zone. An aggregate error
 # figure hides exactly the faults this pipeline produces - three separate land
