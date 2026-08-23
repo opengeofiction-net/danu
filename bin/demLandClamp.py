@@ -32,7 +32,14 @@
 #
 # Without a mask the ocean is still correct and enclosed water is clamped to
 # 1 m - wrong but harmless for hillshade, visible in relief.
+#
+# Everything here is done a strip at a time, through temporary rasters on disk,
+# rather than by holding the zone in memory. A zone's raster covers the bounding
+# box of its squares, and a zone whose squares come in separated clusters is
+# mostly empty box: zone-axian is 22 squares of data in 162 square degrees, or
+# 2.1 gigapixels, which as whole arrays wanted about 12 GB on a server with 11.
 
+import os
 import sys
 
 import numpy as np
@@ -60,42 +67,77 @@ def ogr_memory_driver():
             return drv
     raise RuntimeError('no OGR in-memory driver: tried MEM and Memory')
 
+
+# Rows per strip, chosen so one strip of one band is tens of megabytes whatever
+# the width of the zone
+STRIP_BYTES = 64 << 20
+
+
+def strips(rows, cols, itemsize=2, bands=4):
+    """Row ranges covering the raster, sized to a bounded amount of memory."""
+    per_row = cols * itemsize * bands
+    step = max(1, min(rows, STRIP_BYTES // max(per_row, 1)))
+    for y in range(0, rows, step):
+        yield y, min(step, rows - y)
+
+
+def open_band(path):
+    """Dataset and band together. Taking a band off a temporary gdal.Open() lets
+    the dataset be collected and the band dies with it - which surfaces later as
+    a TypeError deep inside ReadAsArray, nowhere near the open."""
+    ds = gdal.Open(path)
+    return ds, ds.GetRasterBand(1)
+
+
+def temp_raster(path, cols, rows, gt, proj, dtype=gdal.GDT_Byte):
+    ds = gdal.GetDriverByName('GTiff').Create(
+        path, cols, rows, 1, dtype,
+        options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(proj)
+    return ds
+
+
 def main():
     if len(sys.argv) not in (4, 5):
         sys.exit(__doc__.strip().splitlines()[2].strip())
     dem_path, cont_path, out_path = sys.argv[1:4]
     water_path = sys.argv[4] if len(sys.argv) == 5 else None
 
-    dem_ds = gdal.Open(dem_path)
-    dem = dem_ds.GetRasterBand(1).ReadAsArray()
-    # the dataset has to be held: reading through a band from a temporary
-    # gdal.Open() lets the dataset be collected and the band goes with it
-    cont_ds = gdal.Open(cont_path)
-    cont = cont_ds.GetRasterBand(1).ReadAsArray()
+    dem_ds, dem_band = open_band(dem_path)
+    cont_ds, cont_band = open_band(cont_path)
     gt = dem_ds.GetGeoTransform()
     proj = dem_ds.GetProjection()
-    rows, cols = dem.shape
+    cols, rows = dem_ds.RasterXSize, dem_ds.RasterYSize
+
+    work = os.path.dirname(os.path.abspath(out_path))
+    cand_path = os.path.join(work, '.candidate.tif')
+    sea_path = os.path.join(work, '.sea.tif')
+    for p in (cand_path, sea_path):
+        if os.path.exists(p):
+            os.unlink(p)
 
     # Candidate sea: cells holding no elevation, and not burned from the squares.
     # That is both zero and nodata - the bounded fill never reaches open water
     # more than its reach from a coastline, so most of the ocean arrives here as
     # nodata rather than zero. Burned cells are left out so the coastline itself
     # forms the barrier the flood cannot cross.
-    candidate = ((dem == 0) | (dem == NODATA)) & (cont == NODATA)
+    cand_ds = temp_raster(cand_path, cols, rows, gt, proj)
+    cand_band = cand_ds.GetRasterBand(1)
+    for y, h in strips(rows, cols):
+        d = dem_band.ReadAsArray(0, y, cols, h)
+        c = cont_band.ReadAsArray(0, y, cols, h)
+        cand_band.WriteArray((((d == 0) | (d == NODATA)) &
+                              (c == NODATA)).astype('uint8'), 0, y)
+    cand_band.FlushCache()
 
-    mem = gdal.GetDriverByName('MEM')
-    mask_ds = mem.Create('m', cols, rows, 1, gdal.GDT_Byte)
-    mask_ds.SetGeoTransform(gt)
-    mask_ds.SetProjection(proj)
-    mask_ds.GetRasterBand(1).WriteArray(candidate.astype('uint8'))
-
-    # Polygonize to get connected regions - GDAL already does the connectivity,
-    # so this needs no scipy
+    # Polygonize to get connected regions - GDAL does the connectivity, reading
+    # the mask off disk, so this needs no scipy and no whole-raster array
     drv = ogr_memory_driver()
     ds = drv.CreateDataSource('p')
     layer = ds.CreateLayer('poly', geom_type=ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn('v', ogr.OFTInteger))
-    gdal.Polygonize(mask_ds.GetRasterBand(1), mask_ds.GetRasterBand(1), layer, 0)
+    gdal.Polygonize(cand_band, cand_band, layer, 0)
 
     west, north = gt[0], gt[3]
     east = west + cols * gt[1]
@@ -103,12 +145,8 @@ def main():
     tol = abs(gt[1]) / 2
 
     # Only the regions which reach the edge of the zone are wanted, so they go
-    # straight into a byte mask. Numbering every region and rasterising the
-    # numbers instead would cost an Int32 array the size of the zone - 1.7 GB
-    # for roantra at 1 arcsecond, on a server with 6 GB
-    sea_ds = mem.Create('s', cols, rows, 1, gdal.GDT_Byte)
-    sea_ds.SetGeoTransform(gt)
-    sea_ds.SetProjection(proj)
+    # straight into a byte mask on disk
+    sea_ds = temp_raster(sea_path, cols, rows, gt, proj)
     sea_layer_ds = drv.CreateDataSource('sl')
     sea_layer = sea_layer_ds.CreateLayer('sea', geom_type=ogr.wkbPolygon)
 
@@ -124,50 +162,63 @@ def main():
             kept += 1
     if kept:
         gdal.RasterizeLayer(sea_ds, [1], sea_layer, burn_values=[1])
-    sea = sea_ds.GetRasterBand(1).ReadAsArray().astype(bool)
-    sea_ds = mask_ds = None
+    sea_ds.GetRasterBand(1).FlushCache()
+    layer = ds = sea_layer = sea_layer_ds = None
+    cand_ds = cand_band = None
 
     # Anything the water mask covers is water, whether or not it reaches the
     # edge of the zone
+    water_ds = water_band = None
     if water_path:
-        wds = gdal.Open(water_path)
-        mask = wds.GetRasterBand(1).ReadAsArray().astype(bool)
-        added = int((mask & ~sea).sum())
-        sea |= mask
-        print(f'  water mask adds {added:,} cells of enclosed water',
-              file=sys.stderr)
+        water_ds, water_band = open_band(water_path)
 
-    # Sea reads exactly zero. Land keeps its elevation but never reads zero, so
-    # it cannot be mistaken for sea by a ramp which makes zero transparent.
-    # Cells the fill never reached hold no information and become 1 m, which is
-    # what they are: land of unknown low elevation.
-    #
-    # Done in place on the Int16 array. np.where against Python integers
-    # promotes the result to Int64, which for roantra at 1 arcsecond is a 3.4 GB
-    # array by itself
-    out = dem
-    np.maximum(out, np.int16(1), out=out)
-    out[sea] = 0
-    del sea
-    # anything the squares burned is authoritative and goes back untouched, so a
-    # contour or a coastline drawn at zero stays at zero
-    burned = cont != NODATA
-    out[burned] = cont[burned]
-    del burned
+    sea_ds, sea_band = open_band(sea_path)
 
-    drv_tif = gdal.GetDriverByName('GTiff')
-    out_ds = drv_tif.Create(out_path, cols, rows, 1, gdal.GDT_Int16,
-                            options=['TILED=YES', 'COMPRESS=DEFLATE',
-                                     'PREDICTOR=2'])
+    out_ds = gdal.GetDriverByName('GTiff').Create(
+        out_path, cols, rows, 1, gdal.GDT_Int16,
+        options=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2',
+                 'BIGTIFF=IF_SAFER'])
     out_ds.SetGeoTransform(gt)
     out_ds.SetProjection(proj)
-    out_ds.GetRasterBand(1).WriteArray(out)
-    out_ds = None
+    out_band = out_ds.GetRasterBand(1)
 
-    low = ((out > 0) & (out < 10)).mean() * 100
-    zero = (out == 0).mean() * 100
+    added = n_sea = n_low = 0
+    for y, h in strips(rows, cols):
+        d = dem_band.ReadAsArray(0, y, cols, h)
+        c = cont_band.ReadAsArray(0, y, cols, h)
+        sea = sea_band.ReadAsArray(0, y, cols, h).astype(bool)
+        if water_band is not None:
+            wm = water_band.ReadAsArray(0, y, cols, h).astype(bool)
+            added += int((wm & ~sea).sum())
+            sea |= wm
+
+        # Sea reads exactly zero. Land keeps its elevation but never reads zero,
+        # so it cannot be mistaken for sea by a ramp which makes zero
+        # transparent. Cells the fill never reached hold no information and
+        # become 1 m, which is what they are: land of unknown low elevation.
+        np.maximum(d, np.int16(1), out=d)
+        d[sea] = 0
+        # anything the squares burned is authoritative and goes back untouched,
+        # so a contour or a coastline drawn at zero stays at zero
+        burned = c != NODATA
+        d[burned] = c[burned]
+
+        out_band.WriteArray(d, 0, y)
+        n_sea += int((d == 0).sum())
+        n_low += int(((d > 0) & (d < 10)).sum())
+
+    out_band.FlushCache()
+    out_ds = sea_ds = water_ds = None
+    for p in (cand_path, sea_path):
+        os.unlink(p)
+
+    cells = rows * cols
+    if water_path:
+        print(f'  water mask adds {added:,} cells of enclosed water',
+              file=sys.stderr)
     print(f'  {kept} of {total} water regions kept as sea; '
-          f'sea {zero:.2f}% of the zone, land at 1..9 m {low:.2f}%', file=sys.stderr)
+          f'sea {100 * n_sea / cells:.2f}% of the zone, '
+          f'land at 1..9 m {100 * n_low / cells:.2f}%', file=sys.stderr)
 
 
 if __name__ == '__main__':

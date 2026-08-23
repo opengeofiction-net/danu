@@ -39,24 +39,42 @@ TOLERANCE = {
 
 
 def measure(path):
+    """A strip at a time. A zone whose squares come in separated clusters covers
+    a mostly empty bounding box - zone-axian is 2.1 gigapixels - and reading that
+    whole is gigabytes for a handful of counts."""
     ds = gdal.Open(path)
     band = ds.GetRasterBand(1)
-    a = band.ReadAsArray()
-    total = a.size
-    stats = {
-        'width': ds.RasterXSize,
-        'height': ds.RasterYSize,
-        'sea': float(100 * (a == 0).sum() / total),
-        'low_land': float(100 * ((a > 0) & (a < 10)).sum() / total),
-        'land': float(100 * (a > 0).sum() / total),
-        'min': int(a.min()),
-        'max': int(a.max()),
-        'mean': float(a.mean()),
+    cols, rows = ds.RasterXSize, ds.RasterYSize
+    step = max(1, min(rows, (64 << 20) // max(cols * 2, 1)))
+
+    total = rows * cols
+    n_sea = n_low = n_land = n_neg = 0
+    lo, hi, acc = None, None, 0.0
+    for y in range(0, rows, step):
+        h = min(step, rows - y)
+        a = band.ReadAsArray(0, y, cols, h)
+        n_sea += int((a == 0).sum())
+        n_low += int(((a > 0) & (a < 10)).sum())
+        n_land += int((a > 0).sum())
+        n_neg += int((a < 0).sum())
+        amin, amax = int(a.min()), int(a.max())
+        lo = amin if lo is None else min(lo, amin)
+        hi = amax if hi is None else max(hi, amax)
+        acc += float(a.sum())
+
+    return {
+        'width': cols,
+        'height': rows,
+        'sea': 100 * n_sea / total,
+        'low_land': 100 * n_low / total,
+        'land': 100 * n_land / total,
+        'min': lo,
+        'max': hi,
+        'mean': acc / total,
+        # a DEM should hold no negative elevations unless the zone maps a
+        # depression, and none of ours do, so below zero is a fault not terrain
+        'below_zero': 100 * n_neg / total,
     }
-    # a DEM should hold no negative elevations unless the zone maps a depression,
-    # and none of ours do, so anything below zero is a fault rather than terrain
-    stats['below_zero'] = float(100 * (a < 0).sum() / total)
-    return stats
 
 
 def main():
