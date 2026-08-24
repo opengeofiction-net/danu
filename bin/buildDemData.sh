@@ -93,12 +93,15 @@ done
 # for one they want to revise. That is what osm-squares/ on the old server was
 # for, and nothing else in the published set replaces it.
 #
-# gzipped, not converted to pbf. JOSM opens .osm.gz without a plugin, and more
-# importantly the XML carries upload='never' and action='modify', which pbf has
-# nowhere to put. These files hold negative ids, so JOSM treats every object in
-# them as new - without that guard, someone who hits upload puts several hundred
-# thousand contour nodes onto the live map. pbf would be four times smaller
-# again; that is not worth it.
+# xz, not pbf. JOSM opens .osm.xz without a plugin - gz, bz2, zip and xz are all
+# native - and more importantly the XML carries upload='never' and
+# action='modify', which pbf has nowhere to put. These files hold negative ids,
+# so JOSM treats every object in them as new; without that guard, someone who
+# hits upload puts several hundred thousand contour nodes onto the live map.
+#
+# xz -6 rather than gzip: 8.2 MB against 15 for the largest square, for nine
+# seconds instead of two, and only on squares which have changed. -9 is not
+# worth having, being the same 8.2 MB for forty seconds.
 #
 # Published for every zone, including the inactive ones: leaving a zone out of
 # the render says nothing about whether its contours should be available.
@@ -110,18 +113,22 @@ for zone in $(cd ${SQUARES} && for d in */; do echo "${d%/}"; done); do
 	n=0
 	for f in ${SQUARES}/${zone}/*.osm; do
 		[ -e "${f}" ] || continue
-		out=${PUBSQ}/${zone}/$(basename ${f}).gz
+		out=${PUBSQ}/${zone}/$(basename ${f}).xz
 		if [ ! -f "${out}" ] || [ "${f}" -nt "${out}" ]; then
-			gzip -6 -c "${f}" > "${out}.tmp" && mv "${out}.tmp" "${out}"
+			xz -6 -c "${f}" > "${out}.tmp" && mv "${out}.tmp" "${out}"
 			n=$((n + 1))
 		fi
 	done
 	# squares which have gone from the source go from the published copy too,
 	# or a square deleted upstream stays downloadable for ever
-	for out in ${PUBSQ}/${zone}/*.osm.gz; do
+	# any published file whose source has gone, and any left in a compression
+	# this no longer uses
+	for out in ${PUBSQ}/${zone}/*.osm.*; do
 		[ -e "${out}" ] || continue
-		src=${SQUARES}/${zone}/$(basename ${out} .gz)
-		[ -f "${src}" ] || { rm -f "${out}"; echo "  ${zone}: dropped $(basename ${out})"; }
+		src=${SQUARES}/${zone}/$(basename ${out%.*})
+		if [ ! -f "${src}" ] || [ "${out##*.}" != "xz" ]; then
+			rm -f "${out}"
+		fi
 	done
 	[ ${n} -gt 0 ] && printf '  %-16s %d squares compressed\n' "${zone}" "${n}"
 done
