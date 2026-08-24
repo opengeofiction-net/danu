@@ -87,6 +87,51 @@ for zone in ${zones}; do
 	fi
 done
 
+# ---------------------------------------------------------------- squares
+# The source squares are published too, because they are what a mapper actually
+# needs: a blank template for a square nobody has drawn, or the current contours
+# for one they want to revise. That is what osm-squares/ on the old server was
+# for, and nothing else in the published set replaces it.
+#
+# gzipped, not converted to pbf. JOSM opens .osm.gz without a plugin, and more
+# importantly the XML carries upload='never' and action='modify', which pbf has
+# nowhere to put. These files hold negative ids, so JOSM treats every object in
+# them as new - without that guard, someone who hits upload puts several hundred
+# thousand contour nodes onto the live map. pbf would be four times smaller
+# again; that is not worth it.
+#
+# Published for every zone, including the inactive ones: leaving a zone out of
+# the render says nothing about whether its contours should be available.
+say "publish source squares"
+PUBSQ=${PUB}/osm-squares
+mkdir -p ${PUBSQ}
+for zone in $(cd ${SQUARES} && for d in */; do echo "${d%/}"; done); do
+	mkdir -p ${PUBSQ}/${zone}
+	n=0
+	for f in ${SQUARES}/${zone}/*.osm; do
+		[ -e "${f}" ] || continue
+		out=${PUBSQ}/${zone}/$(basename ${f}).gz
+		if [ ! -f "${out}" ] || [ "${f}" -nt "${out}" ]; then
+			gzip -6 -c "${f}" > "${out}.tmp" && mv "${out}.tmp" "${out}"
+			n=$((n + 1))
+		fi
+	done
+	# squares which have gone from the source go from the published copy too,
+	# or a square deleted upstream stays downloadable for ever
+	for out in ${PUBSQ}/${zone}/*.osm.gz; do
+		[ -e "${out}" ] || continue
+		src=${SQUARES}/${zone}/$(basename ${out} .gz)
+		[ -f "${src}" ] || { rm -f "${out}"; echo "  ${zone}: dropped $(basename ${out})"; }
+	done
+	[ ${n} -gt 0 ] && printf '  %-16s %d squares compressed\n' "${zone}" "${n}"
+done
+# and zones which have gone entirely
+for d in ${PUBSQ}/*/; do
+	z=$(basename ${d})
+	[ -d "${SQUARES}/${z}" ] || { rm -rf "${d}"; echo "  dropped zone ${z}"; }
+done
+du -sh ${PUBSQ} | sed 's/^/  published squares /'
+
 # The manifest of what to render. Everything built is published either way, so
 # an inactive zone stays downloadable and only stops being drawn - the tile
 # servers take a zone that leaves this list out of their rasters and out of
