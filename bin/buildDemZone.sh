@@ -101,20 +101,58 @@ echo "  fill bounded to ${FILL_METRES} m = ${FILL_CELLS} cells at ${ARCSEC}\""
 # ---------------------------------------------------------------- collect
 # Every way carrying a numeric ele is a constraint: contours, and the water
 # edges at ele 0. Ways without one - the frame, stray tagging - are ignored.
+#
+# Read with closed_ways_are_polygons emptied, which is the difference between a
+# coastline being a constraint and not being one. A coastline is drawn closed
+# and tagged natural=coastline, and natural is on GDAL's list, so the driver
+# calls the way an area and files it under multipolygons - a layer this reads
+# nothing from, and which does not carry ele anyway. The contours survive only
+# because they are tagged with nothing but ele.
+#
+# Silently, and the sea then has nothing holding it down: the fill runs 1,850 m
+# out from the lowest contour it can see and the zero line lands there instead
+# of on the shore. On zone-axian that put 99% of the published ele=0 vertices
+# more than 500 m out to sea, a median of 1,693 m.
+#
+# Derived from the one file rather than kept as a second copy, because the
+# water step below wants the opposite - natural=water has to be an area there.
 say collect
+sed 's/^closed_ways_are_polygons=.*/closed_ways_are_polygons=/' \
+	${OSMCONF} > ${WORK}/osmconf-lines.ini
 rm -f ${WORK}/contours.gpkg
 first=1
 for f in ${SRC}/*.osm; do
 	[ -e "${f}" ] || continue
 	if [ ${first} -eq 1 ]; then
-		ogr2ogr -f GPKG ${WORK}/contours.gpkg "${f}" lines \
+		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
+			ogr2ogr -f GPKG ${WORK}/contours.gpkg "${f}" lines \
 			-where "ele IS NOT NULL" -nln contour -nlt LINESTRING >/dev/null
 		first=0
 	else
-		ogr2ogr -f GPKG -append ${WORK}/contours.gpkg "${f}" lines \
+		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
+			ogr2ogr -f GPKG -append ${WORK}/contours.gpkg "${f}" lines \
 			-where "ele IS NOT NULL" -nln contour >/dev/null
 	fi
 done
+# ele is a string, and not every string is a height. Squares carry ele=TBD on
+# lake outlines nobody has surveyed yet, ele=tbd on peaks, the odd ele=169s
+# typo - and gdal_rasterize -a ele coerces each of them to 0, planting a sea
+# level constraint across whatever the way runs over. Worse than no constraint,
+# since the fill then drags the ground around it down to meet the line.
+#
+# Cleaned here rather than filtered on the way in: the -where above goes to the
+# OSM driver, whose OGR SQL has no pattern test this needs, and the GeoPackage
+# is SQLite and does
+NONNUM="NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') AND ele NOT GLOB '*[^-0-9.]*')"
+DROPPED=$(ogrinfo -q ${WORK}/contours.gpkg -dialect SQLite \
+	-sql "SELECT DISTINCT ele FROM contour WHERE ${NONNUM}" 2>/dev/null |
+	sed -n 's/^  ele (String) = //p' | paste -sd' ')
+if [ -n "${DROPPED}" ]; then
+	echo "  ignoring ways whose ele is not a number: ${DROPPED}"
+	ogrinfo -q ${WORK}/contours.gpkg -dialect SQLite \
+		-sql "DELETE FROM contour WHERE ${NONNUM}" >/dev/null
+fi
+
 FEATURES=$(ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null |
 	sed -n 's/^Feature Count: //p')
 if [ ! -f ${WORK}/contours.gpkg ] || [ "${FEATURES:-0}" -eq 0 ]; then
