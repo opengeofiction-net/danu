@@ -29,7 +29,7 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}
 # required and checked, because "inactive" with no reason recorded is how a zone
 # stays inactive long after anyone remembers what the reason was
 INACTIVE=${BASE}/inactive
-INACTIVE_REASONS="withdrawn quality wip duplicate"
+INACTIVE_REASONS="withdrawn unowned quality wip duplicate"
 
 [ -d "${SQUARES}" ] || { echo "no ${SQUARES}" >&2; exit 1; }
 mkdir -p ${STAMPS}
