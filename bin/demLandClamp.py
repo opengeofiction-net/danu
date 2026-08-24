@@ -144,11 +144,22 @@ def main():
     south = north + rows * gt[5]
     tol = abs(gt[1]) / 2
 
-    # Only the regions which reach the edge of the zone are wanted, so they go
-    # straight into a byte mask on disk
+    # Every candidate is sea to begin with, and the enclosed regions are then
+    # subtracted. The other way round - rasterising the regions which do reach
+    # the edge - looks more direct and does not work: the open sea is one region
+    # with a hole in it for every contour cell, so on a zone whose contours cover
+    # a few percent of its box that polygon carries hundreds of thousands of
+    # holes and rasterises to nothing at all, silently. zone-sangria came out
+    # with 90% of a degree square as land at 1 m by that route. The enclosed
+    # regions are small and simple, so subtracting them is the cheap direction.
     sea_ds = temp_raster(sea_path, cols, rows, gt, proj)
-    sea_layer_ds = drv.CreateDataSource('sl')
-    sea_layer = sea_layer_ds.CreateLayer('sea', geom_type=ogr.wkbPolygon)
+    sea_band_w = sea_ds.GetRasterBand(1)
+    for y, h in strips(rows, cols):
+        sea_band_w.WriteArray(cand_band.ReadAsArray(0, y, cols, h), 0, y)
+    sea_band_w.FlushCache()
+
+    enclosed_ds = drv.CreateDataSource('encl')
+    enclosed = enclosed_ds.CreateLayer('encl', geom_type=ogr.wkbPolygon)
 
     kept = total = 0
     for feat in layer:
@@ -156,14 +167,17 @@ def main():
         x0, x1, y0, y1 = feat.GetGeometryRef().GetEnvelope()
         if (x0 <= west + tol or x1 >= east - tol
                 or y0 <= south + tol or y1 >= north - tol):
-            out_feat = ogr.Feature(sea_layer.GetLayerDefn())
-            out_feat.SetGeometry(feat.GetGeometryRef().Clone())
-            sea_layer.CreateFeature(out_feat)
             kept += 1
-    if kept:
-        gdal.RasterizeLayer(sea_ds, [1], sea_layer, burn_values=[1])
-    sea_ds.GetRasterBand(1).FlushCache()
-    layer = ds = sea_layer = sea_layer_ds = None
+            continue
+        out_feat = ogr.Feature(enclosed.GetLayerDefn())
+        out_feat.SetGeometry(feat.GetGeometryRef().Clone())
+        enclosed.CreateFeature(out_feat)
+    if total - kept:
+        gdal.RasterizeLayer(sea_ds, [1], enclosed, burn_values=[0])
+    sea_band_w.FlushCache()
+    enclosed = enclosed_ds = None
+    layer = ds = None
+    sea_ds = sea_band_w = None
     cand_ds = cand_band = None
 
     # Anything the water mask covers is water, whether or not it reaches the
