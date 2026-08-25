@@ -95,19 +95,64 @@ class ZeroWays(osmium.SimpleHandler):
             self.ways.append((w.id, np.array(pts, dtype=float)))
 
 
+CELL_M = 2000.0
+
+
+def _grid(reference_m):
+    """Reference points bucketed into square cells, for the search below."""
+    cells = {}
+    keys = np.floor(reference_m / CELL_M).astype(np.int64)
+    order = np.lexsort((keys[:, 1], keys[:, 0]))
+    keys, pts = keys[order], reference_m[order]
+    starts = np.flatnonzero(np.r_[True, (np.diff(keys, axis=0) != 0).any(1)])
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(pts)
+        cells[tuple(keys[start])] = pts[start:end]
+    return cells
+
+
 def nearest_metres(points, reference, lat):
     """Distance from each point to the nearest reference point, in metres.
 
-    Chunked rather than indexed: a zone runs to a few hundred thousand drawn
-    vertices against a few thousand published ones, which is seconds, and a
-    spatial index is a dependency for no gain at that size."""
+    Indexed on a 2 km grid, because the honest version of this is O(n*m) and a
+    zone runs to a hundred thousand drawn vertices against fifty thousand
+    published ones - 95 seconds for zone-axian, which is too much to hang on
+    every build.
+
+    Exact, not approximate. A neighbour found in the surrounding nine cells is
+    only known to be the nearest if it is closer than one cell width, since
+    anything outside them is at least that far away; whatever fails that test
+    falls back to the full comparison, and in practice that is the handful of
+    vertices which are genuinely far from anything."""
     m_lon = M_PER_DEG_LAT * np.cos(np.radians(lat))
-    out = np.full(len(points), np.inf)
-    for i in range(0, len(reference), 4096):
-        chunk = reference[i:i + 4096]
-        dx = (points[:, None, 0] - chunk[None, :, 0]) * m_lon
-        dy = (points[:, None, 1] - chunk[None, :, 1]) * M_PER_DEG_LAT
-        out = np.minimum(out, np.hypot(dx, dy).min(axis=1))
+    scale = np.array([m_lon, M_PER_DEG_LAT])
+    q = points * scale
+    ref = reference * scale
+    cells = _grid(ref)
+
+    out = np.full(len(q), np.inf)
+    qkeys = np.floor(q / CELL_M).astype(np.int64)
+    # queries grouped by cell, so each neighbourhood is gathered once
+    for key in {tuple(k) for k in qkeys}:
+        mine = np.flatnonzero((qkeys[:, 0] == key[0]) & (qkeys[:, 1] == key[1]))
+        near = [cells[(key[0] + dx, key[1] + dy)]
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                if (key[0] + dx, key[1] + dy) in cells]
+        if not near:
+            continue
+        cand = np.concatenate(near)
+        d = np.hypot(q[mine, None, 0] - cand[None, :, 0],
+                     q[mine, None, 1] - cand[None, :, 1]).min(axis=1)
+        out[mine] = d
+
+    # anything not settled within a cell width could have a nearer neighbour
+    # outside the nine, so those are measured against everything
+    unsure = np.flatnonzero(out > CELL_M)
+    for i in range(0, len(ref), 8192):
+        chunk = ref[i:i + 8192]
+        d = np.hypot(q[unsure, None, 0] - chunk[None, :, 0],
+                     q[unsure, None, 1] - chunk[None, :, 1]).min(axis=1)
+        out[unsure] = np.minimum(out[unsure], d)
     return out
 
 

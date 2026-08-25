@@ -309,6 +309,16 @@ ${TOOLS}/bin/demContoursToOsm.py ${WORK}/contours-out.gpkg \
 	${WORK}/contours-${ZONE}.osm.pbf --zone ${ZONE} \
 	--id-blocks ${BASE}/id-blocks.conf
 
+# Where the published sea level ended up against the shore somebody drew. A
+# report, deliberately, not a warning: a zone whose contours stop in the middle
+# of a square - undrawn land around a drawn patch - has the fill running out on
+# dry ground, which reads exactly like an island with no coastline and is
+# perfectly correct. zone-axian's KojoA squares do it every build. A warning
+# that is usually wrong gets ignored, which is how the coastline the OSM driver
+# was dropping went unnoticed for as long as it did
+${TOOLS}/bin/demCheckZeroLine.py ${SRC} ${WORK}/contours-${ZONE}.osm.pbf ||
+	echo "  zero line check did not run" >&2
+
 # ---------------------------------------------------------------- hgt archive
 # The .hgt set is an archive and a recovery path, not the master any more, so it
 # stays at 1201 samples: the convention only really supports 1201 and 3601, and
