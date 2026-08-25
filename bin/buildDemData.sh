@@ -107,7 +107,8 @@ done
 #
 # Published for every zone, including the inactive ones: leaving a zone out of
 # the render says nothing about whether its contours should be available.
-say "publish source squares"
+echo
+echo "############ source squares ############"
 PUBSQ=${PUB}/osm-squares
 mkdir -p ${PUBSQ}
 for zone in $(cd ${SQUARES} && for d in */; do echo "${d%/}"; done); do
