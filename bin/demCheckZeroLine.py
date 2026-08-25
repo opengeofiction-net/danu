@@ -184,27 +184,31 @@ def main():
 
     lat = float(np.mean(np.concatenate([p[:, 1] for _, p in handler.ways])))
 
-    rows, elsewhere = [], 0
+    rows, elsewhere, parts = [], 0, []
     for wid, pts in handler.ways:
-        # judged only where sea level was drawn - see the head of this file
-        squares = {(math.floor(x), math.floor(y)) for x, y in pts}
-        if not (squares & with_shore):
+        # judged vertex by vertex, not ring by ring. A ring can run through many
+        # squares - one of them is 2,000 points across two degrees - so asking
+        # whether any part of it sits where sea level was drawn pulls the whole
+        # thing in, and the far end scores its distance to a shore in another
+        # square entirely. That read 238 km once
+        keep = np.array([(math.floor(x), math.floor(y)) in with_shore
+                         for x, y in pts])
+        if not keep.any():
             elsewhere += 1
             continue
-        d = nearest_metres(pts, drawn, lat)
-        rows.append((float(np.median(d)), float(d.max()), wid, len(pts),
-                     float(pts[:, 0].mean()), float(pts[:, 1].mean())))
+        here = pts[keep]
+        d = nearest_metres(here, drawn, lat)
+        parts.append(d)
+        rows.append((float(np.median(d)), float(d.max()), wid, len(here),
+                     float(here[:, 0].mean()), float(here[:, 1].mean())))
 
     print(f'  {len(with_shore)} of the zone\'s squares have sea level drawn in '
-          f'them; {elsewhere} rings lie outside those and are not judged')
+          f'them; {elsewhere} rings lie wholly outside those and are not judged')
     if not rows:
         print('  no published ele=0 inside a square with a drawn shore')
         return
 
-    judged = [(wid, p) for wid, p in handler.ways
-              if {(math.floor(x), math.floor(y)) for x, y in p} & with_shore]
-    everything = np.concatenate([nearest_metres(p, drawn, lat)
-                                 for _, p in judged])
+    everything = np.concatenate(parts)
     print('  distance from the published zero line to the nearest drawn shore:')
     for p in (50, 75, 90, 95, 99, 100):
         print(f'    p{p:<4} {np.percentile(everything, p):9.1f} m')
