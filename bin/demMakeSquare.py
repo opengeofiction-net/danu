@@ -20,6 +20,7 @@
 # data onto the live map.
 
 import argparse
+import lzma
 import os
 import sys
 
@@ -44,7 +45,8 @@ def parse_square(name):
 def write_square(path, lon, lat, note):
     name = square_name(lon, lat)
     corners = [(lon, lat), (lon + 1, lat), (lon + 1, lat + 1), (lon, lat + 1)]
-    with open(path, 'w') as f:
+    # compressed, which is how the squares are held and handed out
+    with lzma.open(path, 'wt') as f:
         f.write("<?xml version='1.0' encoding='UTF-8'?>\n")
         f.write("<osm version='0.6' upload='never' "
                 "generator='demMakeSquare.py'>\n")
@@ -91,7 +93,7 @@ def main():
     made = skipped = 0
     for lon, lat in sorted(set(wanted)):
         name = square_name(lon, lat)
-        path = os.path.join(args.outdir, f'{name}.osm')
+        path = os.path.join(args.outdir, f'{name}.osm.xz')
         if os.path.exists(path):
             # never over an existing square: it may be someone's drawing
             print(f'  {name}: already there, left alone', file=sys.stderr)

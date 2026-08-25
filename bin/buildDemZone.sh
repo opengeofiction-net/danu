@@ -4,7 +4,7 @@
 #
 #   buildDemZone.sh <zone>
 #
-# Reads /opt/opengeofiction/elevation/osm-squares/<zone>/*.osm and publishes to
+# Reads /opt/opengeofiction/elevation/osm-squares/<zone>/*.osm.xz and publishes to
 # /opt/opengeofiction/sync-to-ogf/dem/<zone>, which reaches
 # data.opengeofiction.net/dem/<zone> through sync-to-ogf@dem.
 #
@@ -116,23 +116,31 @@ echo "  fill bounded to ${FILL_METRES} m = ${FILL_CELLS} cells at ${ARCSEC}\""
 #
 # Derived from the one file rather than kept as a second copy, because the
 # water step below wants the opposite - natural=water has to be an area there.
+#
+# The squares are held compressed and GDAL has no VSI handler for xz - there is
+# one for zip, gzip and 7z, but not this - so each is expanded into the working
+# directory, read, and dropped again. One at a time, so the cost is the largest
+# square rather than the whole zone.
 say collect
 sed 's/^closed_ways_are_polygons=.*/closed_ways_are_polygons=/' \
 	${OSMCONF} > ${WORK}/osmconf-lines.ini
 rm -f ${WORK}/contours.gpkg
 first=1
-for f in ${SRC}/*.osm; do
+SQUARE=${WORK}/square.osm
+for f in ${SRC}/*.osm.xz; do
 	[ -e "${f}" ] || continue
+	xz -dc "${f}" > ${SQUARE}
 	if [ ${first} -eq 1 ]; then
 		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
-			ogr2ogr -f GPKG ${WORK}/contours.gpkg "${f}" lines \
+			ogr2ogr -f GPKG ${WORK}/contours.gpkg ${SQUARE} lines \
 			-where "ele IS NOT NULL" -nln contour -nlt LINESTRING >/dev/null
 		first=0
 	else
 		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
-			ogr2ogr -f GPKG -append ${WORK}/contours.gpkg "${f}" lines \
+			ogr2ogr -f GPKG -append ${WORK}/contours.gpkg ${SQUARE} lines \
 			-where "ele IS NOT NULL" -nln contour >/dev/null
 	fi
+	rm -f ${SQUARE}
 done
 # ele is a string, and not every string is a height. Squares carry ele=TBD on
 # lake outlines nobody has surveyed yet, ele=tbd on peaks, the odd ele=169s

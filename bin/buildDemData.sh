@@ -46,7 +46,7 @@ fi
 stamp_of() {
 	# -L so a zone directory which is a symlink is followed; without it find
 	# does not descend and every zone hashes to the same empty digest
-	find -L ${SQUARES}/$1 -name '*.osm' -printf '%f %s %T@\n' 2>/dev/null |
+	find -L ${SQUARES}/$1 -name '*.osm.xz' -printf '%f %s %T@\n' 2>/dev/null |
 		sort | sha256sum | cut -d' ' -f1
 }
 
@@ -99,9 +99,11 @@ done
 # so JOSM treats every object in them as new; without that guard, someone who
 # hits upload puts several hundred thousand contour nodes onto the live map.
 #
-# xz -6 rather than gzip: 8.2 MB against 15 for the largest square, for nine
-# seconds instead of two, and only on squares which have changed. -9 is not
-# worth having, being the same 8.2 MB for forty seconds.
+# A copy, not a compression: the squares are held compressed, so what is
+# published is byte for byte the file the build reads. That closes the round
+# trip - a mapper mirrors this directory, edits a square, sends it back, and it
+# drops into osm-squares as it stands. Timestamps are preserved with it, so the
+# zone stamp reflects when the square was drawn rather than when it was copied.
 #
 # Published for every zone, including the inactive ones: leaving a zone out of
 # the render says nothing about whether its contours should be available.
@@ -111,26 +113,25 @@ mkdir -p ${PUBSQ}
 for zone in $(cd ${SQUARES} && for d in */; do echo "${d%/}"; done); do
 	mkdir -p ${PUBSQ}/${zone}
 	n=0
-	for f in ${SQUARES}/${zone}/*.osm; do
+	for f in ${SQUARES}/${zone}/*.osm.xz; do
 		[ -e "${f}" ] || continue
-		out=${PUBSQ}/${zone}/$(basename ${f}).xz
+		out=${PUBSQ}/${zone}/$(basename ${f})
 		if [ ! -f "${out}" ] || [ "${f}" -nt "${out}" ]; then
-			xz -6 -c "${f}" > "${out}.tmp" && mv "${out}.tmp" "${out}"
+			cp -p "${f}" "${out}.tmp" && mv "${out}.tmp" "${out}"
 			n=$((n + 1))
 		fi
 	done
 	# squares which have gone from the source go from the published copy too,
-	# or a square deleted upstream stays downloadable for ever
-	# any published file whose source has gone, and any left in a compression
-	# this no longer uses
+	# or a square deleted upstream stays downloadable for ever - along with
+	# anything left behind in a compression this no longer uses
 	for out in ${PUBSQ}/${zone}/*.osm.*; do
 		[ -e "${out}" ] || continue
-		src=${SQUARES}/${zone}/$(basename ${out%.*})
-		if [ ! -f "${src}" ] || [ "${out##*.}" != "xz" ]; then
+		if [ "${out%.osm.xz}" = "${out}" ] ||
+			[ ! -f "${SQUARES}/${zone}/$(basename ${out})" ]; then
 			rm -f "${out}"
 		fi
 	done
-	[ ${n} -gt 0 ] && printf '  %-16s %d squares compressed\n' "${zone}" "${n}"
+	[ ${n} -gt 0 ] && printf '  %-16s %d squares published\n' "${zone}" "${n}"
 done
 # and zones which have gone entirely
 for d in ${PUBSQ}/*/; do

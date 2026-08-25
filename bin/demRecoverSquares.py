@@ -19,6 +19,7 @@
 # drawing. It is a floor to edit up from, not a restoration.
 
 import argparse
+import lzma
 import math
 import os
 import shutil
@@ -113,7 +114,10 @@ class OsmFile:
         # Ways are written after nodes, but their ids come from the same counter,
         # so a way id can be lower than a node id. That is fine: the two are
         # separate id spaces in OSM, and each is increasing within itself
-        with open(self.path, 'w') as f:
+        #
+        # Written compressed, which is how squares are held and handed out
+        opener = lzma.open if self.path.endswith('.xz') else open
+        with opener(self.path, 'wt') as f:
             f.write("<?xml version='1.0' encoding='UTF-8'?>\n")
             f.write("<osm version='0.6' upload='never' "
                     f"generator='{self.generator}'>\n")
@@ -480,7 +484,7 @@ def main():
             rings, lo, hi = contours_for_square(dem_path, lon, lat, args.interval,
                                                 args.simplify, args.min_vertices)
             levels = sorted(k for k in rings if k >= args.interval)
-            path = os.path.join(args.outdir, f'{name}_{args.suffix}.osm')
+            path = os.path.join(args.outdir, f'{name}_{args.suffix}.osm.xz')
             osm = OsmFile(path, 'demRecoverSquares.py')
             for ele in levels:
                 for pts in rings[ele]:
@@ -514,7 +518,7 @@ def main():
             zero = rings.get(0, [])
             zpath = ''
             if zero:
-                zpath = os.path.join(args.outdir, f'{name}_zeroline.osm')
+                zpath = os.path.join(args.outdir, f'{name}_zeroline.osm.xz')
                 z = OsmFile(zpath, 'demRecoverSquares.py')
                 for pts in zero:
                     z.way(pts, {'note': 'zero metre boundary, candidate coastline'})

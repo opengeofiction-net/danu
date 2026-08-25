@@ -27,6 +27,7 @@
 # spacing - using one for the other leaves a fractional sample count per degree
 # and SRTMHGT, which insists on exactly 1201 square, then refuses every slice.
 
+import lzma
 import os
 import re
 import sys
@@ -39,9 +40,12 @@ HAS_DATA = re.compile(rb"""k=["']ele["']""")
 
 def has_constraints(path, chunk=1 << 20):
     """True if the file has any ele tag. Reads in chunks and stops at the first,
-    since a filled square can be 87 MB and most are answered by the first page."""
+    since a filled square can be 87 MB and most are answered by the first page.
+
+    Decompressing as it goes, so a blank template costs a few kilobytes rather
+    than the whole file."""
     tail = b''
-    with open(path, 'rb') as f:
+    with lzma.open(path, 'rb') as f:
         while True:
             block = f.read(chunk)
             if not block:
@@ -56,9 +60,15 @@ def main():
         sys.exit('usage: demZoneExtent.py <osm-squares-dir> <arcsec>')
     src, arcsec = sys.argv[1], float(sys.argv[2])
 
-    squares, blank = [], 0
+    squares, blank, loose = [], 0, []
     for name in sorted(os.listdir(src)):
-        if not name.endswith('.osm'):
+        if name.endswith('.osm'):
+            # the squares are held compressed and only .osm.xz is read. An
+            # uncompressed one is somebody's drop that never got packed, and
+            # silently skipping it builds the zone without their work in it
+            loose.append(name)
+            continue
+        if not name.endswith('.osm.xz'):
             continue
         m = NAME.match(name)
         if not m:
@@ -74,6 +84,12 @@ def main():
         ns, lat, ew, lon = m.groups()
         squares.append((int(lon) * (1 if ew == 'E' else -1),
                         int(lat) * (1 if ns == 'N' else -1)))
+
+    if loose:
+        print(f'  WARNING: not read, being uncompressed: {" ".join(loose)}',
+              file=sys.stderr)
+        print('  the squares are held as .osm.xz - xz these and remove the .osm',
+              file=sys.stderr)
 
     if not squares:
         print(f'SQUARES=0 SQ_DEGREES=0 BLANK={blank}')
