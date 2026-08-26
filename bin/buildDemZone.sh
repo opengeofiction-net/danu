@@ -225,8 +225,20 @@ if [ -n "${WATER}" ]; then
 		${WORK}/water-areas.gpkg ${WORK}/water-mask.tif
 	WATER_MASK=${WORK}/water-mask.tif
 else
-	echo "  no water file at ${BASE}/water/${ZONE}.osm - enclosed water will" >&2
-	echo "  read 1 m rather than 0, which shows in the relief rasters" >&2
+	# No curated file, so the mask comes from the coastline's own direction -
+	# land on the left, water on the right - which the squares already carry.
+	# Same artefact, same slot, no file to maintain. It exists to stop the fill
+	# leaving elevation offshore: on zone-alved it covers 96.8% of the cells
+	# which had it, and 99.6% of what it marks is genuinely sea
+	say "water from the coastline direction"
+	rm -f ${WORK}/water-mask.tif
+	if ${TOOLS}/bin/demSeaMask.py ${WORK}/contours.gpkg ${WORK}/cont.tif \
+			${WORK}/water-mask.tif; then
+		WATER_MASK=${WORK}/water-mask.tif
+	else
+		echo "  no coastline in this zone either - enclosed water will read" >&2
+		echo "  1 m rather than 0, which shows in the relief rasters" >&2
+	fi
 fi
 
 # Land at sea level is not the sea. Flat coastal ground whose nearest constraint
