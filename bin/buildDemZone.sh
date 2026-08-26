@@ -17,10 +17,15 @@
 #   ARCSEC=1        3" loses 80% of the contour geometry to rasterisation, and
 #                   halves again to 2.44 m RMS at 1". Compressed, every zone's
 #                   DEM at 1" is half a gigabyte for the whole planet
-#   FILL_METRES     an unbounded fill extrapolates into squares with no data at
-#                   all: 39 m RMS zone wide and ten minutes, against 3.5 m and
-#                   six seconds bounded. Tighter than this leaves holes where
-#                   contours are genuinely sparse
+#   FILL_METRES     how far a cell may look for a contour. 1852 m is the old
+#                   process's radius of 20 cells at 3", and holds that distance
+#                   at 1" as 60 cells. Beyond it a cell has no elevation
+#                   information at all and stays zero
+#   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
+#                   value. At 3" a one cell line is a 93 m wall; at 1" the same
+#                   cell is 31 m, so rays thread gaps which could not exist on
+#                   the coarser grid. 0.345% of open water carries elevation at
+#                   0, 0.303% at 2, near-line cells moving a median of 1 m
 #   SMOOTH_CELLS    hillshade is a derivative, so it renders the slope
 #                   discontinuity at every contour as a visible band. No
 #                   interpolator avoids it - the best of them, r.fillnulls
@@ -44,6 +49,7 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}/${ZONE}
 ARCSEC=${ARCSEC:-1}                     # master DEM resolution
 HGT_ARCSEC=${HGT_ARCSEC:-3}             # .hgt archive and legacy zip stay at 1201
 FILL_METRES=${FILL_METRES:-1850}
+BARRIER_CELLS=${BARRIER_CELLS:-2}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
@@ -190,24 +196,28 @@ say "rasterise at ${ARCSEC}\""
 rm -f ${WORK}/cont.tif
 # Int16, not Int32: elevations fit with room to spare and so does the nodata,
 # and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set
-gdal_rasterize -q -a ele -a_nodata -9999 -init -9999 -ot Int16 \
+# -at, all touched: a thin line leaves diagonal gaps, and the fill's sight test
+# threads them - a ray reaches the ground behind a coastline without crossing it
+gdal_rasterize -q -at -a ele -a_nodata -9999 -init -9999 -ot Int16 \
 	-tr ${RES} ${RES} -te ${TE} -co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/contours.gpkg ${WORK}/cont.tif
 gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
 
 # ---------------------------------------------------------------- interpolate
-say interpolate
+say "interpolate, radius ${FILL_CELLS} cells, barrier ${BARRIER_CELLS}"
 rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
-gdal_fillnodata.py -q -md ${FILL_CELLS} -si 0 -co TILED=YES -co COMPRESS=DEFLATE \
-	${WORK}/cont.tif ${WORK}/filled.tif
-# What the bounded fill could not reach has no elevation information at all, and
-# becomes zero - which is what the old process did implicitly by initialising
-# its tiles to zero
-# rint, not truncation: the fill returns floats, and truncating puts every
-# coastal cell below a metre onto zero
-gdal_calc.py --quiet --hideNoData -A ${WORK}/filled.tif --outfile=${WORK}/rounded.tif \
-	--calc="where(A==-9999,-9999,rint(A))" --type=Int16 --NoDataValue=-9999 --overwrite \
-	--co TILED=YES --co COMPRESS=DEFLATE --co PREDICTOR=2
+# isofill, not gdal_fillnodata: the latter will interpolate from a single
+# sample, which terraces the surface into plateaus with straight edges where the
+# chosen sample switches. A hillshade is a derivative and shows that plainly
+# where a slope histogram averages it away. isofill takes the steepest pair of
+# contours in line of sight and declines to fill at all from one, which is also
+# what keeps water enclosed by a coastline empty.
+#
+# Cells with no constraint within the radius are left at zero rather than
+# carried a value by the second pass, which is what -md did here before.
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
+	${WORK}/cont.tif ${WORK}/rounded.tif
+# No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
 
 # Water areas as a mask, where the zone has a water file. natural=water states
 # that its interior is water; a closed coastline ring does not, being equally
