@@ -2,10 +2,17 @@
 Description=Rebuild changed OpenGeofiction elevation zones
 
 [Timer]
-# weekly, early Wednesday: contour submissions arrive at no particular rate, and
-# a zone is only rebuilt when its squares have actually changed, so this is
-# nearly always a no-op costing one hash of each zone's squares
-OnCalendar=Wed 03:17
+# daily, early. Contour submissions arrive at no particular rate and a zone is
+# only rebuilt when its squares have actually changed, so this is nearly always
+# a no-op: 18 seconds of CPU to hash every zone's squares and rewrite the wiki
+# index. Weekly cost a submission up to seven days before it was built, for no
+# saving worth having.
+#
+# Ahead of tile-refresh-dem@.timer, which fetches what this publishes. A full
+# backfill of every zone runs about five hours and would overrun that gap; it is
+# deliberate and manual, publishing is per zone, and the next day fetches the
+# rest, so the worst case is a tile server a few zones behind for a day.
+OnCalendar=*-*-* 03:00
 Persistent=true
 Unit=dem-build.service
 
