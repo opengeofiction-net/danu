@@ -12,11 +12,15 @@
 #   elevation.json            key -> what to say about it, plus an InfoBox
 #   elevation-template.json   class -> how to draw it and what to put in the popup
 #
-# Four classes. A zone is drawn active or inactive, because "published" and
-# "rendered" are different questions here and the index is the only place a
-# mapper can see which a zone is. A square is drawn filled or blank, which is
-# the question a mapper actually arrives with: not where the zones are, but
-# which squares are still to do.
+# Four classes, and the wiki page draws each as its own overlay that a reader can
+# turn on and off, filtering on the class name. So the names here are an
+# interface: renaming one silently empties an overlay rather than breaking
+# anything visibly.
+#
+# A zone is active or inactive, because "published" and "rendered" are different
+# questions here and the index is the only place a mapper can see which a zone
+# is. A square is filled or blank, which is the question a mapper actually
+# arrives with: not where the zones are, but which squares are still to do.
 #
 # Whether a square holds contours is decided by reading it for an ele tag, the
 # same test demZoneExtent.py uses to pick the squares a zone is built on. Taking
@@ -168,12 +172,15 @@ def main():
         'started': now,
     })
 
-    # Zones are drawn as an outline only, so a square inside one stays readable;
-    # the squares carry the fill. Without that the zone box covers its own
-    # contents and every square reads as the zone's colour
+    # Styling is the wiki's, not this script's. The MultiMaps page draws each
+    # class as its own toggleable overlay and filters on the class name, so the
+    # four names here are what its overlaydef refers to and cannot be renamed
+    # without editing the page too. Everything else - weights, opacities - was
+    # set on the published file by hand and is copied back here, because this
+    # rewrites the file every run and would otherwise undo it each Wednesday.
     template = {
         CLASS_ZONE_ACTIVE: {
-            'color': '#1f78b4', 'opacity': 1, 'weight': 2,
+            'color': '#1f78b4', 'opacity': 1, 'weight': 5,
             'fillColor': '#1f78b4', 'fillOpacity': 0,
             'text': ['Elevation zone: <b>%zone%</b><br/>',
                      '%drawn% squares drawn, %blank% blank<br/>',
@@ -182,8 +189,8 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/%zone%/">Published data</a>'],
         },
         CLASS_ZONE_INACTIVE: {
-            'color': '#999999', 'opacity': 1, 'weight': 2, 'dashArray': '6,4',
-            'fillColor': '#999999', 'fillOpacity': 0,
+            'color': '#999999', 'opacity': 1, 'weight': 5,
+            'fillColor': '#999999', 'fillOpacity': 0.5,
             'text': ['Elevation zone: <b>%zone%</b><br/>',
                      '%drawn% squares drawn, %blank% blank<br/>',
                      'Extent: %degrees% square degrees<br/>',
@@ -192,8 +199,8 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/%zone%/">Published data</a>'],
         },
         CLASS_SQUARE: {
-            'color': '#33a02c', 'opacity': 0.6, 'weight': 1,
-            'fillColor': '#33a02c', 'fillOpacity': 0.45,
+            'color': '#33a02c', 'opacity': 1, 'weight': 3,
+            'fillColor': '#33a02c', 'fillOpacity': 0.10,
             'text': ['Square: <b>%square%</b><br/>',
                      '%title%<br/>',
                      'Zone: %zone%<br/>',
@@ -202,7 +209,7 @@ def main():
         },
         CLASS_SQUARE_BLANK: {
             'color': '#b2b2b2', 'opacity': 0.5, 'weight': 1,
-            'fillColor': '#ffffff', 'fillOpacity': 0.15,
+            'fillColor': '#ffffff', 'fillOpacity': 0.5,
             'text': ['Square: <b>%square%</b><br/>',
                      'Zone: %zone%<br/>',
                      '<b>Blank</b> - a template, nothing drawn yet<br/>',
