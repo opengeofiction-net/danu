@@ -19,8 +19,11 @@
 #
 # A zone is active or inactive, because "published" and "rendered" are different
 # questions here and the index is the only place a mapper can see which a zone
-# is. A square is filled or blank, which is the question a mapper actually
-# arrives with: not where the zones are, but which squares are still to do.
+# is. A square is one of three: contours drawn, a coastline and nothing behind
+# it, or blank. That middle one is the whole point of splitting them - a shore is
+# tagged ele=0, so a square holding only a coastline has constraints and no
+# terrain, and calling it drawn tells a mapper the ground is done when all of it
+# is still to do.
 #
 # Whether a square holds contours is decided by reading it for an ele tag, the
 # same test demZoneExtent.py uses to pick the squares a zone is built on. Taking
@@ -36,29 +39,53 @@ import sys
 import time
 
 NAME = re.compile(r'([NS])(\d{2})([EW])(\d{3})')
-HAS_DATA = re.compile(rb"""k=["']ele["']""")
+ELE_TAG = re.compile(rb"""k=["']ele["']\s+v=["']([^"']*)["']""")
 
 CLASS_ZONE_ACTIVE = 'zone'
 CLASS_ZONE_INACTIVE = 'zone-inactive'
 CLASS_SQUARE = 'square'
+CLASS_SQUARE_COASTLINE = 'square-coastline'
 CLASS_SQUARE_BLANK = 'square-blank'
 
 
-def has_constraints(path, chunk=1 << 20):
-    """True if the file holds any ele tag - see demZoneExtent.py, which decides
-    the same question the same way and must keep agreeing with this."""
+def classify_square(path, chunk=1 << 20):
+    """'contour', 'coastline' or 'blank'.
+
+    Any ele tag at all is a constraint as far as building goes, which is the
+    question demZoneExtent.py asks. It is the wrong question for an index: a
+    coastline is drawn at ele=0, so a square holding nothing but a shore has
+    constraints and no terrain, and reporting it as drawn tells a mapper the
+    ground is done when the whole of it is still to do. zone-penquisset is
+    fourteen such squares and zone-tempeira two.
+
+    So the test is whether any elevation is non-zero. Non-numeric ones - ele=TBD
+    on an unsurveyed lake, the odd ele=169s typo - are ignored, because the build
+    drops them before rasterising and a square holding only those yields nothing.
+
+    Returns at the first non-zero elevation, so a drawn square costs a page or
+    two; a coastline-only one has to be read to the end to know that is all it
+    is."""
+    seen = False
     tail = b''
     try:
         with lzma.open(path, 'rb') as f:
             while True:
                 block = f.read(chunk)
                 if not block:
-                    return False
-                if HAS_DATA.search(tail + block):
-                    return True
-                tail = block[-16:]
+                    break
+                buf = tail + block
+                for m in ELE_TAG.finditer(buf):
+                    try:
+                        if float(m.group(1)) != 0.0:
+                            return 'contour'
+                        seen = True
+                    except ValueError:
+                        pass
+                # long enough to hold a tag split across the boundary
+                tail = buf[-64:]
     except (lzma.LZMAError, EOFError, OSError):
-        return False
+        return 'blank'
+    return 'coastline' if seen else 'blank'
 
 
 def read_inactive(path):
@@ -98,13 +125,13 @@ def main():
 
     inactive = read_inactive(os.path.join(base, 'inactive'))
     polygons, records = {}, []
-    n_zones = n_drawn = n_blank = 0
+    n_zones = n_drawn = n_shore = n_blank = 0
 
     for zone in sorted(os.listdir(squares_dir)):
         zdir = os.path.join(squares_dir, zone)
         if not os.path.isdir(zdir):
             continue
-        drawn, blank = [], []
+        drawn, shore, blank = [], [], []
         for name in sorted(os.listdir(zdir)):
             if not name.endswith('.osm.xz'):
                 continue
@@ -118,20 +145,25 @@ def main():
             # for, and is what they will recognise it by
             label = name[:-len('.osm.xz')]
             title = label.split('_', 1)[1].replace('_', ' ') if '_' in label else ''
-            if has_constraints(os.path.join(zdir, name)):
+            kind = classify_square(os.path.join(zdir, name))
+            if kind == 'contour':
                 drawn.append((lon, lat, label, title))
+            elif kind == 'coastline':
+                shore.append((lon, lat, label, title))
             else:
                 blank.append((lon, lat, label, title))
 
-        if not drawn and not blank:
+        if not drawn and not shore and not blank:
             continue
         n_zones += 1
         n_drawn += len(drawn)
+        n_shore += len(shore)
         n_blank += len(blank)
 
-        # The zone as built is the box round the squares which hold something;
-        # the blanks are handed out beyond it and are not built over
-        extent = drawn or blank
+        # The zone as built is the box round the squares holding any constraint,
+        # a lone coastline included - that is the question demZoneExtent.py asks
+        # and this box has to agree with what was actually built
+        extent = (drawn + shore) or blank
         west = min(s[0] for s in extent)
         east = max(s[0] for s in extent) + 1
         south = min(s[1] for s in extent)
@@ -145,12 +177,15 @@ def main():
             'class': CLASS_ZONE_INACTIVE if reason else CLASS_ZONE_ACTIVE,
             'zone': zone,
             'drawn': str(len(drawn)),
+            'shore': str(len(shore)),
             'blank': str(len(blank)),
             'degrees': str((east - west) * (north - south)),
             'reason': reason or '',
         })
 
-        for cls, group in ((CLASS_SQUARE, drawn), (CLASS_SQUARE_BLANK, blank)):
+        for cls, group in ((CLASS_SQUARE, drawn),
+                           (CLASS_SQUARE_COASTLINE, shore),
+                           (CLASS_SQUARE_BLANK, blank)):
             for lon, lat, label, title in group:
                 key = f'square:{zone}:{label}'
                 polygons[key] = square_ring(lon, lat)
@@ -167,8 +202,8 @@ def main():
     records.append({
         'control': 'InfoBox',
         'text': (f'Elevation zones and contour squares - {n_zones} zones, '
-                 f'{n_drawn} squares drawn, {n_blank} still blank. '
-                 f'Written at {now}'),
+                 f'{n_drawn} with contours, {n_shore} holding only a coastline, '
+                 f'{n_blank} still blank. Written at {now}'),
         'started': now,
     })
 
@@ -183,7 +218,7 @@ def main():
             'color': '#1f78b4', 'opacity': 1, 'weight': 5,
             'fillColor': '#1f78b4', 'fillOpacity': 0,
             'text': ['Elevation zone: <b>%zone%</b><br/>',
-                     '%drawn% squares drawn, %blank% blank<br/>',
+                     '%drawn% squares with contours, %shore% coastline only, %blank% blank<br/>',
                      'Extent: %degrees% square degrees<br/>',
                      'Rendered on the topo layer<br/>',
                      '<a href="https://data.opengeofiction.net/dem/%zone%/">Published data</a>'],
@@ -192,7 +227,7 @@ def main():
             'color': '#999999', 'opacity': 1, 'weight': 5,
             'fillColor': '#999999', 'fillOpacity': 0.5,
             'text': ['Elevation zone: <b>%zone%</b><br/>',
-                     '%drawn% squares drawn, %blank% blank<br/>',
+                     '%drawn% squares with contours, %shore% coastline only, %blank% blank<br/>',
                      'Extent: %degrees% square degrees<br/>',
                      '<b>Not rendered</b>: %reason%<br/>',
                      'Published and downloadable either way<br/>',
@@ -205,6 +240,15 @@ def main():
                      '%title%<br/>',
                      'Zone: %zone%<br/>',
                      'Contours drawn<br/>',
+                     '<a href="https://data.opengeofiction.net/dem/osm-squares/%zone%/%square%.osm.xz">Download</a>'],
+        },
+        CLASS_SQUARE_COASTLINE: {
+            'color': '#ff7f00', 'opacity': 1, 'weight': 3,
+            'fillColor': '#ff7f00', 'fillOpacity': 0.10,
+            'text': ['Square: <b>%square%</b><br/>',
+                     '%title%<br/>',
+                     'Zone: %zone%<br/>',
+                     '<b>Coastline only</b> - the shore is drawn, the ground behind it is not<br/>',
                      '<a href="https://data.opengeofiction.net/dem/osm-squares/%zone%/%square%.osm.xz">Download</a>'],
         },
         CLASS_SQUARE_BLANK: {
@@ -228,8 +272,8 @@ def main():
         with open(path, 'w') as f:
             json.dump(data, f, indent=1)
         print(f'  {os.path.getsize(path):>9} bytes  {path}')
-    print(f'  {n_zones} zones, {n_drawn} drawn, {n_blank} blank, '
-          f'{len(polygons)} polygons')
+    print(f'  {n_zones} zones, {n_drawn} with contours, {n_shore} coastline '
+          f'only, {n_blank} blank, {len(polygons)} polygons')
 
 
 if __name__ == '__main__':
