@@ -201,6 +201,12 @@ mkdir -p ${PUB}
 	done) | grep -vxF "${inactive_list:-@@none@@}" || true
 } > ${PUB}/active-zones.txt
 
+# The index the wiki draws, rewritten every run: it reports which squares are
+# blank, and a square stops being blank without this script rebuilding anything
+echo
+echo "############ wiki index ############"
+${TOOLS}/bin/demZonesToMultimap.py ${BASE} -copyto ${PUB} || true
+
 echo
 echo "=== built ${#built[@]}: ${built[*]:-none}"
 echo "=== unchanged ${#skipped[@]}: ${skipped[*]:-none}"
