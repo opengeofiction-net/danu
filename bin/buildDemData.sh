@@ -30,6 +30,33 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}
 # stays inactive long after anyone remembers what the reason was
 INACTIVE=${BASE}/inactive
 INACTIVE_REASONS="withdrawn unowned quality wip duplicate"
+STARTED=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+# The run's own output, published so a mapper can see why their zone did or did
+# not rebuild without an account on the server. It comes from the journal rather
+# than a tee: buildDemZone.sh writes to the same stdout, so the unit's journal
+# already holds every zone's output interleaved with this script's, which is
+# exactly what wants publishing. Run by hand rather than by the timer there is
+# no journal to read, and the file says so rather than silently being the last
+# timer run's.
+publish_log() {
+	local rc=$?
+	mkdir -p ${PUB} 2>/dev/null || return 0
+	{
+		echo "# buildDemData.sh, run at ${STARTED}, exit ${rc}"
+		echo "#"
+		if [ -n "${INVOCATION_ID}" ]; then
+			journalctl -u dem-build --since "${STARTED}" --no-pager 2>/dev/null ||
+				echo "# the journal could not be read"
+		else
+			echo "# Run by hand, not by dem-build.timer, so there is no journal for"
+			echo "# it. What follows is the last run of the unit itself."
+			echo "#"
+			journalctl -u dem-build -n 2000 --no-pager 2>/dev/null || true
+		fi
+	} > ${PUB}/dem-build-log.txt 2>/dev/null || true
+	return ${rc}
+}
 
 [ -d "${SQUARES}" ] || { echo "no ${SQUARES}" >&2; exit 1; }
 mkdir -p ${STAMPS}
@@ -40,6 +67,9 @@ if ! flock -n 9; then
 	echo "another run is in progress, giving up" >&2
 	exit 1
 fi
+# Only once the lock is held, so a run which gave up does not overwrite the log
+# of the run it gave up to
+trap publish_log EXIT
 
 # Size and mtime of every square, which is enough to notice an edit without
 # reading a few hundred megabytes per zone
