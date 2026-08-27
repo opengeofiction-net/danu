@@ -243,7 +243,7 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/osm-squares/%zone%/%square%.osm.xz">Download</a>'],
         },
         CLASS_SQUARE_COASTLINE: {
-            'color': '#ff7f00', 'opacity': 1, 'weight': 3,
+            'color': '#ff7f00', 'opacity': 0.5, 'weight': 1,
             'fillColor': '#ff7f00', 'fillOpacity': 0.10,
             'text': ['Square: <b>%square%</b><br/>',
                      '%title%<br/>',
