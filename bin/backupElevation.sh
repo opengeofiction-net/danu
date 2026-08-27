@@ -48,13 +48,17 @@ if ! mkdir "${LOCKFILE}" 2>/dev/null; then
 fi
 trap 'rm -rf "${LOCKFILE}"' INT TERM EXIT
 
-# weekly / monthly / yearly, the same test backupPlanet.sh and backupWiki.sh use.
+# weekly / monthly / yearly, tagged as backupPlanet.sh and backupWiki.sh tag
+# theirs. Those two ask ncal for the last Thursday of the month; ncal is in
+# bsdextrautils and is not installed here, and a missing ncal fails quietly - the
+# test just never matches, every archive is tagged weekly, and nothing is ever
+# kept beyond a month. So this asks date instead: if a week from today is a
+# different month then today is the last of its weekday in this one.
+#
 # Run by hand on another day it is still a weekly, which is the harmless answer:
 # it expires on the shortest schedule rather than never
-lastthu=$(ncal -h | awk '/Th/ {print $NF}')
-today=$(date +%-d)
 timeframe=weekly
-if [[ ${lastthu} -eq ${today} ]]; then
+if [[ $(date -d '+7 days' +%m) != $(date +%m) ]]; then
 	timeframe=monthly
 	if [[ $(date +%-m) -eq 12 ]]; then
 		timeframe=yearly
