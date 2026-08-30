@@ -51,7 +51,7 @@ WORK=${BASE}/build/${ZONE}
 PUB=${PUB:-${OGF}/sync-to-ogf/dem}/${ZONE}
 
 ARCSEC=${ARCSEC:-1}                     # master DEM resolution
-HGT_ARCSEC=${HGT_ARCSEC:-3}             # .hgt archive and legacy zip stay at 1201
+HGT_ARCSEC=${HGT_ARCSEC:-3}             # the .hgt archive stays at 1201
 FILL_METRES=${FILL_METRES:-1850}
 BARRIER_CELLS=${BARRIER_CELLS:-2}
 ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
@@ -323,11 +323,11 @@ gdal_translate -q -ot Int16 -co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/smooth.vrt ${WORK}/smooth.tif
 
 # ---------------------------------------------------------------- derivative
-# One 3" copy of the master, used by three things: the contour lines, the .hgt
-# archive and the legacy zip. Contours come from here rather than the 1" master
-# deliberately - at 1" the same lines carry three times the vertices, which
-# triples what the render databases hold to draw a line 0.2 to 0.6 px wide
-say "3\" derivative, for contours, hgt and the legacy zip"
+# One 3" copy of the master, used by the contour lines and the .hgt archive.
+# Contours come from here rather than the 1" master deliberately - at 1" the
+# same lines carry three times the vertices, which triples what the render
+# databases hold to draw a line 0.2 to 0.6 px wide
+say "3\" derivative, for contours and hgt"
 rm -f ${WORK}/dem-hgtres.tif
 gdalwarp -q -overwrite -r average -te ${TE_HGT} -tr ${HGT_RES} ${HGT_RES} \
 	-ot Int16 -co TILED=YES -co COMPRESS=DEFLATE -co PREDICTOR=2 \
@@ -405,22 +405,6 @@ print(f'{\"N\" if lat >= 0 else \"S\"}{abs(lat):02d}{\"E\" if lon >= 0 else \"W\
 done
 ls ${WORK}/hgt | wc -l | sed 's/^/  hgt files: /'
 
-# ---------------------------------------------------------------- legacy zip
-# tiles04 still reads seven files by their old names, and unzips with -j, so the
-# zip is flat. It stays at 3" and DEFLATE: that server is Ubuntu 20.04 with GDAL
-# 3.0.4, which predates ZSTD and LERC, and 1" rasters would grow its tree ninefold
-say "legacy zip for tiles04"
-LEG=${WORK}/legacy
-rm -rf ${LEG}; mkdir -p ${LEG}
-cp ${WORK}/dem-hgtres.tif ${LEG}/raw.tif
-warp ${WORK}/smooth.tif 90 ${WORK}/merc-90.tif
-shade ${WORK}/merc-90.tif 5 ${LEG}/hillshade-30m-jpeg.tif
-for f in hillshade-500 hillshade-1000 hillshade-5000 relief-500 relief-5000; do
-	cp ${WORK}/${f}.tif ${LEG}/${f}.tif
-done
-rm -f ${WORK}/tiff-${ZONE}.zip
-(cd ${LEG} && zip -q -j ../tiff-${ZONE}.zip *.tif)
-
 # ---------------------------------------------------------------- publish
 say publish
 install -m 644 ${WORK}/dem.tif                      ${PUB}/dem-${ZONE}.tif
@@ -437,7 +421,6 @@ cp ${WORK}/contours-out.gpkg ${WORK}/contours-${ZONE}.gpkg
 (cd ${WORK} && zip -q -9 -j contours-${ZONE}.gpkg.zip contours-${ZONE}.gpkg)
 install -m 644 ${WORK}/contours-${ZONE}.gpkg.zip    ${PUB}/
 rm -f ${PUB}/contours-${ZONE}.gpkg
-install -m 644 ${WORK}/tiff-${ZONE}.zip             ${PUB}/
 mkdir -p ${PUB}/hgt && install -m 644 ${WORK}/hgt/*.hgt ${PUB}/hgt/
 
 du -sh ${PUB} | sed 's/^/  published /'
@@ -447,7 +430,7 @@ du -sh ${PUB} | sed 's/^/  published /'
 # so the working files go unless KEEP_WORK says otherwise
 if [ -z "${KEEP_WORK:-}" ]; then
 	WAS=$(du -sm ${WORK} | cut -f1)
-	rm -rf ${WORK}/legacy ${WORK}/hgt
+	rm -rf ${WORK}/hgt
 	rm -f ${WORK}/cont.tif ${WORK}/filled.tif ${WORK}/rounded.tif \
 		${WORK}/smooth.tif ${WORK}/smooth.vrt ${WORK}/water-mask.tif \
 		${WORK}/water-areas.gpkg ${WORK}/merc-*.tif ${WORK}/dem-hgtres.tif \
