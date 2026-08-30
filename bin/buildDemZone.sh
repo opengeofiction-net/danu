@@ -87,7 +87,31 @@ fi
 
 RES=$(python3 -c "print(${ARCSEC}/3600)")
 HGT_RES=$(python3 -c "print(${HGT_ARCSEC}/3600)")
-say() { echo "=== ${ZONE}: $* ==="; }
+# Every stage's start second, so where a build's time goes is recorded rather
+# than guessed at. The per-zone elapsed in dem-build-progress.txt says a zone
+# took an hour; this says which part of it did, which is what any work on
+# parallelising the build has to be decided from
+mkdir -p ${BASE}/stats
+TIMINGS=${BASE}/stats/${ZONE}-timings.tsv
+: > ${TIMINGS}
+say() {
+	printf '%s\t%s\n' "${SECONDS}" "$*" >> ${TIMINGS}
+	echo "=== ${ZONE}: $* ==="
+}
+
+# A stage costs the gap between it starting and the next one starting, so the
+# report needs a terminator after the last
+timings_report() {
+	[ -s ${TIMINGS} ] || return 0
+	printf '%s\t%s\n' "${SECONDS}" "(end)" >> ${TIMINGS}
+	echo "  where the time went, longest first:"
+	awk -F'\t' 'NR > 1 { printf "%d\t%s\n", $1 - p, st } { p = $1; st = $2 }' ${TIMINGS} |
+		sort -rn -k1,1 |
+		awk -F'\t' -v t="${SECONDS}" '$1 > 0 {
+			printf "    %5ds  %5.1f%%  %s\n", $1, (t ? 100 * $1 / t : 0), $2 }' |
+		head -10
+	printf '    %5ds  total\n' "${SECONDS}"
+}
 
 # ---------------------------------------------------------------- extent
 # Which degree squares actually hold constraints, and the grids to build them
@@ -439,3 +463,4 @@ mkdir -p ${BASE}/stats
 ${TOOLS}/bin/demZoneStats.py ${WORK}/dem.tif ${BASE}/stats/${ZONE}.json
 
 say done
+timings_report
