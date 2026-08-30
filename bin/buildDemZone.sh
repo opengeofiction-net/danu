@@ -21,6 +21,8 @@
 #                   process's radius of 20 cells at 3", and holds that distance
 #                   at 1" as 60 cells. Beyond it a cell has no elevation
 #                   information at all and stays zero
+#   ISOFILL_EXTRA   further isofill flags, for trying a change on one zone
+#                   before it becomes the default. Empty normally
 #   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
 #                   value. At 3" a one cell line is a 93 m wall; at 1" the same
 #                   cell is 31 m, so rays thread gaps which could not exist on
@@ -50,6 +52,7 @@ ARCSEC=${ARCSEC:-1}                     # master DEM resolution
 HGT_ARCSEC=${HGT_ARCSEC:-3}             # .hgt archive and legacy zip stay at 1201
 FILL_METRES=${FILL_METRES:-1850}
 BARRIER_CELLS=${BARRIER_CELLS:-2}
+ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
@@ -204,7 +207,7 @@ gdal_rasterize -q -at -a ele -a_nodata -9999 -init -9999 -ot Int16 \
 gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
 
 # ---------------------------------------------------------------- interpolate
-say "interpolate, radius ${FILL_CELLS} cells, barrier ${BARRIER_CELLS}"
+say "interpolate, radius ${FILL_CELLS} cells, barrier ${BARRIER_CELLS}${ISOFILL_EXTRA:+, extra ${ISOFILL_EXTRA}}"
 rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # isofill, not gdal_fillnodata: the latter will interpolate from a single
 # sample, which terraces the surface into plateaus with straight edges where the
@@ -215,7 +218,7 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 #
 # Cells with no constraint within the radius are left at zero rather than
 # carried a value by the second pass, which is what -md did here before.
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} ${ISOFILL_EXTRA} \
 	${WORK}/cont.tif ${WORK}/rounded.tif
 # No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
 
