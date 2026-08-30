@@ -65,8 +65,13 @@ def split_file(path, limit, backup_dir, dry_run):
         shutil.copy2(path, os.path.join(dest, os.path.basename(path)))
 
     next_id = min_id - 1
+    # mkstemp creates at 0600. Carry the original's mode across, or the square
+    # becomes unreadable to anyone but ogf - and buildDemData.sh publishes with
+    # cp -p, so Apache then serves 403 for it
+    mode = os.stat(path).st_mode & 0o7777
     fd, tmp = tempfile.mkstemp(suffix='.osm.xz', dir=os.path.dirname(path))
     os.close(fd)
+    os.chmod(tmp, mode)
     added = 0
     with lzma.open(path, 'rt', encoding='utf-8', errors='replace') as src, \
          lzma.open(tmp, 'wt', encoding='utf-8', preset=6) as out:
