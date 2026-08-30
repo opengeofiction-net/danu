@@ -20,7 +20,8 @@
 #   FILL_METRES     how far a cell may look for a contour. 1852 m is the old
 #                   process's radius of 20 cells at 3", and holds that distance
 #                   at 1" as 60 cells. Beyond it a cell has no elevation
-#                   information at all and stays zero
+#                   information of its own and takes what the second pass
+#                   carries in - see --no-reach below
 #   ISOFILL_EXTRA   further isofill flags, for trying a change on one zone
 #                   before it becomes the default. Empty normally
 #   --no-reach      passed always, see below. isofill's own default is the
