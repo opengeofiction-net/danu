@@ -21,11 +21,9 @@
 #                   process's radius of 20 cells at 3", and holds that distance
 #                   at 1" as 60 cells. Beyond it a cell has no elevation
 #                   information of its own and takes what the second pass
-#                   carries in - see --no-reach below
+#                   carries in
 #   ISOFILL_EXTRA   further isofill flags, for trying a change on one zone
 #                   before it becomes the default. Empty normally
-#   --no-reach      passed always, see below. isofill's own default is the
-#                   other way and should be changed to match
 #   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
 #                   value. At 3" a one cell line is a 93 m wall; at 1" the same
 #                   cell is 31 m, so rays thread gaps which could not exist on
@@ -245,22 +243,11 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # contours in line of sight and declines to fill at all from one, which is also
 # what keeps water enclosed by a coastline empty.
 #
-# --no-reach, because the reference implementation has no idea of a cell being
-# out of reach. TileUtil's radius_value has a single failure return: find
-# nothing within the radius and gradMax stays at its initial -9999, falls
-# through "if( gradMax <= 0.1 )" and returns NO_ELEV_VALUE - the same answer it
-# gives for a gradient too shallow to interpolate. The second pass then fills
-# both alike.
-#
-# isofill splits that into OUT_OF_REACH and NO_ELEV and leaves the first at
-# zero, which was modelled on gdal_fillnodata -md rather than on TileUtil, and
-# gdal_fillnodata turned out to be a dead end. On zone-tapira - whose squares
-# carry no over-long ways, so nothing was lost at read time - that rule alone
-# put 114,309 cells at 1 m, in pits a kilometre across reading 1 m between
-# ground at 130 m. With --no-reach they read 101 m where the old process reads
-# 109. The sea is unaffected: one non-zero cell over the water mask either way,
-# demSeaMask.py and demLandClamp.py doing that job downstream.
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --no-reach ${ISOFILL_EXTRA} \
+# Needs isofill 0.4.0 or later, which fills the cells the first pass found
+# nothing for rather than leaving them at zero - the behaviour 0.3.1 had behind
+# --no-reach, and what the original does. Against 0.3.1's default this square
+# was one of 114,309 in zone-tapira reading 1 m between ground at 130 m
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} ${ISOFILL_EXTRA} \
 	${WORK}/cont.tif ${WORK}/rounded.tif
 # No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
 

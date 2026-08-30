@@ -31,6 +31,28 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}
 INACTIVE=${BASE}/inactive
 INACTIVE_REASONS="withdrawn unowned quality wip duplicate"
 STARTED=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+RUN_TAG=$(date -u '+%Y%m%dT%H%M%SZ')
+# A zone list for the next run, so the unit can be used for a forced or partial
+# rebuild without editing it or passing arguments: one zone per line, "all" for
+# every zone, # for a comment. Removed once the run finishes with nothing
+# failed, so it is a single instruction rather than a standing setting - a run
+# which fails a zone leaves it in place and the next run retries the same list
+LIMIT=${BASE}/limit-build.txt
+# How many days of per-run logs to keep beside the stable name
+LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
+# Written at the top of the publish directory rather than inside a zone,
+# because sync-to-ogf@dem.path watches that directory and PathChanged does not
+# recurse: a write into dem/<zone>/ triggers nothing, so without this a long
+# rebuild publishes only when something syncs it by hand
+PROGRESS=${PUB}/dem-build-progress.txt
+# Appends a line and closes it, which is what raises IN_CLOSE_WRITE and fires
+# the path unit - so each zone syncs itself as it finishes. fsync for the
+# durability, the close for the event
+progress() {
+	mkdir -p ${PUB} 2>/dev/null || return 0
+	printf '%s\n' "$*" >> ${PROGRESS}
+	sync -d ${PROGRESS} 2>/dev/null || true
+}
 
 # The run's own output, published so a mapper can see why their zone did or did
 # not rebuild without an account on the server. It comes from the journal rather
@@ -54,7 +76,15 @@ publish_log() {
 			echo "#"
 			journalctl -u dem-build -n 2000 --no-pager 2>/dev/null || true
 		fi
-	} > ${PUB}/dem-build-log.txt 2>/dev/null || true
+	} > ${PUB}/dem-build-log-${RUN_TAG}.txt 2>/dev/null || true
+	# the stable name every link and bookmark uses, pointing at this run. A hard
+	# link rather than a symlink because the sync is rsync -a with no -H, and a
+	# symlink would arrive as a symlink into a file the next housekeeping
+	# removes. It costs a second copy on the far side, which is the trade
+	ln -f ${PUB}/dem-build-log-${RUN_TAG}.txt ${PUB}/dem-build-log.txt 2>/dev/null || true
+	# and the older runs go, or every run's log accumulates for ever
+	find ${PUB} -maxdepth 1 -name 'dem-build-log-*.txt' -mtime +${LOG_KEEP_DAYS} \
+		-delete 2>/dev/null || true
 	return ${rc}
 }
 
@@ -80,13 +110,35 @@ stamp_of() {
 		sort | sha256sum | cut -d' ' -f1
 }
 
+all_zones() { (cd ${SQUARES} && for d in */; do echo "${d%/}"; done); }
+
+limited=0
 if [ $# -gt 0 ]; then
 	zones="$*"
 	forced=1
+elif [ -f "${LIMIT}" ]; then
+	zones=$(sed 's/#.*//' "${LIMIT}" | tr ',' ' ' | awk 'NF {for (i = 1; i <= NF; ++i) print $i}')
+	forced=1
+	limited=1
+	case " ${zones} " in
+		*" all "*) zones=$(all_zones); echo "$(basename ${LIMIT}): all zones, forced" ;;
+		*) if [ -z "${zones}" ]; then
+			echo "$(basename ${LIMIT}) names no zones, ignoring it" >&2
+			zones=$(all_zones); forced=0; limited=0
+		   else
+			echo "$(basename ${LIMIT}): $(echo ${zones} | wc -w) zones, forced - $(echo ${zones} | tr '\n' ' ')"
+		   fi ;;
+	esac
 else
-	zones=$(cd ${SQUARES} && for d in */; do echo "${d%/}"; done)
+	zones=$(all_zones)
 	forced=0
 fi
+
+# Fresh each run - the timestamped log is the archive, this is what is happening
+# now. Writing it here also fires the path unit once at the start, so a run that
+# fails on its first zone still publishes the fact that it began
+rm -f ${PROGRESS}
+progress "# buildDemData.sh started ${STARTED}, $(echo ${zones} | wc -w) zones to consider"
 
 built=() skipped=() failed=()
 
@@ -106,15 +158,20 @@ for zone in ${zones}; do
 
 	echo
 	echo "############ ${zone} ############"
+	zone_started=${SECONDS}
 	if ${TOOLS}/bin/buildDemZone.sh ${zone}; then
 		# stamped only on success, so a failed build is retried next time rather
 		# than being recorded as done
 		echo "${now}" > ${STAMPS}/${zone}
 		built+=("${zone}")
+		zone_result=built
 	else
 		echo "${zone}: BUILD FAILED" >&2
 		failed+=("${zone}")
+		zone_result=FAILED
 	fi
+	# and the sync fires on this, carrying the zone just published with it
+	progress "$(date -u '+%Y-%m-%dT%H:%M:%SZ') ${zone} ${zone_result} $((SECONDS - zone_started))s"
 done
 
 # ---------------------------------------------------------------- squares
@@ -215,7 +272,15 @@ if [ -n "${inactive_list}" ]; then
 	sed 's/#.*//' ${INACTIVE} 2>/dev/null | awk 'NF {printf "      %-16s %s\n", $1, ($2 == "" ? "NO REASON GIVEN" : $2)}'
 fi
 echo "=== renderers load $(grep -vc '^#' ${PUB}/active-zones.txt) zones"
+progress "# finished $(date -u '+%Y-%m-%dT%H:%M:%SZ'), built ${#built[@]}, unchanged ${#skipped[@]}, failed ${#failed[@]}"
 if [ ${#failed[@]} -gt 0 ]; then
 	echo "=== FAILED ${#failed[@]}: ${failed[*]}" >&2
+	# the limit file stays, so the next run retries the same list rather than
+	# falling back to whatever has changed since
+	[ ${limited} -eq 1 ] && echo "$(basename ${LIMIT}) kept, $((${#failed[@]})) zone(s) still to build" >&2
 	exit 1
+fi
+# a single instruction, carried out - so it goes
+if [ ${limited} -eq 1 ]; then
+	rm -f ${LIMIT} && echo "=== $(basename ${LIMIT}) done, removed"
 fi
