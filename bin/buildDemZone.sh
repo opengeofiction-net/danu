@@ -139,6 +139,32 @@ SQUARE=${WORK}/square.osm
 for f in ${SRC}/*.osm.xz; do
 	[ -e "${f}" ] || continue
 	xz -dc "${f}" > ${SQUARE}
+	# GDAL's OSM driver drops any way over 10,000 nodes. It says so once per
+	# node beyond the limit, so one 45,000 node contour buries the message
+	# under 35,000 identical lines and GDAL's own 1,000 error cap hides the
+	# rest - which is how ten contours between 101 m and 171 m went missing
+	# from S37E147_Madison_City, 45% of that square's contour length, and
+	# came back as voids nobody could account for.
+	#
+	# A blank square is better than a quietly wrong one, so this stops. The
+	# warning threshold is the OSM API's own limit, which these files would
+	# have to satisfy to be uploaded. demSplitLongWays.py fixes both.
+	eval "$(awk '
+		/<way id=/ { n = 0 }
+		/<nd / { ++n }
+		/<\/way>/ { if (n > 2000) ++over; if (n > 10000) ++drop; if (n > max) max = n }
+		END { printf "sq_over=%d sq_drop=%d sq_max=%d\n", over+0, drop+0, max+0 }' ${SQUARE})"
+	if [ "${sq_drop}" -gt 0 ]; then
+		echo "  ERROR: $(basename ${f}) has ${sq_drop} way(s) over 10,000 nodes" >&2
+		echo "  (longest ${sq_max}). GDAL drops these silently and the ground they" >&2
+		echo "  describe comes out as a void. Run:" >&2
+		echo "    ${TOOLS}/bin/demSplitLongWays.py --backup <dir> ${SRC}" >&2
+		exit 1
+	fi
+	if [ "${sq_over}" -gt 0 ]; then
+		echo "  WARNING: $(basename ${f}) has ${sq_over} way(s) over 2,000 nodes" >&2
+		echo "  (longest ${sq_max}), which the OSM API would reject on upload" >&2
+	fi
 	if [ ${first} -eq 1 ]; then
 		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
 			ogr2ogr -f GPKG ${WORK}/contours.gpkg ${SQUARE} lines \
