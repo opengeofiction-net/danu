@@ -36,6 +36,7 @@
 import os
 import sys
 
+import multiprocessing
 import numpy as np
 from osgeo import gdal, ogr
 
@@ -103,6 +104,21 @@ def seed_points(layer, gt):
     return water, land
 
 
+def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
+    """One proximity pass, in its own process. Opens the seed raster by path
+    rather than taking a band across the fork."""
+    src = gdal.Open(seed_path)
+    ds = gdal.GetDriverByName('GTiff').Create(
+        out_path, cols, rows, 1, gdal.GDT_Float32,
+        options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(proj)
+    gdal.ComputeProximity(src.GetRasterBand(1), ds.GetRasterBand(1),
+                          ['VALUES=1', 'DISTUNITS=PIXEL'])
+    ds.FlushCache()
+    ds = src = None
+
+
 def main():
     if len(sys.argv) != 4:
         sys.exit('usage: demSeaMask.py <contours.gpkg> <reference.tif> <out.tif>')
@@ -142,22 +158,38 @@ def main():
         band.FlushCache()
         return ds, band
 
-    def proximity(name, src_band):
-        path = f'{out_path}.{name}dist.tif'
-        tmp[name + 'dist'] = path
-        ds = gdal.GetDriverByName('GTiff').Create(
-            path, cols, rows, 1, gdal.GDT_Float32,
-            options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
-        ds.SetGeoTransform(gt)
-        ds.SetProjection(proj)
-        gdal.ComputeProximity(src_band, ds.GetRasterBand(1),
-                              ['VALUES=1', 'DISTUNITS=PIXEL'])
-        return ds, ds.GetRasterBand(1)
-
     w_ds, w_band = seed_raster('water', water_pts)
     l_ds, l_band = seed_raster('land', land_pts)
-    wd_ds, wd_band = proximity('water', w_band)
-    ld_ds, ld_band = proximity('land', l_band)
+    # closed before forking: a GDAL dataset handle does not survive one, and
+    # the children open the seeds by path
+    w_ds = l_ds = w_band = l_band = None
+
+    # The two proximity passes are the bulk of this script - 439 s of a 1,805 s
+    # zone build on makaska, the largest single cost outside isofill. They are
+    # independent, one from the water seeds and one from the land, so they run
+    # side by side rather than one after the other.
+    #
+    # Processes rather than threads: gdal.ComputeProximity is one call into C
+    # and whether the binding releases the GIL for it is not something to bet
+    # the stage on. A fork costs a few hundred milliseconds against minutes of
+    # work, and each child holds only its own handles.
+    for name in ('water', 'land'):
+        tmp[name + 'dist'] = f'{out_path}.{name}dist.tif'
+    jobs = [multiprocessing.Process(
+                target=proximity_worker,
+                args=(tmp[n], tmp[n + 'dist'], cols, rows, gt, proj))
+            for n in ('water', 'land')]
+    for j in jobs:
+        j.start()
+    for j in jobs:
+        j.join()
+    bad = [j.exitcode for j in jobs if j.exitcode != 0]
+    if bad:
+        sys.exit(f'demSeaMask: a proximity pass failed, exit {bad}')
+
+    wd_ds = gdal.Open(tmp['waterdist'])
+    ld_ds = gdal.Open(tmp['landdist'])
+    wd_band, ld_band = wd_ds.GetRasterBand(1), ld_ds.GetRasterBand(1)
 
     out_ds = gdal.GetDriverByName('GTiff').Create(
         out_path, cols, rows, 1, gdal.GDT_Byte,

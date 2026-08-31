@@ -71,6 +71,12 @@ export OSM_USE_CUSTOM_INDEXING=NO
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
 # be published alongside every raster
 export GDAL_PAM_ENABLED=NO
+# All but two cores, the same budget isofill takes, so the box stays usable.
+# GDAL spends it on two things this build does constantly: DEFLATE compression
+# on every raster it writes, and gdalwarp's warping. It does nothing for
+# gdal_contour, for gdal_rasterize's burn, or for gdaldem's hillshade
+# arithmetic - only for what those write
+export GDAL_NUM_THREADS=${GDAL_NUM_THREADS:-$(($(nproc) > 2 ? $(nproc) - 2 : 1))}
 
 [ -d "${SRC}" ] || { echo "no such zone: ${SRC}" >&2; exit 1; }
 [ -f "${RAMP}" ] || { echo "no relief ramp at ${RAMP}" >&2; exit 1; }
@@ -341,7 +347,7 @@ gdal_translate -q -ot Int16 -co TILED=YES -co COMPRESS=DEFLATE \
 # databases hold to draw a line 0.2 to 0.6 px wide
 say "3\" derivative, for contours and hgt"
 rm -f ${WORK}/dem-hgtres.tif
-gdalwarp -q -overwrite -r average -te ${TE_HGT} -tr ${HGT_RES} ${HGT_RES} \
+gdalwarp -q -overwrite -multi -r average -te ${TE_HGT} -tr ${HGT_RES} ${HGT_RES} \
 	-ot Int16 -co TILED=YES -co COMPRESS=DEFLATE -co PREDICTOR=2 \
 	${WORK}/dem.tif ${WORK}/dem-hgtres.tif
 gdalinfo ${WORK}/dem-hgtres.tif | sed -n 's/^Size is/  3 arcsec size/p'
@@ -351,7 +357,7 @@ gdalinfo ${WORK}/dem-hgtres.tif | sed -n 's/^Size is/  3 arcsec size/p'
 # gdaldem on a lat/lon raster treats degrees as metres.
 MERC="+proj=merc +ellps=sphere +R=6378137 +a=6378137 +units=m"
 warp() {                            # warp <src> <metres> <out>
-	gdalwarp -q -overwrite -t_srs "${MERC}" -r bilinear -tr $2 $2 \
+	gdalwarp -q -overwrite -multi -t_srs "${MERC}" -r bilinear -tr $2 $2 \
 		-co TILED=YES -co COMPRESS=DEFLATE -co BIGTIFF=IF_SAFER $1 $3
 }
 shade() {                           # shade <src> <zfactor> <out>
