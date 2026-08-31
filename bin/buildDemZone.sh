@@ -356,8 +356,12 @@ gdalinfo ${WORK}/dem-hgtres.tif | sed -n 's/^Size is/  3 arcsec size/p'
 # Mercator, as the styles expect, and hillshaded there rather than in degrees -
 # gdaldem on a lat/lon raster treats degrees as metres.
 MERC="+proj=merc +ellps=sphere +R=6378137 +a=6378137 +units=m"
+# No -multi here, measured. On makaska it took the raster stage from 134 s to
+# 152 s: this warps five times, and at 500, 1000 and 5000 m the outputs are
+# small enough that coordinating threads costs more than it saves. The one big
+# warp in the build, the 3 arcsecond derivative, does take it - 23 s to 2 s
 warp() {                            # warp <src> <metres> <out>
-	gdalwarp -q -overwrite -multi -t_srs "${MERC}" -r bilinear -tr $2 $2 \
+	gdalwarp -q -overwrite -t_srs "${MERC}" -r bilinear -tr $2 $2 \
 		-co TILED=YES -co COMPRESS=DEFLATE -co BIGTIFF=IF_SAFER $1 $3
 }
 shade() {                           # shade <src> <zfactor> <out>
