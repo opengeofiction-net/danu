@@ -303,7 +303,7 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # wall to the ground beyond.
 say "drawn area"
 rm -f ${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
-${TOOLS}/bin/demDrawnMask.py ${WORK}/contours.gpkg ${WORK}/drawn.geojson
+${TOOLS}/bin/demDrawnMask.py ${WORK}/cont.tif ${WORK}/drawn.geojson
 gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
 	-co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
