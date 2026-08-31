@@ -56,9 +56,10 @@ def has_constraints(path, chunk=1 << 20):
 
 
 def main():
-    if len(sys.argv) != 3:
-        sys.exit('usage: demZoneExtent.py <osm-squares-dir> <arcsec>')
+    if len(sys.argv) not in (3, 4):
+        sys.exit('usage: demZoneExtent.py <osm-squares-dir> <arcsec> [drawn.geojson]')
     src, arcsec = sys.argv[1], float(sys.argv[2])
+    drawn_out = sys.argv[3] if len(sys.argv) > 3 else None
 
     squares, blank, loose = [], 0, []
     for name in sorted(os.listdir(src)):
@@ -90,6 +91,22 @@ def main():
               file=sys.stderr)
         print('  the squares are held as .osm.xz - xz these and remove the .osm',
               file=sys.stderr)
+
+    if drawn_out:
+        # One polygon per degree square that actually holds contours, for the
+        # fill mask. The zone raster is the bounding box of these, and a bounding
+        # box is not the same shape as the squares in it: ellarca's is fifteen
+        # degree squares around eleven drawn ones. Without the mask the second
+        # pass carries values straight across the four nobody has drawn, in
+        # streaks the length of the raster, because a row is anchored at zero
+        # only beyond its ends and there is nothing in between to stop it.
+        feats = ','.join(
+            '{"type":"Feature","properties":{},"geometry":{"type":"Polygon",'
+            '"coordinates":[[[%d,%d],[%d,%d],[%d,%d],[%d,%d],[%d,%d]]]}}'
+            % (lon, lat, lon + 1, lat, lon + 1, lat + 1, lon, lat + 1, lon, lat)
+            for lon, lat in squares)
+        with open(drawn_out, 'w') as f:
+            f.write('{"type":"FeatureCollection","features":[%s]}' % feats)
 
     if not squares:
         print(f'SQUARES=0 SQ_DEGREES=0 BLANK={blank}')

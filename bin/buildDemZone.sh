@@ -124,7 +124,7 @@ timings_report() {
 # on - see demZoneExtent.py for why that is decided by reading the files rather
 # than by taking the extent of the collected geometry
 say extent
-eval "$(${TOOLS}/bin/demZoneExtent.py ${SRC} ${ARCSEC})"
+eval "$(${TOOLS}/bin/demZoneExtent.py ${SRC} ${ARCSEC} ${WORK}/drawn.geojson)"
 if [ "${SQUARES:-0}" -eq 0 ]; then
 	# Not a failure: templates are laid out before the drawing starts, so a zone
 	# can legitimately have nothing in it yet
@@ -277,7 +277,27 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # nothing for rather than leaving them at zero - the behaviour 0.3.1 had behind
 # --no-reach, and what the original does. Against 0.3.1's default this square
 # was one of 114,309 in zone-tapira reading 1 m between ground at 130 m
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} ${ISOFILL_EXTRA} \
+# Masked to the degree squares somebody has actually drawn. The zone raster is
+# the bounding box of those, and a bounding box is a different shape: ellarca's
+# is fifteen degree squares around eleven drawn ones. Unmasked, the second pass
+# carries values across the four undrawn ones in streaks the length of the
+# raster - every row is anchored at zero only beyond its ends, and across an
+# empty square there is nothing in between to stop it. Measured there: the
+# blocks smeared right across were 100% cells the first pass never reached.
+#
+# It masks where there is no data, not where the fill is merely far from a
+# contour. Inside a drawn square the fill still reaches everywhere, which is the
+# whole point of --no-reach being the default - bounding the carry instead, with
+# --pass2-tile, would have suppressed the streaks by reopening the voids.
+#
+# Contours inside the mask still inform cells outside it, so a square's edge is
+# not a wall to its neighbour.
+rm -f ${WORK}/drawn-mask.tif
+gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
+	-co TILED=YES -co COMPRESS=DEFLATE \
+	${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
+	--mask ${WORK}/drawn-mask.tif ${ISOFILL_EXTRA} \
 	${WORK}/cont.tif ${WORK}/rounded.tif
 # No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
 
@@ -456,6 +476,7 @@ if [ -z "${KEEP_WORK:-}" ]; then
 	rm -f ${WORK}/cont.tif ${WORK}/filled.tif ${WORK}/rounded.tif \
 		${WORK}/smooth.tif ${WORK}/smooth.vrt ${WORK}/water-mask.tif \
 		${WORK}/water-areas.gpkg ${WORK}/merc-*.tif ${WORK}/dem-hgtres.tif \
+		${WORK}/drawn.geojson ${WORK}/drawn-mask.tif \
 		${WORK}/hillshade-*.tif ${WORK}/relief-*.tif ${WORK}/contours-out.gpkg \
 		${WORK}/contours-${ZONE}.gpkg ${WORK}/contours-${ZONE}.gpkg.zip \
 		${WORK}/contours-${ZONE}.osm.pbf ${WORK}/tiff-${ZONE}.zip
