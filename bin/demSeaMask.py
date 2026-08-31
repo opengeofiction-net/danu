@@ -171,11 +171,20 @@ def main():
     #
     # Processes rather than threads: gdal.ComputeProximity is one call into C
     # and whether the binding releases the GIL for it is not something to bet
-    # the stage on. A fork costs a few hundred milliseconds against minutes of
-    # work, and each child holds only its own handles.
+    # the stage on.
+    #
+    # spawn, not fork, and that is not a preference. GDAL_NUM_THREADS makes
+    # GDAL start a worker pool - 23 threads in this process on a 24 core box -
+    # and fork carries over only the thread that called it. Any GDAL mutex a
+    # different thread happened to hold at that moment is locked for ever in
+    # the child, which then blocks in futex_wait and never returns. That is
+    # exactly what happened: both children stuck, the parent in do_wait, the
+    # stage running 39 minutes against the 7 it had taken. A spawned child is a
+    # fresh interpreter with no inherited lock state, for about half a second.
     for name in ('water', 'land'):
         tmp[name + 'dist'] = f'{out_path}.{name}dist.tif'
-    jobs = [multiprocessing.Process(
+    ctx = multiprocessing.get_context('spawn')
+    jobs = [ctx.Process(
                 target=proximity_worker,
                 args=(tmp[n], tmp[n + 'dist'], cols, rows, gt, proj))
             for n in ('water', 'land')]
