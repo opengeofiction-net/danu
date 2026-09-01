@@ -27,8 +27,9 @@
 #   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
 #                   value. At 3" a one cell line is a 93 m wall; at 1" the same
 #                   cell is 31 m, so rays thread gaps which could not exist on
-#                   the coarser grid. 0.345% of open water carries elevation at
-#                   0, 0.303% at 2, near-line cells moving a median of 1 m
+#                   the coarser grid. 1 gives 62 m, still thinner than the wall
+#                   the coarse grid gave for nothing. It was 2, which was tuned
+#                   on open water and overshot inland - see below
 #   SMOOTH_CELLS    hillshade is a derivative, so it renders the slope
 #                   discontinuity at every contour as a visible band. No
 #                   interpolator avoids it - the best of them, r.fillnulls
@@ -52,7 +53,7 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}/${ZONE}
 ARCSEC=${ARCSEC:-1}                     # master DEM resolution
 HGT_ARCSEC=${HGT_ARCSEC:-3}             # the .hgt archive stays at 1201
 FILL_METRES=${FILL_METRES:-1850}
-BARRIER_CELLS=${BARRIER_CELLS:-2}
+BARRIER_CELLS=${BARRIER_CELLS:-1}
 ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
@@ -272,6 +273,21 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # where a slope histogram averages it away. isofill takes the steepest pair of
 # contours in line of sight and declines to fill at all from one, which is also
 # what keeps water enclosed by a coastline empty.
+#
+# The barrier was 2 until September 2026, tuned by measuring open water and
+# never measured on land. A thicker wall occludes more, and what it occludes is
+# the second contour a cell needs to interpolate between - so it was pushing
+# cells out of the first pass and into the second, which has to invent them.
+#
+# Measured on zone-ellarca inside the described area, first pass only, at
+# barrier 0, 1, 2 and 3: the ground the first pass resolves is 54.88, 54.71,
+# 49.29 and 46.46%. All of the cost sits between 1 and 2 - 5.4 points, a ninth
+# of what the pass answers - and 0 buys nothing over 1.
+#
+# The sea is what 2 was protecting, and it barely notices. Elevation left over
+# water goes from 0.738% to 0.776% on ellarca, and on zone-tapira, which is 92%
+# sea, from 12 cells to 42. Against roughly 4.4 million land cells moving from
+# invented to interpolated.
 #
 # Needs isofill 0.4.0 or later, which fills the cells the first pass found
 # nothing for rather than leaving them at zero - the behaviour 0.3.1 had behind
