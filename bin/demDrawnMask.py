@@ -16,71 +16,38 @@
 # stops them at a square boundary, which is better than the raster edge and
 # still wrong: they simply run to the edge of the square instead.
 #
-# So the mask is the convex hull of the contours in each degree square, clipped
-# to that square. Per square rather than per zone, so a zone described in
-# different corners does not get one hull spanning the lot.
+# So the mask is the envelope of the contours in each degree square. Per square
+# rather than per zone, so a zone described in different corners does not get one
+# box spanning the lot.
 #
-# A hull rather than a buffer around the contours. Both exclude the undescribed
-# ground, but a buffer has to be wide enough to close the gaps *inside* a
-# described region - zone-makaska's reach 2.9 km - and anything that wide also
-# reaches far outside it. A hull contains its own holes by construction and has
-# nothing to tune.
+# An envelope rather than a buffer around the contours. Both exclude the
+# undescribed ground, but a buffer has to be wide enough to close the gaps
+# *inside* a described region - zone-makaska's reach 2.9 km - and anything that
+# wide also reaches far outside it. An envelope contains its own holes by
+# construction and has nothing to tune.
+#
+# An envelope rather than a convex hull, which was tried first. A hull follows
+# the contours more closely, and that is the problem: where they stop short of a
+# square's corner it cuts the corner off diagonally, and the ground there loses
+# its terrain even though the square is described. The envelope is more generous
+# and the generosity is in the right direction.
 #
 # Read from the rasterised constraints rather than the contour geometry. The
-# mask is rasterised onto this same grid, so a hull taken at cell resolution is
-# the same answer, and it costs one pass over a raster already built instead of
-# cloning a few hundred thousand ways into the squares they touch. Only the
-# extreme cells can be hull vertices, so each square is reduced to the first and
-# last set cell of every row and column before the hull is taken - a few
-# thousand points rather than millions.
+# mask is rasterised onto this same grid, so an envelope taken at cell resolution
+# is the same answer, and it costs one pass over a raster already built instead
+# of reading a few hundred thousand ways.
+#
+# The box runs along the outer edges of the extreme cells, not through their
+# centres. gdal_rasterize burns a cell when its centre falls inside the polygon,
+# so a box through centres leaves the outermost ring of contour cells sitting on
+# the boundary and loses them: 3,106 of zone-ellarca's, 99.9% of them directly
+# against a cell the mask did keep.
 #
 import sys
 import numpy as np
 from osgeo import gdal
 
 gdal.UseExceptions()
-
-
-def hull(points):
-    """Convex hull of an (N,2) integer array, monotone chain. Returns the
-    vertices anticlockwise, without the closing repeat."""
-    p = np.unique(points, axis=0)          # sorts by x then y as a side effect
-    if len(p) < 3:
-        return p
-    cross = lambda o, a, b: ((a[0]-o[0]) * (b[1]-o[1]) -
-                             (a[1]-o[1]) * (b[0]-o[0]))
-    lower = []
-    for q in p:
-        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
-            lower.pop()
-        lower.append(q)
-    upper = []
-    for q in p[::-1]:
-        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
-            upper.pop()
-        upper.append(q)
-    return np.array(lower[:-1] + upper[:-1])
-
-
-def extremes(mask):
-    """The cells that could be hull vertices: first and last set cell of every
-    row and of every column. A hull vertex is extreme along some axis, so this
-    is a superset, and it is small."""
-    pts = []
-    rows = np.flatnonzero(mask.any(axis=1))
-    if rows.size:
-        first = mask[rows].argmax(axis=1)
-        last = mask.shape[1] - 1 - mask[rows][:, ::-1].argmax(axis=1)
-        pts.append(np.stack([first, rows], axis=1))
-        pts.append(np.stack([last, rows], axis=1))
-    cols = np.flatnonzero(mask.any(axis=0))
-    if cols.size:
-        m = mask[:, cols]
-        top = m.argmax(axis=0)
-        bot = mask.shape[0] - 1 - m[::-1].argmax(axis=0)
-        pts.append(np.stack([cols, top], axis=1))
-        pts.append(np.stack([cols, bot], axis=1))
-    return np.concatenate(pts) if pts else np.empty((0, 2), int)
 
 
 def main():
@@ -113,14 +80,15 @@ def main():
             m = a != nodata
             if not m.any():
                 continue
-            v = hull(extremes(m))
-            if len(v) < 3:
-                continue
-            # cell centres to lon/lat, then clipped to the square by the
-            # rasterise that follows - the hull cannot leave its own square
-            coords = [(gt[0] + (x0 + px + 0.5) * gt[1],
-                       gt[3] + (y0 + py + 0.5) * gt[5]) for px, py in v]
-            coords.append(coords[0])
+            rows = np.flatnonzero(m.any(axis=1))
+            cols = np.flatnonzero(m.any(axis=0))
+            # outer edges of the extreme cells, so every contour cell is inside
+            west = gt[0] + (x0 + cols[0]) * gt[1]
+            east = gt[0] + (x0 + cols[-1] + 1) * gt[1]
+            north = gt[3] + (y0 + rows[0]) * gt[5]
+            south = gt[3] + (y0 + rows[-1] + 1) * gt[5]
+            coords = [(west, south), (east, south), (east, north),
+                      (west, north), (west, south)]
             feats.append('{"type":"Feature","properties":{},"geometry":'
                          '{"type":"Polygon","coordinates":[[%s]]}}'
                          % ','.join('[%.9f,%.9f]' % c for c in coords))
@@ -129,7 +97,7 @@ def main():
         sys.exit('demDrawnMask.py: no constraints in %s' % src_path)
     with open(out_path, 'w') as f:
         f.write('{"type":"FeatureCollection","features":[%s]}' % ','.join(feats))
-    print(f'  drawn area: {len(feats)} square hulls', file=sys.stderr)
+    print(f'  drawn area: {len(feats)} square envelopes', file=sys.stderr)
 
 
 if __name__ == '__main__':
