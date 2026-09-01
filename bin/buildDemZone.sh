@@ -27,9 +27,8 @@
 #   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
 #                   value. At 3" a one cell line is a 93 m wall; at 1" the same
 #                   cell is 31 m, so rays thread gaps which could not exist on
-#                   the coarser grid. 1 gives 62 m, still thinner than the wall
-#                   the coarse grid gave for nothing. It was 2, which was tuned
-#                   on open water and overshot inland - see below
+#                   the coarser grid. 2 gives 62 m, close to what the coarse grid
+#                   gave for nothing. 1 was tried and reverted - see below
 #   SMOOTH_CELLS    hillshade is a derivative, so it renders the slope
 #                   discontinuity at every contour as a visible band. No
 #                   interpolator avoids it - the best of them, r.fillnulls
@@ -53,7 +52,7 @@ PUB=${PUB:-${OGF}/sync-to-ogf/dem}/${ZONE}
 ARCSEC=${ARCSEC:-1}                     # master DEM resolution
 HGT_ARCSEC=${HGT_ARCSEC:-3}             # the .hgt archive stays at 1201
 FILL_METRES=${FILL_METRES:-1850}
-BARRIER_CELLS=${BARRIER_CELLS:-1}
+BARRIER_CELLS=${BARRIER_CELLS:-2}
 ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
@@ -274,20 +273,24 @@ rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
 # contours in line of sight and declines to fill at all from one, which is also
 # what keeps water enclosed by a coastline empty.
 #
-# The barrier was 2 until September 2026, tuned by measuring open water and
-# never measured on land. A thicker wall occludes more, and what it occludes is
-# the second contour a cell needs to interpolate between - so it was pushing
-# cells out of the first pass and into the second, which has to invent them.
+# The barrier was tuned by measuring open water, so 1 was tried on the grounds
+# that a thicker wall occludes the second contour a cell needs in order to
+# interpolate at all, pushing cells out of the first pass and into the second,
+# which has to invent them. Measured on zone-ellarca inside the described area,
+# first pass only, at barrier 0, 1, 2 and 3, the ground the first pass resolves
+# is 54.88, 54.71, 49.29 and 46.46%: all of the cost sits between 1 and 2, 5.4
+# points, a ninth of what the pass answers.
 #
-# Measured on zone-ellarca inside the described area, first pass only, at
-# barrier 0, 1, 2 and 3: the ground the first pass resolves is 54.88, 54.71,
-# 49.29 and 46.46%. All of the cost sits between 1 and 2 - 5.4 points, a ninth
-# of what the pass answers - and 0 buys nothing over 1.
+# It was reverted because none of that reaches the map. Five zones were built at
+# 1 and inspected against the same zones at 2, and the hillshade is the same
+# picture - the cells that move are ones the second pass was already filling
+# with the value the first pass would have derived. What does not come back is
+# the cost: 195s against 175s on ellarca, and elevation left over water 0.776%
+# against 0.738%, or on zone-tapira, which is 92% sea, 42 cells against 12.
 #
-# The sea is what 2 was protecting, and it barely notices. Elevation left over
-# water goes from 0.738% to 0.776% on ellarca, and on zone-tapira, which is 92%
-# sea, from 12 cells to 42. Against roughly 4.4 million land cells moving from
-# invented to interpolated.
+# So 2 stands, on runtime and on the sea, and the measurement above is kept
+# because it says where to look if the first pass ever needs widening: the
+# whole of the barrier's effect on coverage is in that one step.
 #
 # Needs isofill 0.4.0 or later, which fills the cells the first pass found
 # nothing for rather than leaving them at zero - the behaviour 0.3.1 had behind
