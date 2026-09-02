@@ -326,10 +326,19 @@ ${TOOLS}/bin/demDrawnMask.py ${WORK}/cont.tif ${WORK}/drawn.geojson
 gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
 	-co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
-	--mask ${WORK}/drawn-mask.tif ${ISOFILL_EXTRA} \
-	${WORK}/cont.tif ${WORK}/rounded.tif
-# No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
+# The water mask is built before the fill, not after it. It has always been
+# derived from contours.gpkg and cont.tif, both of which exist by now, so the
+# order was free either way - until --pass2 diffuse, which needs the sea as a
+# boundary rather than as something to clean up afterwards. Laplace has no
+# notion of running out of information: bounded by a coastline at zero on one
+# side and whatever the far shore carries on the other, it ramps between them
+# and fills the sea. On zone-ellarca that took the sea from 67.32% of the zone
+# to 59.76%, because demLandClamp looks for candidate sea where the DEM reads
+# zero and water carrying a value is no longer recognised as water.
+#
+# The linear pass never needed telling, since it anchors every row and column at
+# zero one step past its ends - a pull towards zero wherever the data is sparse,
+# which was doing this job as a side effect.
 
 # Water areas as a mask, where the zone has a water file. natural=water states
 # that its interior is water; a closed coastline ring does not, being equally
@@ -362,6 +371,12 @@ else
 		echo "  1 m rather than 0, which shows in the relief rasters" >&2
 	fi
 fi
+
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
+	--mask ${WORK}/drawn-mask.tif ${WATER_MASK:+--water ${WATER_MASK}} \
+	${ISOFILL_EXTRA} \
+	${WORK}/cont.tif ${WORK}/rounded.tif
+# No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
 
 # Land at sea level is not the sea. Flat coastal ground whose nearest constraint
 # is the coastline interpolates to zero, and zero is transparent in the relief
