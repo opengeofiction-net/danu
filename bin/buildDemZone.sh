@@ -54,6 +54,15 @@ HGT_ARCSEC=${HGT_ARCSEC:-3}             # the .hgt archive stays at 1201
 FILL_METRES=${FILL_METRES:-1850}
 BARRIER_CELLS=${BARRIER_CELLS:-2}
 ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
+# What isofill may hold. The two passes decide separately whether to band, and
+# they are not equal: the first reads each band with a radius margin, so every
+# interior cell still sees its whole search circle and a banded run is exact.
+# The second banded is an approximation. So this wants to be large enough for
+# the second pass on the largest zone even where the first must band - 19.0 GB
+# for zone-yuethon at 46801 square, against 26.5 GB to hold that zone's first
+# pass whole. 20 GB clears every zone's second pass and stays inside util's
+# guaranteed 24 GB without leaning on the balloon
+MAX_MEM=${MAX_MEM:-20480}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
@@ -372,7 +381,7 @@ else
 	fi
 fi
 
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} \
+isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} \
 	--mask ${WORK}/drawn-mask.tif ${WATER_MASK:+--water ${WATER_MASK}} \
 	${ISOFILL_EXTRA} \
 	${WORK}/cont.tif ${WORK}/rounded.tif
