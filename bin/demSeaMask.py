@@ -110,11 +110,21 @@ def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
     src = gdal.Open(seed_path)
     ds = gdal.GetDriverByName('GTiff').Create(
         out_path, cols, rows, 1, gdal.GDT_Float32,
-        options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
+        options=['TILED=YES', 'COMPRESS=ZSTD', 'PREDICTOR=3', 'ZSTD_LEVEL=1',
+                 'BIGTIFF=IF_SAFER'])
     ds.SetGeoTransform(gt)
     ds.SetProjection(proj)
+    # Bounded at MAX_CELLS, because nothing past it is ever read: the mask is
+    # (waterdist < landdist) & (waterdist <= MAX_CELLS), so a cell beyond the
+    # bound fails the second test whatever the first says, and two cells both
+    # beyond it compare equal and fail anyway. Unbounded, these two temporaries
+    # are a distinct float per cell over the whole zone and compress barely two
+    # to one: on zone-axian, 64801 by 32401, they had reached 4.3 GB each and
+    # were heading for 8.4, which filled the disk and took the build with it.
+    # Bounded, everything past the coast is one repeated value.
     gdal.ComputeProximity(src.GetRasterBand(1), ds.GetRasterBand(1),
-                          ['VALUES=1', 'DISTUNITS=PIXEL'])
+                          ['VALUES=1', 'DISTUNITS=PIXEL',
+                           f'MAXDIST={MAX_CELLS + 1}', 'NODATA=30000'])
     ds.FlushCache()
     ds = src = None
 
