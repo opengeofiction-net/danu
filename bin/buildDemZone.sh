@@ -89,6 +89,11 @@ OSMCONF=${TOOLS}/etc/dem_osmconf.ini
 # negative ids, which the custom node index cannot handle
 export OSM_CONFIG_FILE=${OSMCONF}
 export OSM_USE_CUSTOM_INDEXING=NO
+# A square whose in-memory database exceeds OSM_MAX_TMPFILE_SIZE (100 MB) spills
+# to disk. Without this GDAL writes the spill relative to the current directory,
+# which under systemd is / and unwritable: the copy fails and the driver returns
+# the square as zero features, silently, with a non-zero exit code nowhere
+export CPL_TMPDIR=${WORK}
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
 # be published alongside every raster
 export GDAL_PAM_ENABLED=NO
@@ -188,6 +193,7 @@ sed 's/^closed_ways_are_polygons=.*/closed_ways_are_polygons=/' \
 rm -f ${WORK}/contours.gpkg
 first=1
 SQUARE=${WORK}/square.osm
+before=0
 for f in ${SRC}/*.osm.xz; do
 	[ -e "${f}" ] || continue
 	xz -dc "${f}" > ${SQUARE}
@@ -204,8 +210,10 @@ for f in ${SRC}/*.osm.xz; do
 	eval "$(awk '
 		/<way id=/ { n = 0 }
 		/<nd / { ++n }
-		/<\/way>/ { if (n > 2000) ++over; if (n > 10000) ++drop; if (n > max) max = n }
-		END { printf "sq_over=%d sq_drop=%d sq_max=%d\n", over+0, drop+0, max+0 }' ${SQUARE})"
+		/<tag k="ele"/ { e = 1 }
+		/<\/way>/ { if (n > 2000) ++over; if (n > 10000) ++drop; if (n > max) max = n
+		             if (e) ++ele; e = 0 }
+		END { printf "sq_over=%d sq_drop=%d sq_max=%d sq_ele=%d\n", over+0, drop+0, max+0, ele+0 }' ${SQUARE})"
 	if [ "${sq_drop}" -gt 0 ]; then
 		echo "  ERROR: $(basename ${f}) has ${sq_drop} way(s) over 10,000 nodes" >&2
 		echo "  (longest ${sq_max}). GDAL drops these silently and the ground they" >&2
@@ -228,6 +236,21 @@ for f in ${SRC}/*.osm.xz; do
 			-where "ele IS NOT NULL" -nln contour >/dev/null
 	fi
 	rm -f ${SQUARE}
+	# A square can convert to nothing and still exit 0: the OSM driver spills to
+	# disk over OSM_MAX_TMPFILE_SIZE, and if that write fails it hands back an
+	# empty layer rather than an error. That cost liberian 16,555 of its 20,472
+	# constraint lines - 81% of the zone - across every build until CPL_TMPDIR
+	# was set above, and nothing in the run said so. The merged-file check at
+	# the end cannot see it, because the other squares carry the count
+	now=$(ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null |
+		sed -n 's/^Feature Count: //p')
+	if [ "${sq_ele}" -gt 0 ] && [ "${now:-0}" -eq "${before:-0}" ]; then
+		echo "  ERROR: $(basename ${f}) has ${sq_ele} contour way(s) but converted" >&2
+		echo "  to none. Check the run for 'Cannot create' - the OSM driver loses" >&2
+		echo "  a square silently when its temporary file cannot be written" >&2
+		exit 1
+	fi
+	before=${now}
 done
 # ele is a string, and not every string is a height. Squares carry ele=TBD on
 # lake outlines nobody has surveyed yet, ele=tbd on peaks, the odd ele=169s
