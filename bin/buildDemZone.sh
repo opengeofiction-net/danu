@@ -58,11 +58,23 @@ ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
 # they are not equal: the first reads each band with a radius margin, so every
 # interior cell still sees its whole search circle and a banded run is exact.
 # The second banded is an approximation. So this wants to be large enough for
-# the second pass on the largest zone even where the first must band - 19.0 GB
+# the second pass on the largest zone even where the first must band - 13.6 GB
 # for zone-yuethon at 46801 square, against 26.5 GB to hold that zone's first
-# pass whole. 20 GB clears every zone's second pass and stays inside util's
-# guaranteed 24 GB without leaning on the balloon
-MAX_MEM=${MAX_MEM:-20480}
+# pass whole.
+#
+# The number is not the peak. isofill sizes its own arrays against it, and
+# GDAL's block cache, the rasterisation and the contour reads all sit outside
+# that. Once isofill's own figures were made honest - the banded first pass also
+# holds the whole output array, and the second pass holds both mask rasters -
+# the measured peak on zone-axian is 1.06 times the budget, so this is close to
+# the real ceiling rather than a number to multiply.
+#
+# 18500 clears every zone's second pass, the largest being zone-yuethon at
+# 18104 MB, and puts the peak near 19.6 GB: inside util's guaranteed 24 without
+# leaning on the balloon, which the host can reclaim mid-run. Below it the big
+# zones fall to the second pass's out-of-core path, which is an approximation -
+# at 15000, zone-axian took it and came out with a different sea.
+MAX_MEM=${MAX_MEM:-18500}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${TOOLS}/etc/dem_relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
