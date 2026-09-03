@@ -195,7 +195,15 @@ def main():
 
     out_ds = gdal.GetDriverByName('GTiff').Create(
         out_path, cols, rows, 1, gdal.GDT_Float32,
-        options=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2',
+        # LERC_ZSTD, not DEFLATE. LERC is made for elevation rasters and takes a
+        # stated maximum error, so it can be told how much precision is wanted
+        # rather than preserving bits nobody reads. At 0.05 m that is 42.7 MB
+        # for zone-ellarca against 102 for DEFLATE, and it reads three times
+        # faster - and 0.05 m is a twentieth of the whole-metre quantisation
+        # this DEM went to Float32 to escape, so it cannot bring it back.
+        # Checked in QGIS against the DEFLATE original: no visible difference.
+        options=['TILED=YES', 'COMPRESS=LERC_ZSTD', 'MAX_Z_ERROR=0.05',
+                 'ZSTD_LEVEL=9',
                  'BIGTIFF=IF_SAFER'])
     out_ds.SetGeoTransform(gt)
     out_ds.SetProjection(proj)
