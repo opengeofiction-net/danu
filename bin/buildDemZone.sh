@@ -210,7 +210,7 @@ for f in ${SRC}/*.osm.xz; do
 	eval "$(awk '
 		/<way id=/ { n = 0 }
 		/<nd / { ++n }
-		/<tag k="ele"/ { e = 1 }
+		/<tag k=.ele./ { e = 1 }
 		/<\/way>/ { if (n > 2000) ++over; if (n > 10000) ++drop; if (n > max) max = n
 		             if (e) ++ele; e = 0 }
 		END { printf "sq_over=%d sq_drop=%d sq_max=%d sq_ele=%d\n", over+0, drop+0, max+0, ele+0 }' ${SQUARE})"
