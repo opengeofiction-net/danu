@@ -127,7 +127,12 @@ def main():
     for y, h in strips(rows, cols):
         d = dem_band.ReadAsArray(0, y, cols, h)
         c = cont_band.ReadAsArray(0, y, cols, h)
-        cand_band.WriteArray((((d == 0) | (d == NODATA)) &
+        # Under half a metre, not exactly zero. The DEM was Int16 metres when
+        # this was written, so "reads zero" and "is under half a metre" were the
+        # same statement; as Float32 they are not, and taking the strict one
+        # would move the coastline - a cell the fill left at 0.3 m would stop
+        # being a candidate and get clamped to land.
+        cand_band.WriteArray((((np.abs(d) < 0.5) | (d == NODATA)) &
                               (c == NODATA)).astype('uint8'), 0, y)
     cand_band.FlushCache()
 
@@ -189,7 +194,7 @@ def main():
     sea_ds, sea_band = open_band(sea_path)
 
     out_ds = gdal.GetDriverByName('GTiff').Create(
-        out_path, cols, rows, 1, gdal.GDT_Int16,
+        out_path, cols, rows, 1, gdal.GDT_Float32,
         options=['TILED=YES', 'COMPRESS=DEFLATE', 'PREDICTOR=2',
                  'BIGTIFF=IF_SAFER'])
     out_ds.SetGeoTransform(gt)
@@ -210,7 +215,7 @@ def main():
         # so it cannot be mistaken for sea by a ramp which makes zero
         # transparent. Cells the fill never reached hold no information and
         # become 1 m, which is what they are: land of unknown low elevation.
-        np.maximum(d, np.int16(1), out=d)
+        np.maximum(d, np.float32(1), out=d)
         d[sea] = 0
         # anything the squares burned is authoritative and goes back untouched,
         # so a contour or a coastline drawn at zero stays at zero
@@ -219,7 +224,7 @@ def main():
 
         out_band.WriteArray(d, 0, y)
         n_sea += int((d == 0).sum())
-        n_low += int(((d > 0) & (d < 10)).sum())
+        n_low += int(((d > 0) & (d < 10)).sum())   # 1 m exactly, up to 10
 
     out_band.FlushCache()
     out_ds = sea_ds = water_ds = None
