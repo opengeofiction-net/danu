@@ -411,7 +411,19 @@ text = (text.replace('<SimpleSource>', '<KernelFilteredSource>')
             .replace('</SimpleSource>', kernel + '</KernelFilteredSource>'))
 open(path, 'w').write(text)
 PY
-gdal_translate -q -ot Int16 -co TILED=YES -co COMPRESS=DEFLATE \
+# Float32, not Int16. The DEM is whole metres, the box filter turns them into
+# fractional ones, and rounding those straight back onto the metre grid hands the
+# smoothing's output to the quantisation it exists to fight. gdalwarp takes its
+# output type from its input, so an Int16 copy here means an Int16 mercator copy
+# too - the same grid twice. Measured on a box inside N32E067_Ellarca, through
+# the warp and the hillshade: neighbouring cells of the mercator copy identical
+# on 86.09% of the raster against 34.43%, and hillshade steps of three grey
+# levels or more on 23.04% of it against 2.09%. That eleven-fold difference is
+# the terracing, and it is visible as hard rings around every contour.
+#
+# The published DEM is untouched: this copy is for the hillshade only, and is
+# removed with the rest of the working files at the end
+gdal_translate -q -ot Float32 -co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/smooth.vrt ${WORK}/smooth.tif
 
 # ---------------------------------------------------------------- derivative
