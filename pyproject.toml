@@ -23,14 +23,16 @@ dependencies = [
 ui = ["PySide6>=6.6"]
 dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6"]
 
-[project.scripts]
-danu-build = "danu.cli.build:main"
-danu-check = "danu.cli.check:main"
-danu-square = "danu.cli.square:main"
-danu-render = "danu.cli.render:main"
-
-[project.gui-scripts]
-danu = "danu.ui.main:main"
+# No [project.scripts] yet. Declaring entry points for modules which do not
+# exist ships commands that fail on import: the first package built this way
+# installed /usr/bin/danu-check pointing at danu.cli.check:main with nothing
+# behind it, and put the editor's launcher in the server package. It also
+# collided with debian/danu-server.install over /usr/bin/danu-build, where two
+# files claim one path and which wins is luck.
+#
+# The server's entry points are the shell scripts, installed by the package.
+# These come back when danu.cli exists, and danu-build has to be one thing or
+# the other by then.
 
 [tool.setuptools.packages.find]
 include = ["danu*"]
