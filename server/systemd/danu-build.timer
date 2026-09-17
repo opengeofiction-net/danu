@@ -14,7 +14,7 @@ Description=Rebuild changed OpenGeofiction elevation zones
 # rest, so the worst case is a tile server a few zones behind for a day.
 OnCalendar=*-*-* 03:00
 Persistent=true
-Unit=dem-build.service
+Unit=danu-build.service
 
 [Install]
 WantedBy=timers.target

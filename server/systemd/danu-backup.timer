@@ -8,7 +8,7 @@ Description=Back up the OpenGeofiction elevation source data
 # submissions are archived in the state they were built from
 OnCalendar=Thu 04:23
 Persistent=true
-Unit=backup-elevation.service
+Unit=danu-backup.service
 
 [Install]
 WantedBy=timers.target
