@@ -16,10 +16,16 @@ packaging/*/out/
 .coverage
 htmlcov/
 
-# scratch
+# scratch rasters and extracts, which are large and rebuildable
 *.tif
 *.osm
 *.osm.xz
 *.pbf
-!tests/golden/**/*.osm.xz
+
+# ...except the golden fixture, which is the point of tests/golden and is
+# small on purpose. This exception is load-bearing: without it the reference
+# is silently not committed and the test fails on a fresh clone with a
+# missing file rather than a difference.
+!tests/golden/*.osm.xz
+!tests/golden/expected.tif
 .hypothesis/
