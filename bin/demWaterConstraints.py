@@ -320,15 +320,19 @@ def main():
                             arr, have, step, river_elev)
     if burnt is not None:
         labels, level = burnt
-        lut = np.zeros(max(level) + 1 if level else 1, dtype='f4')
-        known = np.zeros(lut.shape, dtype=bool)
+        # sized to every id the raster can hold, not just the ids which got a
+        # level: a body left without one still carries its label, and clipping
+        # those into range silently pointed them at another lake's answer
+        size = int(labels.max()) + 1
+        lut = np.zeros(size, dtype='f4')
+        known = np.zeros(size, dtype=bool)
         for lid, elev in level.items():
-            lut[lid] = elev
-            known[lid] = True
+            if lid < size:
+                lut[lid] = elev
+                known[lid] = True
         # inside the mask, but not limited to cells the contours left empty:
         # a flat surface means the contours crossing it give way
-        sel = (labels > 0) & allow
-        sel &= known[np.clip(labels, 0, len(known) - 1)]
+        sel = (labels > 0) & allow & known[labels]
         stats['lake over contour'] = int((sel & have).sum())
         arr[sel] = np.round(lut[labels[sel]]).astype(arr.dtype)
         stats['lake cells'] += int(sel.sum())
