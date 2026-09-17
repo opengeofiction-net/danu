@@ -1,4 +1,0 @@
-# file: /home/wangi/code/ogf/danu/danu/checks/rivers.py
-# hypothesis_version: 6.151.5
-
-[0.0, 0.25, 1.0, 111320.0, 180, 200, ',', '--bbox', '--geojson', '--min-ascent', '--top', 'Feature', 'FeatureCollection', 'LineString', 'W,S,E,N', '__main__', 'ascent', 'bad_m', 'canal', 'coordinates', 'dem', 'ditch', 'drain', 'f8', 'features', 'geometry', 'id', 'ignore', 'irred', 'k', 'kind', 'lat', 'length', 'lon', 'name', 'nd', 'node', 'properties', 'ref', 'rise_m', 'river', 'stream', 'tag', 'type', 'v', 'w', 'waterway', 'way', '|']

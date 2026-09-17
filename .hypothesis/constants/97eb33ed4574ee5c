@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/numpy/lib/_version.py
-# hypothesis_version: 6.151.5
-
-['.', '.dev', 'NumpyVersion', '\\d+\\.\\d+\\.\\d+', 'a\\d', 'b\\d', 'final', 'numpy.lib', 'rc\\d']

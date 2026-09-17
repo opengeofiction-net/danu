@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/iniconfig/_parse.py
-# hypothesis_version: 6.151.5
-
-['#;', ':', '=', '[', ']', 'empty section name', 'unexpected line: %r']

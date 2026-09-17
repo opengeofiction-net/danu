@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/osgeo/gdal_array.py
-# hypothesis_version: 6.151.5
-
-['.', '<%s.%s; %s >', "Can't find driver ", "Can't open ", 'Failed to set GCPs', 'GTiff', 'IMAGE_STRUCTURE', 'Input must be a type', 'PIXELTYPE', 'SIGNEDBYTE', 'The membership flag', '__float__', '__int__', '__spec__', 'band', 'formats', 'gdal_array', 'is_integer', 'itemsize', 'names', 'numpy', 'offsets', 'osgeo.gdal', 'osgeo.gdal_array', 'parent', 'pixel', 'proxy of ', 'str', 'this', 'thisown']

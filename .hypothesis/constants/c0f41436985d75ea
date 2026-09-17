@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/numpy/random/_pickle.py
-# hypothesis_version: 6.151.5
-
-['MT19937', 'PCG64', 'PCG64DXSM', 'Philox', 'SFC64']

@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/osgeo/ogr.py
-# hypothesis_version: 6.151.5
-
-[12345678901234, '.', '1', '<%s.%s; %s >', 'Feature', 'OGRErr', 'ON', 'TRUE', 'The membership flag', 'USE_MASKED_ARRAYS=', 'YES', '__arrow_c_array__', '__arrow_c_schema__', '__arrow_c_stream__', '__spec__', '_dataset_strong_ref', '_dataset_weak_ref', '_geom_references', 'cannot get schema', 'columns', 'data', 'geometry', 'id', 'mask', 'numpy', 'osgeo.gdal', 'osgeo.gdal_array', 'parent', 'properties', 'proxy of ', 'schema', 'this', 'thisown', 'to_batches', 'type', 'xml:']

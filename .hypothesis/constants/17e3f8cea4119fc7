@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/_pytest/outcomes.py
-# hypothesis_version: 6.151.5
-
-['__version__', 'builtins', 'eval', 'ignore', 'unknown reason']

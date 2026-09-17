@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/numpy/_core/_exceptions.py
-# hypothesis_version: 6.151.5
-
-[1000, 1024, 'EiB', 'GiB', 'KiB', 'MiB', 'PiB', 'TiB', 'bytes']

@@ -1,4 +1,0 @@
-# file: /home/wangi/code/ogf/danu/danu/water/constraints.py
-# hypothesis_version: 6.151.5
-
-[0.0, 5000.0, 111320.0, -9999, 900, 65535, "','", ',', '--bbox', '--mask', '--osm', '--report', 'ATTRIBUTE=lid', 'CPL_TMPDIR', 'EPSG:4326', 'MEM', 'Memory', 'NO', '__main__', 'canal', 'cont', 'ditch', 'drain', 'f4', 'flowing area', 'from outlet', 'from rim', 'graded', 'ignore', 'lake cells', 'lake no level', 'lake over contour', 'lakes', 'lid', 'lines', 'multipolygons', 'name', 'no grade', 'no level', 'osm_id', 'other_tags', 'outlet', 'outside', 'rejected', 'rim', 'river', 'river cells', 'riverbank', 'stats', 'stream', 'w', 'water', 'water.osm', 'waterway', "waterway IN ('%s')", 'way', 'wb', '|']

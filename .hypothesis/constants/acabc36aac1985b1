@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/osgeo/__init__.py
-# hypothesis_version: 6.151.5
-
-['.', '._gdal', ';', 'PATH', 'RELEASE_NAME', '_gdal', 'gdal*.dll', 'libgdal*.dll', 'win32']

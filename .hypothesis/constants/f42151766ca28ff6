@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/typeguard/_importhook.py
-# hypothesis_version: 6.151.5
-
-['.', '<string>', 'P', 'PathFinder', 'T', 'exec', 'find_spec', 'typeguard']

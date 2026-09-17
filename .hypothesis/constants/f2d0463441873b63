@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/numpy/lib/_stride_tricks_impl.py
-# hypothesis_version: 6.151.5
-
-['C', 'broadcast_arrays', 'broadcast_shapes', 'broadcast_to', 'multi_index', 'numpy', 'readonly', 'refs_ok', 'shape', 'strides', 'zerosize_ok']

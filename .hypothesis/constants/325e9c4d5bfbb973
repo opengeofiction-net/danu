@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/numpy/lib/_array_utils_impl.py
-# hypothesis_version: 6.151.5
-
-['byte_bounds', 'data', 'normalize_axis_index', 'normalize_axis_tuple', 'shape', 'strides']
