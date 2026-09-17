@@ -26,7 +26,7 @@
 set -u
 
 OGF=${OGF:-/opt/opengeofiction}
-BASE=${1:-${OGF}/elevation}
+BASE=${1:-${BASE:-${OGF}/elevation}}
 BACKUP_QUEUE=${2:-${OGF}/backup-to-s3-queue}
 DEST=${DEST:-${OGF}/backup-database}
 LOCKFILE=${DEST}/backup-elevation.lock

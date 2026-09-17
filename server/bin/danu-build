@@ -32,7 +32,7 @@ PYTHON=${PYTHON:-python3}
 ZONEBUILD=${ZONEBUILD:-danu-build-zone}
 SQUARES=${BASE}/osm-squares
 STAMPS=${BASE}/stamps
-PUB=${PUB:-${OGF}/sync-to-ogf/dem}
+PUB=${PUB:-${PUBROOT}}
 # Zones which are built and published but which the renderers should not load.
 # "<zone> <reason>", one per line - see etc/inactive.template. The reason is
 # required and checked, because "inactive" with no reason recorded is how a zone
