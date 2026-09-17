@@ -21,7 +21,8 @@ set -u
 # Installed layout by default; every one is overridable so the pipeline can be
 # run against a copy off the server, which is how it gets tested against
 # zone-roantra's known good output
-TOOLS=${TOOLS:-/etc/danu}
+# where the configuration lives; ${CONF}/osmconf.ini and so on
+CONF=${CONF:-/etc/danu}
 BASE=${BASE:-/var/lib/danu}
 WORKBASE=${WORKBASE:-/var/cache/danu}
 PUBROOT=${PUBROOT:-/var/lib/danu/publish}

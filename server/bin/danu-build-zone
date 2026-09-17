@@ -45,7 +45,8 @@ ZONE=${1:?usage: danu-build-zone <zone>}
 # Installed layout by default; every one is overridable so the pipeline can be
 # run against a copy off the server, which is how it gets tested against
 # zone-roantra's known good output
-TOOLS=${TOOLS:-/etc/danu}
+# where the configuration lives; ${CONF}/osmconf.ini and so on
+CONF=${CONF:-/etc/danu}
 BASE=${BASE:-/var/lib/danu}
 WORKBASE=${WORKBASE:-/var/cache/danu}
 PUBROOT=${PUBROOT:-/var/lib/danu/publish}
@@ -82,13 +83,13 @@ ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
 # at 15000, zone-axian took it and came out with a different sea.
 MAX_MEM=${MAX_MEM:-18500}
 SMOOTH_CELLS=${SMOOTH_CELLS:-5}
-RAMP=${TOOLS}/etc/relief.ramp
+RAMP=${CONF}/relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
 # as natural=water instead, which for an inland sea is usual. Used only to tell
 # land at sea level from the sea itself - the squares remain the elevation
 # source of truth. Without it enclosed water reads 1 m instead of 0
 WATER=$(ls ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf 2>/dev/null | head -1)
-OSMCONF=${TOOLS}/etc/osmconf.ini
+OSMCONF=${CONF}/osmconf.ini
 
 # GDAL's default osmconf.ini ignores ele on every layer, so reading a contour
 # square with it yields an empty DEM and no error. The squares also carry
