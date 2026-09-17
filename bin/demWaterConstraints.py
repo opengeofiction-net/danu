@@ -18,11 +18,13 @@
 # next and forced to descend. That is what the old Perl did per tile in
 # StreamShape, done here on the whole zone at once against the vectors.
 #
-# A water body is flat, and is burned flat across its whole surface at the
-# lowest contour its outline touches - a lake sits in the hollow, not on its
-# rim. The surface matters more than the outline: Lake Kinser is 37.5 km², some
-# 41,000 cells at 1 arcsecond, which is more constraint than every waterway in
-# gobras put together.
+# A water body is flat, and is burned flat across its whole surface. Its level
+# is its outlet: a graded river descends, so the lowest graded river elevation
+# inside the body is the point water leaves it. Failing that - no river touches
+# it - the lowest contour its outline touches, which is cruder, because the rim
+# need not agree with whatever drains the hollow. The surface matters more than
+# the outline: Lake Kinser is 37.5 km², some 41,000 cells at 1 arcsecond, which
+# is more constraint than every waterway in gobras put together.
 #
 # Geometry comes from GDAL's OSM driver rather than from parsing the XML here,
 # because a lake is as likely to be a multipolygon relation as a closed way -
@@ -158,45 +160,69 @@ def grade(values, seg_m):
     return out, rejected
 
 
-def burn_lakes(feats, template, inv_gt, cols, rows, arr, have, step):
-    """Each water body flat at the lowest contour its outline touches, burned
-    across its whole surface. Returns the raster of lake elevations."""
-    # 'MEM' on GDAL 3.11 and later, 'Memory' before it - util is on 3.10 and
-    # returns None for the new name, which fails as an attribute error on the
-    # driver rather than anything that reads like a missing driver
+def burn_lakes(feats, template, inv_gt, cols, rows, arr, have, step, graded):
+    """Each water body flat across its whole surface.
+
+    The level is the outlet: a graded river only descends, so the lowest graded
+    elevation inside the body is where water leaves it. With no river touching
+    it, the lowest contour the outline crosses, which is cruder - the rim need
+    not agree with whatever drains the hollow.
+    """
     drv = ogr.GetDriverByName('MEM') or ogr.GetDriverByName('Memory')
     if drv is None:
         raise RuntimeError('no OGR in-memory driver available')
     src = drv.CreateDataSource('lakes')
-    # the layer needs the raster's own reference or RasterizeLayer warns that it
-    # is assuming they match, which it should not have to assume
     srs = osr.SpatialReference()
     srs.SetFromUserInput(template.GetProjection() or 'EPSG:4326')
     lyr = src.CreateLayer('lakes', srs=srs, geom_type=ogr.wkbMultiPolygon)
-    lyr.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
-    pinned = skipped = 0
-    for geom, name in feats:
+    lyr.CreateField(ogr.FieldDefn('lid', ogr.OFTInteger))
+
+    # the rim value per body, kept as the fallback, and the id of each
+    rim = {}
+    for n, (geom, _name) in enumerate(feats, start=1):
         pts = ring_points(geom)
         if len(pts) < 3:
             continue
         cells = to_cells(densify(pts, step), inv_gt, cols, rows)
         vals = [int(arr[r, c]) for r, c in cells if have[r, c]]
-        if not vals:
-            skipped += 1
-            continue
+        rim[n] = min(vals) if vals else None
         f = ogr.Feature(lyr.GetLayerDefn())
-        f.SetField('ele', float(min(vals)))
+        f.SetField('lid', n)
         f.SetGeometry(geom.Clone())
         lyr.CreateFeature(f)
-        pinned += 1
-    if not pinned:
-        return None, pinned, skipped
-    mem = gdal.GetDriverByName('MEM').Create('', cols, rows, 1, gdal.GDT_Float32)
+    if not rim:
+        return None, {}
+
+    # one rasterise pass for every body, each carrying its own id, so the
+    # surfaces can be looked at per body without a pass per lake
+    dtype = gdal.GDT_UInt16 if len(feats) < 65535 else gdal.GDT_UInt32
+    mem = gdal.GetDriverByName('MEM').Create('', cols, rows, 1, dtype)
     mem.SetGeoTransform(template.GetGeoTransform())
     mem.SetProjection(template.GetProjection())
-    mem.GetRasterBand(1).Fill(NODATA)
-    gdal.RasterizeLayer(mem, [1], lyr, options=['ATTRIBUTE=ele'])
-    return mem.GetRasterBand(1).ReadAsArray(), pinned, skipped
+    mem.GetRasterBand(1).Fill(0)
+    gdal.RasterizeLayer(mem, [1], lyr, options=['ATTRIBUTE=lid'])
+    labels = mem.GetRasterBand(1).ReadAsArray()
+
+    # the outlet, found by walking the graded river cells rather than the
+    # surfaces: there are tens of thousands of the former and millions of the
+    # latter
+    outlet = {}
+    for (r, c), elev in graded.items():
+        lid = int(labels[r, c])
+        if lid and (lid not in outlet or elev < outlet[lid]):
+            outlet[lid] = elev
+
+    level, how = {}, collections.Counter()
+    for lid in rim:
+        if lid in outlet:
+            level[lid] = outlet[lid]
+            how['outlet'] += 1
+        elif rim[lid] is not None:
+            level[lid] = rim[lid]
+            how['rim'] += 1
+        else:
+            how['no level'] += 1
+    return (labels, level), how
 
 
 def main():
@@ -242,6 +268,7 @@ def main():
     osm_ds = ogr.Open(osm)
     stats = collections.Counter()
     notes = []
+    river_elev = {}
     writable = (~have) & allow
 
     # ---- waterways
@@ -266,6 +293,11 @@ def main():
             continue
         for i, elev in graded.items():
             r, c = cells[i]
+            # every graded cell is remembered, written or not: a cell which
+            # lost to a contour still says what height the water is there,
+            # which is what a lake's outlet needs
+            if (r, c) not in river_elev or elev < river_elev[(r, c)]:
+                river_elev[(r, c)] = elev
             if writable[r, c]:
                 arr[r, c] = int(round(elev))
                 writable[r, c] = False
@@ -284,23 +316,33 @@ def main():
         g = feat.GetGeometryRef()
         if g is not None:
             feats.append((g.Clone(), feat.GetField('name') or ''))
-    lake, pinned, skipped = burn_lakes(feats, ds, inv_gt, cols, rows,
-                                       arr, have, step)
-    if lake is not None:
+    burnt, how = burn_lakes(feats, ds, inv_gt, cols, rows,
+                            arr, have, step, river_elev)
+    if burnt is not None:
+        labels, level = burnt
+        lut = np.zeros(max(level) + 1 if level else 1, dtype='f4')
+        known = np.zeros(lut.shape, dtype=bool)
+        for lid, elev in level.items():
+            lut[lid] = elev
+            known[lid] = True
         # inside the mask, but not limited to cells the contours left empty:
         # a flat surface means the contours crossing it give way
-        sel = (lake != NODATA) & allow
+        sel = (labels > 0) & allow
+        sel &= known[np.clip(labels, 0, len(known) - 1)]
         stats['lake over contour'] = int((sel & have).sum())
-        arr[sel] = np.round(lake[sel]).astype(arr.dtype)
+        arr[sel] = np.round(lut[labels[sel]]).astype(arr.dtype)
         stats['lake cells'] += int(sel.sum())
-    stats['lakes'] = pinned
-    stats['lake no contour'] = skipped
+    stats['lakes'] = how['outlet'] + how['rim']
+    stats['from outlet'] = how['outlet']
+    stats['from rim'] = how['rim']
+    stats['lake no level'] = how['no level']
 
     total = stats['river cells'] + stats['lake cells']
     print(f'  waterways graded {stats["graded"]}, no usable grade '
           f'{stats["no grade"]}, outside {stats["outside"]}')
-    print(f'  water bodies {len(feats)}: pinned {pinned}, '
-          f'without a contour on the outline {skipped}')
+    print(f'  water bodies {len(feats)}: pinned {stats["lakes"]} '
+          f'({stats["from outlet"]} from an outlet, {stats["from rim"]} from '
+          f'the rim), no level found {stats["lake no level"]}')
     print(f'  contour cells overridden by a water surface: '
           f'{stats["lake over contour"]:,}')
     print(f'  constraint cells added: {total:,} '
