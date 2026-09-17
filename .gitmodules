@@ -1,0 +1,3 @@
+[submodule "extern/isofill"]
+	path = extern/isofill
+	url = git@github.com:opengeofiction-net/isofill.git

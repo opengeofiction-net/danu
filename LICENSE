@@ -1,0 +1,44 @@
+# Licence
+
+Danu is free software under the GNU General Public Licence, version 3 or, at
+your option, any later version.
+
+    SPDX-License-Identifier: GPL-3.0-or-later
+
+The full text is in `licences/GPL-3`.
+
+## Why the GPL and not something permissive
+
+Two of Danu's dependencies decide this between them.
+
+`libisofill` is available under either the Artistic Licence 1.0 or the GNU GPL
+version 1 or later, because it is a line-for-line derivation of the terrain code
+in `ogf-server-scripts`, which is released on the same terms as Perl itself.
+Danu exercises the GPL branch of that choice and takes it at version 3. The
+Artistic branch is no use here: it does not combine cleanly with the other
+dependency.
+
+That other dependency is PySide6, which is LGPL version 3. Combining LGPL-3 with
+GPL-3 is explicitly permitted, and GPL-3 is the only version of the GPL it
+permits. So GPL-3-or-later is not a preference so much as the one licence that
+both dependencies allow at once.
+
+Taking the GPL branch is also what lets Danu carry logic ported from the older
+Perl. `danu.checks.zero_line` and the uphill-river check descend from
+`OGF::Terrain::RiverProfile` and `OGF::Util::StreamShape`, written by Thilo
+Stapff; those terms permit the GPL at any version from 1 onwards, so GPL-3 is
+within them and the provenance stays traceable rather than being quietly
+laundered.
+
+The rest of the pipeline moved here from `ogf-server-scripts` - the build
+scripts, the masks, the water constraints, the checks - is recent work by the
+OpenGeofiction administrators and is licensed here by its authors.
+
+## Copyright
+
+    Copyright (c) 2017-2020 Thilo Stapff
+    Copyright (c) 2026 Lee Kindness and OpenGeofiction administrators
+
+Thilo Stapff's copyright covers the interpolation design and the river profile
+logic Danu inherits, directly in `extern/isofill` and by descent in
+`danu.surface` and `danu.checks`.

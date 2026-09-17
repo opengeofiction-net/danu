@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# built artefacts
+*.so
+*.deb
+packaging/*/out/
+
+# test output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# scratch
+*.tif
+*.osm
+*.osm.xz
+*.pbf
+!tests/golden/**/*.osm.xz
