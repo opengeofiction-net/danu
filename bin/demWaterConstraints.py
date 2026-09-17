@@ -152,7 +152,12 @@ def grade(values, seg_m):
 def burn_lakes(feats, template, inv_gt, cols, rows, arr, have, step):
     """Each water body flat at the lowest contour its outline touches, burned
     across its whole surface. Returns the raster of lake elevations."""
-    drv = ogr.GetDriverByName('MEM')
+    # 'MEM' on GDAL 3.11 and later, 'Memory' before it - util is on 3.10 and
+    # returns None for the new name, which fails as an attribute error on the
+    # driver rather than anything that reads like a missing driver
+    drv = ogr.GetDriverByName('MEM') or ogr.GetDriverByName('Memory')
+    if drv is None:
+        raise RuntimeError('no OGR in-memory driver available')
     src = drv.CreateDataSource('lakes')
     # the layer needs the raster's own reference or RasterizeLayer warns that it
     # is assuming they match, which it should not have to assume
