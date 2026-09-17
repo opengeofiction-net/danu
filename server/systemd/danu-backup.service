@@ -12,6 +12,8 @@ RequiresMountsFor=/var/lib/danu
 
 [Service]
 Type=oneshot
+# defaults the operator can change without editing the unit; absent is fine
+EnvironmentFile=-/etc/danu/danu.conf
 User=ogf
 Group=ogf
 ExecStart=/usr/bin/danu-backup
