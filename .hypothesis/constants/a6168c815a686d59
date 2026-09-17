@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/_globals.py
+# hypothesis_version: 6.151.5
+
+['<no value>', '_CopyMode', '_NoValue', '_is_loaded', 'numpy']

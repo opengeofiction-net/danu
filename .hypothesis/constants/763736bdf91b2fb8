@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/osgeo/osr.py
+# hypothesis_version: 6.151.5
+
+['%.18g', ',', '.', '<%s.%s; %s >', 'The membership flag', '__spec__', 'area_name : p.char', 'auth_name : p.char', 'bbox_valid : bool', 'code : p.char', 'deprecated : bool', 'epsg', 'name', 'name : p.char', 'numpy', 'osgeo.gdal', 'osgeo.gdal_array', 'parent', 'proxy of ', 'this', 'thisown', 'type : OSRCRSType', 'wkt']

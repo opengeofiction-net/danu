@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/__config__.py
+# hypothesis_version: 6.151.5
+
+['15.2.0', '3.1.6', '3.12.1', 'Build Dependencies', 'Compilers', 'False', 'Machine Information', 'SIMD Extensions', 'True', 'args', 'baseline', 'blas', 'build', 'c', 'c++', 'cc', 'commands', 'cpu', 'cross-compiled', 'cython', 'detection method', 'dicts', 'endian', 'false', 'family', 'found', 'gcc', 'host', 'include directory', 'lapack', 'ld.bfd', 'lib directory', 'linker', 'linker args', 'linux', 'little', 'name', 'not found', 'numpy', 'pc file directory', 'pkgconfig', 'show_config', 'stdout', 'system', 'unknown', 'version', 'x86_64']

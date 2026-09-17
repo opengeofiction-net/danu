@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The pure logic, on both targets. GDAL is deliberately not installed here:
+  # these tests cover the functions which decide what a contour means, and
+  # keeping them importable without GDAL is what lets this job run on Windows
+  # at all. The parts which need GDAL are covered by the golden surface below.
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy pytest hypothesis
+      - run: python -m pytest tests -q --ignore=tests/golden
+        env:
+          PYTHONPATH: .
+
+  # isofill is C and is built rather than mocked, because a preview which does
+  # not match the build is worse than no preview. Windows is here from the
+  # start: finding out in phase 7 that it cannot be built is the usual way this
+  # goes wrong.
+  isofill:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: install gdal (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgdal-dev
+      - name: install gdal (windows)
+        if: runner.os == 'Windows'
+        run: |
+          C:\Miniconda\condabin\conda.bat install -y -c conda-forge libgdal
+        shell: cmd
+      - name: build
+        working-directory: extern/isofill
+        run: make
+        continue-on-error: ${{ runner.os == 'Windows' }}
+
+  # The check which stops the editor and the build drifting apart. It needs
+  # GDAL and a reference surface, so it is Linux only and skips cleanly until
+  # the fixture exists.
+  golden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+      - run: sudo apt-get update && sudo apt-get install -y python3-gdal python3-numpy python3-pytest
+      - run: python3 -m pytest tests/golden -q
+        env:
+          PYTHONPATH: .

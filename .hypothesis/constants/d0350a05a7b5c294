@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/_core/_asarray.py
+# hypothesis_version: 6.151.5
+
+['A', 'ALIGNED', 'C', 'CONTIGUOUS', 'C_CONTIGUOUS', 'E', 'ENSUREARRAY', 'F', 'FORTRAN', 'F_CONTIGUOUS', 'O', 'OWNDATA', 'W', 'WRITEABLE', 'numpy', 'require']

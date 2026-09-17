@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/typeguard/_functions.py
+# hypothesis_version: 6.151.5
+
+['*', '.', 'T']

@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/osgeo/gnm.py
+# hypothesis_version: 6.151.5
+
+['.', '<%s.%s; %s >', 'The membership flag', '__spec__', 'numpy', 'osgeo.gdal', 'osgeo.gdal_array', 'parent', 'proxy of ', 'this', 'thisown']

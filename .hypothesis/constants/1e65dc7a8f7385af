@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/typeguard/_utils.py
+# hypothesis_version: 6.151.5
+
+['(unknown)', ', ', '.', ':', '<unset>', 'Literal', 'None', 'Union', '_', '__forward_arg__', '__forward_module__', '__module__', '__name__', '__qualname__', '_name', 'builtins', 'class ', 'typeguard.', 'typing', 'typing_extensions']

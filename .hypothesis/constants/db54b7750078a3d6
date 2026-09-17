@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/_typing/_dtype_like.py
+# hypothesis_version: 6.151.5
+
+['_DTypeT_co', '_ScalarT']

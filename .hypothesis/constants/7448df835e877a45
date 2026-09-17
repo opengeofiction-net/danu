@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/numpy/matrixlib/defmatrix.py
+# hypothesis_version: 6.151.5
+
+[10.0, ',', ';', 'C', 'F', '[]', '__rmul__', 'asmatrix', 'bmat', 'matrix', 'numpy', 'unsupported axis']
