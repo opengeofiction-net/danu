@@ -71,6 +71,12 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
 NODATA = -9999
 LINE_KINDS = ('river', 'stream')
+# natural=water covers still water and flowing water alike, and a river area is
+# not flat: it descends along its course. Flattening relation 89708, the Bosco
+# River, at the lowest contour its outline touches put the whole of it at 0 m -
+# the level near its mouth - and cost 1,262 m of river ascent on its own.
+# GDAL exposes these only in other_tags, as an hstore string
+FLOWING = ('river', 'stream', 'canal', 'ditch', 'drain', 'riverbank')
 MAX_RETRIES = 3
 # a graded segment longer than this crosses too much unseen ground to trust
 MAX_SEGMENT_M = 5000.0
@@ -314,8 +320,14 @@ def main():
     feats = []
     for feat in polys:
         g = feat.GetGeometryRef()
-        if g is not None:
-            feats.append((g.Clone(), feat.GetField('name') or ''))
+        if g is None:
+            continue
+        tags = feat.GetField('other_tags') or ''
+        if any(f'"{k}"=>"{v}"' in tags
+               for k in ('water', 'waterway') for v in FLOWING):
+            stats['flowing area'] += 1
+            continue
+        feats.append((g.Clone(), feat.GetField('name') or ''))
     burnt, how = burn_lakes(feats, ds, inv_gt, cols, rows,
                             arr, have, step, river_elev)
     if burnt is not None:
@@ -349,6 +361,7 @@ def main():
           f'the rim), no level found {stats["lake no level"]}')
     print(f'  contour cells overridden by a water surface: '
           f'{stats["lake over contour"]:,}')
+    print(f'  flowing-water areas left alone: {stats["flowing area"]}')
     print(f'  constraint cells added: {total:,} '
           f'({stats["river cells"]:,} river, {stats["lake cells"]:,} lake) '
           f'- {100 * total / max(1, have.sum()):.2f}% more than the contours')
