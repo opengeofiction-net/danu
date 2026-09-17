@@ -78,8 +78,13 @@ def test_surface_matches_the_reference(tmp_path, lock):
 
     import numpy as np
 
-    a = gdal.Open(str(EXPECTED)).GetRasterBand(1).ReadAsArray()
-    b = gdal.Open(str(produced)).GetRasterBand(1).ReadAsArray()
+    # the datasets are held in locals on purpose: gdal.Open(...).GetRasterBand(1)
+    # frees the dataset before the band is read and fails with a TypeError out
+    # of gdal_array, which reads like anything but the lifetime problem it is
+    ref_ds = gdal.Open(str(EXPECTED))
+    new_ds = gdal.Open(str(produced))
+    a = ref_ds.GetRasterBand(1).ReadAsArray()
+    b = new_ds.GetRasterBand(1).ReadAsArray()
     assert a.shape == b.shape, f"reference is {a.shape}, produced {b.shape}"
     differing = int((a != b).sum())
     assert differing == 0, (
