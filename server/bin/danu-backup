@@ -2,7 +2,7 @@
 #
 # Back up the elevation source data to AWS S3 - see Admin:Elevation process
 #
-#   backupElevation.sh [base] [queue]
+#   danu-backup [base] [queue]
 #
 # Run as the ogf user, weekly by backup-elevation.timer, or by hand.
 #

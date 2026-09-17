@@ -2,10 +2,10 @@
 #
 # A water mask from the coastline's own direction - see Admin:Elevation process
 #
-#   demSeaMask.py <contours.gpkg> <reference.tif> <out.tif>
+#   sea_mask.py <contours.gpkg> <reference.tif> <out.tif>
 #
 # Produces exactly what water/<zone>.osm produces by hand for zone-roantra: a
-# Byte raster, 1 where there is water, for demLandClamp.py to force to zero.
+# Byte raster, 1 where there is water, for land_clamp.py to force to zero.
 # The difference is where it comes from. A coastline is directed - land on the
 # left, water on the right - so the squares already say which side is which, and
 # no separate file is needed.
@@ -61,7 +61,7 @@ def ogr_memory_driver():
 
 
 def strips(rows, cols, itemsize=4, budget=256 << 20):
-    """Row bands small enough to hold, as demLandClamp.py does."""
+    """Row bands small enough to hold, as land_clamp.py does."""
     per_row = max(1, cols * itemsize)
     height = max(1, min(rows, budget // per_row))
     for y in range(0, rows, height):
@@ -131,7 +131,7 @@ def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
 
 def main():
     if len(sys.argv) != 4:
-        sys.exit('usage: demSeaMask.py <contours.gpkg> <reference.tif> <out.tif>')
+        sys.exit('usage: sea_mask.py <contours.gpkg> <reference.tif> <out.tif>')
     src_path, ref_path, out_path = sys.argv[1:4]
 
     ref = gdal.Open(ref_path)

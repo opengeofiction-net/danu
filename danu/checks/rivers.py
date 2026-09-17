@@ -3,7 +3,7 @@
 # Where the mapped rivers disagree with the published elevation - see
 # Admin:Elevation process
 #
-#   demRiverCheck.py <dem.tif> --bbox W,S,E,N [--geojson out.json]
+#   rivers.py <dem.tif> --bbox W,S,E,N [--geojson out.json]
 #
 # Contours are the source of truth for elevation and the waterways are drawn
 # separately, so nothing makes the two agree. Where they do not, the DEM has a

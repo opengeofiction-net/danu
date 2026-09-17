@@ -2,7 +2,7 @@
 #
 # Add the drawn water to the elevation constraints - see Admin:Elevation process
 #
-#   demWaterConstraints.py <cont.tif> --bbox W,S,E,N [--mask drawn-mask.tif]
+#   constraints.py <cont.tif> --bbox W,S,E,N [--mask drawn-mask.tif]
 #
 # Contours describe the ground every 25 m of height and say nothing between,
 # which is where a river is: at the bottom of a valley the contours only

@@ -2,7 +2,7 @@
 #
 # Contour lines to .osm.pbf, for the render databases - see Admin:Elevation process
 #
-#   demContoursToOsm.py <contours.gpkg> <out.osm.pbf> --zone <zone> \
+#   contours_to_osm.py <contours.gpkg> <out.osm.pbf> --zone <zone> \
 #                       [--id-blocks <file>] [--max-nodes 2000]
 #
 # Replaces phyghtmap in the elevation pipeline. Not because phyghtmap is wrong -

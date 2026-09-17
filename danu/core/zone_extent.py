@@ -2,7 +2,7 @@
 #
 # The grid a zone should be built on - see Admin:Elevation process
 #
-#   demZoneExtent.py <osm-squares-dir> <arcsec>
+#   zone_extent.py <osm-squares-dir> <arcsec>
 #
 # Emits shell assignments for eval: WEST EAST SOUTH NORTH, TE for the master
 # grid, TE_HGT for the 3 arcsecond products, SQUARES and SQ_DEGREES.
@@ -57,7 +57,7 @@ def has_constraints(path, chunk=1 << 20):
 
 def main():
     if len(sys.argv) != 3:
-        sys.exit('usage: demZoneExtent.py <osm-squares-dir> <arcsec>')
+        sys.exit('usage: zone_extent.py <osm-squares-dir> <arcsec>')
     src, arcsec = sys.argv[1], float(sys.argv[2])
 
     squares, blank, loose = [], 0, []

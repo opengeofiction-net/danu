@@ -3,7 +3,7 @@
 # Report a zone's elevation distribution, against the previous build - see
 # Admin:Elevation process
 #
-#   demZoneStats.py <dem.tif> <stats-file> [--quiet]
+#   zone_stats.py <dem.tif> <stats-file> [--quiet]
 #
 # Exists because the errors this pipeline actually produces are invisible to an
 # aggregate error figure. Three separate faults in the land and sea handling of

@@ -3,8 +3,8 @@
 # Blank contour squares, for ground nobody has drawn yet - see
 # Admin:Elevation process
 #
-#   demMakeSquare.py <outdir> <square> [<square> ...]
-#   demMakeSquare.py <outdir> --box <west> <south> <east> <north>
+#   make_square.py <outdir> <square> [<square> ...]
+#   make_square.py <outdir> --box <west> <south> <east> <north>
 #
 # A square is named for its south west corner in the SRTM convention, always
 # N/SxxE/Wxxx: N42E017, S03W121. The file holds one closed way around the
@@ -49,7 +49,7 @@ def write_square(path, lon, lat, note):
     with lzma.open(path, 'wt') as f:
         f.write("<?xml version='1.0' encoding='UTF-8'?>\n")
         f.write("<osm version='0.6' upload='never' "
-                "generator='demMakeSquare.py'>\n")
+                "generator='make_square.py'>\n")
         for i, (x, y) in enumerate(corners, start=1):
             f.write(f"  <node id='-{i}' action='modify' "
                     f"lat='{y:.7f}' lon='{x:.7f}' />\n")

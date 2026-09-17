@@ -3,7 +3,7 @@
 # A visual index of the elevation zones and their squares, for the wiki's
 # MultiMaps - see Admin:Elevation process
 #
-#   demZonesToMultimap.py <base-dir> [-copyto <publish-dir>]
+#   zones_to_multimap.py <base-dir> [-copyto <publish-dir>]
 #
 # Writes the three files MultiMaps wants, in the shape dailyActivitySummary.pl
 # writes its own:
@@ -26,7 +26,7 @@
 # is still to do.
 #
 # Whether a square holds contours is decided by reading it for an ele tag, the
-# same test demZoneExtent.py uses to pick the squares a zone is built on. Taking
+# same test zone_extent.py uses to pick the squares a zone is built on. Taking
 # it from the filename instead would be quicker and would eventually disagree
 # with what was built, which is worse than slow: an index nobody can trust is
 # not worth drawing.
@@ -52,7 +52,7 @@ def classify_square(path, chunk=1 << 20):
     """'contour', 'coastline' or 'blank'.
 
     Any ele tag at all is a constraint as far as building goes, which is the
-    question demZoneExtent.py asks. It is the wrong question for an index: a
+    question zone_extent.py asks. It is the wrong question for an index: a
     coastline is drawn at ele=0, so a square holding nothing but a shore has
     constraints and no terrain, and reporting it as drawn tells a mapper the
     ground is done when the whole of it is still to do. zone-penquisset is
@@ -89,7 +89,7 @@ def classify_square(path, chunk=1 << 20):
 
 
 def read_inactive(path):
-    """zone -> reason, from the file buildDemData.sh reads. Comments stripped,
+    """zone -> reason, from the file danu-build reads. Comments stripped,
     so a zone commented out is active, which is how one is put back."""
     out = {}
     try:
@@ -117,7 +117,7 @@ def main():
         publish = args[i + 1] if i + 1 < len(args) else None
         del args[i:i + 2]
     if len(args) != 1:
-        sys.exit('usage: demZonesToMultimap.py <base-dir> [-copyto <publish-dir>]')
+        sys.exit('usage: zones_to_multimap.py <base-dir> [-copyto <publish-dir>]')
     base = args[0]
     squares_dir = os.path.join(base, 'osm-squares')
     if not os.path.isdir(squares_dir):
@@ -161,7 +161,7 @@ def main():
         n_blank += len(blank)
 
         # The zone as built is the box round the squares holding any constraint,
-        # a lone coastline included - that is the question demZoneExtent.py asks
+        # a lone coastline included - that is the question zone_extent.py asks
         # and this box has to agree with what was actually built
         extent = (drawn + shore) or blank
         west = min(s[0] for s in extent)

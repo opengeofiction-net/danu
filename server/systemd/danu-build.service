@@ -8,13 +8,13 @@
 
 [Unit]
 Description=Rebuild changed OpenGeofiction elevation zones
-RequiresMountsFor=/opt/opengeofiction
+RequiresMountsFor=/var/lib/danu
 
 [Service]
 Type=oneshot
 User=ogf
 Group=ogf
-ExecStart=/opt/opengeofiction/OGF-terrain-tools/bin/buildDemData.sh
+ExecStart=/usr/bin/danu-build
 # A large zone at 1 arcsecond takes minutes and holds about 5 GB while the land
 # and sea are separated; a full backfill of every zone runs for hours
 TimeoutStartSec=infinity

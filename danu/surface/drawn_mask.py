@@ -2,7 +2,7 @@
 #
 # The area a zone's contours actually describe - see Admin:Elevation process
 #
-#   demDrawnMask.py <cont.tif> <out.geojson>
+#   drawn_mask.py <cont.tif> <out.geojson>
 #
 # A zone's raster is the bounding box of the degree squares holding contours,
 # and a bounding box is not the shape of the data in it: zone-gobras is five
@@ -52,7 +52,7 @@ gdal.UseExceptions()
 
 def main():
     if len(sys.argv) != 3:
-        sys.exit('usage: demDrawnMask.py <cont.tif> <out.geojson>')
+        sys.exit('usage: drawn_mask.py <cont.tif> <out.geojson>')
     src_path, out_path = sys.argv[1], sys.argv[2]
 
     ds = gdal.Open(src_path)
@@ -94,7 +94,7 @@ def main():
                          % ','.join('[%.9f,%.9f]' % c for c in coords))
 
     if not feats:
-        sys.exit('demDrawnMask.py: no constraints in %s' % src_path)
+        sys.exit('drawn_mask.py: no constraints in %s' % src_path)
     with open(out_path, 'w') as f:
         f.write('{"type":"FeatureCollection","features":[%s]}' % ','.join(feats))
     print(f'  drawn area: {len(feats)} square envelopes', file=sys.stderr)

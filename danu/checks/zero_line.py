@@ -3,7 +3,7 @@
 # How far the published sea level sits from the shore somebody drew - see
 # Admin:Elevation process
 #
-#   demCheckZeroLine.py <osm-squares-dir> <contours-<zone>.osm.pbf> [--far 500]
+#   zero_line.py <osm-squares-dir> <contours-<zone>.osm.pbf> [--far 500]
 #
 # Every ele=0 line in the output should lie on an ele=0 line in the input: the
 # contour cutter traces where the DEM crosses zero, and a drawn coastline pins
@@ -42,7 +42,7 @@ import sys
 import numpy as np
 import osmium
 
-# the squares are held compressed - see buildDemZone.sh
+# the squares are held compressed - see danu-build-zone
 SQUARE = '*.osm.xz'
 NODE = re.compile(rb"<node id=['\"](-?\d+)['\"][^>]*?lat=['\"]([-\d.]+)['\"] "
                   rb"lon=['\"]([-\d.]+)['\"]")

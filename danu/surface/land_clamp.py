@@ -2,7 +2,7 @@
 #
 # Separate land at sea level from the sea itself - see Admin:Elevation process
 #
-#   demLandClamp.py <dem.tif> <constraints.tif> <out.tif> [water-mask.tif]
+#   land_clamp.py <dem.tif> <constraints.tif> <out.tif> [water-mask.tif]
 #
 # Flat coastal land whose nearest constraint is the coastline interpolates to
 # zero, which is indistinguishable from sea: the relief ramp makes zero fully

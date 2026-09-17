@@ -8,13 +8,13 @@
 
 [Unit]
 Description=Back up the OpenGeofiction elevation source data
-RequiresMountsFor=/opt/opengeofiction
+RequiresMountsFor=/var/lib/danu
 
 [Service]
 Type=oneshot
 User=ogf
 Group=ogf
-ExecStart=/opt/opengeofiction/OGF-terrain-tools/bin/backupElevation.sh
+ExecStart=/usr/bin/danu-backup
 # A few hundred megabytes to archive and verify
 TimeoutStartSec=3600
 

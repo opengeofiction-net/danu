@@ -3,7 +3,7 @@
 # Recover editable contour squares from a DEM, for a zone whose source .osm
 # squares have been lost - see Admin:Elevation process.
 #
-#   demRecoverSquares.py <dem.tif> <outdir> [--interval 10] [--simplify 0.0003]
+#   recover_squares.py <dem.tif> <outdir> [--interval 10] [--simplify 0.0003]
 #
 # One .osm per degree square, named by its south west corner in the SRTM
 # convention, holding contour ways tagged ele plus a frame way carrying the
@@ -485,7 +485,7 @@ def main():
                                                 args.simplify, args.min_vertices)
             levels = sorted(k for k in rings if k >= args.interval)
             path = os.path.join(args.outdir, f'{name}_{args.suffix}.osm.xz')
-            osm = OsmFile(path, 'demRecoverSquares.py')
+            osm = OsmFile(path, 'recover_squares.py')
             for ele in levels:
                 for pts in rings[ele]:
                     osm.way(pts, {'contour': 'elevation', 'ele': str(ele)})
@@ -519,7 +519,7 @@ def main():
             zpath = ''
             if zero:
                 zpath = os.path.join(args.outdir, f'{name}_zeroline.osm.xz')
-                z = OsmFile(zpath, 'demRecoverSquares.py')
+                z = OsmFile(zpath, 'recover_squares.py')
                 for pts in zero:
                     z.way(pts, {'note': 'zero metre boundary, candidate coastline'})
                 z.close()

@@ -3,7 +3,7 @@
 # Build every elevation zone whose contour squares have changed - see
 # Admin:Elevation process
 #
-#   buildDemData.sh [zone ...]
+#   danu-build [zone ...]
 #
 # With no arguments every zone under elevation/osm-squares is considered, and
 # only those whose squares have changed since the last build are rebuilt. Naming
@@ -18,14 +18,22 @@
 
 set -u
 
-OGF=${OGF:-/opt/opengeofiction}
-TOOLS=${TOOLS:-${OGF}/OGF-terrain-tools}
-BASE=${BASE:-${OGF}/elevation}
+# Installed layout by default; every one is overridable so the pipeline can be
+# run against a copy off the server, which is how it gets tested against
+# zone-roantra's known good output
+TOOLS=${TOOLS:-/etc/danu}
+BASE=${BASE:-/var/lib/danu}
+WORKBASE=${WORKBASE:-/var/cache/danu}
+PUBROOT=${PUBROOT:-/var/lib/danu/publish}
+# the interpreter which can import danu; a virtualenv or a distribution python
+PYTHON=${PYTHON:-python3}
+# the per-zone build, on PATH once installed
+ZONEBUILD=${ZONEBUILD:-danu-build-zone}
 SQUARES=${BASE}/osm-squares
 STAMPS=${BASE}/stamps
 PUB=${PUB:-${OGF}/sync-to-ogf/dem}
 # Zones which are built and published but which the renderers should not load.
-# "<zone> <reason>", one per line - see etc/dem_inactive.template. The reason is
+# "<zone> <reason>", one per line - see etc/inactive.template. The reason is
 # required and checked, because "inactive" with no reason recorded is how a zone
 # stays inactive long after anyone remembers what the reason was
 INACTIVE=${BASE}/inactive
@@ -56,7 +64,7 @@ progress() {
 
 # The run's own output, published so a mapper can see why their zone did or did
 # not rebuild without an account on the server. It comes from the journal rather
-# than a tee: buildDemZone.sh writes to the same stdout, so the unit's journal
+# than a tee: danu-build-zone writes to the same stdout, so the unit's journal
 # already holds every zone's output interleaved with this script's, which is
 # exactly what wants publishing. Run by hand rather than by the timer there is
 # no journal to read, and the file says so rather than silently being the last
@@ -65,7 +73,7 @@ publish_log() {
 	local rc=$?
 	mkdir -p ${PUB} 2>/dev/null || return 0
 	{
-		echo "# buildDemData.sh, run at ${STARTED}, exit ${rc}"
+		echo "# danu-build, run at ${STARTED}, exit ${rc}"
 		echo "#"
 		if [ -n "${INVOCATION_ID}" ]; then
 			journalctl -u dem-build --since "${STARTED}" --no-pager 2>/dev/null ||
@@ -138,7 +146,7 @@ fi
 # now. Writing it here also fires the path unit once at the start, so a run that
 # fails on its first zone still publishes the fact that it began
 rm -f ${PROGRESS}
-progress "# buildDemData.sh started ${STARTED}, $(echo ${zones} | wc -w) zones to consider"
+progress "# danu-build started ${STARTED}, $(echo ${zones} | wc -w) zones to consider"
 
 built=() skipped=() failed=()
 
@@ -159,7 +167,7 @@ for zone in ${zones}; do
 	echo
 	echo "############ ${zone} ############"
 	zone_started=${SECONDS}
-	if ${TOOLS}/bin/buildDemZone.sh ${zone}; then
+	if ${ZONEBUILD} ${zone}; then
 		# stamped only on success, so a failed build is retried next time rather
 		# than being recorded as done
 		echo "${now}" > ${STAMPS}/${zone}
@@ -246,7 +254,7 @@ mkdir -p ${PUB}
 {
 	echo "# Elevation zones the renderers should load, one per line."
 	echo "#"
-	echo "# Written by buildDemData.sh - do not edit here. A zone is published"
+	echo "# Written by danu-build - do not edit here. A zone is published"
 	echo "# whether or not it appears below; this list is only about rendering,"
 	echo "# so a zone left out stays downloadable and stops being drawn."
 	echo "#"
@@ -262,7 +270,7 @@ mkdir -p ${PUB}
 # blank, and a square stops being blank without this script rebuilding anything
 echo
 echo "############ wiki index ############"
-${TOOLS}/bin/demZonesToMultimap.py ${BASE} -copyto ${PUB} || true
+${PYTHON} -m danu.report.zones_to_multimap ${BASE} -copyto ${PUB} || true
 
 echo
 echo "=== built ${#built[@]}: ${built[*]:-none}"

@@ -2,7 +2,7 @@
 #
 # Split over-long ways in the elevation squares - see Admin:Elevation process
 #
-#   demSplitLongWays.py [--limit N] [--backup DIR] [--dry-run] <path> [path ...]
+#   split_long_ways.py [--limit N] [--backup DIR] [--dry-run] <path> [path ...]
 #
 # GDAL's OSM driver silently drops any way with more than 10,000 nodes. It
 # reports one error per node beyond the limit, so a single 45,000 node contour
@@ -19,8 +19,8 @@
 # node id, referenced by both - so every segment of the original survives and
 # the geometry is unchanged. Tags are copied to each piece.
 #
-# Safe for coastlines: demSeaMask.py works from the sides of each segment, not
-# from closed rings ("Sides rather than rings", demSeaMask.py), so a split
+# Safe for coastlines: sea_mask.py works from the sides of each segment, not
+# from closed rings ("Sides rather than rings", sea_mask.py), so a split
 # coastline seeds exactly as it did before. Direction is preserved.
 #
 import argparse, lzma, os, re, shutil, sys, tempfile
@@ -66,7 +66,7 @@ def split_file(path, limit, backup_dir, dry_run):
 
     next_id = min_id - 1
     # mkstemp creates at 0600. Carry the original's mode across, or the square
-    # becomes unreadable to anyone but ogf - and buildDemData.sh publishes with
+    # becomes unreadable to anyone but ogf - and danu-build publishes with
     # cp -p, so Apache then serves 403 for it
     mode = os.stat(path).st_mode & 0o7777
     fd, tmp = tempfile.mkstemp(suffix='.osm.xz', dir=os.path.dirname(path))
