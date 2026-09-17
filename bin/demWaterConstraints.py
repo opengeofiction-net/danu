@@ -151,6 +151,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('cont')
     ap.add_argument('--bbox', required=True)
+    ap.add_argument('--mask', help='only write inside this mask (drawn-mask.tif)')
     ap.add_argument('--report')
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
@@ -168,6 +169,18 @@ def main():
     have = arr != NODATA
     print(f'  contour cells: {have.sum():,} of {arr.size:,} '
           f'({100 * have.mean():.2f}%)')
+
+    # Held inside the envelope the contours describe. A graded river reaching
+    # past the last contour has nothing to blend into, and came out as a 4.7 km
+    # strip of 449 m ground standing in a void held at zero - a wall in the
+    # hillshade exactly where the mapped contours stop.
+    if args.mask:
+        allow = gdal.Open(args.mask).ReadAsArray() > 0
+        if allow.shape != arr.shape:
+            sys.exit(f'mask is {allow.shape}, raster is {arr.shape}')
+        print(f'  drawn mask covers {100 * allow.mean():.2f}% of the zone')
+    else:
+        allow = np.ones_like(have)
 
     lines, areas = fetch_water(bbox)
     print(f'  drawn water: {len(lines)} waterways, {len(areas)} closed bodies')
@@ -193,7 +206,7 @@ def main():
         n = 0
         for i, elev in graded.items():
             r, c = cells[i]
-            if not have[r, c] and not written[r, c]:
+            if not have[r, c] and not written[r, c] and allow[r, c]:
                 arr[r, c] = int(round(elev))
                 written[r, c] = True
                 n += 1
@@ -211,7 +224,7 @@ def main():
             continue
         elev = min(vals)                 # a lake sits in the hollow, not on its rim
         for r, c in cells:
-            if not have[r, c] and not written[r, c]:
+            if not have[r, c] and not written[r, c] and allow[r, c]:
                 arr[r, c] = elev
                 written[r, c] = True
                 stats['cells'] += 1

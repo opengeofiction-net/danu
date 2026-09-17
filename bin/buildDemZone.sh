@@ -307,26 +307,6 @@ gdal_rasterize -q -at -a ele -a_nodata -9999 -init -9999 -ot Int16 \
 	${WORK}/contours.gpkg ${WORK}/cont.tif
 gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
 
-# ------------------------------------------------------------------- water
-# Contours describe the ground every 25 m of height and say nothing between,
-# which is exactly where a river is. The interpolator has no reason to put the
-# valley floor under the drawn water rather than anywhere else in the band, so
-# it does not. Reading the water as a constraint of its own puts it there.
-#
-# Set WATER_CONSTRAINTS=0 to build a zone the old way, which is also what
-# happens with no network: the step reports and carries on rather than failing
-# the build, because a zone without it is the DEM we published yesterday.
-if [ "${WATER_CONSTRAINTS:-1}" != "0" ]; then
-	# TE is the gdal extent, minx miny maxx maxy, which is the W,S,E,N the
-	# query wants. Not via set --, which would take the script's own arguments
-	BBOX=$(echo ${TE} | tr -s ' ' ',')
-	say "water constraints from the drawn rivers and lakes"
-	if ! ${TOOLS}/bin/demWaterConstraints.py ${WORK}/cont.tif \
-			--bbox "${BBOX}" --report ${WORK}/water-report.json; then
-		echo "  WARNING: water constraints failed, continuing without them" >&2
-	fi
-fi
-
 # ---------------------------------------------------------------- interpolate
 say "interpolate, radius ${FILL_CELLS} cells, barrier ${BARRIER_CELLS}${ISOFILL_EXTRA:+, extra ${ISOFILL_EXTRA}}"
 rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
@@ -390,6 +370,35 @@ ${TOOLS}/bin/demDrawnMask.py ${WORK}/cont.tif ${WORK}/drawn.geojson
 gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
 	-co TILED=YES -co COMPRESS=DEFLATE \
 	${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
+
+# ------------------------------------------------------------------- water
+# Contours describe the ground every 25 m of height and say nothing between,
+# which is exactly where a river is. The interpolator has no reason to put the
+# valley floor under the drawn water rather than anywhere else in the band, so
+# it does not. Reading the water as a constraint of its own puts it there.
+#
+# After the mask, and not before it, for two reasons which are really the same
+# one. demDrawnMask.py derives the envelope from cont.tif, so water written
+# earlier grows the mask along every river and the fill then works ground the
+# contours never described. And the water is held inside that envelope, because
+# a graded river reaching past the last contour has nothing to blend into: it
+# came out as a 4.7 km strip of 449 m ground standing in a void held at zero,
+# which is a wall in the hillshade at the edge of the mapped contours.
+#
+# Set WATER_CONSTRAINTS=0 to build a zone the old way, which is also what
+# happens with no network: the step reports and carries on rather than failing
+# the build, because a zone without it is the DEM we published yesterday.
+if [ "${WATER_CONSTRAINTS:-1}" != "0" ]; then
+	# TE is the gdal extent, minx miny maxx maxy, which is the W,S,E,N the
+	# query wants. Not via set --, which would take the script's own arguments
+	BBOX=$(echo ${TE} | tr -s ' ' ',')
+	say "water constraints from the drawn rivers and lakes"
+	if ! ${TOOLS}/bin/demWaterConstraints.py ${WORK}/cont.tif \
+			--bbox "${BBOX}" --mask ${WORK}/drawn-mask.tif \
+			--report ${WORK}/water-report.json; then
+		echo "  WARNING: water constraints failed, continuing without them" >&2
+	fi
+fi
 # The water mask is built before the fill, not after it. It has always been
 # derived from contours.gpkg and cont.tif, both of which exist by now, so the
 # order was free either way - until --pass2 diffuse, which needs the sea as a
