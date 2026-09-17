@@ -64,7 +64,10 @@ jobs:
         with:
           submodules: recursive
           lfs: true
-      - run: sudo apt-get update && sudo apt-get install -y python3-gdal python3-numpy python3-pytest
+      - run: sudo apt-get update && sudo apt-get install -y python3-gdal python3-numpy python3-pytest libgdal-dev
+      - name: build and install isofill
+        working-directory: extern/isofill
+        run: make && sudo make install
       - run: python3 -m pytest tests/golden -q
         env:
           PYTHONPATH: .

@@ -1,0 +1,20 @@
+# The parameters the reference surface was built with.
+#
+# The test asserts these still match params/elevation.toml where they overlap.
+# A change to one of them changes what the pipeline produces, so the reference
+# has to be rebuilt in the same commit, with a message saying what moved and
+# why. That is the point: this file makes the rebuild deliberate rather than
+# something that quietly happens because a test went red.
+#
+# arcsec is 3 rather than the production 1 so the reference is 1201x1201 and
+# committable. Everything else is what the build uses.
+
+arcsec = 3
+hgt_arcsec = 3
+fill_metres = 1850
+barrier_cells = 2
+pass2 = "diffuse"
+water_constraints = false   # off, so this compares against the pipeline as it
+                            # stands on ogf-server-scripts master
+isofill = "0.5.0"
+square = "gwynian/S24E125_Los_Pizarrales"
