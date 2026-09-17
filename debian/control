@@ -2,7 +2,8 @@ Source: danu
 Section: science
 Priority: optional
 Maintainer: OpenGeofiction administrators <admin@opengeofiction.net>
-Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools
+Build-Depends: debhelper-compat (= 13), dh-python, pybuild-plugin-pyproject,
+               python3-all, python3-setuptools
 Standards-Version: 4.6.2
 Homepage: https://github.com/opengeofiction-net/danu
 
