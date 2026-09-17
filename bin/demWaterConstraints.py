@@ -31,9 +31,18 @@
 #
 # Two rules keep it honest:
 #
-# Contours win. A cell which already carries a contour is never written, so the
-# water only speaks where the contours are silent and a bad river cannot drag a
-# drawn contour with it.
+# Contours win over a river. A cell which already carries a contour is never
+# written from a waterway, so a river only speaks where the contours are silent
+# and a bad one cannot drag a drawn contour with it.
+#
+# A water body wins over the contours inside it. A lake surface is flat by
+# definition, so a contour crossing one is describing ground that is under
+# water. Lake Kinser had the 150 m contour and a little of the 175 m across it,
+# and honouring those left 11.6% of its surface stepped above the rest. The
+# elevation a body is pinned at still comes from the contours its outline
+# touches, so the contours decide the height and only lose inside the water.
+# Overridden cells are counted, because a lake spanning three contours is a
+# disagreement in the drawn data and worth knowing about.
 #
 # Nothing is written outside the envelope the contours describe. A graded river
 # reaching past the last contour has nothing to blend into, and came out as a
@@ -278,7 +287,10 @@ def main():
     lake, pinned, skipped = burn_lakes(feats, ds, inv_gt, cols, rows,
                                        arr, have, step)
     if lake is not None:
-        sel = (lake != NODATA) & writable
+        # inside the mask, but not limited to cells the contours left empty:
+        # a flat surface means the contours crossing it give way
+        sel = (lake != NODATA) & allow
+        stats['lake over contour'] = int((sel & have).sum())
         arr[sel] = np.round(lake[sel]).astype(arr.dtype)
         stats['lake cells'] += int(sel.sum())
     stats['lakes'] = pinned
@@ -289,6 +301,8 @@ def main():
           f'{stats["no grade"]}, outside {stats["outside"]}')
     print(f'  water bodies {len(feats)}: pinned {pinned}, '
           f'without a contour on the outline {skipped}')
+    print(f'  contour cells overridden by a water surface: '
+          f'{stats["lake over contour"]:,}')
     print(f'  constraint cells added: {total:,} '
           f'({stats["river cells"]:,} river, {stats["lake cells"]:,} lake) '
           f'- {100 * total / max(1, have.sum()):.2f}% more than the contours')
