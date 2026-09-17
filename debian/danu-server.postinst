@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+# the pipeline runs as ogf, which host-user-account.md creates with a fixed
+# uid; the package does not create it, only hands over what it owns
+if getent passwd ogf >/dev/null; then
+	chown -R ogf:ogf /var/lib/danu /var/cache/danu
+fi
+#DEBHELPER#
+exit 0

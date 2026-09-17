@@ -1,0 +1,6 @@
+var/lib/danu
+var/lib/danu/osm-squares
+var/lib/danu/water
+var/lib/danu/stamps
+var/lib/danu/publish
+var/cache/danu

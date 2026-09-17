@@ -1,0 +1,15 @@
+# The server package
+
+`danu-server` installs the pipeline the way a package should: entry points in
+`/usr/bin`, configuration in `/etc/danu`, data in `/var/lib/danu`, rebuildable
+working directories in `/var/cache/danu`, units in `/usr/lib/systemd/system`.
+
+    dpkg-buildpackage -us -uc -b
+
+`isofill` is a dependency rather than a bundled copy; it has its own package
+built from its own repository. GDAL comes from the distribution for the same
+reason it is absent from `pyproject.toml`: the PyPI builds are not worth
+relying on.
+
+The editor is not in this package. It is packaged separately, from the same
+source, so that what it previews is what this produces.

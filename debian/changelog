@@ -1,0 +1,7 @@
+danu (0.1.0-1) unstable; urgency=medium
+
+  * First package. The elevation pipeline moved out of ogf-server-scripts,
+    restructured into the danu packages, with the systemd units renamed from
+    dem-build and backup-elevation to danu-build and danu-backup.
+
+ -- OpenGeofiction administrators <admin@opengeofiction.net>  Thu, 17 Sep 2026 19:00:00 +0000
