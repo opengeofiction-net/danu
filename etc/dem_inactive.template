@@ -1,0 +1,30 @@
+# Zones which are built and published but which the renderers should not load.
+#
+#   <zone> <reason>   # note
+#
+# Everything built is published either way. A zone listed here stays
+# downloadable and stops being drawn: the tile servers take a zone that leaves
+# the manifest out of their rasters and out of their contour database.
+#
+# The reason is required, and one of:
+#
+#   withdrawn   the territory has been withdrawn or wiped, so the contours
+#               describe ground that is no longer there
+#   unowned     the ground is not a currently owned territory. The contours
+#               may be perfectly good - this is about whether the zone should
+#               be on the map, not about whether it is right
+#   quality     the input squares are not good enough to render from
+#   wip         work in progress - being drawn, reviewed or recovered, and not
+#               ready to appear on the map yet
+#   duplicate   the ground is covered by another zone, so rendering both puts
+#               two rasters over the same cells and two sets of contours in the
+#               database. Kept until the other zone is confirmed good, then the
+#               squares are deleted
+#
+# Date the note. A zone with no reason recorded stays inactive long after
+# anyone remembers what the reason was, which is how zone-tekan came to have
+# five years of published data that was never drawn.
+#
+# Leaving a zone out of the render is not the same as retiring it. To stop
+# building a zone at all, move its squares out of osm-squares; its published
+# output then stays as it was and nothing regenerates it.

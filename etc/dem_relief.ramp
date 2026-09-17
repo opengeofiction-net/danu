@@ -1,0 +1,16 @@
+# Hypsometric ramp for the ogf-topo relief rasters, elevation R G B A.
+#
+# Taken byte for byte from tiles04's relief_color_text_file.txt: the topo layer
+# renders these colours today, so a change here changes the map's colouring.
+#
+# Sea level is fully transparent, which is what -alpha on gdaldem color-relief
+# needs to leave the water fill showing through.
+0 0 0 0 0
+1     17 120   3
+100   72 162  69
+300  231 218 158
+1500 161  67   0
+3000 130  30  30
+4000 110 110 110
+5000 255 255 255
+6000 255 255 255

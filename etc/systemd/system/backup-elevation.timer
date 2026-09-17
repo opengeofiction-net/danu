@@ -1,0 +1,14 @@
+[Unit]
+Description=Back up the OpenGeofiction elevation source data
+
+[Timer]
+# Thursday, because backupPlanet.sh and backupWiki.sh tag their weekly, monthly
+# and yearly archives off the Thursday test and the bucket's retention policy is
+# written against those tags. After dem-build.timer on Wednesday, so a week's
+# submissions are archived in the state they were built from
+OnCalendar=Thu 04:23
+Persistent=true
+Unit=backup-elevation.service
+
+[Install]
+WantedBy=timers.target

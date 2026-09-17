@@ -1,0 +1,22 @@
+#
+#  Systemd service file to back up the elevation source data to AWS S3
+#
+#  What is backed up is what cannot be rebuilt - the contour squares and the
+#  water files - and the configuration which decides what is rendered and how
+#  contours are numbered. See Admin:Elevation process
+#
+
+[Unit]
+Description=Back up the OpenGeofiction elevation source data
+RequiresMountsFor=/opt/opengeofiction
+
+[Service]
+Type=oneshot
+User=ogf
+Group=ogf
+ExecStart=/opt/opengeofiction/OGF-terrain-tools/bin/backupElevation.sh
+# A few hundred megabytes to archive and verify
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=default.target

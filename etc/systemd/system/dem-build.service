@@ -1,0 +1,23 @@
+#
+#  Systemd service file to rebuild the elevation zones whose contour squares
+#  have changed - see Admin:Elevation process
+#
+#  Zones are discovered from the filesystem, so adding one is a matter of
+#  putting its squares under elevation/osm-squares. Nothing to enable per zone.
+#
+
+[Unit]
+Description=Rebuild changed OpenGeofiction elevation zones
+RequiresMountsFor=/opt/opengeofiction
+
+[Service]
+Type=oneshot
+User=ogf
+Group=ogf
+ExecStart=/opt/opengeofiction/OGF-terrain-tools/bin/buildDemData.sh
+# A large zone at 1 arcsecond takes minutes and holds about 5 GB while the land
+# and sea are separated; a full backfill of every zone runs for hours
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=default.target
