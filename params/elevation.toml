@@ -13,7 +13,7 @@ arcsec = 1                  # master DEM resolution
 hgt_arcsec = 3              # the .hgt archive stays at 1201 samples
 
 [fill]
-metres = 1852               # how far a cell may look for a contour pair
+metres = 1850               # how far a cell may look for a contour pair
 barrier_cells = 2           # how thick a contour is, for the sight test
 grad_min = 0.02             # refuse to extrapolate below this gradient
 pass2 = "diffuse"           # Laplace diffusion; "linear" was removed

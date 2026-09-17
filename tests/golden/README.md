@@ -9,7 +9,8 @@ exposed to. Everything else here is a unit test; this is the one that matters.
 
 The fixture is not yet committed. It needs:
 
-- `square.osm.xz` - a real square, small enough to build in CI
+- `S24E125_Los_Pizarrales.osm.xz` - a real square, small enough to build
+  in CI. The name matters: the degree square is read from it.
 - `expected.tif` - the surface `danu-build-zone` produces from it, built with
   the parameters in `params/elevation.toml` at a recorded `isofill` tag
 - `params.lock` - the parameter values used, so a change to them fails loudly

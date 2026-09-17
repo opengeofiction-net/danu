@@ -23,7 +23,9 @@ import pytest
 
 HERE = pathlib.Path(__file__).parent
 ROOT = HERE.parents[1]
-SQUARE = HERE / "square.osm.xz"
+# the name carries the degree square: zone_extent reads it from the
+# filename, and a fixture called square.osm.xz builds nothing at all
+SQUARE = HERE / "S24E125_Los_Pizarrales.osm.xz"
 EXPECTED = HERE / "expected.tif"
 LOCK = HERE / "params.lock"
 
