@@ -141,8 +141,10 @@ def test_the_outlines_hatch_the_absent_squares_and_name_them_at_low_zoom(view, r
     img = render(view)
     r = item.square_rect(ws, SquareName(126, -23))
     outside = view.mapFromScene(r.topRight()).x() + 3
-    col = [img.pixelColor(outside, y) for y in range(view.mapFromScene(r.topRight()).y(),
-                                                     view.mapFromScene(r.bottomRight()).y(), 4)]
+    # inside the square's top and bottom by a few pixels: the graticule has a
+    # line along 25 S, the set's own southern edge, and that is not a stray name
+    col = [img.pixelColor(outside, y) for y in range(view.mapFromScene(r.topRight()).y() + 8,
+                                                     view.mapFromScene(r.bottomRight()).y() - 8, 4)]
     bg = view.backgroundBrush().color().red()
     assert all(c.red() >= bg - 2 for c in col)        # nothing but the view's background east of the set
 
