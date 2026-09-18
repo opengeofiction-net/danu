@@ -15,7 +15,14 @@ export PYBUILD_NAME=danu
 # because it has no [Install] at all; the timer is the one this protects.
 # Adding a unit here means adding it to the second line too, or it ships
 # un-enabled.
+#
+# --no-enable, but not --no-start. An upgrade stops the package's units and
+# then starts them again, and --no-start skips that second half: a soak that
+# was running would be stopped by an upgrade and never come back, silently,
+# which is how a night goes missing. Starting is safe on its own because
+# deb-systemd-invoke will not start a unit that is disabled or static, so a
+# fresh install still leaves both soak units alone.
 override_dh_installsystemd:
-	dh_installsystemd --no-enable --no-start danu-soak.service danu-soak.timer
+	dh_installsystemd --no-enable danu-soak.service danu-soak.timer
 	dh_installsystemd danu-build.service danu-build.timer \
 		danu-backup.service danu-backup.timer
