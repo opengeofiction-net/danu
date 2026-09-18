@@ -50,5 +50,7 @@ def test_the_pure_modules_import_no_raster_ui_or_network_library():
             else:
                 continue
             for n in names:
+                # profile is arithmetic over arrays and is allowed numpy;
+                # square is not, so the model stays importable anywhere
                 assert n.split('.')[0] not in banned or (name == 'profile' and n == 'numpy'), \
                     f'danu.core.{name} imports {n}'

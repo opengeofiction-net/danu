@@ -230,8 +230,28 @@ def test_working_set_at_a_pole_is_short_not_broken(zone):
     assert ws.bounds[3] == 90.0
 
 
-def test_working_set_across_the_antimeridian_keeps_its_width(zone):
+def test_working_set_across_the_antimeridian_is_one_box_that_holds_its_members(zone):
+    """The first version asserted the width, which was the one property never
+    at risk; the box was 178..181 and the -180 square was outside it. Now:
+    every member's square, moved onto the box's axis, lies inside, and the box
+    is continuous rather than spanning the world."""
     ws = WorkingSet.open(zone, SquareName(179, 0))
     assert SquareName(-180, 0) in ws.squares
-    w, _, e, _ = ws.bounds
-    assert e - w == 3.0
+    w, s, e, n = ws.bounds
+    assert (w, e) == (178.0, 181.0)
+    for sq in ws.squares.values():
+        sw, ss, se, sn = sq.bounds
+        lo = ws.unwrap(sw)
+        assert w <= lo and lo + 1 <= e, f'{sq.name} at {lo} outside {w}..{e}'
+    # the point test agrees with membership, on either spelling of the longitude
+    assert ws.contains(-179.5, 0.5) and ws.contains(180.5, 0.5)
+    assert ws.at(-179.5, 0.5).name == SquareName(-180, 0)
+    assert not ws.contains(-178.5, 0.5)        # 181.5, one east of the box
+    assert not ws.contains(177.5, 0.5)
+
+
+def test_working_set_contains_matches_membership_away_from_the_seam(zone):
+    ws = WorkingSet.open(zone, SquareName(125, -24))
+    assert ws.contains(124.0, -25.0) and not ws.contains(127.0, -25.0)
+    assert ws.contains(126.9, -22.1) and not ws.contains(126.9, -22.0)
+    assert ws.unwrap(125.0) == 125.0

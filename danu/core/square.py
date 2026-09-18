@@ -30,7 +30,7 @@ from xml.etree import ElementTree
 # N42E017, the SRTM convention: the south-west corner, latitude two digits,
 # longitude three, always signed by letter. A file may carry a label after the
 # name - N18E088_Katyapura - which is for people; only the name is data
-_NAME = re.compile(r'([NS])(\d{2})([EW])(\d{3})')
+_NAME = re.compile(r'^([NS])(\d{2})([EW])(\d{3})$')
 _FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_[^.]*)?\.osm(?:\.xz)?$')
 
 
@@ -279,15 +279,32 @@ class WorkingSet:
 
     @property
     def bounds(self) -> tuple[float, float, float, float]:
-        """The grid's extent, (west, south, east, north). Longitude is taken
-        from the centre so a set straddling the antimeridian keeps its width
-        rather than spanning the world."""
+        """The grid's extent, (west, south, east, north), as one continuous
+        box in longitude *unwrapped about the centre*. A set centred on 179
+        reports 178..181, not 178..-179: the square at -180 is in it, at 180
+        on this axis. That is the box a Mercator canvas zooms to, and a plain
+        min/max of the members would span the world instead. Use ``contains``
+        rather than comparing a longitude against these edges yourself."""
         half = self.size // 2
         names = list(self.squares)
         south = min(n.lat for n in names)
         north = max(n.lat for n in names) + 1
         return (float(self.centre.lon - half), float(south),
                 float(self.centre.lon + half + 1), float(north))
+
+    def unwrap(self, lon: float) -> float:
+        """A longitude moved by a whole turn, if needed, onto the continuous
+        axis ``bounds`` is in."""
+        while lon < self.centre.lon - 180:
+            lon += 360
+        while lon >= self.centre.lon + 180:
+            lon -= 360
+        return lon
+
+    def contains(self, lon: float, lat: float) -> bool:
+        w, s, e, n = self.bounds
+        lon = self.unwrap(lon)
+        return w <= lon < e and s <= lat < n
 
     def present(self) -> Iterator[Square]:
         return (s for s in self.squares.values() if s.present)
