@@ -36,7 +36,7 @@ Danu puts it there.
 | `server/` | the build scripts, configuration and systemd units |
 | `params/` | parameters shared by the editor and the build |
 | `extern/isofill` | the interpolator, as a submodule |
-| `packaging/ci` | what CI runs that is not a test: the `isofill` run check, and the pre-flight review |
+| `packaging/ci/` | what CI runs that is not a test: the `isofill` run check, and the pre-flight review |
 
 `core` through `cli` know nothing of Qt and run on a headless machine. The
 server side and the editor are packaged separately - a `.deb` and desktop
@@ -53,7 +53,7 @@ locally, on the diff against `main`:
 packaging/ci/cr            # or put it on your PATH as cr
 ```
 
-It needs [Nushell](https://www.nushell.sh), a checkout of
+It needs [Nushell](https://www.nushell.sh), Python with PyYAML, a checkout of
 `hustcer/deepseek-review` at the commit the workflow pins, and a DeepSeek
 token - `CHAT_TOKEN` in the environment, or one line in
 `~/.config/deepseek-review/token` at mode 600. The prompt, model and exclusions are read from the workflow

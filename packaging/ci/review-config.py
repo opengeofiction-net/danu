@@ -90,6 +90,13 @@ def main() -> int:
         wf = yaml.safe_load(f)
     w = inputs(review_step(wf), args.action)
 
+    github_token = gh_token()
+    if not github_token:
+        # only the -n <PR> path needs it, and there it would fail at the API
+        # with a message about authentication rather than about gh
+        print('review-config: gh gave no token; reviewing a pull request by number will not work',
+              file=sys.stderr)
+
     chat_token = os.environ.get('CHAT_TOKEN', '')
     if not chat_token:
         # a config with a placeholder token fails later, at the API, with a
@@ -103,7 +110,7 @@ def main() -> int:
             'temperature': float(w['temperature']),
             'user-prompt': 'default',
             'system-prompt': 'default',
-            'github-token': gh_token(),
+            'github-token': github_token,
             'default-github-repo': 'opengeofiction-net/danu',
             'include-patterns': w['include-patterns'] or '',
             'exclude-patterns': w['exclude-patterns'] or '',
