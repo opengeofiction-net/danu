@@ -52,8 +52,10 @@ def _layers_from(text: str, source: str) -> list[Layer]:
             raise ValueError(f'{source}: layer {i} has no name')
         try:
             out.append(Layer(**entry))
-        except TypeError as e:
-            raise ValueError(f'{source}: layer {entry["name"]!r}: {e}') from None
+        except (TypeError, ValueError) as e:
+            # TypeError is an unknown key, ValueError a value the Layer refused;
+            # both name the file, because that is where the user has to go
+            raise ValueError(f'{source}: {e}') from None
     return out
 
 

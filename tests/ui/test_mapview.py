@@ -110,6 +110,18 @@ def test_graticule_spacing_follows_the_scale():
     assert Graticule.step_for(m.scale_for_zoom(19)) == 1.0
 
 
+def test_the_config_dir_is_the_one_the_documentation_names(qapp):
+    """An organisation name would put Qt's paths under ~/.config/<org>/danu;
+    the spec, the layer file and the docstring all say ~/.config/danu, and
+    the code has to be the one that matches."""
+    from danu.ui.app import APP_NAME, user_config_dir
+    qapp.setApplicationName(APP_NAME)
+    parts = user_config_dir().parts
+    assert parts[-1] == 'danu'
+    assert 'OpenGeofiction' not in parts
+    assert qapp.organizationName() == ''
+
+
 def test_the_window_constructs_shows_and_reports_the_cursor(qtbot):
     w = MainWindow(config.load_layers())
     qtbot.addWidget(w)

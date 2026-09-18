@@ -19,14 +19,20 @@ from . import config
 from .mapview import MapView
 
 APP_NAME = 'danu'
-ORG_NAME = 'OpenGeofiction'
+# No organisation name, deliberately. Qt puts an organisation into the paths -
+# ~/.config/OpenGeofiction/danu rather than the ~/.config/danu the spec and
+# the layer file's comment promise - and a user sent to the wrong file by our
+# own documentation is worse than a bare application name in a directory
+# listing. Measured on Qt 6.11: with no organisation set, AppConfigLocation is
+# ~/.config/danu and CacheLocation ~/.cache/danu, which is what was written
 # somewhere in the middle of the drawn world, so the first view is not the
 # whole planet at zoom 2 and not the Atlantic either
 HOME = (87.0, 20.5, 5)
 
 
 def user_config_dir() -> Path:
-    """~/.config/danu on Linux, the equivalent elsewhere, from Qt."""
+    """~/.config/danu on Linux, the equivalent elsewhere, from Qt. Needs the
+    application name set and no organisation name - see APP_NAME."""
     return Path(QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppConfigLocation))
 
@@ -54,7 +60,6 @@ class MainWindow(QMainWindow):
 def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setOrganizationName(ORG_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers)
     win.show()
