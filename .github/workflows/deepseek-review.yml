@@ -1,6 +1,13 @@
 name: Code Review
+# pull_request, not pull_request_target. This repository is public, and
+# pull_request_target runs with the base branch's permissions and access to
+# secrets no matter who opened the pull request - which is the standard way
+# CHAT_TOKEN gets exfiltrated. With pull_request, a branch in this repository
+# still gets the secret and a fork does not, so a fork's pull request goes
+# unreviewed rather than trusted. That is the safer half of the trade, and
+# there are no forks.
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - reopened
@@ -21,10 +28,12 @@ jobs:
       # future and "likely a typo for 2025". Telling it costs one step.
       - name: Today
         id: today
-        run: echo "date=$(date -u '+%A %-d %B %Y')" >> "$GITHUB_OUTPUT"
+        # %-d is GNU only; this format is portable
+        run: echo "date=$(date -u '+%A %d %B %Y')" >> "$GITHUB_OUTPUT"
 
       - name: DeepSeek Code Review
-        uses: hustcer/deepseek-review@v1.21
+        # pinned by digest: a tag can be moved, and this step holds a secret
+        uses: hustcer/deepseek-review@74f086aea9d85827ea091cb1f6dbeeb54a0b8ad7 # v1.21
         with:
           chat-token: ${{ secrets.CHAT_TOKEN }}
           temperature: 0.2
@@ -37,9 +46,10 @@ jobs:
             packaging.
 
 
-            Today is ${{ steps.today.outputs.date }}. Dates in this repository
-            are real and current. Do not report a 2026 date as being in the
-            future or as a typo for an earlier year.
+            Today is ${{ steps.today.outputs.date }}; you cannot check this
+            yourself, so take it from here rather than from what you remember.
+            A date on or before today is not in the future. A date well beyond
+            it still deserves reporting.
 
 
             Prioritise, in this order: correctness bugs; packaging faults such
