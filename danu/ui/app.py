@@ -9,13 +9,16 @@ That comes with the desktop packaging.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
 
+from ..core.square import SquareName, WorkingSet
 from . import config
+from .contours import ContourLayer
 from .layers_panel import LayersPanel
 from .mapview import MapView
 from .tiles import TileFetcher, TileLayer
@@ -63,6 +66,9 @@ class MainWindow(QMainWindow):
             self.tile_items.append(item)
         self.panel = LayersPanel(self.tile_items, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
+        self.contours = ContourLayer()
+        self.map.scene().addItem(self.contours)
+        self.working_set: WorkingSet | None = None
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         self.map.cursorMoved.connect(self._cursor)
@@ -75,11 +81,41 @@ class MainWindow(QMainWindow):
     def _cursor(self, lon: float, lat: float):
         self._status.setText(f'{lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
 
+    def open_working_set(self, zone_dir: Path, centre: SquareName, size: int = 3) -> WorkingSet:
+        """Read the grid and show it. Synchronous for now: the read blocks the
+        window for as long as it takes, which for a large square is seconds.
+        The worker the spec asks for comes with the open dialog (phase 1, D),
+        which is where a mapper will wait on it."""
+        ws = WorkingSet.open(zone_dir, centre, size)
+        self.working_set = ws
+        self.contours.set_working_set(ws)
+        w, s, e, n = centre.bounds
+        self.map.fit_bounds(w, s, e, n)
+        present = sum(1 for _ in ws.present())
+        rng = ws.elevation_range()
+        self.statusBar().showMessage(
+            f'{centre}: {present} of {len(ws.squares)} squares present, '
+            f'{len(ws.elevations())} levels'
+            + (f', {rng[0]:g}-{rng[1]:g} m' if rng else ''))
+        return ws
+
 
 def main(argv: list[str] | None = None) -> int:
-    app = QApplication(argv if argv is not None else sys.argv)
+    argv = list(sys.argv if argv is None else argv)
+    ap = argparse.ArgumentParser(prog='danu', description='the OpenGeofiction contour editor')
+    ap.add_argument('zone_dir', nargs='?', type=Path,
+                    help="a zone's osm-squares directory to open a square from")
+    ap.add_argument('square', nargs='?', help='the square, e.g. N20E087')
+    ap.add_argument('--size', type=int, default=3, help='working set side, odd (default 3)')
+    args = ap.parse_args(argv[1:])
+    if bool(args.zone_dir) != bool(args.square):
+        ap.error('give both a zone directory and a square, or neither')
+
+    app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles')
     win.show()
+    if args.zone_dir:
+        win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
     return app.exec()

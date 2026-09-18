@@ -3,7 +3,7 @@ server/bin/danu-build-zone     usr/bin
 server/bin/danu-backup         usr/bin
 server/bin/danu-soak           usr/bin
 server/etc/osmconf.ini         etc/danu
-server/etc/relief.ramp         etc/danu
+danu/surface/relief.ramp      etc/danu
 server/etc/inactive.template   etc/danu
 server/systemd/danu-build.service    usr/lib/systemd/system
 server/systemd/danu-build.timer      usr/lib/systemd/system

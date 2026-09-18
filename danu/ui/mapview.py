@@ -134,12 +134,23 @@ class MapView(QGraphicsView):
         return self._zoom
 
     def set_zoom(self, zoom: int):
+        """Zoom keeping what is at the centre at the centre. A bare change of
+        scale leaves the scroll position where it was in view pixels, and the
+        view slides off to somewhere else in the world; the first level-of-
+        detail test lost its square that way between two zooms."""
+        self.zoom_about(zoom, QPointF(self.viewport().rect().center()))
+
+    def _set_zoom_raw(self, zoom: int) -> bool:
+        """The scale change alone, no anchoring. The constructor's first
+        zoom goes this way, before there is a view to anchor in; everything
+        after goes through zoom_about."""
         zoom = max(0, min(m.MAX_ZOOM, int(zoom)))
         if zoom == self._zoom:
-            return
+            return False
         self._zoom = zoom
         self._apply_zoom()
         self.zoomChanged.emit(zoom)
+        return True
 
     def _apply_zoom(self):
         s = m.scale_for_zoom(self._zoom)
@@ -149,9 +160,7 @@ class MapView(QGraphicsView):
     def zoom_about(self, zoom: int, view_pos: QPointF):
         """Change zoom keeping the scene point under view_pos where it is."""
         anchor = self.mapToScene(view_pos.toPoint())
-        before = self._zoom
-        self.set_zoom(zoom)
-        if self._zoom == before:
+        if not self._set_zoom_raw(zoom):
             return
         moved = self.mapToScene(view_pos.toPoint()) - anchor
         centre = self.mapToScene(self.viewport().rect().center())
