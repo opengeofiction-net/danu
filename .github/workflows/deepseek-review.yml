@@ -36,6 +36,10 @@ jobs:
         uses: hustcer/deepseek-review@74f086aea9d85827ea091cb1f6dbeeb54a0b8ad7 # v1.21
         with:
           chat-token: ${{ secrets.CHAT_TOKEN }}
+          # pinned for the same reason the action is: this is the action's
+          # current default, and a default that moves under us changes how
+          # reviews read without anything here having changed
+          model: deepseek-v4-flash
           temperature: 0.2
           exclude-patterns: 'pnpm-lock.yaml,package-lock.json,*.lock,*.tif,*.osm.xz,*.pbf'
           sys-prompt: >-
@@ -66,8 +70,24 @@ jobs:
             suggest moving reasoning out of a commit message.
 
 
-            Prefer a few findings you have checked to many you have not. Where
-            you cannot verify something from the diff, say so plainly rather
-            than asking the author to confirm a list of possibilities. If the
-            change is sound, say that briefly and stop.
+            You have no tools. There is no shell, no network and no checkout
+            of the repository, and nothing will execute anything you emit. The
+            diff and this prompt are all you get. Never write a tool call, a
+            function call, or any markup that invokes one: nothing is listening,
+            and it lands in the review comment as it stands.
+
+
+            So "checked" means reasoned from the diff, not run. Prefer a few
+            findings you can support that way to many you cannot. Say a thing
+            the diff cannot settle only where it changes what the author should
+            do about a finding; a list of what you would need in order to look
+            further helps nobody, and the pull request thread may well already
+            answer it.
+
+
+            Reply with the review and nothing else. No preamble about what you
+            are about to do, no narration of your reasoning as you go, and no
+            reaching a conclusion and then reopening it - settle it first and
+            report what you settled on. If the change is sound, say so briefly
+            and stop.
           user-prompt: 'Review the following changes.'
