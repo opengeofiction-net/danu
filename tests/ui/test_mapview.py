@@ -38,6 +38,18 @@ def test_zoom_changes_the_view_scale_and_says_so(view, qtbot):
     assert abs(view.transform().m11() - m.scale_for_zoom(7)) < 1e-12
 
 
+def test_set_zoom_keeps_the_centre_where_it_was(view):
+    """A bare scale change used to leave the scroll position in view pixels
+    and slide the view elsewhere; a square framed at z9 was gone by z8."""
+    view.fit_bounds(87, 20, 88, 21)
+    before = view.center_lonlat()
+    for z in (7, 8, 12, 5, 9):
+        view.set_zoom(z)
+        lon, lat = view.center_lonlat()
+        px_deg = 360.0 / (256 * 2 ** view.zoom)          # one pixel, in degrees at the equator
+        assert abs(lon - before[0]) < 2 * px_deg and abs(lat - before[1]) < 2 * px_deg, f'z{z} slid'
+
+
 def test_fit_bounds_shows_the_square_whole_and_centred(view):
     view.fit_bounds(87, 20, 88, 21)
     lon, lat = view.center_lonlat()

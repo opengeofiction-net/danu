@@ -40,6 +40,8 @@ include = ["danu*"]
 # the shipped layer defaults ride inside the package
 [tool.setuptools.package-data]
 "danu.ui" = ["*.toml"]
+# the tiles' colour ramp, read by the editor and installed to /etc/danu for the build
+"danu.surface" = ["*.ramp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
