@@ -2,7 +2,8 @@
 
 TOML, read with the standard library's tomllib. A default set ships inside the
 package and a user file beside it in the XDG config directory overrides by
-layer name and adds what it likes - R8 wants any tile layer the config names,
+layer name and adds what it likes - requirement R8 in docs/spec.md wants any
+tile layer the config names,
 and cyclogf already lives on a per-server host rather than the shared one.
 
 No Qt here. The caller says where the user file is; this decides what it means.
