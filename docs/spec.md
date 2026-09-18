@@ -599,8 +599,13 @@ Ends when the nightly build has run green from Danu for a week, and the only
 units. Green has to mean built, not skipped: a zone is only rebuilt when its
 squares change, so an unattended week would mostly hash the squares and stop,
 and prove nothing about whether a zone still builds. `danu-soak` forces two
-zones a night, in sorted order from a cursor, for as many nights as its budget
-file holds.
+zones a night, in sorted order from a cursor.
+
+The soak's budget is what "a week" means here, and it is counted in nights that
+built something: the nights before it was seeded were no-ops and are not
+evidence. Six were seeded on 2026-09-18. That is twelve zone-builds out of
+thirty-two, so it samples the zones rather than covering them - the claim being
+tested is that the moved pipeline still builds, not that every zone is good.
 
 ### What phase 0 actually did
 

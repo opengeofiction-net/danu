@@ -18,5 +18,8 @@ User=ogf
 Group=ogf
 ExecStart=/usr/bin/danu-soak
 
-[Install]
-WantedBy=default.target
+# No [Install]. The timer is what enables a soak, and it carries its own
+# WantedBy=timers.target. Given one here, enabling the service by hand - an easy
+# thing to do by reflex - would pull it into default.target and queue a forced
+# rebuild at every boot, which is the one time it is least wanted. Without it
+# the service can still be started by hand, which is how it gets tested.
