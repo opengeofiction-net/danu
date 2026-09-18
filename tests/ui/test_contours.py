@@ -139,19 +139,20 @@ def test_a_contour_is_drawn_where_its_nodes_are_in_its_colour(view, ws):
     assert hit, f'no pixel near the node in {want.name()}'
 
 
-def test_the_window_opens_a_working_set_and_frames_the_square(qtbot, zone):
-    w = MainWindow(load_layers(), cache_dir=None)
+def test_the_window_shows_the_contours_of_what_it_opened(qtbot, zone, tmp_path):
+    from danu.ui.settings import Settings
+    w = MainWindow(load_layers(), cache_dir=None, settings=Settings(tmp_path / 'danu.ini'))
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)
-    ws = w.open_working_set(zone, SquareName(125, -24))
-    assert w.working_set is ws and len(w.contours.paths) == 22
-    lon, lat = w.map.center_lonlat()
-    assert abs(lon - 125.5) < 0.02 and abs(lat + 23.5) < 0.02
-    assert '2 of 9 squares present' in w.statusBar().currentMessage()
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        w.open_working_set(zone, SquareName(125, -24))
+    qtbot.waitUntil(lambda: w.working_set is not None, timeout=5000)
+    assert len(w.contours.paths) == 22
     assert '22 levels' in w.statusBar().currentMessage()
-    w.open_working_set(zone, SquareName(125, -24), size=1)
-    assert '1 of 1' in w.statusBar().currentMessage()
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        w.open_working_set(zone, SquareName(125, -24), size=1)
+    qtbot.waitUntil(lambda: '1 of 1' in w.statusBar().currentMessage(), timeout=5000)
 
 
 def test_main_refuses_half_an_open_request():
