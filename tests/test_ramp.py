@@ -59,6 +59,20 @@ def test_a_degenerate_range_does_not_divide_by_zero():
     assert s.colour(250) == (43, 131, 186, 255)
 
 
+def test_an_inverted_range_is_refused():
+    with pytest.raises(ValueError, match='runs backwards'):
+        ramp.spectral(1000, 100)
+
+
+def test_colour_is_rgba_of_one_value_and_nothing_wraps():
+    # a ramp whose channel would round to 256 if it could: it cannot, because
+    # stops are 0..255, but the cast must still be a clip and not a wrap
+    r = ramp.Ramp('t', (0.0, 1.0), ((254, 0, 0, 255), (255, 0, 0, 255)))
+    assert r.colour(0.5) == (254, 0, 0, 255) or r.colour(0.5) == (255, 0, 0, 255)
+    assert r.rgba(np.array([0.5]))[0].tolist() == list(r.colour(0.5))
+    assert r.rgba(np.array([5.0]))[0, 0] == 255
+
+
 @pytest.mark.parametrize('text,msg', [
     ('100 1 2\n', 'want "value R G B'),
     ('100 1 2 300\n', 'outside 0..255'),

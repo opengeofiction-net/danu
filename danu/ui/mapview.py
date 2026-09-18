@@ -113,8 +113,6 @@ class MapView(QGraphicsView):
         self.setScene(self._scene)
         self._scene.addItem(Graticule())
         self._zoom = 2
-        # the first zoom applies with no anchoring, before there is a view
-        # to anchor in; everything after goes through zoom_about
         self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         # anchoring is done by hand in zoom_about, not by AnchorUnderMouse:
@@ -143,6 +141,9 @@ class MapView(QGraphicsView):
         self.zoom_about(zoom, QPointF(self.viewport().rect().center()))
 
     def _set_zoom_raw(self, zoom: int) -> bool:
+        """The scale change alone, no anchoring. The constructor's first
+        zoom goes this way, before there is a view to anchor in; everything
+        after goes through zoom_about."""
         zoom = max(0, min(m.MAX_ZOOM, int(zoom)))
         if zoom == self._zoom:
             return False
