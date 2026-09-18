@@ -646,13 +646,18 @@ was there from the first push with `continue-on-error` set for Windows, and
 `libgdal` does not put a `gdal-config` script on a PowerShell path, and the
 Makefile stops without one. The override turned that red into green, and it was
 read as green for the whole of phase 0, including in this document. Found on
-2026-09-18 while sizing phase 1. The override is gone, the job is honestly red,
-and it is not a required check, so it blocks nothing. What it needs is a build
-that does not go through `gdal-config` - a Makefile that takes GDAL flags from
-the environment, and a compiler on the runner - which is a change to `isofill`
-and to this CI, and it is on the phase 1 list because packaging for other
-people's machines was the reason it was meant to be a phase 0 deliverable. Not
-in phase 7, where the plan said this kind of thing gets found.
+2026-09-18 while sizing phase 1. The override went the same day, and the job
+was honestly red for a few hours. Then it built: MSYS2's UCRT64 environment
+gives the runner `gcc`, `make` and a GDAL whose `gdal-config` works, so the
+Makefile builds there exactly as on Linux and `isofill` itself needed no
+change. The job also runs the binary and asks for its usage text, because a
+build that links and cannot load its DLLs is the Windows failure a build step
+never sees. Green from 2026-09-18, on the log rather than the badge: the run
+that landed this shows the compile line against `/ucrt64` and the usage text
+the binary printed. It was found in phase 1 because
+packaging for other people's machines was the reason it was meant to be a phase
+0 deliverable - not in phase 7, where the plan said this kind of thing gets
+found.
 
 **The week of nightly builds is a clock, not a task.** Phase 0's code, packaging
 and cutover were finished on 2026-09-18; what remains is six more nights of
@@ -662,10 +667,10 @@ quiet nights the pipeline would otherwise have are not evidence - see
 
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at
-their square. It also carries the debt above: `isofill` building on the Windows
-runner for real, which is a Makefile that takes GDAL flags from the environment
-and a compiler in the job, landed before the editor grows anything that would
-make the answer harder to hear.
+their square. It also carried the debt above - `isofill` building on the Windows
+runner for real - which landed first, by way of MSYS2 rather than a Makefile
+change, before the editor grew anything that would make the answer harder to
+hear.
 
 **Phase 2 - the surface.** Settles the question phase 0 left: whether the
 per-step logic moves into `danu.cli` or the golden test grows a second case
