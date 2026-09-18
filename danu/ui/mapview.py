@@ -47,10 +47,9 @@ class Graticule(QGraphicsItem):
         """Degrees between lines: the finest of STEPS that stays MIN_PX apart
         at the equator for this view scale."""
         px_per_degree = m.WORLD / 360.0 * scale
-        for step in cls.STEPS:
-            if step * px_per_degree >= cls.MIN_PX:
-                chosen = step
-        return chosen if 'chosen' in locals() else cls.STEPS[0]
+        # STEPS runs coarse to fine; the finest that still keeps its distance
+        fits = [s for s in cls.STEPS if s * px_per_degree >= cls.MIN_PX]
+        return fits[-1] if fits else cls.STEPS[0]
 
     def paint(self, painter: QPainter, option, widget=None):
         scale = painter.worldTransform().m11()
@@ -80,7 +79,13 @@ class MapView(QGraphicsView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._scene = QGraphicsScene(0, 0, m.WORLD, m.WORLD, self)
+        # a world of margin on every side. Without it centerOn clamps at the
+        # world's edge, and a zoom-out anchored near the antimeridian or a pole
+        # then lands hundreds of pixels from where it was asked - the residual
+        # correction below cannot survive the scrollbar recalculation the clamp
+        # causes. With it nothing clamps until a whole world past the edge,
+        # and a view straddling the antimeridian has room to draw both sides
+        self._scene = QGraphicsScene(-m.WORLD, -m.WORLD, 3 * m.WORLD, 3 * m.WORLD, self)
         self.setScene(self._scene)
         self._scene.addItem(Graticule())
         self._zoom = 2

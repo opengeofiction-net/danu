@@ -8,6 +8,13 @@ and nothing in the scene moves. A tile at zoom z is a square of
 
 Pure arithmetic, no Qt, so it is tested on the runners that have no Qt and
 so the numbers can be checked by hand.
+
+This is for display. Contours stay in degrees and the surface is solved in
+degrees; this only decides where a thing is drawn on the canvas. The server
+also uses Mercator - it warps the DEM to it for the hillshades the styles
+expect, through PROJ - and tests/test_mercator_proj.py asserts this
+arithmetic agrees with PROJ's to a millionth of a pixel, so the two ways of
+projecting cannot quietly differ.
 """
 
 from __future__ import annotations

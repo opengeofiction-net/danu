@@ -71,6 +71,29 @@ def test_the_wheel_steps_one_zoom_about_the_cursor(view, qtbot):
     assert abs(after.x() - before.x()) < px * 0.01 and abs(after.y() - before.y()) < px * 0.01
 
 
+@pytest.mark.parametrize('lon,lat,z0', [
+    (179.9, 10.0, 6),        # antimeridian, east side
+    (-179.99, 10.0, 8),      # antimeridian, west side
+    (0.0, 84.5, 6),          # the northern cut
+    (0.0, -84.5, 6),         # the southern cut
+    (-179.9, 84.9, 6),       # a corner of the world
+])
+def test_zoom_about_holds_at_the_edges_of_the_world_out_as_well_as_in(view, lon, lat, z0):
+    """Zooming in always held; zooming out near an edge drifted by hundreds of
+    pixels, because centerOn clamped at the world's edge. The scene margin is
+    what makes this pass, and this is the test that would fail without it."""
+    view.set_zoom(z0)
+    view.center_on_lonlat(lon, lat)
+    pos = QPointF(40, 30)
+    anchor = view.mapToScene(pos.toPoint())
+    for z in (z0 + 1, z0 + 3, z0 - 1, z0 - 2, z0 + 1):
+        view.zoom_about(z, pos)
+        px = m.tile_size(view.zoom) / 256
+        now = view.mapToScene(pos.toPoint())
+        assert abs(now.x() - anchor.x()) < px * 0.01, f'z{view.zoom}: x drifted'
+        assert abs(now.y() - anchor.y()) < px * 0.01, f'z{view.zoom}: y drifted'
+
+
 def test_moving_the_mouse_reports_lon_lat(view, qtbot):
     view.fit_bounds(87, 20, 88, 21)
     centre = view.viewport().rect().center()
