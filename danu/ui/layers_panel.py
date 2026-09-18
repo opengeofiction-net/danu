@@ -2,6 +2,11 @@
 
 Presentation only. It holds the TileLayer items and turns their visibility and
 opacity; nothing here knows what a tile is.
+
+The panel is the only thing that changes a layer's visibility or opacity after
+start-up, and it reads each once when its row is built. If something else ever
+writes them - a session file, a shortcut - the rows need telling, and that is a
+signal on the item rather than a poll here.
 """
 
 from __future__ import annotations

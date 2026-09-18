@@ -58,7 +58,7 @@ def render(view) -> QImage:
 
 # ----------------------------------------------------------- the request
 
-def test_the_request_names_danu_wraps_x_and_prefers_the_cache():
+def test_the_request_names_danu_takes_x_as_given_and_prefers_the_cache():
     f = RecordingFetcher()
     req = f.request_for(LAYER, 3, 9, 2)         # x=9 is off the world at z3
     assert req.url().toString() == 'https://tiles.test/t/3/9/2.png'   # request_for does not wrap; paint does
@@ -69,7 +69,7 @@ def test_the_request_names_danu_wraps_x_and_prefers_the_cache():
         QNetworkRequest.CacheLoadControl.PreferCache
 
 
-def test_a_tile_is_asked_for_once_and_not_again_once_it_failed():
+def test_a_tile_is_asked_for_again_while_nothing_is_in_flight_and_never_once_refused():
     f = RecordingFetcher()
     f.request(LAYER, 5, 1, 1)
     f.request(LAYER, 5, 1, 1)

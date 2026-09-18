@@ -48,7 +48,6 @@ PERMANENT = frozenset({
     QNetworkReply.NetworkError.ContentAccessDenied,         # 403
     QNetworkReply.NetworkError.ContentGoneError,            # 410
     QNetworkReply.NetworkError.ContentOperationNotPermittedError,
-    QNetworkReply.NetworkError.ProtocolInvalidOperationError,
 })
 
 Key = tuple[str, int, int, int]     # layer name, z, x (wrapped), y
@@ -136,6 +135,7 @@ class TileFetcher(QObject):
             if err != QNetworkReply.NetworkError.NoError:
                 if err in PERMANENT:
                     self.failed.add(key)
+                    self.retry_at.pop(key, None)
                 else:
                     self.retry_at[key] = time.monotonic() + self.retry_after
                 return
