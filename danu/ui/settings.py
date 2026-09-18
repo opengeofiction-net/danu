@@ -36,25 +36,39 @@ class Settings:
 
     @property
     def size(self) -> int:
-        return int(self.q.value('squares/size', 3))
+        try:
+            n = int(self.q.value('squares/size', 3))
+        except (TypeError, ValueError):
+            return 3
+        return n if n in (1, 3, 5) else 3
 
     @size.setter
     def size(self, n: int):
         self.q.setValue('squares/size', int(n))
 
     # ------------------------------------------------------------ recent
+    # One string, entries separated by newlines, rather than a QSettings list.
+    # Qt's INI backend has been known to hand a list of one back as a plain
+    # string, which a loop would walk character by character. Measured on
+    # PySide6 6.11 it does not - a one-item list came back a list - but the
+    # encoding here is under our control on every Qt and costs nothing, so it
+    # does not lean on that
+    def _entries(self) -> list[str]:
+        raw = self.q.value('recent/squares', '')
+        return [e for e in str(raw or '').split('\n') if e]
+
     def recent(self) -> list[tuple[Path, SquareName, int]]:
         out = []
-        for entry in self.q.value('recent/squares', []) or []:
+        for entry in self._entries():
             try:
                 d, name, size = entry.split('|')
                 out.append((Path(d), SquareName.parse(name), int(size)))
-            except (ValueError, AttributeError):
+            except ValueError:
                 continue
         return out
 
     def remember(self, zone_dir: Path, name: SquareName, size: int):
         entry = f'{zone_dir}|{name}|{size}'
-        items = [e for e in (self.q.value('recent/squares', []) or []) if e != entry]
-        self.q.setValue('recent/squares', [entry] + items[:RECENT_MAX - 1])
+        items = [e for e in self._entries() if e != entry]
+        self.q.setValue('recent/squares', '\n'.join([entry] + items[:RECENT_MAX - 1]))
         self.q.sync()

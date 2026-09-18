@@ -21,7 +21,8 @@ from . import mercator as m
 from .mapview import visible_rect
 
 NAME_CENTRED_BELOW_PX = 420.0     # a degree narrower than this gets its name in the middle
-NAME_MIN_PX = 48.0                # narrower than this, no name at all
+NAME_MIN_PX = 80.0                # narrower than this, no name at all: it would not fit
+ABSENT_WORD_MIN_PX = 170.0        # narrower than this the hatching says it, the word would not fit
 
 
 class SquaresItem(QGraphicsItem):
@@ -91,8 +92,12 @@ class SquaresItem(QGraphicsItem):
                 self._name(painter, r, name, sq.present, scale, degree_px, font)
 
     def _name(self, painter, r: QRectF, name, present: bool, scale: float, degree_px: float, font: QFont):
-        text = str(name) + ('' if present else '  (absent)')
+        text = str(name) + ('' if present or degree_px < ABSENT_WORD_MIN_PX else '  (absent)')
         painter.save()
+        # clipped to the square, so nothing is drawn outside boundingRect - which
+        # is what Qt culls and repaints by - and a name never strays into the
+        # neighbour it does not belong to
+        painter.setClipRect(r)
         if degree_px < NAME_CENTRED_BELOW_PX:
             anchor = r.center()
             align = Qt.AlignmentFlag.AlignCenter

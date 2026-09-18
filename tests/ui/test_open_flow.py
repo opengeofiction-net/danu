@@ -54,6 +54,23 @@ def test_settings_round_trip_and_recent_is_most_recent_first_without_repeats(tmp
     assert again.recent() == [(Path('/z/a'), SquareName(1, 2), 3), (Path('/z/b'), SquareName(3, 4), 1)]
 
 
+def test_a_damaged_size_setting_falls_back_rather_than_raising(tmp_path):
+    f = tmp_path / 'danu.ini'
+    f.write_text('[squares]\nsize=banana\n')
+    assert Settings(f).size == 3
+    f.write_text('[squares]\nsize=4\n')
+    assert Settings(f).size == 3
+
+
+def test_one_recent_square_survives_a_restart(tmp_path):
+    """The case a QSettings list would be least trusted in - one entry - through
+    a real reopen of the file. Measured on Qt 6.11 a list of one does come back
+    a list; the encoding does not depend on it either way."""
+    s = Settings(tmp_path / 'danu.ini')
+    s.remember(Path('/z/only'), SquareName(87, 20), 3)
+    assert Settings(tmp_path / 'danu.ini').recent() == [(Path('/z/only'), SquareName(87, 20), 3)]
+
+
 def test_the_default_settings_file_is_in_the_config_dir_the_spec_names(qapp):
     qapp.setApplicationName('danu')
     f = Settings().file
@@ -118,6 +135,16 @@ def test_the_outlines_hatch_the_absent_squares_and_name_them_at_low_zoom(view, r
     view.set_zoom(3)                                  # a degree is 5 px: no names
     render(view)
     assert item.drawn_names == 0
+    # and nothing of a name is ever painted outside its square: a name at the
+    # top-right corner square's centre stays inside that square
+    view.fit_bounds(*ws.bounds)
+    img = render(view)
+    r = item.square_rect(ws, SquareName(126, -23))
+    outside = view.mapFromScene(r.topRight()).x() + 3
+    col = [img.pixelColor(outside, y) for y in range(view.mapFromScene(r.topRight()).y(),
+                                                     view.mapFromScene(r.bottomRight()).y(), 4)]
+    bg = view.backgroundBrush().color().red()
+    assert all(c.red() >= bg - 2 for c in col)        # nothing but the view's background east of the set
 
 
 def test_a_square_across_the_seam_is_drawn_beside_its_neighbours(root):

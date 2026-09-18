@@ -29,7 +29,7 @@ def zones_under(root: Path) -> list[Path]:
         try:
             if list_squares(d):
                 out.append(d)
-        except (FileExistsError, OSError):
+        except OSError:
             out.append(d)          # a zone with a problem is still a zone; opening it says what
     return out
 
@@ -110,7 +110,7 @@ class OpenDialog(QDialog):
             return
         try:
             found = list_squares(d)
-        except FileExistsError as e:
+        except OSError as e:            # FileExistsError for two files one square, or unreadable
             self.hint.setText(str(e))
             self._selection_changed()
             return

@@ -187,6 +187,6 @@ def main(argv: list[str] | None = None) -> int:
     win.show()
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
-    elif win.settings.recent():
-        win.open_working_set(*win.settings.recent()[0])
+    elif recent := win.settings.recent():
+        win.open_working_set(*recent[0])
     return app.exec()
