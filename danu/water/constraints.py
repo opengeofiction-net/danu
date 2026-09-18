@@ -63,6 +63,8 @@ import warnings
 import numpy as np
 from osgeo import gdal, ogr, osr
 
+from danu.core.profile import MAX_SEGMENT_M, densify, grade, seg_lengths
+
 gdal.UseExceptions()
 ogr.UseExceptions()
 np.seterr(invalid='ignore')
@@ -78,9 +80,6 @@ LINE_KINDS = ('river', 'stream')
 # GDAL exposes these only in other_tags, as an hstore string
 FLOWING = ('river', 'stream', 'canal', 'ditch', 'drain', 'riverbank')
 MAX_RETRIES = 3
-# a graded segment longer than this crosses too much unseen ground to trust
-MAX_SEGMENT_M = 5000.0
-M_PER_DEG = 111320.0
 
 
 def fetch(bbox, path):
@@ -122,15 +121,6 @@ def ring_points(geom):
     return pts
 
 
-def densify(pts, step):
-    out = [pts[0]]
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-        k = max(1, int(math.hypot(x1 - x0, y1 - y0) / step))
-        out.extend((x0 + (x1 - x0) * i / k, y0 + (y1 - y0) * i / k)
-                   for i in range(1, k + 1))
-    return out
-
-
 def to_cells(pts, inv_gt, cols, rows):
     cells, seen = [], set()
     for x, y in pts:
@@ -140,30 +130,6 @@ def to_cells(pts, inv_gt, cols, rows):
             seen.add((ri, ci))
             cells.append((ri, ci))
     return cells
-
-
-def seg_lengths(pts):
-    lat = np.radians([p[1] for p in pts[:-1]])
-    dx = np.diff([p[0] for p in pts]) * M_PER_DEG * np.cos(lat)
-    dy = np.diff([p[1] for p in pts]) * M_PER_DEG
-    return np.hypot(dx, dy)
-
-
-def grade(values, seg_m):
-    """Contour values where the way crosses one, graded between, descending
-    only. OGF::Terrain::RiverProfile::setLinearElev, on a whole way."""
-    known = [i for i, v in enumerate(values) if v is not None]
-    if len(known) < 2:
-        return {}, 0
-    out, rejected = {}, 0
-    for a, b in zip(known, known[1:]):
-        ea, eb = values[a], values[b]
-        if eb > ea or sum(seg_m[a:b]) > MAX_SEGMENT_M:
-            rejected += 1
-            continue
-        for i in range(a, b + 1):
-            out[i] = ea + (eb - ea) * ((i - a) / (b - a) if b > a else 0.0)
-    return out, rejected
 
 
 def burn_lakes(feats, template, inv_gt, cols, rows, arr, have, step, graded):

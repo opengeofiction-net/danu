@@ -36,6 +36,9 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal
 
+from danu.core.profile import (densify, invalid_intervals, linear_fix,
+                               seg_lengths as seg_len_m)
+
 gdal.UseExceptions()
 # a way partly outside the raster samples as nan, which is expected
 np.seterr(invalid='ignore')
@@ -87,17 +90,6 @@ def parse_osm(xml_bytes):
     return ways
 
 
-def densify(pts, step_deg):
-    """Insert points so no gap exceeds step_deg, keeping the drawn order."""
-    out = [pts[0]]
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-        d = math.hypot(x1 - x0, y1 - y0)
-        for i in range(1, max(1, int(d / step_deg)) + 1):
-            t = i / max(1, int(d / step_deg))
-            out.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t))
-    return out
-
-
 def sample(ds, inv_gt, pts):
     """Elevation at each point, nan outside the raster."""
     cols, rows = ds.RasterXSize, ds.RasterYSize
@@ -112,51 +104,6 @@ def sample(ds, inv_gt, pts):
     v = win[yi - y0, xi - x0]
     v[~inside] = np.nan
     return v
-
-
-def invalid_intervals(elev):
-    """Runs which climb above the lowest elevation seen so far, walking the way
-    in its drawn direction. OGF::Terrain::RiverProfile::getInvalidIntervals."""
-    intervals, start, lowest = [], None, elev[0]
-    for i, e in enumerate(elev):
-        if np.isnan(e):
-            continue
-        if e <= lowest:
-            if start is not None:
-                intervals.append((start, i - 1))
-                start = None
-            lowest = e
-        elif start is None:
-            start = i
-    if start is not None:
-        intervals.append((start, len(elev) - 1))
-    return intervals
-
-
-def linear_fix(elev, intervals):
-    """What setLinearElev would write: each bad run replaced by a ramp between
-    the good points either side. Returns the corrected profile, for measuring
-    how much the ground would have to move."""
-    out = elev.astype('f8').copy()
-    n = len(out)
-    for i0, i1 in intervals:
-        a, b = max(0, i0 - 1), min(n - 1, i1 + 1)
-        if b <= a:
-            continue
-        # the mouth is never lowered - setLinearElev guards this explicitly
-        if b == n - 1 and out[b] > out[a]:
-            b = a
-            continue
-        out[a:b + 1] = np.linspace(out[a], out[b], b - a + 1)
-    return out
-
-
-def seg_len_m(pts):
-    """Length in metres of each step along the way."""
-    lat = np.radians([p[1] for p in pts[:-1]])
-    dx = np.diff([p[0] for p in pts]) * M_PER_DEG_LAT * np.cos(lat)
-    dy = np.diff([p[1] for p in pts]) * M_PER_DEG_LAT
-    return np.hypot(dx, dy)
 
 
 def main():

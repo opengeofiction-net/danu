@@ -3,7 +3,7 @@
 import numpy as np
 from hypothesis import given, strategies as st
 
-from danu.water.constraints import densify, grade, seg_lengths
+from danu.core.profile import densify, grade, seg_lengths
 
 
 def test_two_crossings_grade_linearly_between_them():

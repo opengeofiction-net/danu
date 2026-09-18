@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from hypothesis import given, strategies as st
 
-from danu.checks.rivers import invalid_intervals, linear_fix
+from danu.core.profile import invalid_intervals, linear_fix
 
 
 def test_monotonic_descent_has_no_invalid_interval():
