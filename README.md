@@ -54,8 +54,9 @@ packaging/ci/cr            # or put it on your PATH as cr
 ```
 
 It needs [Nushell](https://www.nushell.sh), a checkout of
-`hustcer/deepseek-review` at the commit the workflow pins, and `CHAT_TOKEN` in
-the environment. The prompt, model and exclusions are read from the workflow
+`hustcer/deepseek-review` at the commit the workflow pins, and a DeepSeek
+token - `CHAT_TOKEN` in the environment, or one line in
+`~/.config/deepseek-review/token` at mode 600. The prompt, model and exclusions are read from the workflow
 file on every run, so there is one reviewer, not two that drift.
 
 ## Status

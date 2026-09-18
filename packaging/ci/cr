@@ -20,7 +20,19 @@ cfg=${XDG_CONFIG_HOME:-$HOME/.config}/deepseek-review/config.yml
 
 command -v nu >/dev/null || { echo "cr: nu (Nushell) is not on PATH" >&2; exit 1; }
 [ -f "$tool/cr" ] || { echo "cr: no deepseek-review checkout at $tool" >&2; exit 1; }
-[ -n "${CHAT_TOKEN:-}" ] || { echo "cr: CHAT_TOKEN is not set in the environment" >&2; exit 1; }
+# the token: from the environment, or from a file beside the config. The file
+# is for shells that never see the export - a non-interactive bash returns from
+# ~/.bashrc before it reaches one - and for not having the key in a profile at
+# all. Mode 600, one line, no quoting
+tokfile=${XDG_CONFIG_HOME:-$HOME/.config}/deepseek-review/token
+if [ -z "${CHAT_TOKEN:-}" ] && [ -r "$tokfile" ]; then
+	CHAT_TOKEN=$(head -n1 "$tokfile" | tr -d '[:space:]')
+	export CHAT_TOKEN
+fi
+[ -n "${CHAT_TOKEN:-}" ] || {
+	echo "cr: no DeepSeek token: set CHAT_TOKEN, or put it in $tokfile (mode 600)" >&2
+	exit 1
+}
 
 python3 "$here/review-config.py" --out "$cfg" || exit 1
 
