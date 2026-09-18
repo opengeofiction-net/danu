@@ -1,10 +1,17 @@
 name: Code Review
+# pull_request, not pull_request_target. This repository is public, and
+# pull_request_target runs with the base branch's permissions and access to
+# secrets no matter who opened the pull request - which is the standard way
+# CHAT_TOKEN gets exfiltrated. With pull_request, a branch in this repository
+# still gets the secret and a fork does not, so a fork's pull request goes
+# unreviewed rather than trusted. That is the safer half of the trade, and
+# there are no forks.
 on:
-  pull_request_target:
+  pull_request:
     types:
-      - opened # Triggers when a PR is opened
-      - reopened # Triggers when a PR is reopened
-      - synchronize # Triggers when a commit is pushed to the PR
+      - opened
+      - reopened
+      - synchronize
 
 # fix: GraphQL: Resource not accessible by integration (addComment) error
 permissions:
@@ -16,7 +23,51 @@ jobs:
     runs-on: ubuntu-latest
     name: Code Review
     steps:
+      # The model does not know what day it is and reasons from its training
+      # cutoff, so it has twice flagged correct 2026 dates as being in the
+      # future and "likely a typo for 2025". Telling it costs one step.
+      - name: Today
+        id: today
+        # %-d is GNU only; this format is portable
+        run: echo "date=$(date -u '+%A %d %B %Y')" >> "$GITHUB_OUTPUT"
+
       - name: DeepSeek Code Review
-        uses: hustcer/deepseek-review@v1.21
+        # pinned by digest: a tag can be moved, and this step holds a secret
+        uses: hustcer/deepseek-review@74f086aea9d85827ea091cb1f6dbeeb54a0b8ad7 # v1.21
         with:
           chat-token: ${{ secrets.CHAT_TOKEN }}
+          temperature: 0.2
+          exclude-patterns: 'pnpm-lock.yaml,package-lock.json,*.lock,*.tif,*.osm.xz,*.pbf'
+          sys-prompt: >-
+            You are reviewing a pull request against danu, the OpenGeofiction
+            elevation pipeline and the contour editor being built on top of it.
+            It is Python over GDAL and numpy, shell for the build orchestration,
+            a C interpolator called isofill as a submodule, and Debian
+            packaging.
+
+
+            Today is ${{ steps.today.outputs.date }}; you cannot check this
+            yourself, so take it from here rather than from what you remember.
+            A date on or before today is not in the future. A date well beyond
+            it still deserves reporting.
+
+
+            Prioritise, in this order: correctness bugs; packaging faults such
+            as an undeclared dependency, or a unit, path or filename that a
+            rename left behind; anything which would let the editor and the
+            server build produce different surfaces from the same contours,
+            which is the failure this architecture exists to prevent; and
+            documentation or comments which contradict the code they describe.
+
+
+            Commit messages, changelog entries and comments here are
+            deliberately discursive and explain why a thing is the way it is.
+            That is the house style. Do not report it as verbose, and do not
+            suggest moving reasoning out of a commit message.
+
+
+            Prefer a few findings you have checked to many you have not. Where
+            you cannot verify something from the diff, say so plainly rather
+            than asking the author to confirm a list of possibilities. If the
+            change is sound, say that briefly and stop.
+          user-prompt: 'Review the following changes.'
