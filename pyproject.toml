@@ -37,5 +37,9 @@ dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6"]
 [tool.setuptools.packages.find]
 include = ["danu*"]
 
+# the shipped layer defaults ride inside the package
+[tool.setuptools.package-data]
+"danu.ui" = ["*.toml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

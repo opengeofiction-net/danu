@@ -1,0 +1,81 @@
+"""danu.ui.mercator: the projection the canvas lives in. Pure arithmetic."""
+
+import math
+
+import pytest
+from hypothesis import given, strategies as st
+
+from danu.ui import mercator as m
+
+
+def test_the_world_is_square_and_sized_for_the_scene_zoom():
+    assert m.WORLD == 256 * 2 ** 19
+    assert m.tile_size(m.SCENE_ZOOM) == 256
+    assert m.tile_size(0) == m.WORLD
+
+
+@given(st.floats(-180, 180), st.floats(-85, 85))
+def test_projection_round_trips(lon, lat):
+    x, y = m.lonlat_to_scene(lon, lat)
+    lon2, lat2 = m.scene_to_lonlat(x, y)
+    assert math.isclose(lon, lon2, abs_tol=1e-9)
+    assert math.isclose(lat, lat2, abs_tol=1e-9)
+
+
+def test_the_corners_and_the_middle():
+    assert m.lonlat_to_scene(-180, 0) == (0.0, m.WORLD / 2)
+    assert m.lonlat_to_scene(0, 0) == (m.WORLD / 2, m.WORLD / 2)
+    x, y = m.lonlat_to_scene(180, m.MAX_LAT)
+    assert math.isclose(x, m.WORLD) and math.isclose(y, 0.0, abs_tol=1e-6)
+
+
+def test_latitude_beyond_the_cut_is_clamped_not_infinite():
+    _, y = m.lonlat_to_scene(0, 90)
+    assert math.isclose(y, 0.0, abs_tol=1e-6)
+    _, y = m.lonlat_to_scene(0, -90)
+    assert math.isclose(y, m.WORLD, abs_tol=1e-6)
+
+
+@given(st.integers(0, 19))
+def test_scale_and_zoom_are_inverses(z):
+    assert math.isclose(m.zoom_for_scale(m.scale_for_zoom(z)), z)
+
+
+def test_tile_rects_tile_the_world_at_each_zoom():
+    for z in (0, 1, 5, 19):
+        n = 1 << z
+        left, top, right, bottom = m.tile_rect(z, n - 1, n - 1)
+        assert math.isclose(right, m.WORLD) and math.isclose(bottom, m.WORLD)
+        assert math.isclose(right - left, m.tile_size(z))
+
+
+def test_tiles_in_rect_covers_exactly_the_tiles_touched():
+    s = m.tile_size(3)
+    tiles = list(m.tiles_in_rect(s * 1.5, s * 2.5, s * 3.5, s * 3.5, 3))
+    assert tiles == [(3, 1, 2), (3, 2, 2), (3, 3, 2), (3, 1, 3), (3, 2, 3), (3, 3, 3)]
+
+
+def test_tiles_in_rect_clamps_y_and_not_x():
+    s = m.tile_size(2)
+    tiles = list(m.tiles_in_rect(-s, -s, s, s * 5, 2))
+    ys = {t[2] for t in tiles}
+    xs = {t[1] for t in tiles}
+    assert ys == {0, 1, 2, 3}            # nothing above or below the world
+    assert xs == {-1, 0}                 # but the west of -180 is drawn
+    assert m.wrap_x(-1, 2) == 3 and m.wrap_x(4, 2) == 0
+
+
+def test_tiles_in_rect_of_nothing_is_nothing():
+    assert list(m.tiles_in_rect(5, 5, 5, 9, 4)) == []
+    assert list(m.tiles_in_rect(9, 5, 5, 9, 4)) == []
+
+
+def test_zoom_to_fit_picks_the_largest_zoom_that_fits():
+    # one degree square at the equator in a 1000x700 viewport: at z9 a degree
+    # is 364 px, at z10 728 px, which no longer fits 700 high
+    x0, y0 = m.lonlat_to_scene(87, 21)
+    x1, y1 = m.lonlat_to_scene(88, 20)
+    assert m.zoom_to_fit(1000, 700, x0, y0, x1, y1) == 9
+    assert m.zoom_to_fit(1000, 800, x0, y0, x1, y1) == 10
+    assert m.zoom_to_fit(10, 10, 0, 0, m.WORLD, m.WORLD) == 0
+    assert m.zoom_to_fit(1e9, 1e9, 0, 0, 1, 1) == m.MAX_ZOOM
