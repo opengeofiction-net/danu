@@ -596,7 +596,18 @@ let a nightly build run from the new package. No UI.
 
 Ends when the nightly build has run green from Danu for a week, and the only
 `dem` left in `ogf-server-scripts` is the three consumer scripts and their
-units.
+units. Green has to mean built, not skipped: a zone is only rebuilt when its
+squares change, so an unattended week would mostly hash the squares and stop,
+and prove nothing about whether a zone still builds. `danu-soak` forces two
+zones a night, in sorted order from a cursor.
+
+The soak's budget is what "a week" means here. It counts nights on which a
+rebuild was queued, not calendar nights: the nights before it was seeded were
+no-ops and are not evidence, and a night whose build fails holds its list and
+retries free until it passes, so the budget buys six builds however long they
+take. Six were seeded on 2026-09-18. That is twelve zone-builds out of
+thirty-two, so it samples the zones rather than covering them - the claim being
+tested is that the moved pipeline still builds, not that every zone is good.
 
 ### What phase 0 actually did
 
@@ -630,8 +641,10 @@ and asserts the same surface. The first is tidier. The second is cheaper and
 tests the thing that actually matters, which is that the two agree.
 
 **The week of nightly builds is a clock, not a task.** Phase 0's code, packaging
-and cutover were finished on 2026-09-18; what remains is six more quiet nights
-and the decision phase 2 inherits.
+and cutover were finished on 2026-09-18; what remains is six more nights of
+forced rebuilds and the decision phase 2 inherits. They are forced because the
+quiet nights the pipeline would otherwise have are not evidence - see
+`danu-soak` above.
 
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at

@@ -1,0 +1,17 @@
+[Unit]
+Description=Queue elevation zones for tonight's forced rebuild
+
+[Timer]
+# Ahead of danu-build.timer at 03:00, with enough of a gap that a slow pick
+# cannot still be running when the build reads the file. Writing the list and
+# building it are separate units on the clock rather than one ordered pair, so
+# that a soak which cannot pick zones leaves the ordinary nightly build alone.
+#
+# Not Persistent: a missed pick is a night without a forced rebuild, which is
+# the ordinary state of affairs. Catching up at boot would queue a rebuild at
+# whatever hour the machine came back, which is exactly when it is least wanted.
+OnCalendar=*-*-* 02:45
+Unit=danu-soak.service
+
+[Install]
+WantedBy=timers.target
