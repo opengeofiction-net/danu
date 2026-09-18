@@ -601,9 +601,11 @@ squares change, so an unattended week would mostly hash the squares and stop,
 and prove nothing about whether a zone still builds. `danu-soak` forces two
 zones a night, in sorted order from a cursor.
 
-The soak's budget is what "a week" means here, and it is counted in nights that
-built something: the nights before it was seeded were no-ops and are not
-evidence. Six were seeded on 2026-09-18. That is twelve zone-builds out of
+The soak's budget is what "a week" means here. It counts nights on which a
+rebuild was queued, not calendar nights: the nights before it was seeded were
+no-ops and are not evidence, and a night whose build fails holds its list and
+retries free until it passes, so the budget buys six builds however long they
+take. Six were seeded on 2026-09-18. That is twelve zone-builds out of
 thirty-two, so it samples the zones rather than covering them - the claim being
 tested is that the moved pipeline still builds, not that every zone is good.
 

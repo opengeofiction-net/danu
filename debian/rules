@@ -9,9 +9,12 @@ export PYBUILD_NAME=danu
 # night count in /var/lib/danu/soak-remaining is seeded either way.
 # The other four units are re-listed rather than left to a bare second
 # dh_installsystemd call. A bare call takes every unit in the package, soak
-# included, and emits a second maintscript block that enables it by default -
-# so the tidier looking form quietly undoes the --no-enable above. Adding a
-# unit here means adding it to the second line too, or it ships un-enabled.
+# included, and emits a second maintscript block enabling any of them that
+# carries an [Install] - which the soak timer does, so the tidier looking form
+# quietly undoes the --no-enable above. The soak service is safe either way,
+# because it has no [Install] at all; the timer is the one this protects.
+# Adding a unit here means adding it to the second line too, or it ships
+# un-enabled.
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start danu-soak.service danu-soak.timer
 	dh_installsystemd danu-build.service danu-build.timer \
