@@ -15,6 +15,8 @@ set -u
 cd "$(dirname "$0")/../../extern/isofill" || exit 1
 
 bin=./isofill
+# the .exe is the MSYS2 case: gcc there names the output isofill.exe, and the
+# shell resolves ./isofill to it, so the same invocation works on both
 [ -x "$bin" ] || [ -x "$bin.exe" ] || { echo "no isofill binary here"; exit 1; }
 
 out=$("$bin" 2>&1)
@@ -25,8 +27,10 @@ if [ "$status" -ne 2 ]; then
 	echo "expected exit 2 after usage, got $status"
 	exit 1
 fi
-if ! printf '%s\n' "$out" | grep -qx 'usage: isofill \[options\] <constraints.tif> <out.tif>'; then
-	echo "usage text not found in the output"
+# the first line, not any line: usage is the first thing isofill prints, and
+# a diagnostic ahead of it would mean something else ran first
+if ! printf '%s\n' "$out" | head -1 | grep -qx 'usage: isofill \[options\] <constraints.tif> <out.tif>'; then
+	echo "first line of output is not the usage line"
 	exit 1
 fi
 echo "isofill runs: exit 2 and its usage text"
