@@ -235,8 +235,8 @@ danu/
 `core` through `cli` know nothing of Qt and are importable on a headless
 machine. `server/bin` was meant to be a thin wrapper over `danu.cli`, so the
 logic would live where the editor and the tests can reach it. It is not: the
-orchestration is still the shell it arrived as, and `danu.cli` is empty. See
-*What phase 0 actually did*, which says what that costs and when it is paid.
+orchestration is still the shell scripts it arrived as, and `danu.cli` is empty. See
+*What phase 0 actually did*.
 
 ### Naming
 
@@ -611,15 +611,16 @@ server imports Danu.
 **`danu.cli` is empty, and `server/bin` is the implementation rather than a
 wrapper over it.** Porting a thousand lines of working shell was not worth doing
 during a migration whose whole purpose was to change nothing observable, and the
-golden surface proves it changed nothing. But the consequence needs stating,
+golden surface proves the published output is unchanged for the square it
+pins. But the consequence needs stating,
 because it lands on phase 2 and not here.
 
 The golden test runs `danu-build-zone` as a subprocess. That is the whole build,
 which is the right thing to pin. The editor will not run the whole build: its
 incremental path calls the rasteriser and `isofill` on a box directly. So as
 soon as that path exists there are two ways to produce a surface, and only one
-of them is under test - which is precisely the drift this architecture was
-arranged to prevent.
+of them is under test - which is precisely the drift this architecture is
+designed to prevent.
 
 Two ways out, and the choice belongs to phase 2 rather than to a plan written
 before either existed. Either the per-step logic moves into `danu.cli` and both
@@ -628,8 +629,9 @@ test grows a second case which drives the editor's path over the same fixture
 and asserts the same surface. The first is tidier. The second is cheaper and
 tests the thing that actually matters, which is that the two agree.
 
-**The week of nightly builds is a clock, not a task.** Everything else was
-finished on 2026-09-18.
+**The week of nightly builds is a clock, not a task.** Phase 0's code, packaging
+and cutover were finished on 2026-09-18; what remains is six more quiet nights
+and the decision phase 2 inherits.
 
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at
@@ -639,8 +641,12 @@ their square.
 per-step logic moves into `danu.cli` or the golden test grows a second case
 driving the editor's path. `isofill` via CFFI, whole-set rebuild, hillshade and
 both ramps with all three scaling modes, unreachable-ground overlay, envelope
-outline. Slow and exact. Ends when the editor shows the same hillshade the
-server does for the same square.
+outline. Slow and exact.
+
+Ends when a test asserts the two paths agree: the golden fixture driven through
+the build and through the editor, compared cell for cell. Whichever of the two
+ways out is taken, that assertion is what closes the risk. Showing the same
+hillshade on screen demonstrates it once, for one square, on one afternoon.
 
 **Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
 Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
