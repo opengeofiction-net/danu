@@ -25,6 +25,7 @@ APP_NAME = 'danu'
 # own documentation is worse than a bare application name in a directory
 # listing. Measured on Qt 6.11: with no organisation set, AppConfigLocation is
 # ~/.config/danu and CacheLocation ~/.cache/danu, which is what was written
+
 # somewhere in the middle of the drawn world, so the first view is not the
 # whole planet at zoom 2 and not the Atlantic either
 HOME = (87.0, 20.5, 5)
