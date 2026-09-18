@@ -21,6 +21,23 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 from . import mercator as m
 
 
+def visible_rect(painter: QPainter, option, bounding: QRectF) -> QRectF:
+    """What this paint can actually show: the painter's device, mapped back
+    into the scene, intersected with the exposed rect and the item's bounds.
+
+    option.exposedRect is clipped to the exposed region only in a real
+    paintEvent. Under QGraphicsView.render() - a screenshot, a test - it is
+    the whole boundingRect, and an item that trusted it would draw, or
+    request tiles for, the entire world. The device rect is the truth in
+    both cases."""
+    dev = painter.device()
+    device_rect = QRectF(0, 0, dev.width(), dev.height())
+    inv, ok = painter.worldTransform().inverted()
+    if not ok:
+        return QRectF()
+    return inv.mapRect(device_rect).intersected(option.exposedRect).intersected(bounding)
+
+
 class Graticule(QGraphicsItem):
     """Lines of longitude and latitude at a spacing chosen for the current
     scale, so they neither crowd at world view nor vanish when zoomed in.
@@ -54,7 +71,9 @@ class Graticule(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         scale = painter.worldTransform().m11()
         step = self.step_for(scale)
-        rect = option.exposedRect
+        rect = visible_rect(painter, option, self.boundingRect())
+        if rect.isEmpty():
+            return
         lon0, lat1 = m.scene_to_lonlat(rect.left(), rect.top())
         lon1, lat0 = m.scene_to_lonlat(rect.right(), rect.bottom())
         lon_a = math.floor(lon0 / step) * step

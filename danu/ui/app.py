@@ -12,11 +12,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
 
 from . import config
+from .layers_panel import LayersPanel
 from .mapview import MapView
+from .tiles import TileFetcher, TileLayer
 
 APP_NAME = 'danu'
 # No organisation name, deliberately. Qt puts an organisation into the paths -
@@ -38,13 +40,29 @@ def user_config_dir() -> Path:
         QStandardPaths.StandardLocation.AppConfigLocation))
 
 
+def user_cache_dir() -> Path:
+    """~/.cache/danu on Linux; tiles and, later, Overpass live under it."""
+    return Path(QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.CacheLocation))
+
+
 class MainWindow(QMainWindow):
-    def __init__(self, layers: list[config.Layer]):
+    def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None):
         super().__init__()
         self.setWindowTitle('Danu')
         self.layers = layers
         self.map = MapView(self)
         self.setCentralWidget(self.map)
+        self.fetcher = TileFetcher(cache_dir, parent=self)
+        # in config order, first at the bottom; the graticule sits above all
+        self.tile_items = []
+        for i, layer in enumerate(layers):
+            item = TileLayer(layer, self.fetcher)
+            item.setZValue(i)
+            self.map.scene().addItem(item)
+            self.tile_items.append(item)
+        self.panel = LayersPanel(self.tile_items, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         self.map.cursorMoved.connect(self._cursor)
@@ -62,6 +80,6 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
-    win = MainWindow(layers)
+    win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles')
     win.show()
     return app.exec()
