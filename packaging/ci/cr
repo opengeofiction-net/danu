@@ -1,0 +1,32 @@
+#!/bin/bash
+#
+# Pre-flight code review: the same reviewer the pull request will get, run here
+# first, on the diff against main by default.
+#
+#   cr                      review `git diff main` in the current repository
+#   cr --diff-from <sha>    or any other flags hustcer/deepseek-review's cr takes
+#   cr -n 12                review pull request #12 on GitHub instead
+#
+# Regenerates the CLI's config from the workflow on every run, so the prompt
+# cannot drift from the one CI uses. Needs: nu on PATH, CHAT_TOKEN in the
+# environment, and a checkout of hustcer/deepseek-review at DEEPSEEK_REVIEW
+# (default ~/code/tools/deepseek-review), pinned to the same commit the
+# workflow pins the action to.
+
+set -u
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+tool=${DEEPSEEK_REVIEW:-$HOME/code/tools/deepseek-review}
+cfg=${XDG_CONFIG_HOME:-$HOME/.config}/deepseek-review/config.yml
+
+command -v nu >/dev/null || { echo "cr: nu (Nushell) is not on PATH" >&2; exit 1; }
+[ -f "$tool/cr" ] || { echo "cr: no deepseek-review checkout at $tool" >&2; exit 1; }
+[ -n "${CHAT_TOKEN:-}" ] || { echo "cr: CHAT_TOKEN is not set in the environment" >&2; exit 1; }
+
+python3 "$here/review-config.py" --out "$cfg" || exit 1
+
+# with no arguments, the diff against main; the tool's own default is the
+# unstaged diff, which for a branch about to become a PR is usually empty
+if [ $# -eq 0 ]; then
+	set -- --diff-from "$(git merge-base main HEAD 2>/dev/null || echo main)"
+fi
+exec nu "$tool/cr" --config "$cfg" "$@"
