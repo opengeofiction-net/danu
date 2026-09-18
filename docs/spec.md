@@ -756,7 +756,7 @@ Recorded so the reasoning is not relitigated:
 | sequencing | move, then rename, then the API rebuild goes live |
 | map canvas | `QGraphicsView` in Web Mercator with our own tile layer; not QtWebEngine, not QtLocation |
 | reading squares | stdlib `lzma` + `ElementTree.iterparse` in `danu.core.square`; no pyosmium in the editor |
-| extent | from the filename, never the nodes - JOSM frames sit inside the degree |
+| extent | from the filename, or the name a caller already parsed from it - never the nodes; JOSM frames sit inside the degree |
 | editor config | TOML via `tomllib`, user file under `QStandardPaths` |
 | tile cache | `QNetworkDiskCache` |
 

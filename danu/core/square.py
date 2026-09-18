@@ -20,6 +20,7 @@ build has always taken the extent from the filename; so does this.
 from __future__ import annotations
 
 import lzma
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -338,11 +339,13 @@ class WorkingSet:
         return (eles[0], eles[-1]) if eles else None
 
     def at(self, lon: float, lat: float) -> Square | None:
-        """The square under a point, if it is in the set. Takes either spelling
-        of a longitude across the seam, as ``contains`` does, so the two agree:
-        a caller who asks contains() and then at() gets a square, not None."""
-        lon = (lon + 180) % 360 - 180
-        for square in self.squares.values():
-            if square.name.contains(lon, lat):
-                return square
-        return None
+        """The square under a point, if it is in the set. Decided by the same
+        box and the same unwrap as ``contains``, so the two cannot disagree: a
+        caller who asks contains() and then at() gets a square, not None."""
+        if not self.contains(lon, lat):
+            return None
+        lon = self.unwrap(lon)
+        # the member's name, from the point: floor to the degree, then the
+        # canonical spelling of that longitude, which is what the keys use
+        deg = (math.floor(lon) + 180) % 360 - 180
+        return self.squares.get(SquareName(deg, math.floor(lat)))
