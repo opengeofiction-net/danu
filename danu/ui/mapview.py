@@ -29,7 +29,12 @@ def visible_rect(painter: QPainter, option, bounding: QRectF) -> QRectF:
     paintEvent. Under QGraphicsView.render() - a screenshot, a test - it is
     the whole boundingRect, and an item that trusted it would draw, or
     request tiles for, the entire world. The device rect is the truth in
-    both cases."""
+    both cases.
+
+    Everything here is in item coordinates: inside paint() the painter's
+    world transform is the item's device transform, so the device rect
+    mapped back through it lands in the same space as exposedRect and the
+    bounding rect, whatever the item's position or transform."""
     dev = painter.device()
     device_rect = QRectF(0, 0, dev.width(), dev.height())
     inv, ok = painter.worldTransform().inverted()

@@ -21,7 +21,7 @@ antimeridian shows both sides.
 
 from __future__ import annotations
 
-import math
+import time
 from collections import OrderedDict
 from pathlib import Path
 
@@ -40,6 +40,16 @@ DISK_CACHE_BYTES = 512 * 1024 * 1024
 # decoded pixmaps kept in memory; a 1920x1200 view is about 50 tiles, so this
 # is a dozen screens of panning before anything is decoded twice
 PIXMAP_RING = 600
+RETRY_AFTER_S = 30.0
+# the server meant it: the tile is not there, or not for us. Everything else
+# is a fault between here and there, and worth asking again later
+PERMANENT = frozenset({
+    QNetworkReply.NetworkError.ContentNotFoundError,        # 404
+    QNetworkReply.NetworkError.ContentAccessDenied,         # 403
+    QNetworkReply.NetworkError.ContentGoneError,            # 410
+    QNetworkReply.NetworkError.ContentOperationNotPermittedError,
+    QNetworkReply.NetworkError.ProtocolInvalidOperationError,
+})
 
 Key = tuple[str, int, int, int]     # layer name, z, x (wrapped), y
 
@@ -62,10 +72,15 @@ class TileFetcher(QObject):
         self._ring = ring
         self._pixmaps: OrderedDict[Key, QPixmap] = OrderedDict()
         self._inflight: dict[Key, QNetworkReply] = {}
-        # a tile that failed is not asked for again this session: a server
-        # that said 404 for it will say so again, and asking on every repaint
-        # is how a client gets itself rate limited
+        # a tile the server refused is not asked for again this session: it
+        # said 404 and will say so again, and asking on every repaint is how a
+        # client gets itself rate limited
         self.failed: set[Key] = set()
+        # a tile that failed for a reason a retry can fix - a timeout, a
+        # dropped connection - is asked for again, but not on the next repaint:
+        # a link that is down would be hammered at frame rate
+        self.retry_at: dict[Key, float] = {}
+        self.retry_after = RETRY_AFTER_S
 
     # ----------------------------------------------------------- lookup
     def pixmap(self, layer: Layer, z: int, x: int, y: int) -> QPixmap | None:
@@ -95,8 +110,14 @@ class TileFetcher(QObject):
         return req
 
     def request(self, layer: Layer, z: int, x: int, y: int):
+        """Ask for a tile unless there is a reason not to: it is here, it is
+        on its way, the server refused it, or it failed too recently. Every
+        paint may call this for every tile it lacks; this is where not asking
+        is decided, against live state rather than a record of past asks."""
         key = (layer.name, z, x, y)
         if key in self._pixmaps or key in self._inflight or key in self.failed:
+            return
+        if self.retry_at.get(key, 0.0) > time.monotonic():
             return
         reply = self._send(self.request_for(layer, z, x, y))
         if reply is None:
@@ -111,13 +132,20 @@ class TileFetcher(QObject):
     def _finished(self, key: Key, reply: QNetworkReply):
         self._inflight.pop(key, None)
         try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                self.failed.add(key)
+            err = reply.error()
+            if err != QNetworkReply.NetworkError.NoError:
+                if err in PERMANENT:
+                    self.failed.add(key)
+                else:
+                    self.retry_at[key] = time.monotonic() + self.retry_after
                 return
             pm = QPixmap()
             if not pm.loadFromData(reply.readAll()):
+                # a 200 that is not an image is the server's doing, and it
+                # will do it again
                 self.failed.add(key)
                 return
+            self.retry_at.pop(key, None)
             self.put(*key, pm)
         finally:
             reply.deleteLater()
@@ -138,9 +166,6 @@ class TileLayer(QGraphicsItem):
         self.setOpacity(layer.opacity)
         self.setVisible(layer.visible)
         fetcher.ready.connect(self._tile_ready)
-        # the requests this item made, by wrapped key, so a redraw only asks
-        # for what the last paint did not already ask for
-        self.requested: set[Key] = set()
 
     def boundingRect(self) -> QRectF:
         # the world and one repeat each side, matching the scene's margin;
@@ -162,10 +187,11 @@ class TileLayer(QGraphicsItem):
             wx = m.wrap_x(x, z)
             pm = self.fetcher.pixmap(self.layer, z, wx, y)
             if pm is None:
-                key = (self.layer.name, z, wx, y)
-                if key not in self.requested:
-                    self.requested.add(key)
-                    self.fetcher.request(self.layer, z, wx, y)
+                # every paint asks for what it lacks; the fetcher decides,
+                # against what it holds now, whether to send. A record kept
+                # here of past asks would stop a tile the ring has since
+                # evicted from ever being fetched again
+                self.fetcher.request(self.layer, z, wx, y)
                 continue
             left, top, right, bottom = m.tile_rect(z, x, y)
             painter.drawPixmap(QRectF(left, top, right - left, bottom - top), pm, QRectF(pm.rect()))

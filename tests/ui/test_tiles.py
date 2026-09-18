@@ -79,6 +79,33 @@ def test_a_tile_is_asked_for_once_and_not_again_once_it_failed():
     assert len(f.sent) == 2
 
 
+class Reply:
+    """Just enough of a QNetworkReply for _finished."""
+    def __init__(self, error, data=b''):
+        self._error, self._data = error, data
+    def error(self): return self._error
+    def readAll(self): return self._data
+    def deleteLater(self): pass
+
+
+def test_the_server_refusing_is_final_but_a_fault_on_the_way_is_retried_later():
+    from PySide6.QtNetwork import QNetworkReply
+    E = QNetworkReply.NetworkError
+    f = RecordingFetcher()
+    f._finished(('t', 5, 1, 1), Reply(E.ContentNotFoundError))
+    assert ('t', 5, 1, 1) in f.failed
+    f._finished(('t', 5, 2, 2), Reply(E.TimeoutError))
+    assert ('t', 5, 2, 2) not in f.failed and ('t', 5, 2, 2) in f.retry_at
+    f.request(LAYER, 5, 2, 2)
+    assert len(f.sent) == 0                     # too soon
+    f.retry_at[('t', 5, 2, 2)] = 0.0            # the wait is over
+    f.request(LAYER, 5, 2, 2)
+    assert len(f.sent) == 1
+    # a 200 that is not an image is the server's doing
+    f._finished(('t', 5, 3, 3), Reply(E.NoError, b'<html>not a tile</html>'))
+    assert ('t', 5, 3, 3) in f.failed
+
+
 def test_the_pixmap_ring_evicts_the_oldest():
     f = RecordingFetcher(ring=3)
     for i in range(5):
@@ -101,9 +128,41 @@ def test_painting_asks_for_exactly_the_visible_tiles_wrapped(view, qtbot):
     render(view)
     r = view.visible_scene_rect()
     want = {(6, m.wrap_x(x, 6), y) for _, x, y in m.tiles_in_rect(r.left(), r.top(), r.right(), r.bottom(), 6)}
-    got = {(z, x, y) for (_, z, x, y) in item.requested}
+    got = {(z, int(r.url().path().split('/')[-2]), int(r.url().path().split('/')[-1][:-4]))
+           for r in f.sent for z in [int(r.url().path().split('/')[-3])]}
     assert got == want and len(want) > 4
     assert len(f.sent) == len(want)
+    render(view)
+    assert len(f.sent) == 2 * len(want)         # nothing arrived, nothing in flight: asked again
+
+
+def sent_keys(f):
+    out = set()
+    for r in f.sent:
+        z, x, y = r.url().path().split('/')[-3:]
+        out.add((int(z), int(x), int(y[:-4])))
+    return out
+
+
+def test_a_tile_the_ring_evicted_is_fetched_again_not_left_a_hole(view):
+    """The first version kept a record of every tile ever asked for and
+    never asked twice - so a tile the ring evicted stayed blank for the
+    session. Every paint asks now, and the fetcher decides."""
+    f = RecordingFetcher(ring=4)
+    item = TileLayer(LAYER, f)
+    view.scene().addItem(item)
+    view.set_zoom(6)
+    view.center_on_lonlat(87.5, 20.5)
+    render(view)
+    keys = sorted(sent_keys(f))
+    for z, x, y in keys:
+        f.put('t', z, x, y, solid('red'))        # more than the ring holds: the first are evicted
+    still_held = [k for k in keys if f.pixmap(LAYER, *k) is not None]
+    assert 0 < len(still_held) < len(keys)
+    f.sent.clear()
+    render(view)
+    asked_again = sent_keys(f)
+    assert asked_again == set(keys) - set(still_held)
 
 
 def test_across_the_antimeridian_both_sides_are_asked_for_by_wrapped_x(view):
@@ -113,7 +172,7 @@ def test_across_the_antimeridian_both_sides_are_asked_for_by_wrapped_x(view):
     view.set_zoom(4)
     view.center_on_lonlat(179.9, 0)
     render(view)
-    xs = {x for (_, z, x, y) in item.requested}
+    xs = {x for (z, x, y) in sent_keys(f)}
     assert xs <= set(range(16))                # every x is a real tile
     assert 15 in xs and 0 in xs                # the last column and the first
 
@@ -125,7 +184,7 @@ def test_a_layer_draws_its_top_zoom_scaled_above_its_ceiling(view):
     view.set_zoom(13)
     view.center_on_lonlat(87.5, 20.5)
     render(view)
-    zs = {z for (_, z, x, y) in item.requested}
+    zs = {z for (z, x, y) in sent_keys(f)}
     assert zs == {10}
 
 
@@ -136,7 +195,7 @@ def test_tiles_that_arrive_are_drawn_with_the_layers_opacity(view, qtbot):
     view.set_zoom(6)
     view.center_on_lonlat(87.5, 20.5)
     render(view)
-    for (_, z, x, y) in list(item.requested):
+    for z, x, y in sent_keys(f):
         f.put('t', z, x, y, solid('#ff0000'))
     img = render(view)
     c = img.pixelColor(400, 300)
