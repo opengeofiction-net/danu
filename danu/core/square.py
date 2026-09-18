@@ -32,7 +32,7 @@ from xml.etree import ElementTree
 # longitude three, always signed by letter. A file may carry a label after the
 # name - N18E088_Katyapura - which is for people; only the name is data
 _NAME = re.compile(r'^([NS])(\d{2})([EW])(\d{3})$')
-_FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_[^.]*)?\.osm(?:\.xz)?$')
+_FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_[^.]+)?\.osm(?:\.xz)?$')
 
 
 @dataclass(frozen=True, order=True)

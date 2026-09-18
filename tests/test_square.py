@@ -50,7 +50,8 @@ def test_filename_carries_the_name_and_may_carry_a_label(fn):
 
 
 @pytest.mark.parametrize('fn', ['EMPTY.osm.xz', 'N18E088.txt', 'N18E088.osm.xz.bak',
-                                'notes_N18E088.osm.xz', 'N18E088Katyapura.osm.xz'])
+                                'notes_N18E088.osm.xz', 'N18E088Katyapura.osm.xz',
+                                'N18E088_.osm.xz'])         # a label is for people; empty is not one
 def test_filename_rejects_the_template_and_lookalikes(fn):
     with pytest.raises(ValueError):
         SquareName.from_filename(fn)
@@ -227,7 +228,10 @@ def test_working_set_of_one_and_five(zone):
 def test_working_set_at_a_pole_is_short_not_broken(zone):
     ws = WorkingSet.open(zone, SquareName(0, 89))
     assert len(ws.squares) == 6           # the row north of 89 does not exist
-    assert ws.bounds[3] == 90.0
+    assert ws.bounds[1:4:2] == (88.0, 90.0)
+    ws = WorkingSet.open(zone, SquareName(0, -90))
+    assert len(ws.squares) == 6           # and nothing south of -90 either
+    assert ws.bounds[1:4:2] == (-90.0, -88.0)
 
 
 def test_working_set_across_the_antimeridian_is_one_box_that_holds_its_members(zone):
