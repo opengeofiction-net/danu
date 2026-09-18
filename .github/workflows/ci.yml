@@ -64,7 +64,14 @@ jobs:
         with:
           submodules: recursive
           lfs: true
-      - run: sudo apt-get update && sudo apt-get install -y python3-gdal python3-numpy python3-pytest libgdal-dev
+      # the same set danu-server declares, plus what building isofill needs.
+      # gdal-bin is the one that matters: the pipeline is shell calling
+      # ogr2ogr, gdal_rasterize, gdalwarp and gdaldem, and python3-gdal
+      # provides none of them
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin python3-gdal python3-numpy \
+                                  xz-utils osmium-tool zip python3-pytest libgdal-dev
       - name: build and install isofill
         working-directory: extern/isofill
         run: make && sudo make install
