@@ -1,0 +1,29 @@
+# .github/workflows/deepseek-review.yml
+name: DeepSeek Code Review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for diff analysis
+      
+      - name: Run DeepSeek Code Review
+        uses: deepseek-ai/code-review-action@<FULL-COMMIT-SHA> # Pin to a specific commit for security
+        with:
+          model: deepseek-flash
+          language: en
+          max_tokens: 4096
+          exclude: |
+            dist/**
+            package-lock.json
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

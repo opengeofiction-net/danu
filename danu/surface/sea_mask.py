@@ -204,7 +204,7 @@ def main():
         j.join()
     bad = [j.exitcode for j in jobs if j.exitcode != 0]
     if bad:
-        sys.exit(f'demSeaMask: a proximity pass failed, exit {bad}')
+        sys.exit(f'sea_mask: a proximity pass failed, exit {bad}')
 
     wd_ds = gdal.Open(tmp['waterdist'])
     ld_ds = gdal.Open(tmp['landdist'])

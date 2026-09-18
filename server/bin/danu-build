@@ -14,7 +14,7 @@
 # the main cost of the process this replaces: a per-zone conversion script, a
 # per-zone post-processing script, and a hand-maintained id table.
 #
-# Run as the ogf user, by dem-build.timer, or by hand.
+# Run as the ogf user, by danu-build.timer, or by hand.
 
 set -u
 
@@ -53,7 +53,7 @@ LOG_KEEP_DAYS=${LOG_KEEP_DAYS:-7}
 # because sync-to-ogf@dem.path watches that directory and PathChanged does not
 # recurse: a write into dem/<zone>/ triggers nothing, so without this a long
 # rebuild publishes only when something syncs it by hand
-PROGRESS=${PUB}/dem-build-progress.txt
+PROGRESS=${PUB}/danu-build-progress.txt
 # Appends a line and closes it, which is what raises IN_CLOSE_WRITE and fires
 # the path unit - so each zone syncs itself as it finishes. fsync for the
 # durability, the close for the event
@@ -77,22 +77,22 @@ publish_log() {
 		echo "# danu-build, run at ${STARTED}, exit ${rc}"
 		echo "#"
 		if [ -n "${INVOCATION_ID}" ]; then
-			journalctl -u dem-build --since "${STARTED}" --no-pager 2>/dev/null ||
+			journalctl -u danu-build --since "${STARTED}" --no-pager 2>/dev/null ||
 				echo "# the journal could not be read"
 		else
-			echo "# Run by hand, not by dem-build.timer, so there is no journal for"
+			echo "# Run by hand, not by danu-build.timer, so there is no journal for"
 			echo "# it. What follows is the last run of the unit itself."
 			echo "#"
-			journalctl -u dem-build -n 2000 --no-pager 2>/dev/null || true
+			journalctl -u danu-build -n 2000 --no-pager 2>/dev/null || true
 		fi
-	} > ${PUB}/dem-build-log-${RUN_TAG}.txt 2>/dev/null || true
+	} > ${PUB}/danu-build-log-${RUN_TAG}.txt 2>/dev/null || true
 	# the stable name every link and bookmark uses, pointing at this run. A hard
 	# link rather than a symlink because the sync is rsync -a with no -H, and a
 	# symlink would arrive as a symlink into a file the next housekeeping
 	# removes. It costs a second copy on the far side, which is the trade
-	ln -f ${PUB}/dem-build-log-${RUN_TAG}.txt ${PUB}/dem-build-log.txt 2>/dev/null || true
+	ln -f ${PUB}/danu-build-log-${RUN_TAG}.txt ${PUB}/danu-build-log.txt 2>/dev/null || true
 	# and the older runs go, or every run's log accumulates for ever
-	find ${PUB} -maxdepth 1 -name 'dem-build-log-*.txt' -mtime +${LOG_KEEP_DAYS} \
+	find ${PUB} -maxdepth 1 \( -name 'danu-build-log-*.txt' -o -name 'dem-build-log-*.txt' \) -mtime +${LOG_KEEP_DAYS} \
 		-delete 2>/dev/null || true
 	return ${rc}
 }

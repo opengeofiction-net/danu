@@ -25,7 +25,7 @@ Danu puts it there.
 
 ## What it is not
 
-Not part of the server DEM process. `buildDemZone.sh` stays as it is, building
+Not part of the server DEM process. `danu-build-zone` stays as it is, building
 whole zones from whatever squares it is given. The experiments that led here -
 burning rivers into the terrain, pinning lakes from their outlets - belong in an
 editor where a person accepts or rejects each one, not in an unattended nightly
@@ -92,7 +92,7 @@ the tools for everything else.
   `ONE_LEVEL` - the editor says so, as an overlay. This is the single most
   useful thing it can tell a mapper: *here is ground your contours do not
   describe*.
-- **R21** The envelope the contours describe, as `demDrawnMask.py` computes it,
+- **R21** The envelope the contours describe, as `danu.surface.drawn_mask` computes it,
   is drawn as an outline. Beyond it the fill does not reach.
 - **R22** Ground outside the working set is shown from the **published** DEM and
   hillshade, fetched as tiles from `data.opengeofiction.net`. Live surface for
@@ -180,7 +180,7 @@ Nothing is shared between the two sides. `demExpireTiles.py` imports only the
 standard library. `fetchDemData.sh` reads `etc/cyclogf_contours.style`, which is
 tile-server configuration, and the tile server's own `renderd.conf`, which is not
 in either repository. The two sides even use different ramps for different
-purposes: the producer's `etc/dem_relief.ramp` colours the relief rasters it
+purposes: the producer's `relief.ramp` colours the relief rasters it
 publishes, while the consumer's `map-styles/<style>/dem/shade.ramp` colours the
 hillshade for a particular style and lives in the styles repository. There is no
 module, no helper and no configuration file in common.
@@ -555,7 +555,7 @@ elevation model. Not pixel comparison of the map.
 justifies the whole `core` extraction. A fixture square, a fixed `isofill`
 revision and parameters, and a stored reference DEM. The test asserts the
 editor's surface is identical to the reference, cell for cell. Run the same
-fixture through `buildDemZone.sh` and assert it produces the same thing. That is
+fixture through `danu-build-zone` and assert it produces the same thing. That is
 the only mechanism which will notice the editor and the server drifting apart,
 which is the failure this design is most exposed to.
 

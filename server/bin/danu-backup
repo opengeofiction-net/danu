@@ -4,7 +4,7 @@
 #
 #   danu-backup [base] [queue]
 #
-# Run as the ogf user, weekly by backup-elevation.timer, or by hand.
+# Run as the ogf user, weekly by danu-backup.timer, or by hand.
 #
 # What is backed up is what cannot be rebuilt: the contour squares, which are
 # the source of truth and exist nowhere else once a mapper has sent one in, and
@@ -29,7 +29,7 @@ OGF=${OGF:-/opt/opengeofiction}
 BASE=${1:-${BASE:-${OGF}/elevation}}
 BACKUP_QUEUE=${2:-${OGF}/backup-to-s3-queue}
 DEST=${DEST:-${OGF}/backup-database}
-LOCKFILE=${DEST}/backup-elevation.lock
+LOCKFILE=${DEST}/danu-backup.lock
 KEEP_DAYS=30
 
 DATESTR=$(date '+%Y%m%d_%H%M%S%Z')

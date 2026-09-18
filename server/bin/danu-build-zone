@@ -8,7 +8,7 @@
 # /opt/opengeofiction/sync-to-ogf/dem/<zone>, which reaches
 # data.opengeofiction.net/dem/<zone> through sync-to-ogf@dem.
 #
-# Run as the ogf user, by dem-build.service or by hand. One zone at a time; the
+# Run as the ogf user, by danu-build.service or by hand. One zone at a time; the
 # whole set is danu-build.
 #
 # The parameters below are not arbitrary - each was measured by rebuilding
@@ -127,7 +127,7 @@ fi
 RES=$(python3 -c "print(${ARCSEC}/3600)")
 HGT_RES=$(python3 -c "print(${HGT_ARCSEC}/3600)")
 # Every stage's start second, so where a build's time goes is recorded rather
-# than guessed at. The per-zone elapsed in dem-build-progress.txt says a zone
+# than guessed at. The per-zone elapsed in danu-build-progress.txt says a zone
 # took an hour; this says which part of it did, which is what any work on
 # parallelising the build has to be decided from
 mkdir -p ${BASE}/stats
@@ -413,7 +413,7 @@ fi
 # notion of running out of information: bounded by a coastline at zero on one
 # side and whatever the far shore carries on the other, it ramps between them
 # and fills the sea. On zone-ellarca that took the sea from 67.32% of the zone
-# to 59.76%, because demLandClamp looks for candidate sea where the DEM reads
+# to 59.76%, because land_clamp looks for candidate sea where the DEM reads
 # zero and water carrying a value is no longer recognised as water.
 #
 # The linear pass never needed telling, since it anchors every row and column at
