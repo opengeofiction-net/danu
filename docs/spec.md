@@ -652,7 +652,9 @@ gives the runner `gcc`, `make` and a GDAL whose `gdal-config` works, so the
 Makefile builds there exactly as on Linux and `isofill` itself needed no
 change. The job also runs the binary and asks for its usage text, because a
 build that links and cannot load its DLLs is the Windows failure a build step
-never sees. It is green on evidence now, and it was found in phase 1 because
+never sees. Green from 2026-09-18, on the log rather than the badge: the run
+that landed this shows the compile line against `/ucrt64` and the usage text
+the binary printed. It was found in phase 1 because
 packaging for other people's machines was the reason it was meant to be a phase
 0 deliverable - not in phase 7, where the plan said this kind of thing gets
 found.

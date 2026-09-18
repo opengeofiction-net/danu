@@ -70,26 +70,16 @@ jobs:
         shell: msys2 {0}
         run: make
       # Not just built: run. A binary that compiles and cannot find its GDAL
-      # DLLs at load is the Windows failure that a build step never sees, so
-      # the usage text is asked for, and its absence fails the job. Captured
-      # first rather than piped: isofill exits non-zero after printing usage,
-      # and the msys2 shell runs with pipefail, so a pipe would fail on the
-      # binary working. The first lines are echoed so a loader error shows
+      # DLLs at load is the Windows failure that a build step never sees. One
+      # script for both platforms, so what they assert cannot drift; it wants
+      # isofill's exit 2 after usage and the exact usage line, not a substring
       - name: run (linux)
         if: runner.os == 'Linux'
-        working-directory: extern/isofill
-        run: |
-          out=$(./isofill 2>&1 || true)
-          printf '%s\n' "$out" | head -3
-          printf '%s\n' "$out" | grep -qi usage
+        run: bash packaging/ci/isofill-runs.sh
       - name: run (windows)
         if: runner.os == 'Windows'
-        working-directory: extern/isofill
         shell: msys2 {0}
-        run: |
-          out=$(./isofill 2>&1 || true)
-          printf '%s\n' "$out" | head -3
-          printf '%s\n' "$out" | grep -qi usage
+        run: bash packaging/ci/isofill-runs.sh
 
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
