@@ -662,7 +662,10 @@ quiet nights the pipeline would otherwise have are not evidence - see
 
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at
-their square.
+their square. It also carries the debt above: `isofill` building on the Windows
+runner for real, which is a Makefile that takes GDAL flags from the environment
+and a compiler in the job, landed before the editor grows anything that would
+make the answer harder to hear.
 
 **Phase 2 - the surface.** Settles the question phase 0 left: whether the
 per-step logic moves into `danu.cli` or the golden test grows a second case
