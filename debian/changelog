@@ -1,3 +1,22 @@
+danu (0.1.2-1) unstable; urgency=medium
+
+  * Add python3-pyosmium and zip to Depends; both were used and neither
+    declared.
+  * Move the pure geometry and grading to danu.core.profile, which imports no
+    GDAL, so the tests run without it.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Fri, 18 Sep 2026 10:30:00 +0000
+
+danu (0.1.1-1) unstable; urgency=medium
+
+  * Collect the run log from the danu-build unit rather than the pre-move
+    dem-build one; the published log had been empty since the cutover.
+  * Publish the run log and progress as danu-build-log*.txt and
+    danu-build-progress.txt.
+  * Rename the backup lock file to danu-backup.lock.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Fri, 18 Sep 2026 08:50:00 +0000
+
 danu (0.1.0-1) unstable; urgency=medium
 
   * First package. The elevation pipeline moved out of ogf-server-scripts,
