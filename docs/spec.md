@@ -213,7 +213,7 @@ in the opposite direction, and it is the reason the split works.
 ```
 danu/
   danu/
-    core/          squares, ladder, edits, undo, id allocation
+    core/          squares (`square.py`: names, reader, working set), ladder, edits, undo, id allocation
     surface/       constraints, isofill driver, incremental engine, ramps
     water/         Overpass client and cache, grading, bodies
     checks/        every validation rule
@@ -754,6 +754,11 @@ Recorded so the reasoning is not relitigated:
 | packaging | a `.deb` on system paths, and desktop installers, from one CI |
 | testing | pytest, pytest-qt, hypothesis, and a golden-surface regression |
 | sequencing | move, then rename, then the API rebuild goes live |
+| map canvas | `QGraphicsView` in Web Mercator with our own tile layer; not QtWebEngine, not QtLocation |
+| reading squares | stdlib `lzma` + `ElementTree.iterparse` in `danu.core.square`; no pyosmium in the editor |
+| extent | from the filename, or the name a caller already parsed from it - never the nodes; JOSM frames sit inside the degree |
+| editor config | TOML via `tomllib`, user file under `QStandardPaths` |
+| tile cache | `QNetworkDiskCache` |
 
 ## Open questions
 

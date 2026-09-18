@@ -26,15 +26,31 @@ def test_profile_imports_without_gdal(monkeypatch):
         return real(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, '__import__', blocked)
-    for mod in ('danu.core.profile',):
+    for mod in ('danu.core.profile', 'danu.core.square'):
         monkeypatch.delitem(__import__('sys').modules, mod, raising=False)
         importlib = __import__('importlib')
         importlib.import_module(mod)
 
 
-def test_the_pure_module_names_no_raster_library():
+def test_the_pure_modules_import_no_raster_ui_or_network_library():
+    """Checked on the import statements, not the prose: a docstring is allowed
+    to say why pyosmium is not used here, and a test that forbids the word
+    forbids the explanation."""
+    import ast
     import pathlib
-    src = pathlib.Path(__file__).parents[1] / 'danu' / 'core' / 'profile.py'
-    text = src.read_text()
-    for banned in ('osgeo', 'gdal', 'ogr.', 'urllib'):
-        assert banned not in text, f'danu.core.profile should not mention {banned}'
+    banned = ('osgeo', 'osmium', 'PySide6', 'PyQt6', 'urllib', 'requests', 'numpy')
+    for name in ('profile', 'square'):
+        src = pathlib.Path(__file__).parents[1] / 'danu' / 'core' / f'{name}.py'
+        tree = ast.parse(src.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or '']
+            else:
+                continue
+            for n in names:
+                # profile is arithmetic over arrays and is allowed numpy;
+                # square is not, so the model stays importable anywhere
+                assert n.split('.')[0] not in banned or (name == 'profile' and n == 'numpy'), \
+                    f'danu.core.{name} imports {n}'

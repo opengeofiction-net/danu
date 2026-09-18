@@ -24,22 +24,19 @@ import lzma
 import os
 import sys
 
+from danu.core.square import SquareName
 
+
+# the name convention has one home now, danu.core.square; these keep the
+# script's own vocabulary so nothing that calls it by hand has to change
 def square_name(lon, lat):
-    ns = 'N' if lat >= 0 else 'S'
-    ew = 'E' if lon >= 0 else 'W'
-    return f'{ns}{abs(lat):02d}{ew}{abs(lon):03d}'
+    return SquareName(lon, lat).name
 
 
 def parse_square(name):
     """N42E017 -> (17, 42). Raises on anything else."""
-    import re
-    m = re.fullmatch(r'([NS])(\d{2})([EW])(\d{3})', name.upper())
-    if not m:
-        raise ValueError(f'{name}: not a degree square name, want N42E017')
-    ns, lat, ew, lon = m.groups()
-    return (int(lon) * (1 if ew == 'E' else -1),
-            int(lat) * (1 if ns == 'N' else -1))
+    sq = SquareName.parse(name)
+    return (sq.lon, sq.lat)
 
 
 def write_square(path, lon, lat, note):
