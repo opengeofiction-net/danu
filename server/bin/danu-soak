@@ -1,0 +1,111 @@
+#!/bin/bash
+#
+# Force a couple of zones to rebuild tonight, so a run of danu-build does real
+# work instead of a no-op - see Admin:Elevation process
+#
+#   danu-soak
+#
+# The nightly build only rebuilds a zone whose contour squares have changed, and
+# submissions arrive at no particular rate, so most nights it hashes the squares,
+# rewrites the wiki index and stops. That is the right behaviour and it is also
+# a poor test of the pipeline: a week of green no-ops says the scheduling works
+# and nothing about whether a zone still builds. This writes the limit file that
+# danu-build already honours, naming a fixed number of zones, so the night's run
+# exercises the real thing.
+#
+# Zones are taken in sorted order from a cursor rather than at random, so a soak
+# covers every zone in turn and a failure is reproducible - "the run after
+# paravel" names a list. Wrapping is fine; the cursor is an odometer, not a
+# bound.
+#
+# Runs on a budget, not for ever. Forcing rebuilds nightly costs real CPU and
+# would quietly go on doing so long after whoever wanted the soak had stopped
+# watching, so the count of remaining nights is a file, it is decremented here,
+# and at zero this does nothing at all. Seed it to start a soak:
+#
+#   echo 6 > /var/lib/danu/soak-remaining
+#
+# Ordered before danu-build.timer by the clock, not by a dependency: the two are
+# deliberately separate units so that a soak which fails to pick zones still
+# leaves the ordinary nightly build to run.
+#
+# Run as the ogf user, by danu-soak.timer, or by hand.
+
+set -u
+
+CONF=${CONF:-/etc/danu}
+BASE=${BASE:-/var/lib/danu}
+SQUARES=${BASE}/osm-squares
+# the file danu-build reads and, on a clean run, removes
+LIMIT=${BASE}/limit-build.txt
+# how far through the zone list the soak has got, surviving reboots and upgrades
+CURSOR=${BASE}/soak-cursor
+# nights still to force; absent means no soak is running, which is the default
+BUDGET=${BASE}/soak-remaining
+# zones per night. Two is a night's worth without crowding the window before the
+# tile servers fetch: most zones build in a few minutes, the largest in tens
+COUNT=${SOAK_ZONES:-2}
+
+[ -d "${SQUARES}" ] || { echo "no ${SQUARES}" >&2; exit 1; }
+
+if [ ! -f "${BUDGET}" ]; then
+	echo "no ${BUDGET}, no soak running - nothing to do"
+	exit 0
+fi
+
+remaining=$(sed 's/#.*//' "${BUDGET}" | awk 'NF {print $1; exit}')
+case "${remaining}" in
+	''|*[!0-9]*) echo "${BUDGET}: '${remaining}' is not a count, ignoring it" >&2; exit 1 ;;
+esac
+
+if [ "${remaining}" -le 0 ]; then
+	echo "soak complete, ${BUDGET} is 0 - nothing to do"
+	exit 0
+fi
+
+# A limit file already here is an instruction someone else left: either a forced
+# rebuild queued by hand, or the list a failed run kept so tonight retries it.
+# Either way it outranks the soak, and overwriting it would lose a retry. The
+# budget is not spent, so the soak resumes once the file clears.
+if [ -f "${LIMIT}" ]; then
+	echo "$(basename ${LIMIT}) already exists, leaving it alone:"
+	sed 's/^/    /' "${LIMIT}"
+	exit 0
+fi
+
+mapfile -t zones < <(cd ${SQUARES} && for d in */; do echo "${d%/}"; done | sort)
+n=${#zones[@]}
+[ ${n} -gt 0 ] || { echo "${SQUARES} holds no zones" >&2; exit 1; }
+# asking for more zones than exist would name the same one twice in a list
+# danu-build would then build twice
+[ ${COUNT} -gt ${n} ] && COUNT=${n}
+
+at=$(sed 's/#.*//' "${CURSOR}" 2>/dev/null | awk 'NF {print $1; exit}')
+case "${at}" in
+	''|*[!0-9]*) at=0 ;;
+esac
+
+picked=()
+for ((i = 0; i < COUNT; ++i)); do
+	picked+=("${zones[$(( (at + i) % n ))]}")
+done
+at=$(( (at + COUNT) % n ))
+
+{
+	echo "# Written by danu-soak $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
+	echo "#"
+	echo "# A forced rebuild of ${COUNT} of the ${n} zones, so tonight's run does real"
+	echo "# work rather than finding nothing changed. danu-build removes this file"
+	echo "# once it has built them; if a zone fails the file stays and tomorrow"
+	echo "# retries the same list."
+	echo "#"
+	echo "# ${remaining} night(s) of soak remained, including this one."
+	printf '%s\n' "${picked[@]}"
+} > ${LIMIT}.tmp && mv ${LIMIT}.tmp ${LIMIT}
+
+# Only now that the list is actually in place: a soak which could not write the
+# limit file has not used up a night
+echo "${at}" > ${CURSOR}.tmp && mv ${CURSOR}.tmp ${CURSOR}
+echo "$((remaining - 1))" > ${BUDGET}.tmp && mv ${BUDGET}.tmp ${BUDGET}
+
+echo "queued ${picked[*]} - $((remaining - 1)) night(s) to go, cursor at ${at}/${n}"

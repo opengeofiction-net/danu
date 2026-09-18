@@ -1,0 +1,22 @@
+#
+#  Systemd service file to queue a forced rebuild of a couple of zones, so the
+#  night's danu-build does real work - see Admin:Elevation process
+#
+#  Does nothing unless a soak is running, which is a count of nights in
+#  /var/lib/danu/soak-remaining. Seed it to start one.
+#
+
+[Unit]
+Description=Queue elevation zones for tonight's forced rebuild
+RequiresMountsFor=/var/lib/danu
+
+[Service]
+Type=oneshot
+# defaults the operator can change without editing the unit; absent is fine
+EnvironmentFile=-/etc/danu/danu.conf
+User=ogf
+Group=ogf
+ExecStart=/usr/bin/danu-soak
+
+[Install]
+WantedBy=default.target

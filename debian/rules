@@ -2,3 +2,12 @@
 export PYBUILD_NAME=danu
 %:
 	dh $@ --with python3 --buildsystem=pybuild
+
+# danu-soak forces zones to rebuild, which is a soak test and not something a
+# fresh install should start doing on its own. Installed but left alone; it is
+# enabled by hand for as long as a soak is wanted, and does nothing until the
+# night count in /var/lib/danu/soak-remaining is seeded either way.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start danu-soak.service danu-soak.timer
+	dh_installsystemd danu-build.service danu-build.timer \
+		danu-backup.service danu-backup.timer
