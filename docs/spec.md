@@ -220,7 +220,7 @@ danu/
     cli/           the command line: what the server runs, and what CI runs
     ui/            PySide6, presentation only
   server/
-    bin/           the build scripts, thin wrappers over danu.cli
+    bin/           the build scripts; shell today, see phase 0
     etc/           osmconf, ramps, templates
     systemd/       danu-build service and timer
   extern/isofill/  submodule, pinned by tag
@@ -233,8 +233,10 @@ danu/
 ```
 
 `core` through `cli` know nothing of Qt and are importable on a headless
-machine. `server/bin` are thin wrappers over `danu.cli`, so the logic lives
-where the editor and the tests can reach it.
+machine. `server/bin` was meant to be a thin wrapper over `danu.cli`, so the
+logic would live where the editor and the tests can reach it. It is not: the
+orchestration is still the shell it arrived as, and `danu.cli` is empty. See
+*What phase 0 actually did*, which says what that costs and when it is paid.
 
 ### Naming
 
@@ -589,18 +591,53 @@ unchanged. Pin `isofill`. Stand up pytest, CI on Linux and Windows, and a
 surface, and a regression test asserting the surface is reproduced cell for
 cell.
 
-Deploy it to `util` and the tile servers, remove the `dem*` scripts from
-`ogf-server-scripts`, and let a nightly build run from the new package. No UI.
+Deploy it to `util`, remove the `dem*` scripts from `ogf-server-scripts`, and
+let a nightly build run from the new package. No UI.
 
 Ends when the nightly build has run green from Danu for a week, and the only
 `dem` left in `ogf-server-scripts` is the three consumer scripts and their
 units.
 
+### What phase 0 actually did
+
+Written after the fact, because the plan and the work differ in three places
+and a plan which quietly rewrites itself to match is worth nothing.
+
+**The tile servers were not deployed to, and do not need to be.** That line was
+written before the consuming scripts were left in `ogf-server-scripts`.
+`fetchDemData.sh` and its two companions read published files; nothing on a tile
+server imports Danu.
+
+**`danu.cli` is empty, and `server/bin` is the implementation rather than a
+wrapper over it.** Porting a thousand lines of working shell was not worth doing
+during a migration whose whole purpose was to change nothing observable, and the
+golden surface proves it changed nothing. But the consequence needs stating,
+because it lands on phase 2 and not here.
+
+The golden test runs `danu-build-zone` as a subprocess. That is the whole build,
+which is the right thing to pin. The editor will not run the whole build: its
+incremental path calls the rasteriser and `isofill` on a box directly. So as
+soon as that path exists there are two ways to produce a surface, and only one
+of them is under test - which is precisely the drift this architecture was
+arranged to prevent.
+
+Two ways out, and the choice belongs to phase 2 rather than to a plan written
+before either existed. Either the per-step logic moves into `danu.cli` and both
+the shell and the editor call it, which is what this plan assumed; or the golden
+test grows a second case which drives the editor's path over the same fixture
+and asserts the same surface. The first is tidier. The second is cheaper and
+tests the thing that actually matters, which is that the two agree.
+
+**The week of nightly builds is a clock, not a task.** Everything else was
+finished on 2026-09-18.
+
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at
 their square.
 
-**Phase 2 - the surface.** `isofill` via CFFI, whole-set rebuild, hillshade and
+**Phase 2 - the surface.** Settles the question phase 0 left: whether the
+per-step logic moves into `danu.cli` or the golden test grows a second case
+driving the editor's path. `isofill` via CFFI, whole-set rebuild, hillshade and
 both ramps with all three scaling modes, unreachable-ground overlay, envelope
 outline. Slow and exact. Ends when the editor shows the same hillshade the
 server does for the same square.
