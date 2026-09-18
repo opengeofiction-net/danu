@@ -10,7 +10,8 @@ Homepage: https://github.com/opengeofiction-net/danu
 Package: danu-server
 Architecture: all
 Depends: ${python3:Depends}, ${misc:Depends},
-         python3-gdal, python3-numpy, gdal-bin, isofill, xz-utils, osmium-tool
+         python3-gdal, python3-numpy, python3-pyosmium,
+         gdal-bin, isofill, osmium-tool, xz-utils, zip
 Description: OpenGeofiction elevation pipeline
  Builds digital elevation models from the contour squares mappers draw, and
  publishes the hillshades, reliefs and contour extracts the tile servers render

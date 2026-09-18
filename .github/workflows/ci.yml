@@ -70,8 +70,8 @@ jobs:
       # provides none of them
       - run: |
           sudo apt-get update
-          sudo apt-get install -y gdal-bin python3-gdal python3-numpy \
-                                  xz-utils osmium-tool zip python3-pytest libgdal-dev
+          sudo apt-get install -y gdal-bin python3-gdal python3-numpy python3-pyosmium \
+                                  osmium-tool xz-utils zip python3-pytest libgdal-dev
       - name: build and install isofill
         working-directory: extern/isofill
         run: make && sudo make install
