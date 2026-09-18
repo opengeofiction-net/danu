@@ -67,9 +67,10 @@ def inputs(step_with: dict, action_yaml: Path) -> dict:
         value = step_with.get(name, spec.get('default'))
         if isinstance(value, str):
             value = value.replace('${{ steps.today.outputs.date }}', today())
-            # the action's own default for github-token is the workflow's
-            # token, which does not exist here; gh supplies ours below
-            if name == 'github-token' and '${{ github.token }}' in value:
+            # the two tokens are expressions in the workflow by design - a
+            # secret and the workflow's own token - and neither exists here.
+            # Ours come from the environment and from gh, below
+            if name in ('chat-token', 'github-token'):
                 value = ''
             if '${{' in value:
                 sys.exit(f'{name}: has an expression this script does not know how to expand: {value!r}')
