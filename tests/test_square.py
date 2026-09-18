@@ -246,6 +246,8 @@ def test_working_set_across_the_antimeridian_is_one_box_that_holds_its_members(z
     # the point test agrees with membership, on either spelling of the longitude
     assert ws.contains(-179.5, 0.5) and ws.contains(180.5, 0.5)
     assert ws.at(-179.5, 0.5).name == SquareName(-180, 0)
+    assert ws.at(180.5, 0.5).name == SquareName(-180, 0)     # the other spelling
+    assert ws.at(-181.5, 0.5).name == SquareName(178, 0)
     assert not ws.contains(-178.5, 0.5)        # 181.5, one east of the box
     assert not ws.contains(177.5, 0.5)
 

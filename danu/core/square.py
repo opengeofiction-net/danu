@@ -96,8 +96,8 @@ class SquareName:
 
 # slots, because a square can hold two and a half million of these. Measured on
 # the largest square there is, liberian N03E058 at 271 MB uncompressed: a plain
-# dataclass per node took 1.2 GB resident, slots 1.08 GB. Kept because it is
-# free, not because it solved anything - see read_square on what would
+# dataclass per node took 1.2 GB resident, slots 1.08 GB, and clearing the
+# parser's root as it goes 0.86 GB. Kept because it is free; see read_square
 @dataclass(slots=True)
 class Node:
     id: int
@@ -188,8 +188,8 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
     Streams the XML and discards each element once taken, because a filled
     square can be 271 MB uncompressed and a working set holds nine of them.
     Streaming bounds the parser's memory, not the model's: what is kept is a
-    Node per node, and the largest square takes about 18 s and over a gigabyte
-    to hold. That is the outlier: of 834 squares on the server, 815 are under
+    Node per node, and the largest square takes about 19 s and 860 MB to
+    hold. That is the outlier: of 834 squares on the server, 815 are under
     5 MB compressed, 758 under 1 MB, and four are over 10 MB. It is the
     viewer's job to read in a worker and to draw at a level of detail, not this
     module's to be clever about storage before a real square needs it.
@@ -200,10 +200,12 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
     square = Square(name=name, path=path, present=True)
 
     opener = lzma.open if path.suffix == '.xz' else open
+    root = None
     with opener(path, 'rb') as f:
         for event, elem in ElementTree.iterparse(f, events=('start', 'end')):
             if event == 'start':
                 if elem.tag == 'osm':
+                    root = elem
                     square.attrs = dict(elem.attrib)
                 continue
             if elem.tag == 'node':
@@ -221,6 +223,14 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
                 elem.clear()
             # relations are not something a square carries; if one turns up it
             # is left where it is and the checks can say so
+            #
+            # clearing a child empties it but leaves it in the root's list, so
+            # without this the root ends the parse holding one hollow Element
+            # per node - two and a half million of them on the largest square.
+            # Clearing the root drops the finished children; the one being
+            # parsed has not been appended yet. Its attributes went above
+            if root is not None and elem is not root:
+                root.clear()
     return square
 
 
@@ -261,6 +271,9 @@ class WorkingSet:
     @classmethod
     def open(cls, zone_dir: str | os.PathLike, centre: SquareName,
              size: int = 3) -> 'WorkingSet':
+        """Read the grid. Synchronous, and reads every present square in full,
+        so around a large square this is the 18 s case: a viewer calls it from
+        a worker, never from the thread that paints."""
         if size < 1 or size % 2 == 0:
             raise ValueError(f'working set size must be odd and positive, not {size}')
         files = list_squares(zone_dir)
@@ -287,6 +300,9 @@ class WorkingSet:
         rather than comparing a longitude against these edges yourself."""
         half = self.size // 2
         names = list(self.squares)
+        # latitude from the members, because a row can be missing at a pole;
+        # longitude from the centre, because a column never is, and the
+        # members' longitudes cannot be min/maxed across the seam anyway
         south = min(n.lat for n in names)
         north = max(n.lat for n in names) + 1
         return (float(self.centre.lon - half), float(south),
@@ -322,7 +338,10 @@ class WorkingSet:
         return (eles[0], eles[-1]) if eles else None
 
     def at(self, lon: float, lat: float) -> Square | None:
-        """The square under a point, if it is in the set."""
+        """The square under a point, if it is in the set. Takes either spelling
+        of a longitude across the seam, as ``contains`` does, so the two agree:
+        a caller who asks contains() and then at() gets a square, not None."""
+        lon = (lon + 180) % 360 - 180
         for square in self.squares.values():
             if square.name.contains(lon, lat):
                 return square
