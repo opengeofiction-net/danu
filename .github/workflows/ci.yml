@@ -27,6 +27,36 @@ jobs:
         env:
           PYTHONPATH: .
 
+  # The editor's widgets, offscreen, on both targets. Separate from tests
+  # because PySide6 is a large install the pure job has no use for, and
+  # because this is the job that answers whether Qt paints on the Windows
+  # runner at all - a question worth its own red or green.
+  ui:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # what Qt's offscreen platform plugin still links against on a bare runner
+      - name: qt runtime libraries (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - run: python -m pip install --upgrade pip
+      - run: pip install numpy pytest hypothesis pytest-qt "PySide6>=6.6"
+      - run: python -m pytest tests/ui tests/test_mercator.py tests/test_ui_config.py -q
+        env:
+          PYTHONPATH: .
+          QT_QPA_PLATFORM: offscreen
+          # for pytest-qt, in the environment rather than pyproject, so the
+          # pure tests job - which has no pytest-qt - is not warned about an
+          # option it cannot know
+          QT_API: pyside6
+
   # isofill is C and is built rather than mocked, because a preview which does
   # not match the build is worse than no preview. Windows is here from the
   # start: finding out in phase 7 that it cannot be built is the usual way this

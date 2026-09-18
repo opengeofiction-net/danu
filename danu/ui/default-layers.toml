@@ -1,0 +1,34 @@
+# The tile layers Danu offers as a backdrop, in panel order. A user file of
+# the same shape at ~/.config/danu/layers.toml overrides a layer by name and
+# may add more; any {z}/{x}/{y} server will do.
+#
+# tile.opengeofiction.net fronts ogf-carto and ttopo (ogf-topo is the same
+# tiles under an older name). cyclogf is served from its own host. All stop at
+# zoom 19, which is MAXZOOM on the tile servers.
+
+[[layer]]
+name = "ogf-carto"
+title = "OGF Carto"
+url = "https://tile.opengeofiction.net/ogf-carto/{z}/{x}/{y}.png"
+attribution = "OpenGeofiction contributors"
+max_zoom = 19
+opacity = 1.0
+visible = true
+
+[[layer]]
+name = "ttopo"
+title = "Topo"
+url = "https://tile.opengeofiction.net/ttopo/{z}/{x}/{y}.png"
+attribution = "OpenGeofiction contributors"
+max_zoom = 19
+opacity = 1.0
+visible = false
+
+[[layer]]
+name = "cyclogf"
+title = "CyclOGF"
+url = "https://tiles06.opengeofiction.net/cyclogf/{z}/{x}/{y}.png"
+attribution = "OpenGeofiction contributors"
+max_zoom = 19
+opacity = 1.0
+visible = false
