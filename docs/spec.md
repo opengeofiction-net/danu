@@ -640,6 +640,20 @@ test grows a second case which drives the editor's path over the same fixture
 and asserts the same surface. The first is tidier. The second is cheaper and
 tests the thing that actually matters, which is that the two agree.
 
+**The Windows build of `isofill` never built, and CI said it did.** The job
+was there from the first push with `continue-on-error` set for Windows, and
+`make` failed in under a second every time on `gdal-config not found`: conda's
+`libgdal` does not put a `gdal-config` script on a PowerShell path, and the
+Makefile stops without one. The override turned that red into green, and it was
+read as green for the whole of phase 0, including in this document. Found on
+2026-09-18 while sizing phase 1. The override is gone, the job is honestly red,
+and it is not a required check, so it blocks nothing. What it needs is a build
+that does not go through `gdal-config` - a Makefile that takes GDAL flags from
+the environment, and a compiler on the runner - which is a change to `isofill`
+and to this CI, and it is on the phase 1 list because packaging for other
+people's machines was the reason it was meant to be a phase 0 deliverable. Not
+in phase 7, where the plan said this kind of thing gets found.
+
 **The week of nightly builds is a clock, not a task.** Phase 0's code, packaging
 and cutover were finished on 2026-09-18; what remains is six more nights of
 forced rebuilds and the decision phase 2 inherits. They are forced because the
@@ -685,8 +699,9 @@ Phases 1 to 4 are the spine; 5 onward are separable and could ship in any order.
 
 Because Danu is meant for other OGF mappers rather than for one machine,
 packaging is not deferred to phase 7 - only the *polish* is. A Windows build of
-`core` plus `isofill`, produced by CI and installable, is a phase 0 deliverable
-and stays green from then on. The alternative is discovering in phase 7 that a
+`core` plus `isofill`, produced by CI and installable, was meant to be a phase 0
+deliverable that stayed green from then on; it was not delivered, and CI hid
+that - see *What phase 0 actually did*. It is owed by phase 1. The alternative is discovering in phase 7 that a
 choice made in phase 2 cannot be shipped, which is the usual way this goes
 wrong. Being a tool for other people also means their machines are not yours:
 no terminal, no `PYTHONPATH`, no system GDAL, and an error message that says

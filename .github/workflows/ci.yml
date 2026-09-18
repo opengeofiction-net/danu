@@ -49,10 +49,16 @@ jobs:
         run: |
           C:\Miniconda\condabin\conda.bat install -y -c conda-forge libgdal
         shell: cmd
+      # No continue-on-error. It was here for Windows, and it hid the fact that
+      # the Windows build had never once succeeded: make stopped in under a
+      # second on "gdal-config not found" - conda's libgdal puts no gdal-config
+      # on a PowerShell PATH - and the job showed green from the first push to
+      # the day this was noticed. A red job that is not a required check blocks
+      # nothing and tells the truth; that is the arrangement now. The Windows
+      # build is an open item in the spec, not a passing one.
       - name: build
         working-directory: extern/isofill
         run: make
-        continue-on-error: ${{ runner.os == 'Windows' }}
 
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
