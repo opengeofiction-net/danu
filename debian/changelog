@@ -1,3 +1,19 @@
+danu (0.1.2-1) unstable; urgency=medium
+
+  * danu-build collected its run log with journalctl -u dem-build, the unit
+    name from before the move, so every published log since the cutover was
+    empty. The build itself was unaffected.
+  * Declare python3-pyosmium and zip. The contour output and square recovery
+    import osmium, and three scripts call zip; neither was in Depends, and the
+    only machine running this had pyosmium installed by hand years ago.
+  * The published log and progress files are danu-build-log*.txt and
+    danu-build-progress.txt, matching what the elevation guide already said.
+  * The pure geometry and grading move to danu.core.profile, which imports no
+    GDAL, so the tests run on Windows and the duplication between
+    danu.checks.rivers and danu.water.constraints is gone.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Fri, 18 Sep 2026 10:30:00 +0000
+
 danu (0.1.0-1) unstable; urgency=medium
 
   * First package. The elevation pipeline moved out of ogf-server-scripts,
