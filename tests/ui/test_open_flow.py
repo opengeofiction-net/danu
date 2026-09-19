@@ -210,6 +210,7 @@ def test_the_window_opens_on_a_worker_frames_the_square_and_remembers_it(qtbot, 
     assert w.windowTitle() == 'Danu - S24E125'
     assert w.recent_menu.isEnabled() and len(w.recent_menu.actions()) == 1
     assert w.settings.recent()[0] == (root / 'pizarrales', SquareName(125, -24), 3)
+    assert w.settings.squares_root == root and w.settings.size == 3   # remembered on success
 
 
 def test_a_failed_read_is_reported_and_the_window_recovers(qtbot, root, tmp_path, monkeypatch):
@@ -225,3 +226,4 @@ def test_a_failed_read_is_reported_and_the_window_recovers(qtbot, root, tmp_path
     qtbot.waitUntil(lambda: w.open_action.isEnabled(), timeout=5000)
     assert shown and 'could not be read' in shown[0]
     assert w.working_set is None and w.settings.recent() == []
+    assert w.settings.squares_root is None                              # nothing kept from a failure

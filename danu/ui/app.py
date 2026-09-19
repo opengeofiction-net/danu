@@ -122,10 +122,9 @@ class MainWindow(QMainWindow):
     def open_dialog(self):
         dlg = OpenDialog(self.settings.squares_root, self.settings.size, self)
         if dlg.exec() and dlg.result_:
-            zone_dir, name, size = dlg.result_
-            self.settings.squares_root = dlg.root
-            self.settings.size = size
-            self.open_working_set(zone_dir, name, size)
+            # remembered in _loaded, once the read has succeeded: a root and a
+            # size are worth keeping when they led to a square, not before
+            self.open_working_set(*dlg.result_)
 
     # -------------------------------------------------------------- open
     def open_working_set(self, zone_dir: Path, centre: SquareName, size: int = 3) -> bool:
@@ -156,7 +155,10 @@ class MainWindow(QMainWindow):
             f'{len(ws.elevations())} levels'
             + (f', {rng[0]:g}-{rng[1]:g} m' if rng else ''))
         if self._pending:
+            zone_dir, _, size = self._pending
             self.settings.remember(*self._pending)
+            self.settings.squares_root = zone_dir.parent
+            self.settings.size = size
             self._fill_recent()
         self._pending = None
         self.setWindowTitle(f'Danu - {ws.centre}')
