@@ -14,8 +14,7 @@ file, and JOSM treats a negative id the same way.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import Iterable, Sequence
+from dataclasses import dataclass, field
 
 from .square import Node, Square, Way
 
@@ -65,7 +64,8 @@ class Command:
         raise NotImplementedError
 
 
-def _ways_holding(square: Square, node_id: int) -> set[int]:
+def ways_holding(square: Square, node_id: int) -> set[int]:
+    """The ways of a square that reference a node."""
     return {wid for wid, w in square.ways.items() if node_id in w.refs}
 
 
@@ -176,7 +176,7 @@ class MoveNode(Command):
     after: Coord
 
     def ways(self, square: Square) -> set[int]:
-        return _ways_holding(square, self.node_id)
+        return ways_holding(square, self.node_id)
 
     def apply(self, square: Square) -> None:
         n = square.nodes[self.node_id]
@@ -202,7 +202,7 @@ class DeleteNode(Command):
     removed_ways: dict[int, Way] = field(default_factory=dict)
 
     def ways(self, square: Square) -> set[int]:
-        return _ways_holding(square, self.node_id) | set(self.positions) | set(self.removed_ways)
+        return ways_holding(square, self.node_id) | set(self.positions) | set(self.removed_ways)
 
     def apply(self, square: Square) -> None:
         self.node = square.nodes.pop(self.node_id)

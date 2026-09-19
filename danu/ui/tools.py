@@ -368,9 +368,8 @@ class EditController(QObject):
         if a is None or self.cursor is None:
             self.crossing = []
             return
-        own = (self.drawing[0], self.drawing[1]) if self.drawing else None
         q = (self.snap[2], self.snap[3]) if self.snap else self.cursor
-        self.crossing = self.layer.crossings(a, q, self.elevation.value, own)
+        self.crossing = self.layer.crossings(a, q, self.elevation.value)
         if self.crossing:
             self.message.emit(self._describe_crossing(self.crossing))
 
@@ -400,7 +399,7 @@ class EditController(QObject):
 
     @staticmethod
     def _ways_holding(square: Square, nid: int) -> set[int]:
-        return {wid for wid, w in square.ways.items() if nid in w.refs}
+        return edits.ways_holding(square, nid)
 
     def _way_holding(self, square: Square, nid: int) -> Way | None:
         for w in square.ways.values():
@@ -409,7 +408,8 @@ class EditController(QObject):
         return None
 
     def _node_crossings(self, square: Square, nid: int) -> list:
-        """R16 for the segments either side of a node, after a move."""
+        """R16 for the segments either side of a node, after a move - the only
+        two that moved, so the only two that can newly cross anything."""
         p = self.layer.node_xy(square, nid)
         found = []
         for wid in self._ways_holding(square, nid):
@@ -422,7 +422,7 @@ class EditController(QObject):
                 for j in (i - 1, i + 1):
                     if 0 <= j < len(way.refs):
                         q = self.layer.node_xy(square, way.refs[j])
-                        found += [c for c in self.layer.crossings(p, q, way.ele, (square, wid)) if c not in found]
+                        found += [c for c in self.layer.crossings(p, q, way.ele) if c not in found]
         return found
 
 

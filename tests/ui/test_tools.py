@@ -10,8 +10,6 @@ from PySide6.QtTest import QTest                                     # noqa: E40
 from danu.core.square import SquareName                              # noqa: E402
 from danu.ui import mercator as m                                    # noqa: E402
 
-from .conftest import cursor_to                                      # noqa: E402
-
 TEN = SquareName(126, -24)          # the square with five east-west lines, 10..50 m, at lat -23.9..-23.5
 
 
@@ -72,10 +70,12 @@ def test_a_contour_is_drawn_click_by_click_at_the_active_elevation_and_undone_no
     ed = w.editor
     ed.set_tool('draw')
     w.elevation.set(123)
+    lowest = min([*square.ways, *square.nodes])
     click(w, 126.3, -23.85); click(w, 126.4, -23.86); click(w, 126.5, -23.85)
     key(w, Qt.Key.Key_Return)
     (way,) = ways_at(square, 123)
-    assert way.tags == {'ele': '123'} and len(way.refs) == 3 and way.id < min(TEN and square.ways) + 1
+    assert way.tags == {'ele': '123'} and len(way.refs) == 3
+    assert way.id < lowest and all(r < lowest for r in way.refs)     # fresh ids, below what the file held
     lons = [square.nodes[r].lon for r in way.refs]
     assert lons == pytest.approx([126.3, 126.4, 126.5], abs=0.002)
     assert 123.0 in w.contours.paths and w.windowTitle().endswith('*') and ed.dirty()
@@ -116,10 +116,11 @@ def test_snapping_shares_the_node_and_backspace_takes_the_last_one_back(w):
     a = square.nodes[twenty.refs[0]]
     w.elevation.set(20)
     w.editor.set_tool('draw')
+    nodes_before = len(square.nodes)
     click(w, 126.3, -23.75)                                  # fresh
     click(w, a.lon, a.lat)                                   # snapped onto the 20 m line's start node
     (new,) = [x for x in ways_at(square, 20) if x is not twenty]
-    assert new.refs[-1] == twenty.refs[0] and len(square.nodes) == len(square.nodes)
+    assert new.refs[-1] == twenty.refs[0] and len(square.nodes) == nodes_before + 1   # one fresh node, one shared
     click(w, 126.3, -23.72)
     assert len(new.refs) == 3
     key(w, Qt.Key.Key_Backspace)
@@ -151,6 +152,27 @@ def test_a_crossing_is_warned_live_and_refused_on_the_click(w):
     w.elevation.set(20)
     click(w, 126.5, -23.78); click(w, 126.5, -23.83)
     assert 'crosses the 20 m contour' in w.statusBar().currentMessage() and len(ways_at(square, 20)) == 1
+
+
+def test_a_contour_may_not_cross_itself(w):
+    square = w.working_set.squares[TEN]
+    w.elevation.set(45)
+    w.editor.set_tool('draw')
+    click(w, 126.3, -23.56); click(w, 126.5, -23.56); click(w, 126.5, -23.58)    # east, then south
+    (way,) = ways_at(square, 45)
+    assert len(way.refs) == 3 and not w.editor.crossing          # its own last segment is met, not crossed
+    click(w, 126.4, -23.54)                                      # back north-west, across the first segment
+    assert len(way.refs) == 3 and 'crosses the 45 m contour' in w.statusBar().currentMessage()
+    click(w, 126.6, -23.58)                                      # clear of itself
+    assert len(way.refs) == 4
+    # and a node dragged so its segments cross the way's own other segment is put back
+    key(w, Qt.Key.Key_Return); w.editor.set_tool('select')
+    n = square.nodes[way.refs[0]]
+    before = (n.lon, n.lat)
+    pos = at(w, n.lon, n.lat)
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(126.55, -23.59)))
+    drag(w, n.lon, n.lat, target.x() - pos.x(), target.y() - pos.y())
+    assert (n.lon, n.lat) == before and w.statusBar().currentMessage().startswith('not moved')
 
 
 def test_a_first_click_outside_the_set_or_in_a_blank_square(w):
@@ -258,7 +280,6 @@ def test_the_layer_follows_the_edits(w):
     assert w.contours.pick(x, y, 1.0)[1] is ten
     click(w, 126.5, -23.9)
     w.editor.delete_selected()
-    assert w.contours.pick(x, y, 1e5) is None or w.contours.pick(x, y, 1e5)[1] is not ten
-    assert 10.0 not in w.contours.paths
+    assert 10.0 not in w.contours.paths and w.contours.pick(x, y, 1.0) is None     # nothing left within a unit
     w.editor.undo()
     assert 10.0 in w.contours.paths and w.contours.pick(x, y, 1.0)[1] is ten

@@ -23,7 +23,6 @@ from . import config
 from . import mercator as m
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
-from .tools import EditController
 from .layers_panel import LayersPanel
 from .loader import WorkingSetLoader
 from .mapview import MapView
@@ -33,6 +32,7 @@ from .squares import SquaresItem
 from .overlays import EnvelopeItem, UnreachedLayer
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .tiles import TileFetcher, TileLayer
+from .tools import EditController
 
 APP_NAME = 'danu'
 # No organisation name, deliberately. Qt puts an organisation into the paths -

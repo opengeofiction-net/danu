@@ -228,13 +228,13 @@ class ContourLayer(QGraphicsItem):
         square, ref = self._node_ref[i]
         return square, ref, float(dist[i])
 
-    def crossings(self, p: tuple[float, float], q: tuple[float, float], ele: float,
-                  own: tuple[Square, int] | None = None) -> list[tuple[Square, Way, bool]]:
+    def crossings(self, p: tuple[float, float], q: tuple[float, float], ele: float) -> list[tuple[Square, Way, bool]]:
         """R16 for one prospective segment: the contours it would cross, and
         those at another elevation it would so much as touch, each with
-        whether it is crossed outright (True) or only met (False). ``own``
-        names the way being drawn, whose own segments the new one
-        legitimately meets at its end."""
+        whether it is crossed outright (True) or only met (False). The way
+        being drawn is not exempt: the new segment meets its last one at a
+        shared node, which is a touch at the same elevation and allowed, and
+        anything more is a contour crossing itself."""
         if not len(self._seg_ele):
             return []
         proper = geometry.crossings(p, q, self._seg_a, self._seg_b)
@@ -242,8 +242,6 @@ class ContourLayer(QGraphicsItem):
         out: dict[int, tuple[Square, Way, bool]] = {}
         for i in np.flatnonzero(proper | touch):
             g = self._ways[int(self._seg_way[i])]
-            if own is not None and g.square is own[0] and g.way.id == own[1]:
-                continue
             hit = out.get(id(g.way))
             if hit is None or (proper[i] and not hit[2]):
                 out[id(g.way)] = (g.square, g.way, bool(proper[i]))
