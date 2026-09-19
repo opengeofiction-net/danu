@@ -773,6 +773,97 @@ call `isofill`, as a binary and as a library - all compared cell for cell to
 the one reference. That assertion is what closes the risk. Showing the same hillshade on screen demonstrates it
 once, for one square, on one afternoon.
 
+### What phase 2 actually did
+
+Ended on 2026-09-19, in six pull requests here and two in `isofill`, all in one
+day, with the exit criterion met the way the phase asked: the golden fixture
+runs three ways - the shell build, the editor through the `isofill` binary, the
+editor through the `isofill` library - and every way produces the one
+reference, cell for cell. Where it departed from the plan:
+
+**The second way, and it held.** The editor's surface path is
+`danu.surface.build`: the shell's stages as functions over the GDAL bindings,
+each carrying a `shell:` line naming the command it stands for, checked by a
+test that names every stage (`tests/golden/test_editor_surface.py`, and its twin
+for the shading stages). The three stages that were already Python became
+callable with their command lines unchanged, so both paths run the same code
+for them. On the gobras 3x3 at 3 arcseconds, 3.7 seconds to a DEM.
+
+**`isofill` is a library, and the binary calls it.** `isofill_run()` is the
+in-core fill, arrays in and an array out, and the binary's own in-core path is
+a call to it - one code path, not two that agree. `isofill_params_default()`
+hands out the command line's defaults so a caller sets only what it means to
+set; `isofill_whole_mb()` is the banding reckoning, so the editor decides
+library-or-binary with the binary's arithmetic. Through `ctypes`, not the CFFI
+named above: plain C arrays, standard library, one less package per platform.
+Versions 0.6.0 and 0.7.0, surface unchanged, and the golden reference built
+with 0.5.0 still matched at each step. The proof that the library is the
+binary is not the golden square alone: a synthetic raster with a mask *and*
+water, which the fixture has neither of, filled both ways, agrees on every
+cell.
+
+**The same hillshade is a test, not an afternoon.** The golden job runs the
+shell build once, and the editor shades the DEM it published by the same
+stages - box filter through a VRT kernel, warp to spherical Mercator, `gdaldem`
+- and matches the shell's published hillshade cell for cell, at both
+z-factors. The relief is the canvas's own: either ramp from phase 1, scaled
+three ways as R11 asks, composed with the hillshade; the hypsometric ramp
+means metres, ignores scaling, and keeps the sea see-through.
+
+**R20 and R21 on the screen.** Pass 1 alone, read into three classes and
+warped onto the surface's grid, with the envelope as a dashed outline. Three
+thousand square kilometres of the gobras set is ground its contours do not
+describe, 5.6% of the drawn area, most of it the bay north of the capital
+with no coastline at zero to hold it - which is R20's sentence, read off the
+screen. The "one level in sight" class is drawn only on request: it is mostly
+the barrier cells beside every contour, and drawn by default it buried the
+other two.
+
+**What the pre-flight caught that the golden square could not.** Three
+things, each a way the two paths could have diverged with nothing going red.
+The editor's library call passed `grad_min` from the file while the binary
+passed nothing - closed in `isofill` 0.7.0 by giving the library the binary's
+defaults, rather than by copying a number. The overlay's area was measured on
+the Mercator grid - the equator's scale, twelve percent high at gobras'
+latitude - and the log and the panel each counted their own; measured once
+now, by the cosine of latitude, and both read it. And 255 told to be nodata on
+one side of a warp made GDAL rewrite every valid 255 to 254, so the outside of
+the drawn area counted as inside. None of those is a surface difference the
+reference would have shown. That is what a second reviewer is for.
+
+**Two facts corrected, both mine.** `elevation.toml` was described as "the
+file the shell reads"; the shell reads no file and carries the values as
+`${VAR:-default}` constants. Until it reads the file, a test holds the
+constants equal to it, key by key (`tests/test_params.py`). And the shell does not read `relief.ramp`
+or `osmconf.ini` from `server/etc/` any more: all three files live in the
+package, with symlinks at the old paths, so an installed editor has them.
+
+**Two `QGraphicsView` facts from phase 1 recurred as GDAL facts here.** A
+chained `gdal.Open(p).GetRasterBand(1).ReadAsArray()` frees the dataset under
+the band; every dataset is held in a name now, and the comment beside the
+first one is quoted by the third. `gdaldem hillshade` writes 1 for complete
+shadow and 0 only for nodata - measured on a 3 km wall face, 199 cells, every
+one a 1 - so transparent-at-zero is its own meaning.
+
+**Not done, by choice.** R22, the published DEM as tiles around the working
+set with a visible seam, needs `data.opengeofiction.net` to serve the DEM
+tiled and belongs with the server's phase 3 changes. Windows packaging of the
+editor with GDAL and `libisofill` is phase 7's polish; the MSYS2 job proves
+both build there, which is what phase 0 wanted proven early.
+
+**The `danu.cli` question, re-evaluated as promised.** The second way was
+taken because rewriting the build would have pulled the rug from under phase
+0's soak, and because it tested the property that matters. Having taken it,
+the picture is this: `danu.surface.build` now *is* the per-step implementation
+`danu.cli` was meant to wrap, held to the reference by nine golden cases. The
+port the first way asked for is no longer writing code that does not exist; it
+is making `danu-build-zone` call `python -m danu.surface.build` step by step -
+wrapping code that already passes - and retiring the shell's own copies of
+those steps. It is worth doing, it is small, and it should wait for the soak
+to finish and for the shell to start reading `elevation.toml`, which is the
+same change. Recommended for the start of phase 4, before the incremental path
+adds a third caller. Not decided here; decided by the reader.
+
 **Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
 Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
 Ends when a square can be drawn from blank and built by the server unchanged.
