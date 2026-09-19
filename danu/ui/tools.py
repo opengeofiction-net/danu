@@ -1,0 +1,482 @@
+"""The drawing tools - R13, R15, R16 and R17 on screen.
+
+Two tools over the map. **Draw** puts down a contour at the active elevation
+one click at a time, continues an existing one when the first click lands on
+its end, and snaps to the nodes of contours and coastlines within reach.
+**Select** picks a node or a way, drags a node, inserts one with a double
+click on a segment, and deletes with the key. Every change is a command from
+``danu.core.edits`` on one history over the working set, so undo and redo
+walk back through drawing and selecting alike.
+
+Crossing (R16) is warned live - the rubber band turns red and the status line
+says which contour - and refused on the click. A node snapped from another
+square is a position, not a shared node: each square is its own file and a
+way cannot reference a node in another.
+
+The tools hold state and issue commands; the ``EditOverlay`` draws the rubber
+band, the snap mark and the selection; the window owns the menu.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QGraphicsItem
+
+from ..core import edits
+from ..core.ladder import format_ele
+from ..core.square import Square, Way, WorkingSet
+from . import mercator as m
+from .contours import ContourLayer
+from .mapview import MapView, visible_rect
+
+SNAP_PX = 10.0                  # a node this close is the one meant
+PICK_PX = 8.0                   # a way this close is the one meant
+DRAG_PX = 3.0                   # a press that moves less is a click
+
+
+@dataclass
+class Selection:
+    square: Square
+    way: Way
+    node: int | None = None
+
+
+class EditController(QObject):
+    """The tools, the history and the selection, over one working set."""
+
+    edited = Signal()                # after any command, undo or redo
+    message = Signal(str)            # for the status line
+    toolChanged = Signal(str)
+
+    def __init__(self, view: MapView, layer: ContourLayer, elevation, parent=None):
+        super().__init__(parent)
+        self.view, self.layer, self.elevation = view, layer, elevation
+        self.history = edits.SetUndoStack()
+        self.working_set: WorkingSet | None = None
+        self.overlay = EditOverlay(self)
+        view.scene().addItem(self.overlay)
+        self.tool = 'select'
+        self.selection: Selection | None = None
+        # drawing
+        self.drawing: tuple[Square, int, bool] | None = None      # square, way id, at the end
+        self.pending: tuple[Square, int | None, tuple[float, float]] | None = None   # first click
+        self.cursor: tuple[float, float] | None = None           # scene
+        self.snap: tuple[Square, int, float, float] | None = None  # square, node, x, y
+        self.crossing: list = []
+        # dragging a node
+        self._press: QPointF | None = None
+        self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
+        self._dragged = False
+        view.tool = self
+
+    # ------------------------------------------------------------ setup
+    def set_working_set(self, ws: WorkingSet | None):
+        self.working_set = ws
+        self.history = edits.SetUndoStack()
+        self.selection = None
+        self._stop_drawing()
+        self.edited.emit()
+
+    def set_tool(self, name: str):
+        if name not in ('select', 'draw'):
+            raise ValueError(name)
+        if name != self.tool:
+            self._stop_drawing()
+            self.tool = name
+            self.view.setDragMode(MapView.DragMode.ScrollHandDrag if name == 'select' else MapView.DragMode.NoDrag)
+            self.view.viewport().setCursor(Qt.CursorShape.CrossCursor if name == 'draw' else Qt.CursorShape.ArrowCursor)
+            self.toolChanged.emit(name)
+            self.overlay.update()
+
+    def _px(self, px: float) -> float:
+        return px / m.scale_for_zoom(self.view.zoom)
+
+    # ---------------------------------------------------------- history
+    def do(self, square: Square, cmd: edits.Command):
+        self.history.do(square, cmd)
+        self.layer.refresh(square, cmd.ways(square))
+        self.edited.emit()
+
+    def undo(self):
+        step = self.history.undo()
+        if step:
+            square, cmd = step
+            self.layer.refresh(square, cmd.ways(square))
+            self._after_history_move(square)
+            self.message.emit(f'undid {cmd.describe()}')
+
+    def redo(self):
+        step = self.history.redo()
+        if step:
+            square, cmd = step
+            self.layer.refresh(square, cmd.ways(square))
+            self._after_history_move(square)
+            self.message.emit(f'redid {cmd.describe()}')
+
+    def _after_history_move(self, square: Square):
+        if self.drawing and (self.drawing[0] is square) and self.drawing[1] not in square.ways:
+            self.drawing = None                      # the way being drawn was undone away
+        if self.selection and self.selection.way.id not in self.selection.square.ways:
+            self.selection = None
+        elif self.selection and self.selection.node is not None and self.selection.node not in self.selection.square.nodes:
+            self.selection.node = None
+        self.overlay.update()
+        self.edited.emit()
+
+    def dirty(self) -> bool:
+        return bool(self.history.dirty_squares())
+
+    # ------------------------------------------------------------ events
+    # each returns True when it consumed the event
+    def mouse_press(self, event, pos: QPointF) -> bool:
+        if self.working_set is None:
+            return False
+        if self.tool == 'draw':
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._draw_click(pos)
+                return True
+            if event.button() == Qt.MouseButton.RightButton:
+                self._stop_drawing()
+                return True
+            return False
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        node = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
+        if node is not None:
+            square, nid, _ = node
+            way = self._way_holding(square, nid)
+            if way is not None:
+                self.selection = Selection(square, way, nid)
+                n = square.nodes[nid]
+                self._drag = (square, nid, (n.lon, n.lat))
+                self._press = pos
+                self._dragged = False
+                self.overlay.update()
+                return True
+        hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
+        if hit is not None:
+            self.selection = Selection(hit[0], hit[1])
+            self.overlay.update()
+            return True
+        if self.selection is not None:
+            self.selection = None
+            self.overlay.update()
+        return False                                 # the view pans
+
+    def mouse_move(self, event, pos: QPointF) -> bool:
+        self.cursor = (pos.x(), pos.y())
+        if self.working_set is None:
+            return False
+        if self.tool == 'draw':
+            self._update_snap(pos)
+            self._update_crossing()
+            self.overlay.update()
+            return True
+        if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            if not self._dragged and (pos - self._press).manhattanLength() < self._px(DRAG_PX):
+                return True
+            self._dragged = True
+            square, nid, _ = self._drag
+            lon, lat = m.scene_to_lonlat(pos.x(), pos.y())
+            n = square.nodes[nid]
+            n.lon, n.lat = lon, lat
+            self.layer.refresh(square, self._ways_holding(square, nid))
+            self.overlay.update()
+            return True
+        return False
+
+    def mouse_release(self, event, pos: QPointF) -> bool:
+        if self._drag is None:
+            return False
+        square, nid, before = self._drag
+        self._drag = None
+        if not self._dragged:
+            return True
+        n = square.nodes[nid]
+        after = (n.lon, n.lat)
+        bad = self._node_crossings(square, nid)
+        if bad:
+            n.lon, n.lat = before                  # R16: refused on commit, put back
+            self.layer.refresh(square, self._ways_holding(square, nid))
+            self.message.emit('not moved: ' + self._describe_crossing(bad))
+            self.overlay.update()
+            return True
+        n.lon, n.lat = before                      # the command does the move, so undo has it exact
+        self.do(square, edits.MoveNode(nid, before, after))
+        self.message.emit(f'moved a node of the {format_ele(self.selection.way.ele)} m contour' if self.selection and self.selection.way.ele is not None else 'moved a node')
+        return True
+
+    def mouse_double_click(self, event, pos: QPointF) -> bool:
+        if self.working_set is None or event.button() != Qt.MouseButton.LeftButton:
+            return False
+        if self.tool == 'draw':
+            self._stop_drawing()
+            return True
+        if self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX)) is not None:
+            return True                              # a node: the press selected it
+        hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
+        if hit is None:
+            return False
+        square, way, _, seg = hit
+        a = self.layer.node_xy(square, way.refs[seg]); b = self.layer.node_xy(square, way.refs[seg + 1])
+        ax, ay = a; bx, by = b
+        dx, dy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / (dx * dx + dy * dy or 1.0)))
+        lon, lat = m.scene_to_lonlat(ax + t * dx, ay + t * dy)
+        nid = self.history.alloc(square).take()
+        self.do(square, edits.InsertNode(way.id, seg + 1, nid, (lon, lat)))
+        self.selection = Selection(square, way, nid)
+        self.message.emit(f'inserted a node into the {format_ele(way.ele)} m contour')
+        self.overlay.update()
+        return True
+
+    def key_press(self, event) -> bool:
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            if self.tool == 'draw' and (self.drawing or self.pending):
+                self._stop_drawing()
+            else:
+                self.selection = None
+                self.set_tool('select')
+                self.overlay.update()
+            return True
+        if self.tool == 'draw' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._stop_drawing()
+            return True
+        if self.tool == 'draw' and key == Qt.Key.Key_Backspace and self.drawing:
+            self.undo()
+            return True
+        return False
+
+    # ------------------------------------------------------------- draw
+    def _draw_click(self, pos: QPointF):
+        self._update_snap(pos)
+        self._update_crossing()
+        if self.crossing:
+            self.message.emit('not drawn: ' + self._describe_crossing(self.crossing))
+            return
+        x, y = self._point(pos)
+        lon, lat = m.scene_to_lonlat(x, y)
+        ele = self.elevation.value
+        tag = self.elevation.model.tag
+        if self.drawing is None and self.pending is None:
+            # the first click: onto the end of a contour at this elevation continues it
+            cont = self._continuable(ele)
+            if cont is not None:
+                square, way, at_end = cont
+                self.drawing = (square, way.id, at_end)
+                self.message.emit(f'continuing the {format_ele(ele)} m contour; right click or Enter ends it')
+                self.overlay.update()
+                return
+            square = self.working_set.at(lon, lat)
+            if square is None:
+                self.message.emit('outside the working set')
+                return
+            node = self.snap[1] if self.snap and self.snap[0] is square else None
+            self.pending = (square, node, (lon, lat))
+            self.message.emit(f'drawing at {format_ele(ele)} m in {square.name}')
+            self.overlay.update()
+            return
+        if self.pending is not None:
+            square, first, first_coord = self.pending
+            alloc = self.history.alloc(square)
+            wid = alloc.take()
+            second = self.snap[1] if self.snap and self.snap[0] is square else None
+            cmds = []
+            fresh_ids, fresh_coords = [], []
+            if first is None:
+                fresh_ids.append(alloc.take()); fresh_coords.append(first_coord)
+            if second is None:
+                fresh_ids.append(alloc.take()); fresh_coords.append((lon, lat))
+            cmds.append(edits.AddWay(wid, fresh_ids, fresh_coords, {'ele': tag}))
+            if first is not None:
+                cmds.append(edits.ExtendWayWithExisting(wid, False, first))
+            if second is not None:
+                cmds.append(edits.ExtendWayWithExisting(wid, True, second))
+            cmd = cmds[0] if len(cmds) == 1 else edits.Compound(cmds, f'draw {tag} m')
+            self.pending = None
+            self.drawing = (square, wid, True)
+            self.do(square, cmd)
+            self.overlay.update()
+            return
+        square, wid, at_end = self.drawing
+        node = self.snap[1] if self.snap and self.snap[0] is square else None
+        way = square.ways[wid]
+        if node is not None and node in way.refs and node != way.refs[0 if at_end else -1]:
+            # onto its own node other than the far end: a loop, refused
+            self.message.emit('a contour may not cross itself')
+            return
+        if node is not None:
+            self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
+            if way.closed:
+                self.message.emit(f'closed the {format_ele(ele)} m contour')
+                self._stop_drawing()
+                return
+        else:
+            self.do(square, edits.ExtendWay(wid, at_end, self.history.alloc(square).take(), (lon, lat)))
+        self.overlay.update()
+
+    def _continuable(self, ele: float) -> tuple[Square, Way, bool] | None:
+        """The contour whose end the snap is on, if it is at this elevation
+        and not closed: (square, way, at the end rather than the start)."""
+        if self.snap is None:
+            return None
+        square, nid, _, _ = self.snap
+        for way in square.ways.values():
+            if way.ele == ele and not way.closed and len(way.refs) >= 2:
+                if way.refs[-1] == nid:
+                    return square, way, True
+                if way.refs[0] == nid:
+                    return square, way, False
+        return None
+
+    def _stop_drawing(self):
+        self.drawing = None
+        self.pending = None
+        self.crossing = []
+        self.overlay.update()
+
+    def _update_snap(self, pos: QPointF):
+        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
+        if hit is None:
+            self.snap = None
+            return
+        square, nid, _ = hit
+        x, y = self.layer.node_xy(square, nid)
+        self.snap = (square, nid, x, y)
+
+    def _point(self, pos: QPointF) -> tuple[float, float]:
+        return (self.snap[2], self.snap[3]) if self.snap else (pos.x(), pos.y())
+
+    def _anchor(self) -> tuple[float, float] | None:
+        """Where the rubber band starts: the last node drawn, or the first click."""
+        if self.drawing:
+            square, wid, at_end = self.drawing
+            way = square.ways.get(wid)
+            if way is None:
+                return None
+            return self.layer.node_xy(square, way.refs[-1 if at_end else 0])
+        if self.pending:
+            return m.lonlat_to_scene(*self.pending[2])
+        return None
+
+    def _update_crossing(self):
+        a = self._anchor()
+        if a is None or self.cursor is None:
+            self.crossing = []
+            return
+        q = (self.snap[2], self.snap[3]) if self.snap else self.cursor
+        self.crossing = self.layer.crossings(a, q, self.elevation.value)
+        if self.crossing:
+            self.message.emit(self._describe_crossing(self.crossing))
+
+    @staticmethod
+    def _describe_crossing(found) -> str:
+        square, way, proper = found[0]
+        what = f'the {format_ele(way.ele)} m contour' if way.ele is not None else 'a way'
+        verb = 'crosses' if proper else 'meets'
+        more = f' and {len(found) - 1} more' if len(found) > 1 else ''
+        return f'{verb} {what}{more} - contours may not cross'
+
+    # ----------------------------------------------------------- select
+    def delete_selected(self):
+        sel = self.selection
+        if sel is None:
+            self.message.emit('nothing selected')
+            return
+        if sel.node is not None:
+            self.do(sel.square, edits.DeleteNode(sel.node))
+            self.selection = Selection(sel.square, sel.way) if sel.way.id in sel.square.ways else None
+            self.message.emit('deleted a node')
+        else:
+            self.do(sel.square, edits.DeleteWay(sel.way.id))
+            self.selection = None
+            self.message.emit(f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None else 'deleted a way')
+        self.overlay.update()
+
+    @staticmethod
+    def _ways_holding(square: Square, nid: int) -> set[int]:
+        return edits.ways_holding(square, nid)
+
+    def _way_holding(self, square: Square, nid: int) -> Way | None:
+        for w in square.ways.values():
+            if nid in w.refs and w.ele is not None:
+                return w
+        return None
+
+    def _node_crossings(self, square: Square, nid: int) -> list:
+        """R16 for the segments either side of a node, after a move - the only
+        two that moved, so the only two that can newly cross anything."""
+        p = self.layer.node_xy(square, nid)
+        found = []
+        for wid in self._ways_holding(square, nid):
+            way = square.ways[wid]
+            if way.ele is None:
+                continue
+            for i, ref in enumerate(way.refs):
+                if ref != nid:
+                    continue
+                for j in (i - 1, i + 1):
+                    if 0 <= j < len(way.refs):
+                        q = self.layer.node_xy(square, way.refs[j])
+                        found += [c for c in self.layer.crossings(p, q, way.ele) if c not in found]
+        return found
+
+
+class EditOverlay(QGraphicsItem):
+    """The rubber band, the snap mark, the selection and its node handles."""
+
+    def __init__(self, ctl: EditController):
+        super().__init__()
+        self.ctl = ctl
+        self.setZValue(200)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(-m.WORLD, -m.WORLD, 3 * m.WORLD, 3 * m.WORLD)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        ctl = self.ctl
+        scale = painter.worldTransform().m11()
+        px = 1.0 / scale
+        rect = visible_rect(painter, option, self.boundingRect())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        sel = ctl.selection
+        if sel is not None and sel.way.id in sel.square.ways:
+            pts = [m.lonlat_to_scene(lon, lat) for lon, lat in sel.square.coords(sel.way)]
+            if len(pts) >= 2:
+                path = QPainterPath(QPointF(*pts[0]))
+                for p in pts[1:]:
+                    path.lineTo(*p)
+                halo = QPen(QColor(255, 140, 0, 110), 7.0); halo.setCosmetic(True)
+                painter.setPen(halo); painter.drawPath(path)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(255, 140, 0))
+                if len(pts) <= 4000:
+                    h = 2.5 * px
+                    for x, y in pts:
+                        if rect.contains(QPointF(x, y)):
+                            painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+            if sel.node is not None and sel.node in sel.square.nodes:
+                x, y = ctl.layer.node_xy(sel.square, sel.node)
+                pen = QPen(QColor(200, 0, 0), 2.0); pen.setCosmetic(True)
+                painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
+                h = 5 * px
+                painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if ctl.tool != 'draw':
+            return
+        anchor = ctl._anchor()
+        target = (ctl.snap[2], ctl.snap[3]) if ctl.snap else ctl.cursor
+        if anchor is not None and target is not None:
+            colour = QColor(200, 0, 0) if ctl.crossing else QColor(30, 30, 30)
+            pen = QPen(colour, 1.5, Qt.PenStyle.DashLine); pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(*anchor), QPointF(*target))
+        if ctl.snap is not None:
+            pen = QPen(QColor(0, 120, 255), 2.0); pen.setCosmetic(True)
+            painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
+            r = 6 * px
+            painter.drawEllipse(QPointF(ctl.snap[2], ctl.snap[3]), r, r)
