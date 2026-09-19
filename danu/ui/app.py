@@ -20,7 +20,9 @@ from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox
 
 from ..core.square import SquareName, WorkingSet
 from . import config
+from . import mercator as m
 from .contours import ContourLayer
+from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .layers_panel import LayersPanel
 from .loader import WorkingSetLoader
 from .mapview import MapView
@@ -94,6 +96,15 @@ class MainWindow(QMainWindow):
         self.contours = ContourLayer()
         self.map.scene().addItem(self.contours)
         self.working_set: WorkingSet | None = None
+        self.zone_dir: Path | None = None
+        self.elevation = ElevationControl(self.settings, self)
+        self.elevation_panel = ElevationPanel(self.elevation, self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.elevation_panel)
+        self.elevation.changed.connect(self.contours.set_active)
+        self.elevation.changed.connect(lambda _v: self._cursor(*self._last_cursor))
+        self.map.elevationWheel.connect(self.elevation.step)
+        self.map.opacityWheel.connect(self._opacity_wheel)
+        self._last_cursor = HOME[:2]
         self.loader = WorkingSetLoader(self)
         self.loader.finished.connect(self._loaded)
         self.loader.failed.connect(self._load_failed)
@@ -102,6 +113,7 @@ class MainWindow(QMainWindow):
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         self.map.cursorMoved.connect(self._cursor)
+        self.map.setFocus()
         self.map.zoomChanged.connect(lambda _: self._cursor(*self.map.center_lonlat()))
         self.resize(1100, 750)
         self.map.set_zoom(HOME[2])
@@ -109,7 +121,21 @@ class MainWindow(QMainWindow):
         self._cursor(HOME[0], HOME[1])
 
     def _cursor(self, lon: float, lat: float):
-        self._status.setText(f'{lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
+        self._last_cursor = (lon, lat)
+        self.elevation.cursor_at(lon, lat)
+        self._status.setText(f'{self.elevation.model.tag:>5} m   {lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
+
+    def _opacity_wheel(self, down: bool):
+        """Alt and the wheel: the surface's opacity, five points a notch."""
+        s = self.surface_panel.opacity
+        s.setValue(s.value() + (-5 if down else 5))
+
+    def pick_up(self):
+        """Space: the elevation of the contour under the cursor, if one is
+        within reach; nothing there changes nothing."""
+        x, y = m.lonlat_to_scene(*self._last_cursor)
+        hit = self.contours.pick(x, y, PICK_PX / m.scale_for_zoom(self.map.zoom))
+        self.elevation.pick_up(hit[1].ele if hit else None)
 
     # ------------------------------------------------------------- menus
     def _menus(self):
@@ -120,6 +146,27 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        elevation = self.menuBar().addMenu('&Elevation')
+        self.elevation_actions: dict[str, QAction] = {}
+        c = self.elevation
+        for name, text, fn in (
+                ('elevation.big_up', 'Big step &up', lambda: c.step(True, False)),
+                ('elevation.small_up', 'Small step u&p', lambda: c.step(False, False)),
+                ('elevation.small_down', 'Small step d&own', lambda: c.step(False, True)),
+                ('elevation.big_down', 'Big step do&wn', lambda: c.step(True, True)),
+                ('elevation.nudge_up', 'A metre up', lambda: c.nudge(False)),
+                ('elevation.nudge_down', 'A metre down', lambda: c.nudge(True)),
+                ('elevation.pick_up', 'Pick up the contour under the cursor', self.pick_up),
+                ('elevation.sea_level', 'Sea level', c.sea_level)):
+            a = QAction(text, self)
+            a.setShortcut(QKeySequence(self.settings.key(name)))
+            a.triggered.connect(fn)
+            elevation.addAction(a)
+            self.elevation_actions[name] = a
+        elevation.addSeparator()
+        reload_ladders = QAction('Re-read the ladder overrides', self)
+        reload_ladders.triggered.connect(self.elevation.reload_overrides)
+        elevation.addAction(reload_ladders)
         surface = self.menuBar().addMenu('&Surface')
         self.rebuild_action = QAction('&Rebuild surface', self)
         self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
@@ -156,6 +203,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
         self._pending = (zone_dir, centre, size)
+        self.zone_dir = zone_dir
         self.open_action.setEnabled(False)
         self.statusBar().showMessage(f'reading {centre} and its neighbours from {zone_dir.name}…')
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
@@ -167,6 +215,7 @@ class MainWindow(QMainWindow):
         self.working_set = ws
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
+        self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
         w, s, e, n = ws.centre.bounds
         self.map.fit_bounds(w, s, e, n)
         present = sum(1 for _ in ws.present())

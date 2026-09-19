@@ -30,11 +30,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
-from ..core.square import WorkingSet
+from ..core.square import Square, Way, WorkingSet
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -66,6 +67,13 @@ class ContourLayer(QGraphicsItem):
         self.labels: list[Label] = []
         self.ramp: Ramp = spectral()
         self.index_levels: set[float] = set()
+        self.active: float | None = None          # the active elevation, drawn heavier
+        # every segment of every way, projected, for picking under the cursor:
+        # ends, elevation, and which way - as parallel arrays, so the nearest
+        # of a hundred thousand is one vectorised distance, not a walk
+        self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
+        self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64)
+        self._ways: list[tuple[Square, Way]] = []
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
@@ -76,8 +84,12 @@ class ContourLayer(QGraphicsItem):
         self.prepareGeometryChange()
         self.working_set = ws
         self.paths, self.labels, self.index_levels = {}, [], set()
+        self._ways = []
+        seg_a, seg_b, seg_ele, seg_way = [], [], [], []
         if ws is None:
             self._bounds = QRectF()
+            self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
+            self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64)
             self.update()
             return
         w, s, e, n = ws.bounds
@@ -95,6 +107,13 @@ class ContourLayer(QGraphicsItem):
             for p in pts[1:]:
                 path.lineTo(*p)
             self.labels.append(self._label(way.ele, pts))
+            arr = np.asarray(pts, dtype=float)
+            seg_a.append(arr[:-1]); seg_b.append(arr[1:])
+            seg_ele.append(np.full(len(arr) - 1, way.ele)); seg_way.append(np.full(len(arr) - 1, len(self._ways)))
+            self._ways.append((square, way))
+        if seg_a:
+            self._seg_a, self._seg_b = np.concatenate(seg_a), np.concatenate(seg_b)
+            self._seg_ele, self._seg_way = np.concatenate(seg_ele), np.concatenate(seg_way)
         levels = sorted(self.paths)
         self.index_levels = set(levels[::INDEX_EVERY_N])
         self.update()
@@ -115,6 +134,30 @@ class ContourLayer(QGraphicsItem):
                 return Label(ele, x, y, ang, total)
             run += d
         return Label(ele, pts[0][0], pts[0][1], 0.0, total)
+
+    def pick(self, x: float, y: float, tolerance: float) -> tuple[Square, Way, float] | None:
+        """The contour nearest a scene point, within a scene-unit tolerance,
+        as (square, way, distance); None when nothing is that close. Space
+        picks up its elevation, and the drawing tools continue it."""
+        if not len(self._seg_ele):
+            return None
+        p = np.array([x, y])
+        d = self._seg_b - self._seg_a
+        ap = p - self._seg_a
+        length2 = np.einsum('ij,ij->i', d, d)
+        t = np.clip(np.einsum('ij,ij->i', ap, d) / np.where(length2 > 0, length2, 1.0), 0.0, 1.0)
+        nearest = self._seg_a + t[:, None] * d
+        dist = np.hypot(*(p - nearest).T)
+        i = int(dist.argmin())
+        if dist[i] > tolerance:
+            return None
+        square, way = self._ways[int(self._seg_way[i])]
+        return square, way, float(dist[i])
+
+    def set_active(self, ele: float | None):
+        if ele != self.active:
+            self.active = ele
+            self.update()
 
     def colour(self, ele: float) -> QColor:
         r, g, b, _ = self.ramp.colour(ele)
@@ -144,13 +187,24 @@ class ContourLayer(QGraphicsItem):
             if zoom < ZOOM_ALL and not index:
                 continue
             path = self.paths[ele]
-            if not path.controlPointRect().intersects(rect):
+            # grown by a unit: a straight east-west contour has a rect of no
+            # height, and QRectF.intersects is false for an empty rect
+            if not path.controlPointRect().adjusted(-1, -1, 1, 1).intersects(rect):
                 continue
             pen = QPen(self.colour(ele), 1.8 if index else 1.0)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.drawPath(path)
             self.drawn_levels += 1
+        if self.active is not None and self.active in self.paths and zoom >= ZOOM_INDEX:
+            # the level being drawn at, over everything: the mapper needs to
+            # see where it already runs
+            path = self.paths[self.active]
+            if path.controlPointRect().adjusted(-1, -1, 1, 1).intersects(rect):
+                pen = QPen(self.colour(self.active).darker(120), 3.2)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawPath(path)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
 
