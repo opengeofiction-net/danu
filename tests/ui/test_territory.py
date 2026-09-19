@@ -34,6 +34,7 @@ def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fre
         h.refresh()
     qtbot.waitUntil(lambda: len(failures) == 2, timeout=5000)
     assert all('using the copy on disk' in t for t in failures) and h.complete
+    assert set(h.stale) == {'geometry', 'attributes'} and h.stale['attributes'] == pytest.approx(old, abs=2)
 
 
 def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window, qtbot):
@@ -48,6 +49,11 @@ def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window,
     w.settings.user = 'Luciano'
     w.show_territory()
     assert w._territory.styleSheet() == ''
+    # owners from a stale copy are said to be
+    w.territory.stale['attributes'] = 0.0
+    w.show_territory()
+    assert 'owners as of 1970' in w._territory.text() and 'unreachable' in w._territory.text()
+    w.territory.stale.clear()
     # the square east straddles two territories, one of them collaborative
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.open_working_set(w.zone_dir, SquareName(126, -24))

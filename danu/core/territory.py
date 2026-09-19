@@ -5,10 +5,10 @@ Two published files join on a relation id. The wiki's
 ``OpenGeofiction:Territory_administration`` (``action=raw``) is the
 attributes: ``ogfId``, ``name``, ``status``, ``owner``, ``rel``. The daily
 ``data.opengeofiction.net/utility/territory.json`` is the geometry: relation
-id to rings of ``[lat, lon]`` - the spec says ``[lon, lat]`` and the file
-disagrees, measured 2026-09-19: longitudes run to 179 and latitudes to 80 -
-one ring as a list of points, or several as a list of rings, and the two
-spellings are both in the file. The join is not
+id to rings of ``[lat, lon]`` - the spec said ``[lon, lat]`` until the file
+was measured on 2026-09-19 (longitudes run to 179, latitudes to 80) and now
+says what the file does - one ring as a list of points, or several as a list
+of rings, and the two spellings are both in the file. The join is not
 total (1,103 geometries to 1,089 records on 2026-09-19), so a polygon with no
 record is reported as unknown rather than guessed at.
 
@@ -70,11 +70,22 @@ def parse_geometry(text: str) -> dict[int, list[Ring]]:
     """The published polygons, by relation id, always as a list of rings."""
     out: dict[int, list[Ring]] = {}
     for key, value in json.loads(text).items():
-        if not value:
+        if not isinstance(value, list) or not value:
             continue
-        rings = [value] if isinstance(value[0][0], (int, float)) else value
-        # the file is [lat, lon]; everything here is (lon, lat)
-        kept = [[(float(lon), float(lat)) for lat, lon in ring] for ring in rings if len(ring) >= 3]
+        first = value[0]
+        if isinstance(first, list) and first and isinstance(first[0], (int, float)):
+            rings = [value]                       # a bare ring: a list of points
+        else:
+            rings = value                         # a list of rings
+        kept: list[Ring] = []
+        for ring in rings:
+            try:
+                # the file is [lat, lon]; everything here is (lon, lat)
+                pts = [(float(lon), float(lat)) for lat, lon in ring]
+            except (TypeError, ValueError):
+                continue                          # a malformed ring is dropped, not fatal
+            if len(pts) >= 3:
+                kept.append(pts)
         if kept:
             out[int(key)] = kept
     return out
@@ -128,7 +139,9 @@ class TerritoryIndex:
         holding its centre, corners or edge midpoints, and those reaching a
         vertex into it. Ordered with the one under the centre first. This is
         the one definition of 'under'; anything else that asks - a report,
-        the server - calls this rather than sampling for itself."""
+        the server - calls this rather than sampling for itself. A sample
+        exactly on a shared border falls to the polygon east or north of it,
+        by the strict inequality in the ray test: arbitrary, but stable."""
         w, s, e, n = bounds
         cx, cy = (w + e) / 2, (s + n) / 2
         samples = [(cx, cy), (w, s), (e, s), (e, n), (w, n), (cx, s), (cx, n), (w, cy), (e, cy)]

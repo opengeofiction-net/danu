@@ -47,6 +47,7 @@ class TerritoryFetcher(QObject):
         self.max_age = {'geometry': GEOMETRY_MAX_AGE, 'attributes': ATTRIBUTES_MAX_AGE}
         self.nam = QNetworkAccessManager(self)
         self.text: dict[str, str | None] = {'geometry': None, 'attributes': None}
+        self.stale: dict[str, float] = {}        # which -> mtime of the disk copy standing in for a failed fetch
         self.index: T.TerritoryIndex | None = None
         self._inflight: dict[str, QNetworkReply] = {}
 
@@ -105,12 +106,14 @@ class TerritoryFetcher(QObject):
                 if text is not None:
                     self.text[which] = text
                     self._write(which, text)
+                    self.stale.pop(which, None)
             else:
                 stale = self._read(which)
                 self.failed.emit(f'territory {which}: {reply.errorString()}'
                                  + ('; using the copy on disk' if stale else ''))
                 if stale:
                     self.text[which] = stale
+                    self.stale[which] = self._file(which).stat().st_mtime
         finally:
             reply.deleteLater()
         self._rebuild()

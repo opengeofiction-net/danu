@@ -165,6 +165,10 @@ class MainWindow(QMainWindow):
         line, warn = territory.describe(found, self.settings.user)
         if not self.territory.complete:
             line += ' (owners not read yet)'
+        elif 'attributes' in self.territory.stale:
+            # the wiki could not be reached; ownership is as old as the copy on disk
+            when = time.strftime('%Y-%m-%d %H:%M', time.localtime(self.territory.stale['attributes']))
+            line += f' (owners as of {when}, the wiki being unreachable)'
         self._territory.setText(line)
         self._territory.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
         if warn:

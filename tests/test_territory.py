@@ -11,6 +11,7 @@ GEOMETRY = json.dumps({
     '2': [[[0, 10], [0, 20], [10, 20], [10, 10]]],                               # lon 10..20
     '3': [[[20, 20], [20, 30], [30, 30], [30, 20]], [[22, 22], [22, 28], [28, 28], [28, 22]]],   # with a hole
     '4': [[50, 50], [50, 51]],                                                   # degenerate, dropped
+    '5': [[], [[60, 60], [60, 61], [61, 61]], [[1, 'x'], [2, 3], [3, 4]]],       # an empty and a malformed ring beside a good one
 })
 ATTRIBUTES = json.dumps([
     {'ogfId': 'AR001', 'name': 'One', 'rel': 1, 'status': 'owned', 'owner': 'Luciano'},
@@ -26,7 +27,7 @@ def index():
 
 def test_both_spellings_parse_and_axes_are_swapped_to_lon_lat():
     g = T.parse_geometry(GEOMETRY)
-    assert set(g) == {1, 2, 3} and len(g[1]) == 1 and len(g[3]) == 2
+    assert set(g) == {1, 2, 3, 5} and len(g[1]) == 1 and len(g[3]) == 2 and len(g[5]) == 1
     assert g[2][0][0] == (10.0, 0.0)                     # [lat 0, lon 10] -> (lon 10, lat 0)
     a = T.parse_attributes(ATTRIBUTES)
     assert set(a) == {1, 2, 3} and a[1].owner == 'Luciano' and a[3].status == 'reserved'
