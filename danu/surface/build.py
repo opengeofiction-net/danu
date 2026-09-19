@@ -101,6 +101,8 @@ def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None 
 
 
 def grid_for(names: Iterable[SquareName], arcsec: float) -> Grid:
+    """The bounding whole degrees of the squares that hold constraints.
+    shell: WEST=min EAST=max+1 SOUTH=min NORTH=max+1 over the squares zone_extent.py found"""
     names = list(names)
     if not names:
         raise ValueError('no squares with constraints: nothing to build')
@@ -247,15 +249,19 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     """The surface between the constraints, by isofill. A subprocess of the
     same binary the shell runs (S2 makes it a library call).
     shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] ${ISOFILL_EXTRA} cont.tif rounded.tif
-    The shell passes no --grad-min and relies on isofill's default; this
-    passes the file's value, which is that default, so the two agree and a
-    change to the file is honoured here."""
+    The same flags and no others. The shell passes no --grad-min and relies
+    on isofill's default, so neither does this: a value passed by one side
+    only would let the two diverge with nothing going red. The file's
+    grad_min is held equal to the binary's default by a test instead, and
+    when the shell comes to read the file both will pass it. pass2 has one
+    implemented value and this refuses any other rather than ignoring it."""
+    if params.pass2 != 'diffuse':
+        raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
     if out.exists():
         out.unlink()
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
-           '--max-mem', str(params.max_mem_mb), '--grad-min', repr(params.grad_min),
-           '--mask', str(mask)]
+           '--max-mem', str(params.max_mem_mb), '--mask', str(mask)]
     if water is not None:
         cmd += ['--water', str(water)]
     cmd += [str(cont), str(out)]

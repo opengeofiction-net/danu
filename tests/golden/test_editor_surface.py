@@ -27,10 +27,17 @@ def test_every_stage_names_the_shell_command_it_stands_for():
     shell: line, so when either side changes the other is findable."""
     src = (ROOT / 'danu' / 'surface' / 'build.py').read_text()
     tree = ast.parse(src)
-    stages = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
-              and not n.name.startswith('_') and n.name not in ('Result', 'build_dem', 'grid_for')]
-    assert len(stages) >= 9
-    missing = [n.name for n in stages if 'shell:' not in (ast.get_docstring(n) or '')]
+    defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+            and not n.name.startswith('_')}
+    # every stage, by name, so a new one added without a shell: line is caught
+    # by the second assertion and a stage renamed away is caught by the first
+    stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
+              'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_mask',
+              'interpolate', 'clamp']
+    assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
+    not_stages = set(defs) - set(stages) - {'Result', 'build_dem'}
+    assert not_stages == set(), f'new top-level names need a shell: line or listing here: {not_stages}'
+    missing = [name for name in stages if 'shell:' not in (ast.get_docstring(defs[name]) or '')]
     assert missing == [], f'stages without a shell: line: {missing}'
 
 
@@ -59,3 +66,17 @@ def test_the_editors_surface_is_the_shells_surface(tmp_path):
     # and the grids are the same grid, not merely the same shape
     ref_gt, new_gt = ref_ds.GetGeoTransform(), new_ds.GetGeoTransform()
     assert all(abs(x - y) < 1e-12 for x, y in zip(ref_gt, new_gt)), (ref_gt, new_gt)
+
+
+def test_the_files_grad_min_is_the_binarys_default_which_both_paths_rely_on():
+    """Neither path passes --grad-min: the shell never did, and the editor
+    mirrors it. The file still carries the value, so it is held here to what
+    isofill actually uses, read from the binary itself."""
+    import re
+    import subprocess
+    from danu.surface import params
+    usage = subprocess.run(['isofill'], capture_output=True, text=True).stdout + \
+        subprocess.run(['isofill'], capture_output=True, text=True).stderr
+    m = re.search(r'--grad-min F.*?\(default ([0-9.]+)\)', usage, re.S)
+    assert m, 'isofill usage no longer states a --grad-min default'
+    assert float(m.group(1)) == params.load().grad_min

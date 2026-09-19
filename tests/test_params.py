@@ -48,4 +48,4 @@ def test_the_shell_holds_the_same_values_as_the_file():
         assert var in shell, f'{var} is not a ${{{var}:-default}} in danu-build-zone'
         assert float(shell[var]) == float(d[section][key]), \
             f'{var}={shell[var]} in the shell, [{section}] {key} = {d[section][key]} in the file'
-    assert p.grad_min == 0.02   # isofill's default, which the shell relies on and this path passes
+    # grad_min is held to the isofill binary's default in tests/golden, where the binary is
