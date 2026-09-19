@@ -61,9 +61,12 @@ file on every run, so there is one reviewer, not two that drift.
 
 ## Status
 
-The pipeline runs on the server from this repository (phase 0), and the editor
-is a viewer (phase 1): open a square from a mirror of `osm-squares/`, see it
-over the OGF tiles with its contours coloured and labelled. No editing yet. See
+The pipeline runs on the server from this repository (phase 0). The editor
+opens a square from a mirror of `osm-squares/`, shows it over the OGF tiles
+with its contours coloured and labelled (phase 1), and builds and shades the
+surface those contours describe with the same code the server runs, held to
+the server's output cell for cell (phase 2) - and says where the contours
+describe no ground at all. No editing yet. See
 [`docs/spec.md`](docs/spec.md) for the requirements, the architecture and the
 plan, and the *What phase N actually did* sections there for how each phase
 went against it.
@@ -72,7 +75,13 @@ went against it.
 pip install -e '.[ui]'          # PySide6; GDAL is not needed to look
 python -m danu.ui               # File > Open square, or:
 python -m danu.ui /path/to/osm-squares/gobras N20E087
+python -m danu.ui /path/to/osm-squares/gobras N20E087 --surface   # and build the surface; needs GDAL and libisofill
 ```
+
+There is no pip extra for the surface, on purpose: GDAL's Python bindings are
+not reliably installable from PyPI. Take the distribution's `python3-gdal` and
+the `isofill` package - or `make install` in `extern/isofill`, which puts the
+binary and `libisofill` side by side where the editor looks for them.
 
 ## Relationship to the other repositories
 
