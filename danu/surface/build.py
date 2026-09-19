@@ -449,7 +449,7 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     area. R20 calls this the single most useful thing the editor can tell a
     mapper - here is ground your contours do not describe - and the
     validation table wants it as area and fraction.
-    shell: isofill --no-pass2 ... cont.tif pass1.tif, whose sentinels are -32767 OUT_OF_REACH, -32768 NO_ELEV, -32766 ONE_LEVEL; the build never runs this, it is the diagnostic isofill's README describes"""
+    shell: isofill --no-pass2 ... cont.tif pass1.tif, whose sentinels are -32767 OUT_OF_REACH, -32768 NO_ELEV, -32766 ONE_LEVEL. The shell build never runs this - it is the diagnostic isofill's README describes - and the editor's surface build runs it every time, for the overlay"""
     lib = isofill_lib.Isofill.load()
     ds = gdal.Open(str(cont))
     band = ds.GetRasterBand(1)
