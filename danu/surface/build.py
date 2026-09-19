@@ -259,10 +259,11 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     binary would band it, which the library does not do.
     shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] ${ISOFILL_EXTRA} cont.tif rounded.tif
     The same flags and no others. The shell passes no --grad-min and relies
-    on isofill's default, so neither does the binary call here; the library
-    call passes the file's value, which a test holds equal to that default.
-    pass2 has one implemented value and this refuses any other rather than
-    ignoring it."""
+    on isofill's default, so neither does the binary call here nor the
+    library call, which starts from the library's own defaults and sets only
+    what the flags set. The file's grad_min is held equal to that default by
+    a test. pass2 has one implemented value and this refuses any other
+    rather than ignoring it."""
     if params.pass2 != 'diffuse':
         raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
@@ -279,7 +280,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         if lib is not None:
             ds = gdal.Open(str(cont))
             cols, rows = ds.RasterXSize, ds.RasterYSize
-            mb = isofill_lib.whole_mb(cols, rows)
+            mb = lib.whole_mb(cols, rows)
             if mb > params.max_mem_mb:
                 if library is True:
                     raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {params.max_mem_mb}; the binary bands it')
@@ -287,6 +288,17 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
     return _interpolate_binary(cont, mask, water, params, out, isofill)
+
+
+def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
+    """The binary checks the mask and water are the constraints' size; the
+    library path checks they are the constraints' grid, since here the
+    arrays meet with no file to carry the georeferencing."""
+    if (a.RasterXSize, a.RasterYSize) != (b.RasterXSize, b.RasterYSize):
+        raise ValueError(f'{b_path.name} is {b.RasterXSize}x{b.RasterYSize}, '
+                         f'{a_path.name} is {a.RasterXSize}x{a.RasterYSize}')
+    if any(abs(x - y) > 1e-9 for x, y in zip(a.GetGeoTransform(), b.GetGeoTransform())):
+        raise ValueError(f'{b_path.name} is not on {a_path.name}\'s grid')
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
@@ -298,10 +310,12 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
     cons = band.ReadAsArray().astype(np.float32)
     nodata = band.GetNoDataValue()
     m_ds = gdal.Open(str(mask))
+    _same_grid(ds, m_ds, cont, mask)
     m = m_ds.GetRasterBand(1).ReadAsArray()
     w = None
     if water is not None:
         w_ds = gdal.Open(str(water))
+        _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
     surface, filled = lib.run(cons, params, mask=m, water=w, nodata=nodata)
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')

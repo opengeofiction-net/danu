@@ -133,6 +133,19 @@ def test_the_library_is_the_binary_on_a_raster_the_golden_square_does_not_cover(
 
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
     from danu.surface import isofill_lib
+    try:
+        isofill_lib.Isofill.load()
+    except isofill_lib.IsofillError as e:
+        pytest.skip(f'no loadable libisofill here: {str(e).splitlines()[0]}')
     monkeypatch.setattr(isofill_lib, 'EXPECTED_VERSION', '9.9.9')
     with pytest.raises(isofill_lib.IsofillError, match='wants 9.9.9'):
         isofill_lib.Isofill.load()
+
+
+def test_the_files_grad_min_is_the_librarys_default_which_the_library_call_leaves_alone():
+    """The library call sets radius, barrier and pass 2 and leaves grad_min as
+    isofill_params_default() has it - so this is the value both editor paths
+    and the shell all rely on, and the file must carry the same one."""
+    from danu.surface import isofill_lib, params
+    lib = isofill_lib.Isofill.load()
+    assert lib.default_grad_min() == params.load().grad_min

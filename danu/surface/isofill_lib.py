@@ -32,7 +32,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.6.0'
+EXPECTED_VERSION = '0.7.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -80,6 +80,10 @@ class Isofill:
             version = lib.isofill_version().decode()
             if version != EXPECTED_VERSION:
                 raise IsofillError(f'{cand} is isofill {version}; this build of danu wants {EXPECTED_VERSION}')
+            lib.isofill_params_default.restype = None
+            lib.isofill_params_default.argtypes = [ctypes.POINTER(_Params)]
+            lib.isofill_whole_mb.restype = ctypes.c_double
+            lib.isofill_whole_mb.argtypes = [ctypes.c_int, ctypes.c_int]
             lib.isofill_run.restype = ctypes.c_longlong
             lib.isofill_run.argtypes = [
                 ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_double,
@@ -107,8 +111,16 @@ class Isofill:
             w = np.ascontiguousarray(water, dtype=np.uint8)
             if w.shape != cons.shape:
                 raise IsofillError(f'water is {w.shape}, constraints are {cons.shape}')
-        p = _Params(radius=params.fill_cells, barrier=params.barrier_cells,
-                    grad_min=params.grad_min, pass2=int(bool(pass2)), threads=int(threads))
+        # the binary's defaults, then only what the shell's flags set: radius,
+        # barrier and pass 2. grad_min is left as the library has it, exactly
+        # as the binary path passes no --grad-min - the same flags and no
+        # others, by construction rather than by a copied number
+        p = _Params()
+        self.lib.isofill_params_default(ctypes.byref(p))
+        p.radius = params.fill_cells
+        p.barrier = params.barrier_cells
+        p.pass2 = int(bool(pass2))
+        p.threads = int(threads)
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
         filled = self.lib.isofill_run(
             cons.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
@@ -120,8 +132,14 @@ class Isofill:
         return out, int(filled)
 
 
-def whole_mb(cols: int, rows: int) -> float:
-    """What the in-core fill holds, as the binary reckons it before choosing
-    to band: values, mask, output and the summed area table.
-    shell: whole_mb = (cols*rows*5 + (cols+1)*(rows+1)*8) / 1024^2  in isofill.c"""
-    return (cols * rows * 5.0 + (cols + 1) * (rows + 1) * 8.0) / (1024 * 1024)
+    def whole_mb(self, cols: int, rows: int) -> float:
+        """What the in-core fill holds, as the binary reckons it before
+        choosing to band - the binary's own function, so the two cannot
+        disagree about where banding begins."""
+        return float(self.lib.isofill_whole_mb(cols, rows))
+
+    def default_grad_min(self) -> float:
+        """The default the binary uses when no --grad-min is passed."""
+        p = _Params()
+        self.lib.isofill_params_default(ctypes.byref(p))
+        return float(p.grad_min)
