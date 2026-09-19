@@ -1,5 +1,6 @@
 """Fixtures the UI tests share: a zone with two ladders and a blank, and the window open on it."""
 
+import json
 import shutil
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from danu.core.square import Square, SquareName, write_square        # noqa: E40
 from danu.ui.app import MainWindow                                   # noqa: E402
 from danu.ui.config import load_layers                               # noqa: E402
 from danu.ui.settings import Settings                                # noqa: E402
+from danu.ui.territory import TerritoryFetcher                       # noqa: E402
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -35,10 +37,34 @@ def zone(tmp_path):
     return d
 
 
+# territories over the test squares, in the published files' own shapes: the
+# geometry [lat, lon], one entry a bare ring and one a list of rings
+GEOMETRY = {
+    '101': [[-24.5, 124.5], [-24.5, 126.5], [-22.5, 126.5], [-22.5, 124.5]],          # over S24E125 and the west half of S24E126
+    '102': [[[-24.5, 126.5], [-24.5, 127.5], [-22.5, 127.5], [-22.5, 126.5]]],        # the east half of S24E126
+    '103': [[[-21.5, 124.5], [-21.5, 125.5], [-20.5, 125.5], [-20.5, 124.5]]],        # no attribute record
+}
+ATTRIBUTES = [
+    {'ogfId': 'AR031', 'name': 'Pizarrales', 'rel': 101, 'status': 'owned', 'owner': 'Luciano'},
+    {'ogfId': 'AR032', 'name': 'Tenmetre', 'rel': 102, 'status': 'collaborative', 'owner': 'admin'},
+]
+
+
 @pytest.fixture
-def window(qtbot, zone, tmp_path):
+def territory_files(tmp_path):
+    d = tmp_path / 'published'
+    d.mkdir()
+    (d / 'territory.json').write_text(json.dumps(GEOMETRY))
+    (d / 'admin.json').write_text(json.dumps(ATTRIBUTES))
+    return d
+
+
+@pytest.fixture
+def window(qtbot, zone, tmp_path, territory_files):
     settings = Settings(tmp_path / 'danu.ini')
-    w = MainWindow(load_layers(), cache_dir=None, settings=settings)
+    fetcher = TerritoryFetcher(tmp_path / 'tcache', geometry_url=(territory_files / 'territory.json').as_uri(),
+                               attributes_url=(territory_files / 'admin.json').as_uri())
+    w = MainWindow(load_layers(), cache_dir=None, settings=settings, territory_fetcher=fetcher)
     w.prompt_on_close = False
     qtbot.addWidget(w)
     w.show()

@@ -483,7 +483,9 @@ boundary. 304 are owned, 404 reserved, 276 available, 59 collaborative.
 
 **Geometry** comes from `data.opengeofiction.net/utility/territory.json`, which
 `simplifiedAdminPolygons.py` rebuilds daily. It is a map of relation id to a
-list of rings of `[lon, lat]`, 1,103 entries and 1.5 MB, with no attributes -
+list of rings of `[lat, lon]` - latitude first, measured against the file on
+2026-09-19; a bare ring where a territory has one, a list of rings where it has
+several - 1,103 entries and 1.5 MB, with no attributes -
 which is exactly the other half. Overpass is not involved: the polygons are
 already built, already simplified and already published, and asking Overpass to
 resolve a thousand relations on startup would be worse in every respect.
