@@ -27,6 +27,7 @@ constraints off as its params.lock records, so neither path reaches Overpass.
 
 from __future__ import annotations
 
+import json
 import lzma
 import os
 import re
@@ -374,6 +375,7 @@ class Result:
     constraints: Path | None
     drawn_mask: Path | None
     water_mask: Path | None
+    envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
 
 
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
@@ -403,4 +405,75 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     wmask = water_mask(gpkg, cont, work, log)
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log)
     dem = clamp(rounded, cont, wmask, work, log)
-    return Result(dem, grid, squares, gpkg, cont, mask, wmask)
+    return Result(dem, grid, squares, gpkg, cont, mask, wmask, envelopes=work / 'drawn.geojson')
+
+
+# ------------------------------------------------------------ first pass
+
+# isofill's sentinels for a cell the first pass did not answer, from
+# isofill.c: nothing within reach; a pair too flat to trust; a single level
+OUT_OF_REACH, NO_ELEV, ONE_LEVEL = -32767, -32768, -32766
+# the classes first_pass_classes() writes
+ANSWERED, UNREACHED, DECLINED, ONE_ONLY, OUTSIDE = 0, 1, 2, 3, 255
+
+
+def first_pass_reading(classes: np.ndarray, gt: tuple) -> dict:
+    """Cells, square kilometres and share of the drawn area, per class, on
+    the constraints' own lat/lon grid. A cell's ground area is its degree
+    size squared times cos(latitude) of its row: a cell at 20 N is 6% smaller
+    on the ground than at the equator and at 60 N half the size. Counted here
+    and nowhere else, so the build log and the panel say one number; the
+    Mercator grid the overlay is drawn on inflates area by 1/cos² and is not
+    a place to measure it.
+    shell: none - the validation table asks for OUT_OF_REACH as area and fraction, and this is it"""
+    rows, cols = classes.shape
+    lat_rows = gt[3] + (np.arange(rows) + 0.5) * gt[5]
+    km_per_deg = 111.32
+    cell_km2 = (abs(gt[1]) * km_per_deg) * (abs(gt[5]) * km_per_deg) * np.cos(np.radians(lat_rows))
+    inside = classes != OUTSIDE
+    out = {'cells': {}, 'km2': {}, 'percent': {},
+           'inside_cells': int(inside.sum()), 'inside_km2': float((inside.sum(axis=1) * cell_km2).sum())}
+    for code in (UNREACHED, DECLINED, ONE_ONLY):
+        rowsum = (classes == code).sum(axis=1)
+        out['cells'][str(code)] = int(rowsum.sum())
+        out['km2'][str(code)] = float((rowsum * cell_km2).sum())
+        out['percent'][str(code)] = (100.0 * out['km2'][str(code)] / out['inside_km2']) if out['inside_km2'] else 0.0
+    return out
+
+
+def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
+                       log: Log = _quiet) -> Path:
+    """Where the first pass found no answer, as a byte raster on the
+    constraints' grid: 1 nothing in reach, 2 a pair too flat to trust, 3 a
+    single level in sight, 0 answered or a constraint, 255 outside the drawn
+    area. R20 calls this the single most useful thing the editor can tell a
+    mapper - here is ground your contours do not describe - and the
+    validation table wants it as area and fraction.
+    shell: isofill --no-pass2 ... cont.tif pass1.tif, whose sentinels are -32767 OUT_OF_REACH, -32768 NO_ELEV, -32766 ONE_LEVEL. The shell build never runs this - it is the diagnostic isofill's README describes - and the editor's surface build runs it every time, for the overlay"""
+    lib = isofill_lib.Isofill.load()
+    ds = gdal.Open(str(cont))
+    band = ds.GetRasterBand(1)
+    cons = band.ReadAsArray().astype(np.float32)
+    m_ds = gdal.Open(str(mask))          # held: a chained Open().GetRasterBand() frees the dataset under the band
+    m = m_ds.GetRasterBand(1).ReadAsArray()
+    surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
+    classes = np.full(cons.shape, ANSWERED, np.uint8)
+    classes[surface == OUT_OF_REACH] = UNREACHED
+    classes[surface == NO_ELEV] = DECLINED
+    classes[surface == ONE_LEVEL] = ONE_ONLY
+    classes[m == 0] = OUTSIDE
+    reading = first_pass_reading(classes, ds.GetGeoTransform())
+    for name, code in (('nothing in reach', UNREACHED), ('too flat to trust', DECLINED), ('one level only', ONE_ONLY)):
+        if reading['inside_cells']:
+            log(f'  first pass, {name}: {reading["cells"][str(code)]:,} cells, '
+                f'{reading["km2"][str(code)]:,.1f} km², {reading["percent"][str(code)]:.1f}% of the drawn area')
+    (work / 'first-pass.json').write_text(json.dumps(reading), encoding='utf-8')
+    out = work / 'first-pass.tif'
+    o = gdal.GetDriverByName('GTiff').Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
+                                             options=CREATE)
+    o.SetGeoTransform(ds.GetGeoTransform())
+    o.SetProjection(ds.GetProjection())
+    o.GetRasterBand(1).WriteArray(classes)
+    o.FlushCache()
+    o = None
+    return out

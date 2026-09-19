@@ -31,7 +31,7 @@ def test_every_shade_stage_names_the_shell_command_it_stands_for():
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
     stages = ['smooth', 'fine_metres', 'warp_mercator', 'hillshade', 'shade_dem']
-    display = {'Shaded', 'Scaling', 'compose'}          # the canvas's, not the shell's
+    display = {'Shaded', 'Scaling', 'compose', 'unreached_rgba'}   # the canvas's, not the shell's
     assert set(stages) <= set(defs), set(stages) - set(defs)
     assert set(defs) - set(stages) - display == set(), set(defs) - set(stages) - display
     missing = [n for n in stages if 'shell:' not in (ast.get_docstring(defs[n]) or '')]

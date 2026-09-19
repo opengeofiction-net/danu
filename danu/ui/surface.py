@@ -23,8 +23,8 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, QThreadPool, Qt, Signal
 from PySide6.QtGui import QImage, QPainter, QPixmap
-from PySide6.QtWidgets import (QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout, QGraphicsItem,
-                               QLabel, QPushButton, QSlider, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout,
+                               QGraphicsItem, QLabel, QPushButton, QSlider, QWidget)
 
 from ..core.square import WorkingSet
 from ..surface import shade
@@ -38,8 +38,15 @@ RAMPS = {'spectral': spectral, 'traditional': traditional}
 
 # ------------------------------------------------------------------ worker
 
+@dataclass
+class Built:
+    """What the worker hands back: the surface, and what it cannot say."""
+    shaded: shade.Shaded
+    envelope_rings: list = field(default_factory=list)
+
+
 class _Signals(QObject):
-    finished = Signal(object)        # shade.Shaded
+    finished = Signal(object)        # Built
     failed = Signal(str)
 
 
@@ -58,14 +65,18 @@ class _Job(QRunnable):
             if result.dem is None:
                 self.signals.failed.emit('nothing to build: no square in the set holds a contour')
                 return
-            shaded = shade.shade_dem(result.dem, self.params, self.work)
+            classes = build.first_pass_classes(result.constraints, result.drawn_mask, self.params, self.work)
+            shaded = shade.shade_dem(result.dem, self.params, self.work, classes=classes)
+            from .overlays import envelope_rings
+            # the outline is a courtesy; its file missing is not a failed surface
+            rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
         except ImportError as e:
             self.signals.failed.emit(f'building a surface needs GDAL, which could not be imported: {e}')
             return
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
             self.signals.failed.emit(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
-        self.signals.finished.emit(shaded)
+        self.signals.finished.emit(Built(shaded, rings))
 
 
 class SurfaceBuilder(QObject):
@@ -166,10 +177,11 @@ class SurfacePanel(QDockWidget):
 
     rebuild = Signal(float)              # arcsec
 
-    def __init__(self, layer: SurfaceLayer, parent=None):
+    def __init__(self, layer: SurfaceLayer, parent=None, unreached=None, envelope=None):
         super().__init__('Surface', parent)
         self.setObjectName('surface')
         self.layer = layer
+        self.unreached, self.envelope = unreached, envelope
         body = QWidget()
         form = QFormLayout(body)
 
@@ -192,6 +204,14 @@ class SurfacePanel(QDockWidget):
         self.centre = QDoubleSpinBox(); self.centre.setRange(-500, 9000); self.centre.setValue(100)
         self.width = QDoubleSpinBox(); self.width.setRange(1, 5000); self.width.setValue(50)
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(0, 100); self.opacity.setValue(85)
+        self.show_unreached = QCheckBox('Ground the contours do not describe')
+        self.show_unreached.setChecked(True)
+        self.show_one_level = QCheckBox('…and cells seeing one level (mostly beside contours)')
+        self.show_one_level.setChecked(False)
+        self.show_envelope = QCheckBox('Envelope of the drawn ground')
+        self.show_envelope.setChecked(True)
+        self.reading = QLabel('')
+        self.reading.setWordWrap(True)
         self.status = QLabel('no surface built yet')
         self.status.setWordWrap(True)
         form.addRow('Show', self.mode)
@@ -200,8 +220,17 @@ class SurfacePanel(QDockWidget):
         form.addRow('Min / max', self._pair(self.lo, self.hi))
         form.addRow('Pitch centre / width', self._pair(self.centre, self.width))
         form.addRow('Opacity', self.opacity)
+        form.addRow(self.show_unreached)
+        form.addRow(self.show_one_level)
+        form.addRow(self.reading)
+        form.addRow(self.show_envelope)
         form.addRow(self.status)
         self.setWidget(body)
+        if self.unreached is not None:
+            self.show_unreached.toggled.connect(self.unreached.setVisible)
+            self.show_one_level.toggled.connect(self.unreached.set_one_level)
+        if self.envelope is not None:
+            self.show_envelope.toggled.connect(self.envelope.setVisible)
 
         for w in (self.mode, self.ramp, self.scaling):
             w.currentIndexChanged.connect(self._changed)
@@ -245,6 +274,8 @@ class SurfacePanel(QDockWidget):
         land = shaded.dem[shaded.dem > 0]
         rng = f'{land.min():.0f}-{land.max():.0f} m' if land.size else 'no land'
         self.status.setText(f'{cols}×{rows} at {shaded.metres:g} m, {rng}, {seconds:.0f} s')
+        if self.unreached is not None:
+            self.reading.setText(self.unreached.summary())
 
     def failed(self, text: str):
         self.button.setEnabled(True)

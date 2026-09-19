@@ -27,6 +27,7 @@ from .mapview import MapView
 from .open_dialog import OpenDialog
 from .settings import Settings
 from .squares import SquaresItem
+from .overlays import EnvelopeItem, UnreachedLayer
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .tiles import TileFetcher, TileLayer
 
@@ -77,7 +78,11 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
         self.surface = SurfaceLayer()
         self.map.scene().addItem(self.surface)
-        self.surface_panel = SurfacePanel(self.surface, self)
+        self.unreached = UnreachedLayer()
+        self.map.scene().addItem(self.unreached)
+        self.envelope = EnvelopeItem()
+        self.map.scene().addItem(self.envelope)
+        self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
         self.builder = SurfaceBuilder(self)
         self.builder.finished.connect(self._surface_built)
@@ -180,6 +185,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f'Danu - {ws.centre}')
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
+        self.unreached.set_shaded(None)
+        self.envelope.set_rings([])
         self.surface_panel.status.setText('no surface built for this set yet')
 
     # ----------------------------------------------------------- surface
@@ -205,10 +212,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f'building the surface at {p.arcsec:g}″ - the same stages the server runs')
         return True
 
-    def _surface_built(self, shaded):
+    def _surface_built(self, built):
         seconds = time.monotonic() - self._surface_started
-        self.surface.set_shaded(shaded)
-        self.surface_panel.built(shaded, seconds)
+        self.surface.set_shaded(built.shaded)
+        self.unreached.set_shaded(built.shaded)
+        self.envelope.set_rings(built.envelope_rings)
+        self.surface_panel.built(built.shaded, seconds)
         self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
 
     def _surface_failed(self, text: str):
