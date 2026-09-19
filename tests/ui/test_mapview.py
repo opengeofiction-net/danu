@@ -142,3 +142,24 @@ def test_the_window_constructs_shows_and_reports_the_cursor(qtbot):
     assert w.windowTitle() == 'Danu'
     assert 'z' in w._status.text()
     assert [l.name for l in w.layers] == ['ogf-carto', 'ttopo', 'cyclogf']
+
+
+def test_the_editor_imports_without_gdal(monkeypatch):
+    """The README says GDAL is not needed to look, so it had better not be: a
+    module under danu.ui that came to import osgeo would fail this on the
+    runners that have Qt and no GDAL, and the sentence would be caught."""
+    import builtins
+    import importlib
+    import sys
+    real = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name.split('.')[0] == 'osgeo':
+            raise ModuleNotFoundError(f"No module named '{name}'")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', blocked)
+    for mod in ('danu.ui.app', 'danu.ui.contours', 'danu.ui.tiles', 'danu.ui.squares',
+                'danu.ui.open_dialog', 'danu.ui.loader', 'danu.ui.settings', 'danu.surface.ramp'):
+        monkeypatch.delitem(sys.modules, mod, raising=False)
+        importlib.import_module(mod)

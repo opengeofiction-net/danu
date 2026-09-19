@@ -61,9 +61,18 @@ file on every run, so there is one reviewer, not two that drift.
 
 ## Status
 
-Early. The specification is complete and the code is not: see
+The pipeline runs on the server from this repository (phase 0), and the editor
+is a viewer (phase 1): open a square from a mirror of `osm-squares/`, see it
+over the OGF tiles with its contours coloured and labelled. No editing yet. See
 [`docs/spec.md`](docs/spec.md) for the requirements, the architecture and the
-plan, and `docs/spec.md#plan` for what order it happens in.
+plan, and the *What phase N actually did* sections there for how each phase
+went against it.
+
+```
+pip install -e '.[ui]'          # PySide6; GDAL is not needed to look
+python -m danu.ui               # File > Open square, or:
+python -m danu.ui /path/to/osm-squares/gobras N20E087
+```
 
 ## Relationship to the other repositories
 
