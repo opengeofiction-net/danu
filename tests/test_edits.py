@@ -1,9 +1,6 @@
 """danu.core.edits: every command takes itself back exactly, in any order."""
 
 import lzma
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -211,7 +208,7 @@ def test_splitting_matches_split_long_ways_on_the_file(tmp_path):
     cmd.apply(sq)
     long_model = [w for w in sq.ways.values() if w.tags.get('note') == 'long']
     long_tool = [w for w in from_tool.ways.values() if w.tags.get('note') == 'long']
-    assert len(long_model) == len(long_tool) == 3            # 23 nodes at 10 a piece sharing ends: 10 + 9 + 4
+    assert len(long_model) == len(long_tool) == 3            # pieces of 10, 10 and 5 refs, sharing ends: 23 distinct nodes
     assert sorted(len(w.refs) for w in long_model) == sorted(len(w.refs) for w in long_tool)
     assert all(len(w.refs) <= 10 for w in long_model)
     # same geometry, in order, ends shared
