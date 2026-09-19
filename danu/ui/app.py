@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self.map.scene().addItem(self.contours)
         self.working_set: WorkingSet | None = None
         self.zone_dir: Path | None = None
+        self._last_cursor = HOME[:2]
         self.elevation = ElevationControl(self.settings, self)
         self.elevation_panel = ElevationPanel(self.elevation, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.elevation_panel)
@@ -104,7 +105,6 @@ class MainWindow(QMainWindow):
         self.elevation.changed.connect(lambda _v: self._cursor(*self._last_cursor))
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
-        self._last_cursor = HOME[:2]
         self.loader = WorkingSetLoader(self)
         self.loader.finished.connect(self._loaded)
         self.loader.failed.connect(self._load_failed)
