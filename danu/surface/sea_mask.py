@@ -129,11 +129,11 @@ def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
     ds = src = None
 
 
-def main():
-    if len(sys.argv) != 4:
-        sys.exit('usage: sea_mask.py <contours.gpkg> <reference.tif> <out.tif>')
-    src_path, ref_path, out_path = sys.argv[1:4]
-
+def sea_mask(src_path, ref_path, out_path, log=None):
+    """A water mask from the coastline's direction, on the reference raster's
+    grid. Returns False, writing nothing, when the contours carry no
+    coastline - the command line's exit 2."""
+    say = log if log is not None else (lambda *a: None)
     ref = gdal.Open(ref_path)
     gt, proj = ref.GetGeoTransform(), ref.GetProjection()
     cols, rows = ref.RasterXSize, ref.RasterYSize
@@ -142,12 +142,12 @@ def main():
     layer = src.GetLayer(0)
     layer.SetAttributeFilter("natural = 'coastline'")
     if layer.GetFeatureCount() == 0:
-        print('  no coastline in this zone, no water mask', file=sys.stderr)
-        sys.exit(2)
-    print(f'  {layer.GetFeatureCount()} coastline ways', file=sys.stderr)
+        say('  no coastline in this zone, no water mask')
+        return False
+    say(f'  {layer.GetFeatureCount()} coastline ways')
 
     water_pts, land_pts = seed_points(layer, gt)
-    print(f'  {len(water_pts)} seeds a side', file=sys.stderr)
+    say(f'  {len(water_pts)} seeds a side')
 
     tmp = {}
 
@@ -204,7 +204,7 @@ def main():
         j.join()
     bad = [j.exitcode for j in jobs if j.exitcode != 0]
     if bad:
-        sys.exit(f'sea_mask: a proximity pass failed, exit {bad}')
+        raise RuntimeError(f'sea_mask: a proximity pass failed, exit {bad}')
 
     wd_ds = gdal.Open(tmp['waterdist'])
     ld_ds = gdal.Open(tmp['landdist'])
@@ -229,8 +229,19 @@ def main():
     for p in tmp.values():
         os.unlink(p)
 
-    print(f'  water mask covers {100 * n_water / (rows * cols):.2f}% of the zone',
-          file=sys.stderr)
+    say(f'  water mask covers {100 * n_water / (rows * cols):.2f}% of the zone')
+    return True
+
+
+def main():
+    if len(sys.argv) != 4:
+        sys.exit('usage: sea_mask.py <contours.gpkg> <reference.tif> <out.tif>')
+    try:
+        ok = sea_mask(*sys.argv[1:4], log=lambda *a: print(*a, file=sys.stderr))
+    except RuntimeError as e:
+        sys.exit(str(e))
+    if not ok:
+        sys.exit(2)
 
 
 if __name__ == '__main__':

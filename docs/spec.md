@@ -740,16 +740,25 @@ outcome written under that phase's *What it actually did*, as phases 0 and 1
 have theirs.
 
 Two requirements on the editor's path, so that the second way is honest. It
-must read every parameter from `params/elevation.toml`, the file the shell
-reads, and with no defaults of its own: a key the file lacks is an error, not
-a value, so the two paths cannot quietly disagree about something one of them
-assumed. The `params.lock` test holds the reference to the values in that file
-for the keys it names; the editor's path is held to the same file, and the
-cell-for-cell comparison is what catches anything the lock does not name. And
-each shell step it reproduces must carry a one-line mapping to the GDAL call it
-stands for, beside the code - a `shell:` line a test looks for on every stage
-function, so the convention cannot be the first thing dropped under time
-pressure. Neither exists yet; both are what phase 2 is asked to build.
+must read every parameter from `params/elevation.toml` with no defaults of its
+own: a key the file lacks is an error, not a value, so the two paths cannot
+quietly disagree about something one of them assumed. The `params.lock` test
+holds the reference to the values in that file for the keys it names; the
+editor's path is held to the same file, and the cell-for-cell comparison is
+what catches anything the lock does not name. And each shell step it
+reproduces must carry a one-line mapping to the GDAL call it stands for,
+beside the code - a `shell:` line a test looks for on every stage function, so
+the convention cannot be the first thing dropped under time pressure.
+
+A correction, found while building this: an earlier draft here called
+`elevation.toml` "the file the shell reads", and it is not. `danu-build-zone`
+carries the same values as `${VAR:-default}` constants and reads no file. Until
+it does - a change to the build, deferred while phase 0's soak runs against it
+- a test holds the shell's constants equal to the file, key by key, so the two
+paths at least start from the same numbers and a change to one without the
+other goes red. The file itself moved into the package (`danu/params/`) so the
+editor can read it once installed, with `params/elevation.toml` a symlink to
+it, as `relief.ramp` and `osmconf.ini` are.
 
 `isofill` via CFFI, whole-set rebuild, hillshade and both ramps with all three
 scaling modes, unreachable-ground overlay, envelope outline. Slow and exact.

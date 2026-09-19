@@ -50,11 +50,10 @@ from osgeo import gdal
 gdal.UseExceptions()
 
 
-def main():
-    if len(sys.argv) != 3:
-        sys.exit('usage: drawn_mask.py <cont.tif> <out.geojson>')
-    src_path, out_path = sys.argv[1], sys.argv[2]
-
+def envelopes(src_path, out_path):
+    """Write the per-square envelopes of the constraints in a raster as
+    GeoJSON; returns how many. Raises ValueError when there are none - the
+    command line turns that into its exit."""
     ds = gdal.Open(src_path)
     gt = ds.GetGeoTransform()
     band = ds.GetRasterBand(1)
@@ -94,10 +93,20 @@ def main():
                          % ','.join('[%.9f,%.9f]' % c for c in coords))
 
     if not feats:
-        sys.exit('drawn_mask.py: no constraints in %s' % src_path)
+        raise ValueError('no constraints in %s' % src_path)
     with open(out_path, 'w') as f:
         f.write('{"type":"FeatureCollection","features":[%s]}' % ','.join(feats))
-    print(f'  drawn area: {len(feats)} square envelopes', file=sys.stderr)
+    return len(feats)
+
+
+def main():
+    if len(sys.argv) != 3:
+        sys.exit('usage: drawn_mask.py <cont.tif> <out.geojson>')
+    try:
+        n = envelopes(sys.argv[1], sys.argv[2])
+    except ValueError as e:
+        sys.exit(f'drawn_mask.py: {e}')
+    print(f'  drawn area: {n} square envelopes', file=sys.stderr)
 
 
 if __name__ == '__main__':

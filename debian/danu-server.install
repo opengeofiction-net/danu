@@ -2,7 +2,7 @@ server/bin/danu-build          usr/bin
 server/bin/danu-build-zone     usr/bin
 server/bin/danu-backup         usr/bin
 server/bin/danu-soak           usr/bin
-server/etc/osmconf.ini         etc/danu
+danu/surface/osmconf.ini      etc/danu
 danu/surface/relief.ramp      etc/danu
 server/etc/inactive.template   etc/danu
 server/systemd/danu-build.service    usr/lib/systemd/system

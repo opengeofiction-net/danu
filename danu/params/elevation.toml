@@ -1,0 +1,30 @@
+# Parameters shared by the editor and the build.
+#
+# This file is the reason the preview can be trusted: both sides read it, and
+# the golden-surface test asserts they read the same one. Changing a value here
+# changes what the nightly build produces, so it is a deliberate act and the
+# reference surfaces in tests/golden have to be rebuilt with it.
+#
+# Values are those the pipeline reached by measurement through 2026; the
+# reasoning for each is in ogf-docs, Admin:Elevation process.
+
+[grid]
+arcsec = 1                  # master DEM resolution
+hgt_arcsec = 3              # the .hgt archive stays at 1201 samples
+
+[fill]
+metres = 1850               # how far a cell may look for a contour pair
+barrier_cells = 2           # how thick a contour is, for the sight test
+grad_min = 0.02             # refuse to extrapolate below this gradient
+pass2 = "diffuse"           # Laplace diffusion; "linear" was removed
+
+[memory]
+max_mem_mb = 18500          # isofill sizes its own arrays against this
+
+[smooth]
+cells = 5                   # box filter for the hillshade copy only
+
+[publish]
+dem_compress = "LERC_ZSTD"
+dem_max_z_error = 0.05      # metres; chosen after comparing 0.01 in QGIS
+dem_zstd_level = 9
