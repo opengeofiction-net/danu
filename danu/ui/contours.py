@@ -111,9 +111,13 @@ class ContourLayer(QGraphicsItem):
             seg_a.append(arr[:-1]); seg_b.append(arr[1:])
             seg_ele.append(np.full(len(arr) - 1, way.ele)); seg_way.append(np.full(len(arr) - 1, len(self._ways)))
             self._ways.append((square, way))
-        if seg_a:
-            self._seg_a, self._seg_b = np.concatenate(seg_a), np.concatenate(seg_b)
-            self._seg_ele, self._seg_way = np.concatenate(seg_ele), np.concatenate(seg_way)
+        # always replaced: a set with no contours after one with many must
+        # not leave the old segments behind for pick to find
+        empty = np.zeros((0, 2))
+        self._seg_a = np.concatenate(seg_a) if seg_a else empty
+        self._seg_b = np.concatenate(seg_b) if seg_b else empty
+        self._seg_ele = np.concatenate(seg_ele) if seg_ele else np.zeros(0)
+        self._seg_way = np.concatenate(seg_way) if seg_way else np.zeros(0, dtype=np.int64)
         levels = sorted(self.paths)
         self.index_levels = set(levels[::INDEX_EVERY_N])
         self.update()

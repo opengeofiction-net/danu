@@ -182,6 +182,28 @@ def test_space_picks_up_the_contour_under_the_cursor_and_nothing_elsewhere(windo
     assert w.elevation.value == 777
 
 
+def test_pick_up_reaches_eight_pixels_from_a_line_and_no_further(window):
+    w = window
+    square = w.working_set.squares[SquareName(126, -24)]
+    lon, lat = square.coords(next(square.contours()))[0]            # the 10 m line
+    x, y = m.lonlat_to_scene(lon + 0.2, lat)
+    per_px = 1.0 / m.scale_for_zoom(w.map.zoom)                    # scene units in a pixel at this zoom
+    for px, expect in ((4, 10), (20, 777)):
+        w.elevation.set(777)
+        cursor_to(w, *m.scene_to_lonlat(x, y + px * per_px))
+        w.pick_up()
+        assert w.elevation.value == expect, px
+
+
+def test_a_set_without_contours_after_one_with_them_leaves_nothing_to_pick(zone):
+    layer = ContourLayer()
+    layer.set_working_set(WorkingSet.open(zone, SquareName(126, -24), 1))
+    x, y = m.lonlat_to_scene(126.5, -23.7)
+    assert layer.pick(x, y, 1e6) is not None
+    layer.set_working_set(WorkingSet.open(zone, SquareName(120, -24), 1))   # nothing there
+    assert layer.pick(x, y, 1e12) is None
+
+
 def test_the_layer_picks_the_nearest_segment_within_tolerance(zone):
     ws = WorkingSet.open(zone, SquareName(126, -24), 1)
     layer = ContourLayer()

@@ -7,8 +7,9 @@ is something to want it for.
 
 The wheel follows the keys (spec, *Elevation control*): alone it steps the
 active elevation by the small increment, with shift by the big one, with ctrl
-it zooms, and alt is given to the opacity of the active overlay. The view only
-reports the first and last; what an elevation or an opacity is lives elsewhere.
+it zooms, and alt is given to the opacity of the active overlay - the surface,
+today. The view only reports the steps; what an elevation or an opacity is
+lives elsewhere.
 
 The graticule is the only thing drawn here. It is not decoration: degree lines
 are the squares' edges, and a viewer with nothing else loaded still shows a
