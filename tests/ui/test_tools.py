@@ -214,7 +214,8 @@ def test_a_node_is_dragged_and_the_move_is_one_undo_step(w):
     n = square.nodes[nid]
     before = (n.lon, n.lat)
     drag(w, n.lon, n.lat, 0, 40)                             # 40 px south
-    assert n.lat < before[1] - 0.001 and n.lon == pytest.approx(before[0], abs=1e-4)   # straight south, to a pixel
+    two_px = 2 * 360.0 / (256 * 2 ** w.map.zoom)             # the press lands within a pixel of the node
+    assert n.lat < before[1] - 0.001 and n.lon == pytest.approx(before[0], abs=two_px)   # straight south
     assert w.editor.history.describe_undo() and w.editor.dirty()
     w.editor.undo()
     assert (n.lon, n.lat) == before
