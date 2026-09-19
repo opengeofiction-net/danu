@@ -12,6 +12,20 @@ from ..core.square import SquareName
 
 RECENT_MAX = 8
 
+# the keys the spec gives, a column on a QWERTY keyboard: the left hand rests
+# on w and s and reaches 2 up and x down. All rebindable, under [keys] in the
+# INI, as Qt key sequences - 'Ctrl+Shift+E', 'PgUp', 'Space'
+DEFAULT_KEYS = {
+    'elevation.big_up': '2',
+    'elevation.small_up': 'W',
+    'elevation.small_down': 'S',
+    'elevation.big_down': 'X',
+    'elevation.pick_up': 'Space',
+    'elevation.nudge_up': ']',
+    'elevation.nudge_down': '[',
+    'elevation.sea_level': '0',
+}
+
 
 class Settings:
     def __init__(self, path: Path | None = None):
@@ -45,6 +59,45 @@ class Settings:
     @size.setter
     def size(self, n: int):
         self.q.setValue('squares/size', int(n))
+
+    # --------------------------------------------------------- elevation
+    def _metres(self, key: str, default: float) -> float:
+        try:
+            v = float(self.q.value(key, default))
+        except (TypeError, ValueError):
+            return default
+        return v if v > 0 else default
+
+    @property
+    def small_step(self) -> float:
+        return self._metres('elevation/small', 10.0)
+
+    @small_step.setter
+    def small_step(self, v: float):
+        self.q.setValue('elevation/small', float(v))
+
+    @property
+    def big_step(self) -> float:
+        return self._metres('elevation/big', 50.0)
+
+    @big_step.setter
+    def big_step(self, v: float):
+        self.q.setValue('elevation/big', float(v))
+
+    @property
+    def ladders_file(self) -> Path:
+        """The ladder overrides, beside the INI: ~/.config/danu/ladders.toml."""
+        return self.file.parent / 'ladders.toml'
+
+    # -------------------------------------------------------------- keys
+    def key(self, action: str) -> str:
+        """The key sequence bound to an action, the spec's default unless
+        the INI says otherwise. An empty binding unbinds."""
+        v = self.q.value(f'keys/{action}', None)
+        return DEFAULT_KEYS[action] if v is None else str(v)
+
+    def set_key(self, action: str, sequence: str):
+        self.q.setValue(f'keys/{action}', sequence)
 
     # ------------------------------------------------------------ recent
     # One string, entries separated by newlines, rather than a QSettings list.

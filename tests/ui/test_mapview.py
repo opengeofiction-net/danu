@@ -60,14 +60,17 @@ def test_fit_bounds_shows_the_square_whole_and_centred(view):
     assert r.left() <= x0 and r.right() >= x1 and r.top() <= y0 and r.bottom() >= y1
 
 
-def test_the_wheel_steps_one_zoom_about_the_cursor(view, qtbot):
+def wheel(view, pos, delta=120, mods=Qt.KeyboardModifier.NoModifier) -> QWheelEvent:
+    return QWheelEvent(pos, view.mapToGlobal(pos), QPoint(), QPoint(0, delta),
+                       Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False)
+
+
+def test_ctrl_and_the_wheel_step_one_zoom_about_the_cursor(view, qtbot):
     view.fit_bounds(87, 20, 88, 21)
     z = view.zoom
     pos = QPointF(view.viewport().width() * 0.25, view.viewport().height() * 0.25)
     before = view.mapToScene(pos.toPoint())
-    ev = QWheelEvent(pos, view.mapToGlobal(pos), QPoint(), QPoint(0, 120),
-                     Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-                     Qt.ScrollPhase.NoScrollPhase, False)
+    ev = wheel(view, pos, mods=Qt.KeyboardModifier.ControlModifier)
     view.wheelEvent(ev)
     assert view.zoom == z + 1
     after = view.mapToScene(pos.toPoint())
@@ -164,3 +167,21 @@ def test_the_editor_imports_without_gdal(monkeypatch):
                 'danu.surface.ramp', 'danu.surface.shade'):
         monkeypatch.delitem(sys.modules, mod, raising=False)
         importlib.import_module(mod)
+
+
+def test_the_wheel_alone_and_with_shift_or_alt_is_not_a_zoom(view, qtbot):
+    """The wheel follows the keys: alone the small step, shift the big one,
+    alt the overlay's opacity; only ctrl zooms."""
+    view.fit_bounds(87, 20, 88, 21)
+    z = view.zoom
+    pos = QPointF(100, 100)
+    steps, opac = [], []
+    view.elevationWheel.connect(lambda big, down: steps.append((big, down)))
+    view.opacityWheel.connect(opac.append)
+    view.wheelEvent(wheel(view, pos))
+    view.wheelEvent(wheel(view, pos, delta=-120))
+    view.wheelEvent(wheel(view, pos, mods=Qt.KeyboardModifier.ShiftModifier))
+    view.wheelEvent(wheel(view, pos, delta=-120, mods=Qt.KeyboardModifier.AltModifier))
+    view.wheelEvent(wheel(view, pos, delta=0))
+    assert steps == [(False, False), (False, True), (True, False)] and opac == [True]
+    assert view.zoom == z

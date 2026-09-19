@@ -1,9 +1,15 @@
 """The map canvas: one QGraphicsView over the whole world in Web Mercator.
 
 The scene never changes size or position; a zoom is a view scale and a pan is
-a scroll. Integer zooms only for now, matching the tiles, with the mouse wheel
-stepping between them about the cursor. Fractional zoom can come when there is
-something to want it for.
+a scroll. Integer zooms only for now, matching the tiles; ctrl and the mouse
+wheel step between them about the cursor. Fractional zoom can come when there
+is something to want it for.
+
+The wheel follows the keys (spec, *Elevation control*): alone it steps the
+active elevation by the small increment, with shift by the big one, with ctrl
+it zooms, and alt is given to the opacity of the active overlay - the surface,
+today. The view only reports the steps; what an elevation or an opacity is
+lives elsewhere.
 
 The graticule is the only thing drawn here. It is not decoration: degree lines
 are the squares' edges, and a viewer with nothing else loaded still shows a
@@ -100,6 +106,8 @@ class Graticule(QGraphicsItem):
 class MapView(QGraphicsView):
     zoomChanged = Signal(int)
     cursorMoved = Signal(float, float)      # lon, lat
+    elevationWheel = Signal(bool, bool)     # big, down
+    opacityWheel = Signal(bool)             # down
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -175,7 +183,13 @@ class MapView(QGraphicsView):
         delta = event.angleDelta().y()
         if delta == 0:
             return
-        self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
+        mods = event.modifiers()
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
+        elif mods & Qt.KeyboardModifier.AltModifier:
+            self.opacityWheel.emit(delta < 0)
+        else:
+            self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), delta < 0)
         event.accept()
 
     # --------------------------------------------------------- position
