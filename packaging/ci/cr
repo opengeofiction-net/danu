@@ -42,14 +42,27 @@ fi
 # creates its own file once the directory is there
 mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/nushell"
 
-# the action's own defaults for whatever the workflow leaves unset
-python3 "$here/review-config.py" --action "$tool/action.yaml" --out "$cfg" || exit 1
+# The reviewer of *this* repository: its own workflow file when it has one,
+# so that cr in isofill reviews with isofill's prompt and cr in danu with
+# danu's; danu's otherwise, for a checkout that has no reviewer of its own
+top=$(git rev-parse --show-toplevel 2>/dev/null)
+wf=$top/.github/workflows/deepseek-review.yml
+[ -f "$wf" ] || wf=$(cd "$here/../.." && pwd)/.github/workflows/deepseek-review.yml
+repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo opengeofiction-net/danu)
 
-# with no arguments, the diff against main; the tool's own default is the
-# unstaged diff, which for a branch about to become a PR is usually empty
+# the action's own defaults for whatever the workflow leaves unset
+python3 "$here/review-config.py" --action "$tool/action.yaml" --workflow "$wf" --repo "$repo" --out "$cfg" || exit 1
+echo "cr: reviewing as $repo, prompt from ${wf#"$top"/}" >&2
+
+# with no arguments, the diff against main as the remote has it; the tool's
+# own default is the unstaged diff, which for a branch about to become a PR is
+# usually empty. origin/main rather than main: a worktree's local main is
+# whatever it was last pulled to, and a stale one made the pre-flight review
+# the previous pull request's changes along with this one's
 if [ $# -eq 0 ]; then
-	base=$(git merge-base main HEAD 2>/dev/null) || {
-		echo "cr: no local branch 'main' to diff against; pass --diff-from <sha>" >&2
+	git fetch -q origin main 2>/dev/null || true
+	base=$(git merge-base origin/main HEAD 2>/dev/null || git merge-base main HEAD 2>/dev/null) || {
+		echo "cr: no main to diff against; pass --diff-from <sha>" >&2
 		exit 1
 	}
 	set -- --diff-from "$base"

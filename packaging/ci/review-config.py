@@ -4,8 +4,10 @@
 The PR review on GitHub and the pre-flight review run here should be the same
 reviewer: same model, temperature, exclusions and, above all, the same system
 prompt. Two copies of that prompt would drift within a week. So there is one -
-in .github/workflows/deepseek-review.yml, where the action reads it - and this
-derives the CLI's config.yml from it each time the wrapper runs.
+in the repository's .github/workflows/deepseek-review.yml, where the action
+reads it - and this derives the CLI's config.yml from it each time the wrapper
+runs. The wrapper passes whichever repository it is run in, so each repository
+that has a reviewer is reviewed by its own.
 
 Where the workflow leaves an input unset, the action supplies a default, and
 so must this - the action's own, read from action.yaml in the pinned checkout,
@@ -83,6 +85,8 @@ def main() -> int:
     ap.add_argument('--action', type=Path, required=True,
                     help='action.yaml of the pinned hustcer/deepseek-review checkout, for the defaults')
     ap.add_argument('--workflow', type=Path, default=WORKFLOW)
+    ap.add_argument('--repo', default='opengeofiction-net/danu',
+                    help='the GitHub repository a -n <PR> review reads from')
     ap.add_argument('--out', type=Path, default=OUT)
     args = ap.parse_args()
 
@@ -111,7 +115,7 @@ def main() -> int:
             'user-prompt': 'default',
             'system-prompt': 'default',
             'github-token': github_token,
-            'default-github-repo': 'opengeofiction-net/danu',
+            'default-github-repo': args.repo,
             'include-patterns': w['include-patterns'] or '',
             'exclude-patterns': w['exclude-patterns'] or '',
         },
