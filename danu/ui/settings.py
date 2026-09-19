@@ -24,6 +24,11 @@ DEFAULT_KEYS = {
     'elevation.nudge_up': ']',
     'elevation.nudge_down': '[',
     'elevation.sea_level': '0',
+    'tool.select': 'Q',
+    'tool.draw': 'A',
+    'edit.undo': 'Ctrl+Z',
+    'edit.redo': 'Ctrl+Shift+Z',
+    'edit.delete': 'Delete',
 }
 
 

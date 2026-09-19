@@ -298,3 +298,47 @@ def test_deleting_a_node_a_way_references_twice_restores_the_ring():
     assert first not in sq.ways[ring_way].refs and len(sq.ways[ring_way].refs) == 3
     cmd.undo(sq)
     assert edits.snapshot(sq) == before
+
+
+# ----------------------------------------------------------- the set's history
+
+def test_one_history_over_two_squares_with_dirt_per_square():
+    a, b = fresh_square(), fresh_square()
+    hist = edits.SetUndoStack()
+    wa = max(a.ways); wb = max(b.ways)
+    hist.do(a, edits.SetTags(wa, dict(a.ways[wa].tags), {'ele': '1'}))
+    hist.do(b, edits.SetTags(wb, dict(b.ways[wb].tags), {'ele': '2'}))
+    assert hist.dirty(a) and hist.dirty(b) and len(hist.dirty_squares()) == 2
+    hist.mark_clean(a)
+    assert not hist.dirty(a) and hist.dirty_squares() == [b]
+    sq, cmd = hist.undo()
+    assert sq is b and b.ways[wb].tags['ele'] != '2' and not hist.dirty(b)
+    sq, cmd = hist.undo()
+    assert sq is a and hist.dirty(a)                    # undone past the clean mark is dirty again
+    assert hist.redo()[0] is a and not hist.dirty(a)
+    assert hist.describe_redo() and hist.alloc(a) is hist.alloc(a) and hist.alloc(a) is not hist.alloc(b)
+    assert hist.undo()[0] is a and hist.undo() is None       # one step was left; then nothing
+
+
+def test_every_command_says_which_ways_it_touches(square):
+    a = edits.IdAllocator(square)
+    way = next(square.contours())
+    node = way.refs[1]
+    holders = {w.id for w in square.ways.values() if node in w.refs}
+    new_way = a.take()
+    cmds = [
+        (edits.AddWay(new_way, [a.take(), a.take()], [(125.1, -23.1), (125.2, -23.15)], {'ele': '3'}), {new_way}),
+        (edits.ExtendWay(way.id, True, a.take(), (125.5, -23.5)), {way.id}),
+        (edits.ExtendWayWithExisting(way.id, False, node), {way.id}),
+        (edits.InsertNode(way.id, 1, a.take(), (125.4, -23.4)), {way.id}),
+        (edits.MoveNode(node, (0, 0), (1, 1)), holders),
+        (edits.SetTags(way.id, dict(way.tags), {'ele': '9'}), {way.id}),
+        (edits.DeleteWay(way.id), {way.id}),
+    ]
+    for cmd, expect in cmds:
+        assert cmd.ways(square) == expect, cmd
+    dn = edits.DeleteNode(node)
+    assert dn.ways(square) == holders
+    dn.apply(square)
+    assert dn.ways(square) == holders                   # still answers after apply, from its own record
+    assert edits.Compound([edits.SetTags(way.id, {}, {}), edits.DeleteWay(new_way)]).ways(square) == {way.id, new_way}
