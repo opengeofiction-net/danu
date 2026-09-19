@@ -29,6 +29,8 @@ DEFAULT_KEYS = {
     'edit.undo': 'Ctrl+Z',
     'edit.redo': 'Ctrl+Shift+Z',
     'edit.delete': 'Delete',
+    'file.save': 'Ctrl+S',
+    'file.save_as': 'Ctrl+Shift+S',
 }
 
 

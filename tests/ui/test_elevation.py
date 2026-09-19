@@ -89,7 +89,7 @@ def test_keys_are_rebound_through_the_settings(zone, tmp_path, qtbot):
     assert w.elevation_actions['elevation.sea_level'].shortcut().isEmpty()
     assert w.elevation_actions['elevation.small_up'].shortcut() == QKeySequence('W')
     assert 'PgUp' in w.elevation_panel.keys.text()
-    assert set(DEFAULT_KEYS) == set(w.elevation_actions) | set(w.edit_actions)   # every default key is an action
+    assert set(DEFAULT_KEYS) == set(w.elevation_actions) | set(w.edit_actions) | set(w.file_actions)   # every default key is an action
 
 
 # ---------------------------------------------------------------- wheel

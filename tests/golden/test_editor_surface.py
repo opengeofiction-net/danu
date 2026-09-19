@@ -217,3 +217,55 @@ def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
     ref_ds, new_ds = gdal.Open(str(EXPECTED)), gdal.Open(str(tmp_path / 'pub' / 'golden' / 'dem-golden.tif'))
     a, b = ref_ds.GetRasterBand(1).ReadAsArray(), new_ds.GetRasterBand(1).ReadAsArray()
     assert a.shape == b.shape and int((a != b).sum()) == 0
+
+
+def test_a_square_drawn_from_blank_saved_by_the_editor_builds_on_the_server_path(tmp_path):
+    """Phase 3's exit criterion, as the spec states it: a square can be drawn
+    from blank and built by the server unchanged. A square nobody has drawn
+    gets a hill through the edit commands, is saved as the editor saves -
+    frame added, split if needed, written with upload='never' - and the
+    shell pipeline builds the zone it lands in. The editor's own path builds
+    the same zone to the same cells, and the DEM has the hill in it."""
+    import os
+    import subprocess
+    from danu.core import edits, save
+    from danu.core.square import Square, SquareName
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    # a hill: four concentric closed contours, the innermost 251 m
+    sq = Square(name=SquareName(126, -24))
+    hist = edits.SetUndoStack()
+    alloc = hist.alloc(sq)
+    for i in range(4):
+        ele, d = 101 + 50 * i, 0.4 - 0.09 * i
+        pts = [(126.5 - d, -23.5 - d), (126.5 + d, -23.5 - d), (126.5 + d, -23.5 + d), (126.5 - d, -23.5 + d)]
+        ids = [alloc.take() for _ in pts]
+        hist.do(sq, edits.AddWay(alloc.take(), ids, pts, {'ele': str(ele)}))
+        hist.do(sq, edits.ExtendWayWithExisting(min(sq.ways), True, ids[0]))
+    base = tmp_path / 'base'
+    zone = base / 'osm-squares' / 'blank'
+    zone.mkdir(parents=True)
+    report = save.save_square(sq, hist, save.default_path(zone, sq.name))
+    assert report.framed and not hist.dirty(sq)
+    # the server's path
+    env = dict(os.environ, PYTHONPATH=str(ROOT), CONF=str(ROOT / 'server' / 'etc'), BASE=str(base),
+               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']),
+               WATER_CONSTRAINTS='0' if not lock['water_constraints'] else '1')
+    run = subprocess.run(['bash', str(ROOT / 'server' / 'bin' / 'danu-build-zone'), 'blank'],
+                         capture_output=True, text=True, env=env, timeout=900)
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    # the editor's path, on the same zone
+    p = params.load().with_arcsec(lock['arcsec'])
+    result = build.build_dem(zone, tmp_path / 'ework', p, water=bool(lock['water_constraints']))
+    assert result.dem is not None
+    shell_ds, editor_ds = gdal.Open(str(tmp_path / 'pub' / 'blank' / 'dem-blank.tif')), gdal.Open(str(result.dem))
+    a, b = shell_ds.GetRasterBand(1).ReadAsArray(), editor_ds.GetRasterBand(1).ReadAsArray()
+    assert a.shape == b.shape and int((a != b).sum()) == 0
+    # and it is the hill that was drawn: the summit plateau at the top contour,
+    # the ground outside the lowest one below it
+    gt = shell_ds.GetGeoTransform()
+    col, row = int((126.5 - gt[0]) / gt[1]), int((-23.5 - gt[3]) / gt[5])
+    assert a[row, col] == 251
+    col, row = int((126.05 - gt[0]) / gt[1]), int((-23.95 - gt[3]) / gt[5])
+    assert a[row, col] < 101
