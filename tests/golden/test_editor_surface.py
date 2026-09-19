@@ -75,8 +75,8 @@ def test_the_files_grad_min_is_the_binarys_default_which_both_paths_rely_on():
     import re
     import subprocess
     from danu.surface import params
-    usage = subprocess.run(['isofill'], capture_output=True, text=True).stdout + \
-        subprocess.run(['isofill'], capture_output=True, text=True).stderr
+    run = subprocess.run(['isofill'], capture_output=True, text=True)
+    usage = run.stdout + run.stderr
     m = re.search(r'--grad-min F.*?\(default ([0-9.]+)\)', usage, re.S)
     assert m, 'isofill usage no longer states a --grad-min default'
     assert float(m.group(1)) == params.load().grad_min
