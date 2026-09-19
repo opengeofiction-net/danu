@@ -38,11 +38,12 @@ from importlib import resources
 from pathlib import Path
 from typing import Callable, Iterable
 
+import numpy as np
 from osgeo import gdal, ogr
 
 from ..core.square import SquareName, list_squares, read_square
 from ..core.zone_extent import has_constraints
-from . import drawn_mask, land_clamp, sea_mask
+from . import drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
 gdal.UseExceptions()
@@ -250,21 +251,97 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
 
 
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
-                isofill: str = 'isofill') -> Path:
-    """The surface between the constraints, by isofill. A subprocess of the
-    same binary the shell runs (S2 makes it a library call).
+                isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet) -> Path:
+    """The surface between the constraints, by isofill. Through the library
+    by default - the binary's own in-core path is a call to the same
+    function - and through the binary where the library cannot be loaded, or
+    where the raster is larger than the in-core fill would hold and the
+    binary would band it, which the library does not do. ``library`` forces
+    the choice: True demands the library and raises rather than fall back,
+    False never tries it; None is the default described above.
     shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] ${ISOFILL_EXTRA} cont.tif rounded.tif
     The same flags and no others. The shell passes no --grad-min and relies
-    on isofill's default, so neither does this: a value passed by one side
-    only would let the two diverge with nothing going red. The file's
-    grad_min is held equal to the binary's default by a test instead, and
-    when the shell comes to read the file both will pass it. pass2 has one
-    implemented value and this refuses any other rather than ignoring it."""
+    on isofill's default, so neither does the binary call here nor the
+    library call, which starts from the library's own defaults and sets only
+    what the flags set. The file's grad_min is held equal to that default by
+    a test. pass2 has one implemented value and this refuses any other
+    rather than ignoring it."""
     if params.pass2 != 'diffuse':
         raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
     if out.exists():
         out.unlink()
+    if library is not False:
+        try:
+            lib = isofill_lib.Isofill.load()
+        except isofill_lib.IsofillError as e:
+            if library is True:
+                raise
+            log(f'  isofill library not used: {str(e).splitlines()[0]}')
+            lib = None
+        if lib is not None:
+            ds = gdal.Open(str(cont))
+            cols, rows = ds.RasterXSize, ds.RasterYSize
+            mb = lib.whole_mb(cols, rows)
+            if mb > params.max_mem_mb:
+                if library is True:
+                    raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {params.max_mem_mb}; the binary bands it')
+                log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
+            else:
+                return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
+    return _interpolate_binary(cont, mask, water, params, out, isofill)
+
+
+def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
+    """The binary checks the mask and water are the constraints' size; the
+    library path checks they are the constraints' grid, since here the
+    arrays meet with no file to carry the georeferencing."""
+    if (a.RasterXSize, a.RasterYSize) != (b.RasterXSize, b.RasterYSize):
+        raise ValueError(f'{b_path.name} is {b.RasterXSize}x{b.RasterYSize}, '
+                         f'{a_path.name} is {a.RasterXSize}x{a.RasterYSize}')
+    ga, gb = a.GetGeoTransform(), b.GetGeoTransform()
+    res = abs(ga[1])
+    # in cells, not degrees: an origin around 100 and a cell of 1/3600 are
+    # eight orders apart, and one absolute tolerance cannot serve both
+    off_by = max(abs(ga[0] - gb[0]), abs(ga[3] - gb[3])) / res
+    scale_by = max(abs(ga[1] - gb[1]), abs(ga[5] - gb[5])) / res
+    if off_by > 1e-6 or scale_by > 1e-9:
+        raise ValueError(f'{b_path.name} is not on {a_path.name}\'s grid: origin off by {off_by:g} cells')
+
+
+def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
+                         out: Path, log: Log) -> Path:
+    """The library call, with the rasters read to arrays and the surface written
+    as the binary writes it: Float32, ZSTD, the float predictor.
+    shell: the in-core branch of isofill.c's main(), which is isofill_run()"""
+    band = ds.GetRasterBand(1)
+    cons = band.ReadAsArray().astype(np.float32)
+    nodata = band.GetNoDataValue()
+    m_ds = gdal.Open(str(mask))
+    _same_grid(ds, m_ds, cont, mask)
+    m = m_ds.GetRasterBand(1).ReadAsArray()
+    w = None
+    if water is not None:
+        w_ds = gdal.Open(str(water))
+        _same_grid(ds, w_ds, cont, water)
+        w = w_ds.GetRasterBand(1).ReadAsArray()
+    surface, filled = lib.run(cons, params, mask=m, water=w, nodata=nodata)
+    log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
+    drv = gdal.GetDriverByName('GTiff')
+    o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
+                   options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
+    o.SetGeoTransform(ds.GetGeoTransform())
+    o.SetProjection(ds.GetProjection())
+    o.GetRasterBand(1).WriteArray(surface)
+    o.FlushCache()
+    o = None
+    return out
+
+
+def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
+                        isofill: str) -> Path:
+    """The same binary the shell runs, with the same flags and no others.
+    shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] cont.tif rounded.tif"""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
            '--max-mem', str(params.max_mem_mb), '--mask', str(mask)]
     if water is not None:
@@ -274,7 +351,6 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     if run.returncode != 0:
         raise RuntimeError(f'isofill failed ({run.returncode}):\n{run.stderr[-2000:]}')
     return out
-
 
 def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = _quiet) -> Path:
     """Sea to zero, land never zero, the constraints back untouched, written
@@ -301,7 +377,8 @@ class Result:
 
 
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
-              water: bool = False, log: Log = _quiet, isofill: str = 'isofill') -> Result:
+              water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
+              library: bool | None = None) -> Result:
     """From squares to a DEM, in the shell's order: extent, collect, rasterise,
     drawn area, water constraints (off unless asked), water mask, interpolate,
     clamp. ``names`` limits the build to a working set; None builds the zone
@@ -324,6 +401,6 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     if water:
         water_constraints(cont, grid, mask, work, log)
     wmask = water_mask(gpkg, cont, work, log)
-    rounded = interpolate(cont, mask, wmask, params, work, isofill)
+    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log)
     dem = clamp(rounded, cont, wmask, work, log)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask)
