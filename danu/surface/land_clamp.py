@@ -98,12 +98,12 @@ def temp_raster(path, cols, rows, gt, proj, dtype=gdal.GDT_Byte):
     return ds
 
 
-def main():
-    if len(sys.argv) not in (4, 5):
-        sys.exit(__doc__.strip().splitlines()[2].strip())
-    dem_path, cont_path, out_path = sys.argv[1:4]
-    water_path = sys.argv[4] if len(sys.argv) == 5 else None
-
+def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
+    """The interpolated raster made publishable: sea to exactly zero, land
+    never zero, the burned constraints back untouched. Returns (regions kept
+    as sea, regions found, sea cells, land cells at 1..9 m, cells the water
+    mask added)."""
+    say = log if log is not None else (lambda *a: None)
     dem_ds, dem_band = open_band(dem_path)
     cont_ds, cont_band = open_band(cont_path)
     gt = dem_ds.GetGeoTransform()
@@ -241,11 +241,20 @@ def main():
 
     cells = rows * cols
     if water_path:
-        print(f'  water mask adds {added:,} cells of enclosed water',
-              file=sys.stderr)
-    print(f'  {kept} of {total} water regions kept as sea; '
-          f'sea {100 * n_sea / cells:.2f}% of the zone, '
-          f'land at 1..9 m {100 * n_low / cells:.2f}%', file=sys.stderr)
+        say(f'  water mask adds {added:,} cells of enclosed water')
+    say(f'  {kept} of {total} water regions kept as sea; '
+        f'sea {100 * n_sea / cells:.2f}% of the zone, '
+        f'land at 1..9 m {100 * n_low / cells:.2f}%')
+    return kept, total, n_sea, n_low, added
+
+
+def main():
+    if len(sys.argv) not in (4, 5):
+        sys.exit(__doc__.strip().splitlines()[2].strip())
+    dem_path, cont_path, out_path = sys.argv[1:4]
+    water_path = sys.argv[4] if len(sys.argv) == 5 else None
+    clamp(dem_path, cont_path, out_path, water_path,
+          log=lambda *a: print(*a, file=sys.stderr))
 
 
 if __name__ == '__main__':
