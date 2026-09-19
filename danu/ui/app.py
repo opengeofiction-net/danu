@@ -14,13 +14,18 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox
 
 from ..core.square import SquareName, WorkingSet
 from . import config
 from .contours import ContourLayer
 from .layers_panel import LayersPanel
+from .loader import WorkingSetLoader
 from .mapview import MapView
+from .open_dialog import OpenDialog
+from .settings import Settings
+from .squares import SquaresItem
 from .tiles import TileFetcher, TileLayer
 
 APP_NAME = 'danu'
@@ -50,10 +55,12 @@ def user_cache_dir() -> Path:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None):
+    def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None,
+                 settings: Settings | None = None):
         super().__init__()
         self.setWindowTitle('Danu')
         self.layers = layers
+        self.settings = settings if settings is not None else Settings()
         self.map = MapView(self)
         self.setCentralWidget(self.map)
         self.fetcher = TileFetcher(cache_dir, parent=self)
@@ -66,9 +73,16 @@ class MainWindow(QMainWindow):
             self.tile_items.append(item)
         self.panel = LayersPanel(self.tile_items, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
+        self.squares = SquaresItem()
+        self.map.scene().addItem(self.squares)
         self.contours = ContourLayer()
         self.map.scene().addItem(self.contours)
         self.working_set: WorkingSet | None = None
+        self.loader = WorkingSetLoader(self)
+        self.loader.finished.connect(self._loaded)
+        self.loader.failed.connect(self._load_failed)
+        self._pending: tuple[Path, SquareName, int] | None = None
+        self._menus()
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         self.map.cursorMoved.connect(self._cursor)
@@ -81,23 +95,80 @@ class MainWindow(QMainWindow):
     def _cursor(self, lon: float, lat: float):
         self._status.setText(f'{lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
 
-    def open_working_set(self, zone_dir: Path, centre: SquareName, size: int = 3) -> WorkingSet:
-        """Read the grid and show it. Synchronous for now: the read blocks the
-        window for as long as it takes, which for a large square is seconds.
-        The worker the spec asks for comes with the open dialog (phase 1, D),
-        which is where a mapper will wait on it."""
-        ws = WorkingSet.open(zone_dir, centre, size)
+    # ------------------------------------------------------------- menus
+    def _menus(self):
+        file = self.menuBar().addMenu('&File')
+        self.open_action = QAction('&Open square…', self)
+        self.open_action.setShortcut(QKeySequence.StandardKey.Open)
+        self.open_action.triggered.connect(self.open_dialog)
+        file.addAction(self.open_action)
+        self.recent_menu = file.addMenu('Open &recent')
+        self._fill_recent()
+        file.addSeparator()
+        quit_action = QAction('&Quit', self)
+        quit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        quit_action.triggered.connect(self.close)
+        file.addAction(quit_action)
+
+    def _fill_recent(self):
+        self.recent_menu.clear()
+        recent = self.settings.recent()
+        self.recent_menu.setEnabled(bool(recent))
+        for zone_dir, name, size in recent:
+            a = QAction(f'{name}  ({zone_dir.name}, {size}×{size})', self)
+            a.triggered.connect(lambda _=False, z=zone_dir, n=name, s=size: self.open_working_set(z, n, s))
+            self.recent_menu.addAction(a)
+
+    def open_dialog(self):
+        dlg = OpenDialog(self.settings.squares_root, self.settings.size, self)
+        if dlg.exec() and dlg.result_:
+            # remembered in _loaded, once the read has succeeded: a root and a
+            # size are worth keeping when they led to a square, not before
+            self.open_working_set(*dlg.result_)
+
+    # -------------------------------------------------------------- open
+    def open_working_set(self, zone_dir: Path, centre: SquareName, size: int = 3) -> bool:
+        """Read the grid on a worker and show it when it arrives. Returns
+        False if a read is already running; the status line says so."""
+        zone_dir = Path(zone_dir)
+        if not self.loader.load(zone_dir, centre, size):
+            self.statusBar().showMessage('still reading the last square - a moment')
+            return False
+        self._pending = (zone_dir, centre, size)
+        self.open_action.setEnabled(False)
+        self.statusBar().showMessage(f'reading {centre} and its neighbours from {zone_dir.name}…')
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        return True
+
+    def _loaded(self, ws: WorkingSet):
+        QApplication.restoreOverrideCursor()
+        self.open_action.setEnabled(True)
         self.working_set = ws
+        self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
-        w, s, e, n = centre.bounds
+        w, s, e, n = ws.centre.bounds
         self.map.fit_bounds(w, s, e, n)
         present = sum(1 for _ in ws.present())
         rng = ws.elevation_range()
         self.statusBar().showMessage(
-            f'{centre}: {present} of {len(ws.squares)} squares present, '
+            f'{ws.centre}: {present} of {len(ws.squares)} squares present, '
             f'{len(ws.elevations())} levels'
             + (f', {rng[0]:g}-{rng[1]:g} m' if rng else ''))
-        return ws
+        if self._pending:
+            zone_dir, _, size = self._pending
+            self.settings.remember(*self._pending)
+            self.settings.squares_root = zone_dir.parent
+            self.settings.size = size
+            self._fill_recent()
+        self._pending = None
+        self.setWindowTitle(f'Danu - {ws.centre}')
+
+    def _load_failed(self, text: str):
+        QApplication.restoreOverrideCursor()
+        self.open_action.setEnabled(True)
+        self._pending = None
+        self.statusBar().showMessage('the square could not be read')
+        QMessageBox.warning(self, 'Danu', f'The square could not be read.\n\n{text}')
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -118,4 +189,6 @@ def main(argv: list[str] | None = None) -> int:
     win.show()
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
+    elif recent := win.settings.recent():
+        win.open_working_set(*recent[0])
     return app.exec()
