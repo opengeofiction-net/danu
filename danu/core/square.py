@@ -373,6 +373,14 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     def q(v) -> str:            # single quotes, as JOSM writes them; & < > ' escaped
         return "'" + html.escape(str(v), quote=True).replace('&quot;', '"') + "'"
 
+    def deg(v: float) -> str:
+        # the shortest digits that read back to the same float, written as a
+        # plain decimal: repr(1e-05) is '1e-05', and a node within eleven
+        # metres of the equator or the meridian would carry an exponent into
+        # a file every other tool writes as decimals
+        from decimal import Decimal
+        return format(Decimal(repr(float(v))), 'f')
+
     attrs = dict(square.attrs)
     attrs.setdefault('version', '0.6')
     attrs['upload'] = 'never'                     # whatever it was read with, this is not for the live map
@@ -382,11 +390,11 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     for nid in sorted(square.nodes, reverse=True):           # highest (least negative) first, as JOSM lists them
         n = square.nodes[nid]
         if n.tags:
-            lines.append(f"  <node id='{nid}' action='modify' lat='{n.lat!r}' lon='{n.lon!r}'>")
+            lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}'>")
             lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in n.tags.items()]
             lines.append('  </node>')
         else:
-            lines.append(f"  <node id='{nid}' action='modify' lat='{n.lat!r}' lon='{n.lon!r}' />")
+            lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}' />")
     for wid in sorted(square.ways, reverse=True):
         w = square.ways[wid]
         lines.append(f"  <way id='{wid}' action='modify'>")

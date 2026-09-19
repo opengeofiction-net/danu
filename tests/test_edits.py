@@ -21,12 +21,16 @@ def square():
 
 
 def fresh_square() -> Square:
-    """A small square with two contours, for the property test to chew on."""
+    """A small square with two contours and a closed ring - a lake shore,
+    whose first node is its last - for the property test to chew on."""
     sq = Square(name=SquareName(10, 10), present=True, attrs={'version': '0.6', 'upload': 'never'})
     alloc = edits.IdAllocator(sq)
     for ele, lat in (('100', 10.2), ('200', 10.6)):
         ids = [alloc.take() for _ in range(4)]
         edits.AddWay(alloc.take(), ids, [(10.1 + 0.2 * i, lat) for i in range(4)], {'ele': ele}).apply(sq)
+    ring = [alloc.take() for _ in range(4)]
+    edits.AddWay(alloc.take(), ring, [(10.4, 10.4), (10.5, 10.4), (10.5, 10.5), (10.4, 10.5)], {'ele': '50'}).apply(sq)
+    sq.ways[min(sq.ways)].refs.append(ring[0])          # closed: the first node is the last
     return sq
 
 
@@ -79,7 +83,7 @@ def test_each_command_applies_and_takes_itself_back(square):
 
 def test_deleting_a_node_drops_a_way_left_with_one_and_undo_restores_both():
     sq = fresh_square()
-    wid = min(sq.ways)                       # the last drawn; both have 4 nodes
+    wid = max(sq.ways)                       # the first drawn contour: 4 nodes
     refs = list(sq.ways[wid].refs)
     stack = edits.UndoStack(sq)
     for r in refs[:3]:
@@ -95,7 +99,7 @@ def test_deleting_a_node_drops_a_way_left_with_one_and_undo_restores_both():
 
 def test_deleting_a_way_removes_only_the_nodes_nothing_else_uses():
     sq = fresh_square()
-    w1, w2 = sorted(sq.ways)
+    ring, w1, w2 = sorted(sq.ways)          # the ring has the lowest id; the contours follow
     shared = sq.ways[w1].refs[0]
     sq.ways[w2].refs.append(shared)          # w2 now shares one node with w1
     stack = edits.UndoStack(sq)
@@ -133,12 +137,16 @@ def command_sequences(draw):
     for _ in range(draw(st.integers(0, 12))):
         ways = sorted(sq.ways)
         nodes = sorted(sq.nodes)
-        kind = draw(st.sampled_from(['add', 'extend', 'insert', 'move', 'tags', 'delnode', 'delway']))
+        kind = draw(st.sampled_from(['add', 'close', 'extend', 'insert', 'move', 'tags', 'delnode', 'delway']))
         if kind == 'add' or not ways:
             n = draw(st.integers(2, 5))
             cmd = edits.AddWay(alloc.take(), [alloc.take() for _ in range(n)],
                                [(10.0 + draw(st.floats(0, 1)), 10.0 + draw(st.floats(0, 1))) for _ in range(n)],
                                {'ele': str(draw(st.integers(0, 900)))})
+        elif kind == 'close':
+            # join a way's first node to its end: a repeated ref, as a ring has
+            w = draw(st.sampled_from(ways))
+            cmd = edits.ExtendWayWithExisting(w, True, sq.ways[w].refs[0])
         elif kind == 'extend':
             cmd = edits.ExtendWay(draw(st.sampled_from(ways)), draw(st.booleans()), alloc.take(),
                                   (10.0 + draw(st.floats(0, 1)), 10.0 + draw(st.floats(0, 1))))
@@ -264,3 +272,32 @@ def test_tag_values_with_awkward_characters_survive_the_round_trip(tmp_path):
     out = tmp_path / 'N10E010.osm.xz'
     write_square(sq, out)
     assert read_square(out).ways[w.id].tags['name'] == w.tags['name']
+
+
+def test_coordinates_near_zero_are_written_as_decimals_and_read_back_exactly(tmp_path):
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    ids = [alloc.take(), alloc.take()]
+    coords = [(0.00001, -0.0000123), (1e-7, 125.00001487263)]
+    edits.AddWay(alloc.take(), ids, coords, {'ele': '1'}).apply(sq)
+    out = tmp_path / 'N00E000.osm'
+    write_square(sq, out)
+    text = out.read_text()
+    assert 'e-0' not in text and "lat='0.00001'" not in text.replace("lon='0.00001'", '')  # decimals, not exponents
+    assert "lon='0.00001'" in text and "lat='-0.0000123'" in text and "lon='0.0000001'" in text
+    again = read_square(out)
+    for nid, (lon, lat) in zip(ids, coords):
+        assert again.nodes[nid].lon == lon and again.nodes[nid].lat == lat
+
+
+def test_deleting_a_node_a_way_references_twice_restores_the_ring():
+    sq = fresh_square()
+    ring_way = min(sq.ways)
+    first = sq.ways[ring_way].refs[0]
+    assert sq.ways[ring_way].refs[-1] == first            # a ring
+    before = edits.snapshot(sq)
+    cmd = edits.DeleteNode(first)
+    cmd.apply(sq)
+    assert first not in sq.ways[ring_way].refs and len(sq.ways[ring_way].refs) == 3
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
