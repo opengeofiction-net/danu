@@ -27,7 +27,7 @@ import tomllib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable
 
 from .square import Square
 
