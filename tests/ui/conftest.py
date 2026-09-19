@@ -1,5 +1,6 @@
 """Fixtures the UI tests share: a zone with two ladders and a blank, and the window open on it."""
 
+import json
 import shutil
 from pathlib import Path
 
@@ -51,7 +52,6 @@ ATTRIBUTES = [
 
 @pytest.fixture
 def territory_files(tmp_path):
-    import json
     d = tmp_path / 'published'
     d.mkdir()
     (d / 'territory.json').write_text(json.dumps(GEOMETRY))

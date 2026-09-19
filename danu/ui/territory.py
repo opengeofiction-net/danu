@@ -1,7 +1,7 @@
 """Fetching the two territory files, and telling the mapper whose ground the
 set is on - R7.
 
-The polygons are stable and a megabyte, so they are kept on disk for a day,
+The polygons are stable and a megabyte and a half, so they are kept on disk for a day,
 the daily rebuild being their natural refresh. The attribute record is 217 KB
 and changes the moment an admin saves the wiki page, so it is re-read after
 ten minutes. Either fetch failing falls back to whatever the disk holds, and

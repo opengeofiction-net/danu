@@ -112,7 +112,10 @@ class TerritoryIndex:
 
     def contains(self, rel: int, pt: Point) -> bool:
         """Even-odd over the relation's rings, so a hole is a hole."""
-        w, s, e, n = self._boxes[rel]
+        box = self._boxes.get(rel)
+        if box is None:
+            return False
+        w, s, e, n = box
         if not (w <= pt[0] <= e and s <= pt[1] <= n):
             return False
         return sum(_inside(pt, ring) for ring in self.geometry[rel]) % 2 == 1
@@ -123,7 +126,9 @@ class TerritoryIndex:
     def under(self, bounds: tuple[float, float, float, float]) -> list[Territory]:
         """The territories under a box - a square, or a working set: those
         holding its centre, corners or edge midpoints, and those reaching a
-        vertex into it. Ordered with the one under the centre first."""
+        vertex into it. Ordered with the one under the centre first. This is
+        the one definition of 'under'; anything else that asks - a report,
+        the server - calls this rather than sampling for itself."""
         w, s, e, n = bounds
         cx, cy = (w + e) / 2, (s + n) / 2
         samples = [(cx, cy), (w, s), (e, s), (e, n), (w, n), (cx, s), (cx, n), (w, cy), (e, cy)]
@@ -153,6 +158,4 @@ def describe(found: list[Territory], user: str = '') -> tuple[str, bool]:
               and user.lower() not in [o.strip().lower() for o in t.owner.split(';')]]
     if user and others:
         return f'not yours to draw: {line}', True
-    if any(not t.known for t in found):
-        return line, False
     return line, False

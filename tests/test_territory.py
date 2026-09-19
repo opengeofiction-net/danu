@@ -38,6 +38,7 @@ def test_a_point_is_placed_and_a_hole_is_a_hole():
     assert [t.name for t in idx.at(15, 5)] == ['Two']
     assert [t.name for t in idx.at(21, 21)] == ['Three'] and idx.at(25, 25) == []
     assert idx.at(-5, -5) == [] and idx.at(50.5, 50.5) == []
+    assert not idx.contains(999, (5, 5))                # a relation it never saw
 
 
 def test_a_square_on_a_border_reports_both_with_the_centres_first():
