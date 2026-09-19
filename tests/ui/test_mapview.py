@@ -160,6 +160,7 @@ def test_the_editor_imports_without_gdal(monkeypatch):
 
     monkeypatch.setattr(builtins, '__import__', blocked)
     for mod in ('danu.ui.app', 'danu.ui.contours', 'danu.ui.tiles', 'danu.ui.squares',
-                'danu.ui.open_dialog', 'danu.ui.loader', 'danu.ui.settings', 'danu.surface.ramp'):
+                'danu.ui.open_dialog', 'danu.ui.loader', 'danu.ui.settings', 'danu.ui.surface',
+                'danu.surface.ramp', 'danu.surface.shade'):
         monkeypatch.delitem(sys.modules, mod, raising=False)
         importlib.import_module(mod)
