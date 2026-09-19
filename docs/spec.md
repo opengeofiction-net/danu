@@ -723,16 +723,42 @@ workflow uses (`packaging/ci/cr`). Over phases 0 and 1 the substantive
 findings came from the local pass more often than not; the public rounds
 dropped from five to one or two.
 
-**Phase 2 - the surface.** Settles the question phase 0 left: whether the
-per-step logic moves into `danu.cli` or the golden test grows a second case
-driving the editor's path. `isofill` via CFFI, whole-set rebuild, hillshade and
-both ramps with all three scaling modes, unreachable-ground overlay, envelope
-outline. Slow and exact.
+**Phase 2 - the surface.** The question phase 0 left is settled, for now, the
+second way: the golden test grows a second case driving the editor's own
+surface path over the same fixture, and the shell build is left as it is.
+Decided on 2026-09-19, and not because the architecture with `danu.cli` at
+the centre is wrong - it is still the preferred shape - but because rewriting
+the build during the phase that puts a surface on screen would pull the rug
+from under phase 0's validation, which is still running, and because the
+second way tests the property the architecture exists for: that the two paths
+agree. It also leaves the first way open. The editor's functions *are* the
+per-step implementation `danu.cli` would wrap, so if phase 4's incremental
+path wants the shell calling Python step by step, the port becomes wrapping
+code that already passes the golden reference rather than writing code that
+does not yet exist. Re-evaluated at phase 4, and again at the end, with the
+outcome written under that phase's *What it actually did*, as phases 0 and 1
+have theirs.
+
+Two requirements on the editor's path, so that the second way is honest. It
+must read every parameter from `params/elevation.toml`, the file the shell
+reads, and with no defaults of its own: a key the file lacks is an error, not
+a value, so the two paths cannot quietly disagree about something one of them
+assumed. The `params.lock` test holds the reference to the values in that file
+for the keys it names; the editor's path is held to the same file, and the
+cell-for-cell comparison is what catches anything the lock does not name. And
+each shell step it reproduces must carry a one-line mapping to the GDAL call it
+stands for, beside the code - a `shell:` line a test looks for on every stage
+function, so the convention cannot be the first thing dropped under time
+pressure. Neither exists yet; both are what phase 2 is asked to build.
+
+`isofill` via CFFI, whole-set rebuild, hillshade and both ramps with all three
+scaling modes, unreachable-ground overlay, envelope outline. Slow and exact.
 
 Ends when a test asserts the two paths agree: the golden fixture driven through
-the build and through the editor, compared cell for cell. Whichever of the two
-ways out is taken, that assertion is what closes the risk. Showing the same
-hillshade on screen demonstrates it once, for one square, on one afternoon.
+the shell build - the first case, which exists and runs `danu-build-zone` - and
+through the editor's own path - the second case - both compared cell for cell
+to the one reference. That assertion is what closes the risk. Showing the same hillshade on screen demonstrates it
+once, for one square, on one afternoon.
 
 **Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
 Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
@@ -833,6 +859,7 @@ Recorded so the reasoning is not relitigated:
 | extent | from the filename, or the name a caller already parsed from it - never the nodes; JOSM frames sit inside the degree |
 | editor config | TOML via `tomllib`, user file under `QStandardPaths` |
 | tile cache | `QNetworkDiskCache` |
+| phase 2 path | a second golden case over the editor's own surface path; the shell build untouched; `danu.cli` still the preferred shape, re-evaluated at phase 4 and at the end |
 
 ## Open questions
 
