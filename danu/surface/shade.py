@@ -135,6 +135,11 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0) -> Sh
     # is for the derivative, and a coloured plateau should not bleed
     merc_dem = warp_mercator(Path(dem), metres, work / 'merc-dem.tif')
     d_ds, h_ds = gdal.Open(str(merc_dem)), gdal.Open(str(hs))
+    # two warps of two rasters on one grid at one cell size land on one grid;
+    # said here rather than assumed, since the arrays are paired cell by cell
+    if (d_ds.RasterXSize, d_ds.RasterYSize) != (h_ds.RasterXSize, h_ds.RasterYSize) or \
+            any(abs(a - b) > 1e-6 for a, b in zip(d_ds.GetGeoTransform(), h_ds.GetGeoTransform())):
+        raise RuntimeError('the warped DEM and its hillshade are not on one grid')
     return Shaded(dem=d_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
                   shade=h_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8),
                   geotransform=tuple(h_ds.GetGeoTransform()), metres=metres)
@@ -178,7 +183,11 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     out = np.zeros((rows, cols, 4), np.uint8)
     lit = shaded.shade.astype(np.float32) / 255.0
     lit = 1.0 - shade_strength * (1.0 - lit)          # strength 0: unlit, 1: full
-    if mode == 'hillshade' or ramp is None:
+    if mode not in ('hillshade', 'relief', 'shaded relief'):
+        raise ValueError(f'compose: mode {mode!r}')
+    if ramp is None and mode != 'hillshade':
+        raise ValueError(f'compose: {mode} needs a ramp')
+    if mode == 'hillshade':
         grey = np.clip(np.rint(shaded.shade.astype(np.float32)), 0, 255).astype(np.uint8)
         out[..., 0] = out[..., 1] = out[..., 2] = grey
         out[..., 3] = np.where(shaded.shade == HILLSHADE_NODATA, 0, 255).astype(np.uint8)

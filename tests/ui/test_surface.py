@@ -71,6 +71,14 @@ def test_full_shadow_is_drawn_and_only_nodata_is_transparent():
     assert (grey[:, 1, 3] == 0).all()
 
 
+def test_compose_refuses_a_relief_with_no_ramp_and_an_unknown_mode():
+    s = synthetic()
+    with pytest.raises(ValueError, match='needs a ramp'):
+        shade.compose(s, None, shade.Scaling(), mode='relief')
+    with pytest.raises(ValueError, match='mode'):
+        shade.compose(s, None, shade.Scaling(), mode='sepia')
+
+
 def test_recolour_follows_the_style_without_a_rebuild():
     layer = SurfaceLayer()
     s = synthetic()

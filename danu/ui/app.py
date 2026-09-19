@@ -216,6 +216,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('the surface could not be built')
         QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
 
+    def closeEvent(self, event):
+        self.builder.cleanup()
+        super().closeEvent(event)
+
     def _load_failed(self, text: str):
         QApplication.restoreOverrideCursor()
         self.open_action.setEnabled(True)
@@ -242,10 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles')
     win.show()
+    # connected before the open is asked for; the signal is queued to the
+    # event loop either way, but the order reads as it runs
+    if args.surface is not None:
+        win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a))
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
-    if args.surface is not None:
-        win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a))
     return app.exec()
