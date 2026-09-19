@@ -39,6 +39,7 @@ def zone(tmp_path):
 def window(qtbot, zone, tmp_path):
     settings = Settings(tmp_path / 'danu.ini')
     w = MainWindow(load_layers(), cache_dir=None, settings=settings)
+    w.prompt_on_close = False
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)

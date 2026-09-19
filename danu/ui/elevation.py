@@ -104,6 +104,14 @@ class ElevationControl(QObject):
         self.model.small, self.model.big = small, big
         self.settings.small_step, self.settings.big_step = small, big
 
+    def advice(self) -> list[L.OffLadder]:
+        """The off-ladder values of the square the ladder reads - a value
+        off the regular ladder used once or twice, which on Gobras finds a
+        113 between 110 and 115. Advice, refreshed after every edit."""
+        if self.square is None:
+            return []
+        return L.off_ladder(self.square, self.model.ladder)
+
 
 class ElevationPanel(QDockWidget):
     """The notched slider, the value, the ladder it reads, and the steps."""
@@ -139,6 +147,10 @@ class ElevationPanel(QDockWidget):
         self.reading = QLabel('')
         self.reading.setWordWrap(True)
         column.addWidget(self.reading)
+        self.advice = QLabel('')
+        self.advice.setWordWrap(True)
+        self.advice.setStyleSheet('color: #a05000')
+        column.addWidget(self.advice)
         self.keys = QLabel('')
         self.keys.setWordWrap(True)
         self.keys.setStyleSheet('color: gray')
@@ -167,7 +179,17 @@ class ElevationPanel(QDockWidget):
                           "Wheel steps, shift-wheel big, ctrl-wheel zooms.")
 
     # ------------------------------------------------------- from model
+    def refresh_advice(self):
+        found = self.control.advice()
+        if not found:
+            self.advice.setText('')
+            return
+        shown = '\n'.join(a.describe() for a in found[:6])
+        more = f'\nand {len(found) - 6} more' if len(found) > 6 else ''
+        self.advice.setText(f'Off the ladder, used once or twice - a typo?\n{shown}{more}')
+
     def _ladder_changed(self, ladder: L.Ladder):
+        self.refresh_advice()
         self._notches = ladder.notches
         self._busy = True
         self.slider.setRange(0, len(self._notches) - 1)

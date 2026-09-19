@@ -16,9 +16,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
-from ..core.square import SquareName, WorkingSet
+from ..core import make_square, save
+from ..core.square import Square, SquareName, WorkingSet
 from . import config
 from . import mercator as m
 from .contours import ContourLayer
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         self.map.scene().addItem(self.contours)
         self.working_set: WorkingSet | None = None
         self.zone_dir: Path | None = None
+        self.prompt_on_close = True          # tests turn it off: a modal box has nobody to answer it
         self._last_cursor = HOME[:2]
         self.elevation = ElevationControl(self.settings, self)
         self.elevation_panel = ElevationPanel(self.elevation, self)
@@ -106,6 +108,7 @@ class MainWindow(QMainWindow):
         self.elevation.changed.connect(lambda _v: self._cursor(*self._last_cursor))
         self.editor = EditController(self.map, self.contours, self.elevation, self)
         self.editor.edited.connect(self._edited)
+        self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
         self.map.elevationWheel.connect(self.elevation.step)
@@ -140,6 +143,88 @@ class MainWindow(QMainWindow):
         if self.working_set is not None:
             self.setWindowTitle(f'Danu - {self.working_set.centre}' + (' *' if self.editor.dirty() else ''))
 
+    # -------------------------------------------------------------- save
+    def save_all(self) -> bool:
+        """Every dirty square to its file; one with no file yet asks where.
+        Returns False if a save was declined, so a close can stop."""
+        dirty = self.editor.history.dirty_squares()
+        if not dirty:
+            self.statusBar().showMessage('nothing to save')
+            return True
+        reports = []
+        for sq in dirty:
+            path = sq.path if sq.path is not None else self._ask_path(sq)
+            if path is None:
+                return False
+            reports.append(self._save(sq, path))
+        self.statusBar().showMessage('; '.join(r.describe() for r in reports))
+        return True
+
+    def save_as(self):
+        """The square the ladder reads - the one under the cursor - to a
+        file of the mapper's choosing."""
+        sq = self.elevation.square
+        if sq is None:
+            self.statusBar().showMessage('open a square first')
+            return
+        path = self._ask_path(sq)
+        if path is not None:
+            self.statusBar().showMessage(self._save(sq, path).describe())
+
+    def _save(self, sq: Square, path: Path) -> save.SaveReport:
+        report = save.save_square(sq, self.editor.history, path, self.elevation.model.ladder
+                                  if self.elevation.square is sq else None)
+        self.contours.refresh(sq, set(sq.ways))          # a frame or a split changed what is drawn
+        self.squares.set_working_set(self.working_set)   # a blank square is present now
+        self._edited()
+        return report
+
+    def _ask_path(self, sq: Square) -> Path | None:
+        suggested = sq.path if sq.path is not None else save.default_path(self.zone_dir or Path.cwd(), sq.name)
+        chosen, _ = QFileDialog.getSaveFileName(self, f'Save {sq.name} as', str(suggested),
+                                                'Contour squares (*.osm.xz *.osm)')
+        return Path(chosen) if chosen else None
+
+    def new_blank_square(self):
+        """R5: a blank square file - frame only - into the zone, for ground
+        nobody has drawn. The set is re-read so it shows as present."""
+        if self.working_set is None or self.zone_dir is None:
+            self.statusBar().showMessage('open a square in the zone first')
+            return
+        if self.editor.dirty():
+            self.statusBar().showMessage('save first: a new square re-reads the set')
+            return
+        default = next((str(n) for n, s in self.working_set.squares.items() if not s.present), str(self.working_set.centre))
+        text, ok = QInputDialog.getText(self, 'New blank square', 'Square (e.g. N20E087):', text=default)
+        if not ok or not text.strip():
+            return
+        try:
+            name = SquareName.parse(text.strip())
+        except ValueError as e:
+            QMessageBox.warning(self, 'Danu', str(e))
+            return
+        path = save.default_path(self.zone_dir, name)
+        if path.exists() or (name in self.working_set.squares and self.working_set.squares[name].present):
+            QMessageBox.warning(self, 'Danu', f'{name} already exists in {self.zone_dir.name}')
+            return
+        make_square.write_square(path, name.lon, name.lat, save.FRAME_NOTE)
+        self.statusBar().showMessage(f'wrote {path.name}')
+        self.open_working_set(self.zone_dir, self.working_set.centre, self.working_set.size)
+
+    def closeEvent(self, event):
+        if self.prompt_on_close and self.editor.dirty():
+            names = ', '.join(str(sq.name) for sq in self.editor.history.dirty_squares())
+            answer = QMessageBox.question(
+                self, 'Danu', f'Save changes to {names}?',
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save)
+            if answer == QMessageBox.StandardButton.Cancel or (
+                    answer == QMessageBox.StandardButton.Save and not self.save_all()):
+                event.ignore()
+                return
+        self.builder.cleanup()
+        super().closeEvent(event)
+
     def _tool_changed(self, name: str):
         for key, a in self.edit_actions.items():
             if key.startswith('tool.'):
@@ -166,6 +251,19 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        file.addSeparator()
+        self.save_action = QAction('&Save', self)
+        self.save_action.setShortcut(QKeySequence(self.settings.key('file.save')))
+        self.save_action.triggered.connect(self.save_all)
+        file.addAction(self.save_action)
+        self.save_as_action = QAction('Save square &as…', self)
+        self.save_as_action.setShortcut(QKeySequence(self.settings.key('file.save_as')))
+        self.save_as_action.triggered.connect(self.save_as)
+        file.addAction(self.save_as_action)
+        self.file_actions = {'file.save': self.save_action, 'file.save_as': self.save_as_action}
+        self.new_square_action = QAction('&New blank square…', self)
+        self.new_square_action.triggered.connect(self.new_blank_square)
+        file.addAction(self.new_square_action)
         edit = self.menuBar().addMenu('&Edit')
         ed = self.editor
         self.edit_actions: dict[str, QAction] = {}
@@ -318,10 +416,6 @@ class MainWindow(QMainWindow):
         self.surface_panel.failed(text)
         self.statusBar().showMessage('the surface could not be built')
         QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
-
-    def closeEvent(self, event):
-        self.builder.cleanup()
-        super().closeEvent(event)
 
     def _load_failed(self, text: str):
         QApplication.restoreOverrideCursor()
