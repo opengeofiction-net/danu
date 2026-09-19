@@ -134,6 +134,9 @@ class MapView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setMouseTracking(True)
         self.setBackgroundBrush(QColor(235, 235, 235))
+        # the editing tool, if any, sees mouse and key events first and says
+        # whether it took them; panning and the cursor report carry on either way
+        self.tool = None
         self._apply_zoom()
 
     # ------------------------------------------------------------- zoom
@@ -217,4 +220,34 @@ class MapView(QGraphicsView):
         p = self.mapToScene(event.position().toPoint())
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         self.cursorMoved.emit(lon, lat)
+        if self.tool is not None and self.tool.mouse_move(event, p):
+            event.accept()
+            return
         super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        p = self.mapToScene(event.position().toPoint())
+        if self.tool is not None and self.tool.mouse_press(event, p):
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        p = self.mapToScene(event.position().toPoint())
+        if self.tool is not None and self.tool.mouse_release(event, p):
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        p = self.mapToScene(event.position().toPoint())
+        if self.tool is not None and self.tool.mouse_double_click(event, p):
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        if self.tool is not None and self.tool.key_press(event):
+            event.accept()
+            return
+        super().keyPressEvent(event)

@@ -58,6 +58,16 @@ class Command:
     def describe(self) -> str:
         return type(self).__name__
 
+    def ways(self, square: Square) -> set[int]:
+        """The ways this command changes, adds or removes - what a view has
+        to redraw. Asked before apply and after undo alike, so it answers
+        from the command's own fields, not from what the square holds."""
+        raise NotImplementedError
+
+
+def _ways_holding(square: Square, node_id: int) -> set[int]:
+    return {wid for wid, w in square.ways.items() if node_id in w.refs}
+
 
 @dataclass
 class AddWay(Command):
@@ -66,6 +76,9 @@ class AddWay(Command):
     node_ids: list[int]
     coords: list[Coord]
     tags: dict[str, str]
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
 
     def apply(self, square: Square) -> None:
         for nid, (lon, lat) in zip(self.node_ids, self.coords):
@@ -88,6 +101,9 @@ class ExtendWay(Command):
     at_end: bool
     node_id: int
     coord: Coord
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
 
     def apply(self, square: Square) -> None:
         lon, lat = self.coord
@@ -112,6 +128,9 @@ class ExtendWayWithExisting(Command):
     at_end: bool
     node_id: int
 
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
+
     def apply(self, square: Square) -> None:
         refs = square.ways[self.way_id].refs
         refs.append(self.node_id) if self.at_end else refs.insert(0, self.node_id)
@@ -131,6 +150,9 @@ class InsertNode(Command):
     index: int
     node_id: int
     coord: Coord
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
 
     def apply(self, square: Square) -> None:
         lon, lat = self.coord
@@ -152,6 +174,9 @@ class MoveNode(Command):
     node_id: int
     before: Coord
     after: Coord
+
+    def ways(self, square: Square) -> set[int]:
+        return _ways_holding(square, self.node_id)
 
     def apply(self, square: Square) -> None:
         n = square.nodes[self.node_id]
@@ -175,6 +200,9 @@ class DeleteNode(Command):
     node: Node | None = None
     positions: dict[int, list[int]] = field(default_factory=dict)    # way -> indexes held
     removed_ways: dict[int, Way] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return _ways_holding(square, self.node_id) | set(self.positions) | set(self.removed_ways)
 
     def apply(self, square: Square) -> None:
         self.node = square.nodes.pop(self.node_id)
@@ -208,6 +236,9 @@ class DeleteWay(Command):
     way: Way | None = None
     orphans: dict[int, Node] = field(default_factory=dict)
 
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
+
     def apply(self, square: Square) -> None:
         self.way = square.ways.pop(self.way_id)
         still_used = {r for w in square.ways.values() for r in w.refs}
@@ -231,6 +262,9 @@ class SetTags(Command):
     before: dict[str, str]
     after: dict[str, str]
 
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
+
     def apply(self, square: Square) -> None:
         square.ways[self.way_id].tags = dict(self.after)
 
@@ -249,6 +283,9 @@ class Compound(Command):
     compounds, and so is splitting a long way on save."""
     commands: list[Command]
     name: str = 'compound'
+
+    def ways(self, square: Square) -> set[int]:
+        return set().union(*(c.ways(square) for c in self.commands)) if self.commands else set()
 
     def apply(self, square: Square) -> None:
         for c in self.commands:
@@ -295,6 +332,9 @@ class _ReplaceWays(Command):
     way_id: int
     original: Way
     pieces: list[tuple[int, list[int], dict[str, str]]]
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id, *(nid for nid, _, _ in self.pieces)}
 
     def apply(self, square: Square) -> None:
         del square.ways[self.way_id]
@@ -365,6 +405,75 @@ class UndoStack:
 
     def describe_redo(self) -> str:
         return self._undone[-1].describe() if self._undone else ''
+
+
+class SetUndoStack:
+    """One history over every square of a working set - R17 wants one undo
+    key, and an edit near an edge touches the neighbour. Each step is a
+    command on a square; ``dirty`` is answered per square, since each is
+    its own file to save."""
+
+    def __init__(self):
+        self._done: list[tuple[Square, Command]] = []
+        self._undone: list[tuple[Square, Command]] = []
+        self._squares: dict[int, Square] = {}      # every square touched, by identity
+        self._clean: dict[int, int] = {}           # id(square) -> steps done at the last save
+        self._allocs: dict[int, IdAllocator] = {}
+
+    def alloc(self, square: Square) -> IdAllocator:
+        a = self._allocs.get(id(square))
+        if a is None:
+            a = self._allocs[id(square)] = IdAllocator(square)
+        return a
+
+    def do(self, square: Square, cmd: Command) -> None:
+        cmd.apply(square)
+        self._squares[id(square)] = square
+        self._done.append((square, cmd))
+        self._undone.clear()
+
+    def undo(self) -> tuple[Square, Command] | None:
+        if not self._done:
+            return None
+        square, cmd = self._done.pop()
+        cmd.undo(square)
+        self._undone.append((square, cmd))
+        return square, cmd
+
+    def redo(self) -> tuple[Square, Command] | None:
+        if not self._undone:
+            return None
+        square, cmd = self._undone.pop()
+        cmd.apply(square)
+        self._done.append((square, cmd))
+        return square, cmd
+
+    @property
+    def can_undo(self) -> bool:
+        return bool(self._done)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self._undone)
+
+    def describe_undo(self) -> str:
+        return self._done[-1][1].describe() if self._done else ''
+
+    def describe_redo(self) -> str:
+        return self._undone[-1][1].describe() if self._undone else ''
+
+    def _steps(self, square: Square) -> int:
+        return sum(1 for sq, _ in self._done if sq is square)
+
+    def dirty(self, square: Square) -> bool:
+        return self._steps(square) != self._clean.get(id(square), 0)
+
+    def dirty_squares(self) -> list[Square]:
+        return [sq for sq in self._squares.values() if self.dirty(sq)]
+
+    def mark_clean(self, square: Square) -> None:
+        self._squares[id(square)] = square
+        self._clean[id(square)] = self._steps(square)
 
 
 def snapshot(square: Square) -> tuple:

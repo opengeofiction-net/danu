@@ -23,6 +23,7 @@ from . import config
 from . import mercator as m
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
+from .tools import EditController
 from .layers_panel import LayersPanel
 from .loader import WorkingSetLoader
 from .mapview import MapView
@@ -103,6 +104,10 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.elevation_panel)
         self.elevation.changed.connect(self.contours.set_active)
         self.elevation.changed.connect(lambda _v: self._cursor(*self._last_cursor))
+        self.editor = EditController(self.map, self.contours, self.elevation, self)
+        self.editor.edited.connect(self._edited)
+        self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
+        self.editor.toolChanged.connect(self._tool_changed)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)
@@ -125,6 +130,21 @@ class MainWindow(QMainWindow):
         self.elevation.cursor_at(lon, lat)
         self._status.setText(f'{self.elevation.model.tag:>5} m   {lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
 
+    def _edited(self):
+        h = self.editor.history
+        undo, redo = self.edit_actions['edit.undo'], self.edit_actions['edit.redo']
+        undo.setEnabled(h.can_undo)
+        redo.setEnabled(h.can_redo)
+        undo.setText(f'&Undo {h.describe_undo()}' if h.can_undo else '&Undo')
+        redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
+        if self.working_set is not None:
+            self.setWindowTitle(f'Danu - {self.working_set.centre}' + (' *' if self.editor.dirty() else ''))
+
+    def _tool_changed(self, name: str):
+        for key, a in self.edit_actions.items():
+            if key.startswith('tool.'):
+                a.setChecked(key == f'tool.{name}')
+
     def _opacity_wheel(self, down: bool):
         """Alt and the wheel: the surface's opacity, five points a notch."""
         s = self.surface_panel.opacity
@@ -146,6 +166,30 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        edit = self.menuBar().addMenu('&Edit')
+        ed = self.editor
+        self.edit_actions: dict[str, QAction] = {}
+        for name, text, fn in (
+                ('edit.undo', '&Undo', ed.undo),
+                ('edit.redo', '&Redo', ed.redo),
+                ('edit.delete', '&Delete selected', ed.delete_selected),
+                ('tool.select', '&Select', lambda: ed.set_tool('select')),
+                ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw'))):
+            a = QAction(text, self)
+            a.setShortcut(QKeySequence(self.settings.key(name)))
+            a.triggered.connect(fn)
+            if name.startswith('tool.'):
+                a.setCheckable(True)
+            self.edit_actions[name] = a
+        edit.addAction(self.edit_actions['edit.undo'])
+        edit.addAction(self.edit_actions['edit.redo'])
+        edit.addSeparator()
+        edit.addAction(self.edit_actions['edit.delete'])
+        edit.addSeparator()
+        edit.addAction(self.edit_actions['tool.select'])
+        edit.addAction(self.edit_actions['tool.draw'])
+        self._tool_changed('select')
+        self._edited()
         elevation = self.menuBar().addMenu('&Elevation')
         self.elevation_actions: dict[str, QAction] = {}
         c = self.elevation
@@ -216,6 +260,7 @@ class MainWindow(QMainWindow):
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
+        self.editor.set_working_set(ws)
         w, s, e, n = ws.centre.bounds
         self.map.fit_bounds(w, s, e, n)
         present = sum(1 for _ in ws.present())

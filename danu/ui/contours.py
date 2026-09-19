@@ -35,7 +35,8 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
-from ..core.square import Square, Way, WorkingSet
+from ..core import geometry
+from ..core.square import Square, SquareName, Way, WorkingSet
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -57,6 +58,18 @@ class Label:
     length: float     # of the way, scene units
 
 
+@dataclass
+class WayGeom:
+    """One way projected: the square it is in, the way, its elevation (None
+    for a coastline, which is here to snap to and not to draw) and its points
+    in scene units. The layer keeps one per way so an edit re-projects the
+    ways it touched and nothing else."""
+    square: Square
+    way: Way
+    ele: float | None
+    pts: np.ndarray
+
+
 class ContourLayer(QGraphicsItem):
     def __init__(self):
         super().__init__()
@@ -68,12 +81,15 @@ class ContourLayer(QGraphicsItem):
         self.ramp: Ramp = spectral()
         self.index_levels: set[float] = set()
         self.active: float | None = None          # the active elevation, drawn heavier
-        # every segment of every way, projected, for picking under the cursor:
-        # ends, elevation, and which way - as parallel arrays, so the nearest
-        # of a hundred thousand is one vectorised distance, not a walk
+        self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
+        # every segment of every contour, and every node of every contour and
+        # coastline, as parallel arrays: the nearest of a hundred thousand,
+        # or the crossings of a new segment with all of them, is one
+        # vectorised operation, not a walk
+        self._ways: list[WayGeom] = []
         self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
-        self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64)
-        self._ways: list[tuple[Square, Way]] = []
+        self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
+        self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
@@ -83,13 +99,10 @@ class ContourLayer(QGraphicsItem):
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
         self.prepareGeometryChange()
         self.working_set = ws
-        self.paths, self.labels, self.index_levels = {}, [], set()
-        self._ways = []
-        seg_a, seg_b, seg_ele, seg_way = [], [], [], []
+        self.paths, self.labels, self.index_levels, self._geoms = {}, [], set(), {}
         if ws is None:
             self._bounds = QRectF()
-            self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
-            self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64)
+            self._rebuild_arrays()
             self.update()
             return
         w, s, e, n = ws.bounds
@@ -98,29 +111,78 @@ class ContourLayer(QGraphicsItem):
         self._bounds = QRectF(x0, y0, x1 - x0, y1 - y0)
         rng = ws.elevation_range()
         self.ramp = ramp if ramp is not None else spectral(*rng) if rng else spectral()
-        for square, way in ws.contours():
-            pts = [m.lonlat_to_scene(lon, lat) for lon, lat in square.coords(way)]
-            if len(pts) < 2:
+        for square in ws.present():
+            for way in square.ways.values():
+                geom = self._project(square, way)
+                if geom is not None:
+                    self._geoms[(square.name, way.id)] = geom
+        self._rebuild_levels({g.ele for g in self._geoms.values() if g.ele is not None})
+        self._rebuild_arrays()
+        self.update()
+
+    @staticmethod
+    def _project(square: Square, way: Way) -> WayGeom | None:
+        """A contour or a coastline with at least two placed nodes; anything
+        else is not a line and is not kept."""
+        ele = way.ele
+        if ele is None and way.tags.get('natural') != 'coastline':
+            return None
+        pts = [m.lonlat_to_scene(lon, lat) for lon, lat in square.coords(way)]
+        if len(pts) < 2:
+            return None
+        return WayGeom(square, way, ele, np.asarray(pts, dtype=float))
+
+    def refresh(self, square: Square, way_ids: set[int]):
+        """Some ways of a square changed - an edit, or its undo. Re-project
+        them, rebuild the levels they were and are at, and the arrays."""
+        levels: set[float] = set()
+        for wid in way_ids:
+            old = self._geoms.pop((square.name, wid), None)
+            if old is not None and old.ele is not None:
+                levels.add(old.ele)
+            way = square.ways.get(wid)
+            geom = self._project(square, way) if way is not None else None
+            if geom is not None:
+                self._geoms[(square.name, wid)] = geom
+                if geom.ele is not None:
+                    levels.add(geom.ele)
+        self._rebuild_levels(levels)
+        self._rebuild_arrays()
+        self.update()
+
+    def _rebuild_levels(self, levels: set[float]):
+        for ele in levels:
+            self.paths.pop(ele, None)
+        self.labels = [lab for lab in self.labels if lab.ele not in levels]
+        for g in self._geoms.values():
+            if g.ele is None or g.ele not in levels:
                 continue
-            path = self.paths.setdefault(way.ele, QPainterPath())
-            path.moveTo(*pts[0])
-            for p in pts[1:]:
-                path.lineTo(*p)
-            self.labels.append(self._label(way.ele, pts))
-            arr = np.asarray(pts, dtype=float)
-            seg_a.append(arr[:-1]); seg_b.append(arr[1:])
-            seg_ele.append(np.full(len(arr) - 1, way.ele)); seg_way.append(np.full(len(arr) - 1, len(self._ways)))
-            self._ways.append((square, way))
+            path = self.paths.setdefault(g.ele, QPainterPath())
+            path.moveTo(*g.pts[0])
+            for x, y in g.pts[1:]:
+                path.lineTo(x, y)
+            self.labels.append(self._label(g.ele, [tuple(p) for p in g.pts]))
+        all_levels = sorted(self.paths)
+        self.index_levels = set(all_levels[::INDEX_EVERY_N])
+
+    def _rebuild_arrays(self):
         # always replaced: a set with no contours after one with many must
         # not leave the old segments behind for pick to find
+        self._ways = [g for g in self._geoms.values() if g.ele is not None]
+        seg_a = [g.pts[:-1] for g in self._ways]
         empty = np.zeros((0, 2))
         self._seg_a = np.concatenate(seg_a) if seg_a else empty
-        self._seg_b = np.concatenate(seg_b) if seg_b else empty
-        self._seg_ele = np.concatenate(seg_ele) if seg_ele else np.zeros(0)
-        self._seg_way = np.concatenate(seg_way) if seg_way else np.zeros(0, dtype=np.int64)
-        levels = sorted(self.paths)
-        self.index_levels = set(levels[::INDEX_EVERY_N])
-        self.update()
+        self._seg_b = np.concatenate([g.pts[1:] for g in self._ways]) if seg_a else empty
+        self._seg_ele = np.concatenate([np.full(len(g.pts) - 1, g.ele) for g in self._ways]) if seg_a else np.zeros(0)
+        self._seg_way = np.concatenate([np.full(len(g.pts) - 1, i) for i, g in enumerate(self._ways)]) if seg_a else np.zeros(0, dtype=np.int64)
+        self._seg_i = np.concatenate([np.arange(len(g.pts) - 1) for g in self._ways]) if seg_a else np.zeros(0, dtype=np.int64)
+        node_xy, self._node_ref = [], []
+        for g in self._geoms.values():                    # contours and coastlines both
+            for ref, pt in zip(g.way.refs, g.pts):
+                if ref in g.square.nodes:
+                    node_xy.append(pt)
+                    self._node_ref.append((g.square, ref))
+        self._node_xy = np.asarray(node_xy, dtype=float) if node_xy else empty
 
     @staticmethod
     def _label(ele: float, pts: list[tuple[float, float]]) -> Label:
@@ -139,24 +201,57 @@ class ContourLayer(QGraphicsItem):
             run += d
         return Label(ele, pts[0][0], pts[0][1], 0.0, total)
 
-    def pick(self, x: float, y: float, tolerance: float) -> tuple[Square, Way, float] | None:
+    # ---------------------------------------------------------- queries
+    def pick(self, x: float, y: float, tolerance: float) -> tuple[Square, Way, float, int] | None:
         """The contour nearest a scene point, within a scene-unit tolerance,
-        as (square, way, distance); None when nothing is that close. Space
-        picks up its elevation, and the drawing tools continue it."""
+        as (square, way, distance, segment index); None when nothing is that
+        close. Space picks up its elevation, the tools continue it and
+        insert into the segment."""
         if not len(self._seg_ele):
             return None
-        p = np.array([x, y])
-        d = self._seg_b - self._seg_a
-        ap = p - self._seg_a
-        length2 = np.einsum('ij,ij->i', d, d)
-        t = np.clip(np.einsum('ij,ij->i', ap, d) / np.where(length2 > 0, length2, 1.0), 0.0, 1.0)
-        nearest = self._seg_a + t[:, None] * d
-        dist = np.hypot(*(p - nearest).T)
+        t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a, self._seg_b)
         i = int(dist.argmin())
         if dist[i] > tolerance:
             return None
-        square, way = self._ways[int(self._seg_way[i])]
-        return square, way, float(dist[i])
+        g = self._ways[int(self._seg_way[i])]
+        return g.square, g.way, float(dist[i]), int(self._seg_i[i])
+
+    def pick_node(self, x: float, y: float, tolerance: float) -> tuple[Square, int, float] | None:
+        """The node - of a contour or a coastline, R15's two snap targets -
+        nearest a scene point within a tolerance, as (square, id, distance)."""
+        if not len(self._node_xy):
+            return None
+        dist = np.hypot(*(self._node_xy - (x, y)).T)
+        i = int(dist.argmin())
+        if dist[i] > tolerance:
+            return None
+        square, ref = self._node_ref[i]
+        return square, ref, float(dist[i])
+
+    def crossings(self, p: tuple[float, float], q: tuple[float, float], ele: float,
+                  own: tuple[Square, int] | None = None) -> list[tuple[Square, Way, bool]]:
+        """R16 for one prospective segment: the contours it would cross, and
+        those at another elevation it would so much as touch, each with
+        whether it is crossed outright (True) or only met (False). ``own``
+        names the way being drawn, whose own segments the new one
+        legitimately meets at its end."""
+        if not len(self._seg_ele):
+            return []
+        proper = geometry.crossings(p, q, self._seg_a, self._seg_b)
+        touch = geometry.touches(p, q, self._seg_a, self._seg_b) & (self._seg_ele != ele)
+        out: dict[int, tuple[Square, Way, bool]] = {}
+        for i in np.flatnonzero(proper | touch):
+            g = self._ways[int(self._seg_way[i])]
+            if own is not None and g.square is own[0] and g.way.id == own[1]:
+                continue
+            hit = out.get(id(g.way))
+            if hit is None or (proper[i] and not hit[2]):
+                out[id(g.way)] = (g.square, g.way, bool(proper[i]))
+        return list(out.values())
+
+    def node_xy(self, square: Square, node_id: int) -> tuple[float, float]:
+        n = square.nodes[node_id]
+        return m.lonlat_to_scene(n.lon, n.lat)
 
     def set_active(self, ele: float | None):
         if ele != self.active:
