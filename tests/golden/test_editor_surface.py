@@ -191,3 +191,29 @@ def test_the_first_pass_reading_says_where_the_contours_do_not_describe_ground(t
     assert rgba.shape == shaded.shade.shape + (4,)
     assert (rgba[shaded.classes == build.OUTSIDE][:, 3] == 0).all()
     assert (rgba[shaded.classes == build.UNREACHED][:, 3] > 0).all()
+
+
+def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
+    """Phase 3's ground rule, tested from the other side: the fixture read
+    by the editor, written by the editor - a different file from JOSM's,
+    byte for byte - and built by the shell, gives expected.tif exactly. So
+    what the editor saves is a square the server builds, and builds to the
+    same ground."""
+    import os
+    import subprocess
+    from danu.core.square import read_square, write_square
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    base = tmp_path / 'base'
+    (base / 'osm-squares' / 'golden').mkdir(parents=True)
+    write_square(read_square(SQUARE), base / 'osm-squares' / 'golden' / SQUARE.name)
+    assert (base / 'osm-squares' / 'golden' / SQUARE.name).read_bytes() != SQUARE.read_bytes()
+    env = dict(os.environ, PYTHONPATH=str(ROOT), CONF=str(ROOT / 'server' / 'etc'), BASE=str(base),
+               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']),
+               WATER_CONSTRAINTS='0' if not lock['water_constraints'] else '1')
+    run = subprocess.run(['bash', str(ROOT / 'server' / 'bin' / 'danu-build-zone'), 'golden'],
+                         capture_output=True, text=True, env=env, timeout=900)
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    ref_ds, new_ds = gdal.Open(str(EXPECTED)), gdal.Open(str(tmp_path / 'pub' / 'golden' / 'dem-golden.tif'))
+    a, b = ref_ds.GetRasterBand(1).ReadAsArray(), new_ds.GetRasterBand(1).ReadAsArray()
+    assert a.shape == b.shape and int((a != b).sum()) == 0

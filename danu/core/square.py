@@ -349,3 +349,66 @@ class WorkingSet:
         # canonical spelling of that longitude, which is what the keys use
         deg = (math.floor(lon) + 180) % 360 - 180
         return self.squares.get(SquareName(deg, math.floor(lat)))
+
+
+# ----------------------------------------------------------------- write
+
+def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu') -> Path:
+    """Write a square as JOSM writes one: ``upload='never'`` and the other
+    root attributes it was read with, every node and way ``action='modify'``,
+    ids as they are, coordinates as the shortest text that reads back to the
+    same float. ``.osm.xz`` compressed, ``.osm`` plain, by the suffix.
+
+    Not byte for byte what JOSM would write - attribute order and precision
+    are JOSM's own - but the same square: reading it back gives the same
+    nodes, ways and tags, and the build makes the same surface from it, which
+    is what the golden test asserts.
+
+    Written to a temporary beside the target and moved into place, so a
+    failure mid-write leaves the old file whole."""
+    import html
+    import tempfile
+    path = Path(path)
+
+    def q(v) -> str:            # single quotes, as JOSM writes them; & < > ' escaped
+        return "'" + html.escape(str(v), quote=True).replace('&quot;', '"') + "'"
+
+    attrs = dict(square.attrs)
+    attrs.setdefault('version', '0.6')
+    attrs['upload'] = 'never'                     # whatever it was read with, this is not for the live map
+    attrs['generator'] = generator
+    lines = ["<?xml version='1.0' encoding='UTF-8'?>",
+             '<osm ' + ' '.join(f'{k}={q(v)}' for k, v in attrs.items()) + '>']
+    for nid in sorted(square.nodes, reverse=True):           # highest (least negative) first, as JOSM lists them
+        n = square.nodes[nid]
+        if n.tags:
+            lines.append(f"  <node id='{nid}' action='modify' lat='{n.lat!r}' lon='{n.lon!r}'>")
+            lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in n.tags.items()]
+            lines.append('  </node>')
+        else:
+            lines.append(f"  <node id='{nid}' action='modify' lat='{n.lat!r}' lon='{n.lon!r}' />")
+    for wid in sorted(square.ways, reverse=True):
+        w = square.ways[wid]
+        lines.append(f"  <way id='{wid}' action='modify'>")
+        lines += [f"    <nd ref='{r}' />" for r in w.refs]
+        lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in w.tags.items()]
+        lines.append('  </way>')
+    lines.append('</osm>')
+    text = '\n'.join(lines) + '\n'
+    fd, tmp = tempfile.mkstemp(suffix=path.suffix, dir=str(path.parent))
+    os.close(fd)
+    try:
+        if path.suffix == '.xz':
+            with lzma.open(tmp, 'wt', encoding='utf-8', preset=6) as f:
+                f.write(text)
+        else:
+            Path(tmp).write_text(text, encoding='utf-8')
+        if path.exists():
+            os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        else:
+            os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
