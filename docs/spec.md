@@ -46,8 +46,15 @@ the tools for everything else.
   configurable; 1x1 and 5x5 have uses.
 - **R3** Squares carry contours (`ele` on a way) and may carry water and other
   anchors. All of it is editable.
-- **R4** New nodes and ways take ids from the zone's allocation in
-  `id-blocks.conf`. Two mappers editing neighbouring squares must not collide.
+- **R4** New nodes and ways take negative ids, as JOSM gives them, unique
+  within the square's file and no further: a square is edited, sent and
+  built as one file, and nothing in the process merges two squares' ids. The
+  editor allocates below the lowest id the file holds. `id-blocks.conf` is
+  not involved - it allocates the *published* contour PBF's positive ids, one
+  block per zone, because the zones are merged into one render database; that
+  is the build's business. (Gobras' squares happen to hold disjoint id ranges,
+  which is the JOSM counter of whoever drew them and not a rule; the manual
+  process never enforced more than the file, and neither does this.)
 - **R5** Blank square templates can be created for squares nobody has drawn.
 - **R6** The contour ladder is inferred per square, with a per-square override
   and a zone default.
@@ -961,6 +968,7 @@ Recorded so the reasoning is not relitigated:
 | map canvas | `QGraphicsView` in Web Mercator with our own tile layer; not QtWebEngine, not QtLocation |
 | reading squares | stdlib `lzma` + `ElementTree.iterparse` in `danu.core.square`; no pyosmium in the editor |
 | extent | from the filename, or the name a caller already parsed from it - never the nodes; JOSM frames sit inside the degree |
+| ids in squares | negative, unique within the file, allocated below the lowest it holds; `id-blocks.conf` is the PBF's, not the squares' |
 | editor config | TOML via `tomllib`, user file under `QStandardPaths` |
 | tile cache | `QNetworkDiskCache` |
 | phase 2 path | a second golden case over the editor's own surface path; the shell build untouched; `danu.cli` still the preferred shape, re-evaluated at phase 4 and at the end |
