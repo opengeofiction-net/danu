@@ -33,7 +33,7 @@ def test_every_stage_names_the_shell_command_it_stands_for():
     # by the second assertion and a stage renamed away is caught by the first
     stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
               'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_mask',
-              'interpolate', 'clamp', 'first_pass_classes']
+              'interpolate', 'clamp', 'first_pass_classes', 'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
     not_stages = set(defs) - set(stages) - {'Result', 'build_dem'}
     assert not_stages == set(), f'new top-level names need a shell: line or listing here: {not_stages}'
@@ -174,10 +174,19 @@ def test_the_first_pass_reading_says_where_the_contours_do_not_describe_ground(t
     inside = classes[mask != 0]
     assert set(np.unique(inside).tolist()) <= {build.ANSWERED, build.UNREACHED, build.DECLINED, build.ONE_ONLY}
     assert (inside == build.UNREACHED).sum() > 0                     # ground the contours do not reach
-    assert (inside == build.ANSWERED).sum() > (inside != build.ANSWERED).sum() * 0   # and some they do
+    assert (inside == build.ANSWERED).sum() > 0                      # and some they do
+    # the reading: measured on this grid, area by cos(lat), one number for log and panel
+    import json
+    reading = json.loads(classes_path.with_suffix('.json').read_text())
+    assert reading['cells']['1'] == int((inside == build.UNREACHED).sum())
+    assert reading['inside_cells'] == int((mask != 0).sum())
+    cell_km2_equator = (abs(r.grid.res) * 111.32) ** 2
+    assert 0 < reading['inside_km2'] < reading['inside_cells'] * cell_km2_equator   # cos(24 S) < 1
+    assert abs(sum(reading['percent'].values()) - 100.0 * sum(reading['km2'].values()) / reading['inside_km2']) < 1e-6
     # and the overlay lands on the surface's grid
     shaded = shade.shade_dem(r.dem, p, tmp_path / 'work', classes=classes_path)
     assert shaded.classes is not None and shaded.classes.shape == shaded.shade.shape
+    assert shaded.reading == reading                                 # carried, not recounted
     rgba = shade.unreached_rgba(shaded.classes)
     assert rgba.shape == shaded.shade.shape + (4,)
     assert (rgba[shaded.classes == build.OUTSIDE][:, 3] == 0).all()

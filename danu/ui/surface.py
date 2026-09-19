@@ -68,7 +68,8 @@ class _Job(QRunnable):
             classes = build.first_pass_classes(result.constraints, result.drawn_mask, self.params, self.work)
             shaded = shade.shade_dem(result.dem, self.params, self.work, classes=classes)
             from .overlays import envelope_rings
-            rings = envelope_rings(result.envelopes) if result.envelopes else []
+            # the outline is a courtesy; its file missing is not a failed surface
+            rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
         except ImportError as e:
             self.signals.failed.emit(f'building a surface needs GDAL, which could not be imported: {e}')
             return

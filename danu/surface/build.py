@@ -27,6 +27,7 @@ constraints off as its params.lock records, so neither path reaches Overpass.
 
 from __future__ import annotations
 
+import json
 import lzma
 import os
 import re
@@ -416,6 +417,30 @@ OUT_OF_REACH, NO_ELEV, ONE_LEVEL = -32767, -32768, -32766
 ANSWERED, UNREACHED, DECLINED, ONE_ONLY, OUTSIDE = 0, 1, 2, 3, 255
 
 
+def first_pass_reading(classes: np.ndarray, gt: tuple) -> dict:
+    """Cells, square kilometres and share of the drawn area, per class, on
+    the constraints' own lat/lon grid. A cell's ground area is its degree
+    size squared times cos(latitude) of its row: a cell at 20 N is 6% smaller
+    on the ground than at the equator and at 60 N half the size. Counted here
+    and nowhere else, so the build log and the panel say one number; the
+    Mercator grid the overlay is drawn on inflates area by 1/cos² and is not
+    a place to measure it.
+    shell: none - the validation table asks for OUT_OF_REACH as area and fraction, and this is it"""
+    rows, cols = classes.shape
+    lat_rows = gt[3] + (np.arange(rows) + 0.5) * gt[5]
+    km_per_deg = 111.32
+    cell_km2 = (abs(gt[1]) * km_per_deg) * (abs(gt[5]) * km_per_deg) * np.cos(np.radians(lat_rows))
+    inside = classes != OUTSIDE
+    out = {'cells': {}, 'km2': {}, 'percent': {},
+           'inside_cells': int(inside.sum()), 'inside_km2': float((inside.sum(axis=1) * cell_km2).sum())}
+    for code in (UNREACHED, DECLINED, ONE_ONLY):
+        rowsum = (classes == code).sum(axis=1)
+        out['cells'][str(code)] = int(rowsum.sum())
+        out['km2'][str(code)] = float((rowsum * cell_km2).sum())
+        out['percent'][str(code)] = (100.0 * out['km2'][str(code)] / out['inside_km2']) if out['inside_km2'] else 0.0
+    return out
+
+
 def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
                        log: Log = _quiet) -> Path:
     """Where the first pass found no answer, as a byte raster on the
@@ -437,11 +462,12 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     classes[surface == NO_ELEV] = DECLINED
     classes[surface == ONE_LEVEL] = ONE_ONLY
     classes[m == 0] = OUTSIDE
-    inside = int((m != 0).sum())
+    reading = first_pass_reading(classes, ds.GetGeoTransform())
     for name, code in (('nothing in reach', UNREACHED), ('too flat to trust', DECLINED), ('one level only', ONE_ONLY)):
-        n = int((classes == code).sum())
-        if inside:
-            log(f'  first pass, {name}: {n:,} cells, {100.0 * n / inside:.1f}% of the drawn area')
+        if reading['inside_cells']:
+            log(f'  first pass, {name}: {reading["cells"][str(code)]:,} cells, '
+                f'{reading["km2"][str(code)]:,.1f} km², {reading["percent"][str(code)]:.1f}% of the drawn area')
+    (work / 'first-pass.json').write_text(json.dumps(reading), encoding='utf-8')
     out = work / 'first-pass.tif'
     o = gdal.GetDriverByName('GTiff').Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
                                              options=CREATE)

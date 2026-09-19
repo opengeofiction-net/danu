@@ -84,9 +84,7 @@ class UnreachedLayer(QGraphicsItem):
         self.setZValue(55)          # just over the surface
         self._pixmap: QPixmap | None = None
         self._rect = QRectF()
-        self.counts: dict[int, int] = {}
-        self.cells_inside = 0
-        self.metres = 0.0
+        self.reading: dict | None = None
         self.one_level = False
         self._shaded: shade.Shaded | None = None
 
@@ -94,15 +92,13 @@ class UnreachedLayer(QGraphicsItem):
         self.prepareGeometryChange()
         self._shaded = shaded
         if shaded is None or shaded.classes is None:
-            self._pixmap, self._rect, self.counts, self.cells_inside = None, QRectF(), {}, 0
+            self._pixmap, self._rect, self.reading = None, QRectF(), None
             self.update()
             return
         l, t, r, b = shaded.scene_rect
         self._rect = QRectF(l, t, r - l, b - t)
         self._repaint_classes()
-        self.counts = {code: int((shaded.classes == code).sum()) for code in shade.UNREACHED_RGBA}
-        self.cells_inside = int((shaded.classes != 255).sum())
-        self.metres = shaded.metres
+        self.reading = shaded.reading
         self.update()
 
     def set_one_level(self, on: bool):
@@ -119,15 +115,17 @@ class UnreachedLayer(QGraphicsItem):
         self._pixmap = QPixmap.fromImage(img.copy())
 
     def summary(self) -> str:
-        """Area and fraction, as the validation table asks."""
-        if not self.cells_inside:
+        """Area and fraction, as the validation table asks - the build's own
+        reading, measured on the lat/lon grid, not recounted on the Mercator
+        pixels this is drawn on."""
+        r = self.reading
+        if not r or not r.get('inside_cells'):
             return 'no first-pass reading'
-        n = self.counts.get(1, 0) + self.counts.get(2, 0)
-        km2 = n * self.metres * self.metres / 1e6
-        return (f'{km2:,.1f} km² the contours do not describe, {100.0 * n / self.cells_inside:.1f}% of '
-                f'the drawn area: {self.counts.get(1, 0):,} cells nothing in reach, '
-                f'{self.counts.get(2, 0):,} too flat to trust; and {self.counts.get(3, 0):,} seeing one level, '
-                f'mostly the contours\' own edges')
+        km2 = r['km2']['1'] + r['km2']['2']
+        pct = r['percent']['1'] + r['percent']['2']
+        return (f'{km2:,.1f} km² the contours do not describe, {pct:.1f}% of the drawn area: '
+                f'{r["cells"]["1"]:,} cells nothing in reach, {r["cells"]["2"]:,} too flat to trust; '
+                f'and {r["cells"]["3"]:,} seeing one level, mostly the contours\' own edges')
 
     def boundingRect(self) -> QRectF:
         return self._rect

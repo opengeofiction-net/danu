@@ -106,6 +106,7 @@ class Shaded:
     geotransform: tuple        # of the Mercator grid, in metres
     metres: float
     classes: np.ndarray | None = None   # first-pass classes on the same grid, or None
+    reading: dict | None = None         # first_pass_reading(), measured on the lat/lon grid
 
     @property
     def scene_rect(self) -> tuple[float, float, float, float]:
@@ -143,8 +144,12 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
     if (d_ds.RasterXSize, d_ds.RasterYSize) != (h_ds.RasterXSize, h_ds.RasterYSize) or \
             any(abs(a - b) > 1e-6 for a, b in zip(d_ds.GetGeoTransform(), h_ds.GetGeoTransform())):
         raise RuntimeError('the warped DEM and its hillshade are not on one grid')
-    cls = None
+    cls, reading = None, None
     if classes is not None:
+        import json
+        j = Path(classes).with_suffix('.json')
+        if j.exists():
+            reading = json.loads(j.read_text(encoding='utf-8'))
         # the same grid, forced: the classes are warped onto the hillshade's
         # extent and size rather than to a size of their own, so a cell of the
         # overlay is a cell of the surface
@@ -162,7 +167,7 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
         cls = c_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8)
     return Shaded(dem=d_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
                   shade=h_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8),
-                  geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls)
+                  geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls, reading=reading)
 
 
 # ------------------------------------------------------------------ display

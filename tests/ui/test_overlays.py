@@ -41,21 +41,21 @@ def _shaded_with_classes():
     classes[10:20, 10:20] = 1       # nothing in reach
     classes[5, 30:35] = 2           # too flat
     classes[25, 30:33] = 3          # one level
+    reading = {'cells': {'1': 100, '2': 5, '3': 3}, 'km2': {'1': 1.0, '2': 0.05, '3': 0.03},
+               'percent': {'1': 9.5, '2': 0.5, '3': 0.3}, 'inside_cells': 30 * 35, 'inside_km2': 10.5}
     return shade.Shaded(dem=dem, shade=hs, geotransform=(0.0, 100.0, 0, 1000.0, 0, -100.0), metres=100.0,
-                        classes=classes)
+                        classes=classes, reading=reading)
 
 
 def test_the_unreached_layer_draws_the_three_warnings_and_counts_them():
     s = _shaded_with_classes()
     layer = UnreachedLayer()
     layer.set_shaded(s)
-    assert layer.counts == {1: 100, 2: 5, 3: 3}
-    assert layer.cells_inside == 30 * 35
     text = layer.summary()
     assert '100 cells nothing in reach' in text and '5 too flat' in text and '3 seeing one level' in text
-    # the area and fraction count what the contours do not describe - not the
-    # one-level cells, which are mostly their own edges
-    assert f'{105 * 100 * 100 / 1e6:,.1f} km²' in text and f'{100.0 * 105 / (30 * 35):.1f}%' in text
+    # the area and fraction are the build's reading, of the two classes that
+    # are undescribed ground - not the one-level cells, mostly their own edges
+    assert '1.1 km²' in text and '10.0%' in text
     rgba = shade.unreached_rgba(s.classes)
     assert (rgba[15, 15] == np.array(shade.UNREACHED_RGBA[1], np.uint8)).all()
     assert (rgba[0, 0, 3] == 0) and (rgba[0, 20, 3] == 0)         # outside, and answered: see-through
@@ -71,8 +71,12 @@ def test_the_unreached_layer_draws_the_three_warnings_and_counts_them():
 
 
 def test_the_panel_toggles_both_overlays_and_shows_the_reading(qtbot):
+    from PySide6.QtWidgets import QGraphicsScene
     surface = SurfaceLayer()
     unreached, envelope = UnreachedLayer(), EnvelopeItem()
+    scene = QGraphicsScene()                     # in a scene, so isVisible() means something
+    for item in (surface, unreached, envelope):
+        scene.addItem(item)
     panel = SurfacePanel(surface, unreached=unreached, envelope=envelope)
     qtbot.addWidget(panel)
     assert unreached.isVisible() and envelope.isVisible()
