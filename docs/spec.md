@@ -672,6 +672,57 @@ runner for real - which landed first, by way of MSYS2 rather than a Makefile
 change, before the editor grew anything that would make the answer harder to
 hear.
 
+### What phase 1 actually did
+
+Ended on 2026-09-19, in six pull requests over two days, with a mapper able to
+open a square from their mirror of `osm-squares/` and look at it over the
+tiles. Where it differed from the plan:
+
+**The Windows `isofill` build came first, and had never built.** Found while
+sizing the phase: `continue-on-error` had reported a one-second `gdal-config
+not found` as green since the first push. Made honest in one pull request,
+made to build in the next, by way of MSYS2 rather than the Makefile change the
+plan assumed - and the binary is run, not only linked, because a build that
+links and cannot load its DLLs is the Windows failure a build step never sees.
+All four Windows and UI jobs are required checks now.
+
+**The tiles' colour ramp moved into the package.** The editor's traditional
+ramp is `relief.ramp`, the gdaldem table the build applies to every published
+relief raster, read from `danu/surface/` by the editor and installed from there
+to `/etc/danu` for the build; `server/etc/relief.ramp` is a symlink. One file.
+The editor's *default* contour colouring is the spectral ramp over the working
+set's range, deliberately not the server's, for telling levels apart.
+
+**Index contours are every fifth distinct level, not every 100 m.** The first
+version drew nothing on the golden square, whose levels are 101, 145, 149, 151
+- the odd ladders described under *The elevation ladder* - and has no round
+hundred in it. Until the ladder is inferred (phase 3), the data decides.
+
+**Two `QGraphicsView` facts that will matter again.** `option.exposedRect` is
+clipped only in a real `paintEvent`; under `render()` it is the whole item, and
+a tile layer that trusted it asked for the entire world. Paints bound
+themselves by the painter's device rect. And a bare change of scale leaves the
+scroll position in view pixels, so the view slides; every zoom anchors on a
+point now, and `centerOn` snapping to whole pixels is corrected in the
+transform, with the scene given a world of margin so the correction survives
+the world's edges.
+
+**The read is on a worker, and honestly not silky.** The spec asks that the UI
+thread never block; a Python parse on a pool thread yields little under the
+GIL. The window is alive - events are processed - and the interface does not
+change when the reader gets faster.
+
+**Not done, by choice.** R7, territory and owner, is advisory on editing and
+moves to the start of phase 3. R5, blank squares from the editor, goes with
+editing. Ladder inference, and the increments and keys under *Elevation
+control*, were always phase 3.
+
+**A second reviewer, before the first.** The pull request review runs locally
+on the branch before the pull request exists, from the same prompt the
+workflow uses (`packaging/ci/cr`). Over phases 0 and 1 the substantive
+findings came from the local pass more often than not; the public rounds
+dropped from five to one or two.
+
 **Phase 2 - the surface.** Settles the question phase 0 left: whether the
 per-step logic moves into `danu.cli` or the golden test grows a second case
 driving the editor's path. `isofill` via CFFI, whole-set rebuild, hillshade and
