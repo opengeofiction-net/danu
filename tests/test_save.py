@@ -49,6 +49,25 @@ def test_a_blank_square_is_saved_with_a_frame_and_reads_back(tmp_path):
     assert not save.has_frame(sq) and hist.dirty(sq)
 
 
+def test_the_frame_is_the_one_make_square_writes(tmp_path):
+    from danu.core import make_square
+    make_square.write_square(tmp_path / 'S24E126.osm.xz', 126, -24, save.FRAME_NOTE)
+    theirs = read_square(tmp_path / 'S24E126.osm.xz')
+    sq, hist = drawn_from_blank(0)
+    hist.do(sq, save.frame_command(sq, hist.alloc(sq)))
+    (a,), (b,) = theirs.ways.values(), sq.ways.values()
+    assert a.tags == b.tags and a.closed and b.closed
+    assert theirs.coords(a) == sq.coords(b)                 # same corners, same order, same start
+    assert save.has_frame(theirs) and save.has_frame(sq)
+
+
+def test_a_contour_carrying_the_squares_name_as_ref_is_not_a_frame():
+    sq, hist = drawn_from_blank(1)
+    way = next(iter(sq.ways.values()))
+    way.tags['ref'] = 'S24E126'
+    assert not save.has_frame(sq)
+
+
 def test_a_second_save_adds_no_second_frame_and_keeps_the_path(tmp_path):
     sq, hist = drawn_from_blank()
     path = save.default_path(tmp_path, sq.name)

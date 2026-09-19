@@ -180,7 +180,10 @@ class MainWindow(QMainWindow):
         return report
 
     def _ask_path(self, sq: Square) -> Path | None:
-        suggested = sq.path if sq.path is not None else save.default_path(self.zone_dir or Path.cwd(), sq.name)
+        if sq.path is None and self.zone_dir is None:
+            self.statusBar().showMessage(f'{sq.name} has no file and no zone to put one in')
+            return None
+        suggested = sq.path if sq.path is not None else save.default_path(self.zone_dir, sq.name)
         chosen, _ = QFileDialog.getSaveFileName(self, f'Save {sq.name} as', str(suggested),
                                                 'Contour squares (*.osm.xz *.osm)')
         return Path(chosen) if chosen else None

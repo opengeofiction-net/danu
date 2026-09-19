@@ -38,14 +38,16 @@ def default_path(zone_dir: str | os.PathLike, name: SquareName) -> Path:
 
 
 def has_frame(square: Square) -> bool:
-    """A closed way tagged ``ref`` with the square's own name."""
-    return any(w.closed and w.tags.get('ref') == square.name.name for w in square.ways.values())
+    """A closed way tagged ``ref`` with the square's own name and no ``ele``
+    - a mapper's own ``ref`` on a contour is not a frame."""
+    return any(w.closed and w.ele is None and w.tags.get('ref') == square.name.name for w in square.ways.values())
 
 
 def frame_command(square: Square, alloc: edits.IdAllocator, note: str = FRAME_NOTE) -> edits.AddWay:
     """The frame ``make_square`` gives a blank square: one closed way around
     the degree, tagged with the square's name. Untagged with ``ele``, so the
-    build never sees it as a contour."""
+    build never sees it as a contour. ``make_square`` writes its XML by hand;
+    a test holds the two frames equal."""
     lon, lat = square.name.lon, square.name.lat
     corners = [(lon, lat), (lon + 1, lat), (lon + 1, lat + 1), (lon, lat + 1)]
     ids = [alloc.take() for _ in corners]

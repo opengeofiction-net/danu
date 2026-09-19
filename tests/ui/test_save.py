@@ -61,8 +61,9 @@ def test_a_square_drawn_from_blank_asks_where_and_gets_a_frame(window, zone, mon
     assert w.editor.dirty()
     # save as goes to the square under the cursor
     cursor_to(w, 125.5, -22.5)
+    before = (zone / 'S23E125.osm.xz').read_bytes()
     w.save_as()
-    assert w.editor.dirty()                                    # declined
+    assert w.editor.dirty() and (zone / 'S23E125.osm.xz').read_bytes() == before   # declined: nothing written
 
 
 def test_a_new_blank_square_is_written_with_a_frame_and_the_set_re_read(window, zone, monkeypatch, qtbot):
