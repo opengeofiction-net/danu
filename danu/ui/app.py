@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
@@ -26,6 +27,7 @@ from .mapview import MapView
 from .open_dialog import OpenDialog
 from .settings import Settings
 from .squares import SquaresItem
+from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .tiles import TileFetcher, TileLayer
 
 APP_NAME = 'danu'
@@ -73,6 +75,15 @@ class MainWindow(QMainWindow):
             self.tile_items.append(item)
         self.panel = LayersPanel(self.tile_items, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
+        self.surface = SurfaceLayer()
+        self.map.scene().addItem(self.surface)
+        self.surface_panel = SurfacePanel(self.surface, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
+        self.builder = SurfaceBuilder(self)
+        self.builder.finished.connect(self._surface_built)
+        self.builder.failed.connect(self._surface_failed)
+        self.surface_panel.rebuild.connect(self.rebuild_surface)
+        self._surface_started = 0.0
         self.squares = SquaresItem()
         self.map.scene().addItem(self.squares)
         self.contours = ContourLayer()
@@ -104,6 +115,11 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        surface = self.menuBar().addMenu('&Surface')
+        self.rebuild_action = QAction('&Rebuild surface', self)
+        self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
+        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
+        surface.addAction(self.rebuild_action)
         file.addSeparator()
         quit_action = QAction('&Quit', self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -162,6 +178,43 @@ class MainWindow(QMainWindow):
             self._fill_recent()
         self._pending = None
         self.setWindowTitle(f'Danu - {ws.centre}')
+        # a surface is of a set; a new set makes the old one wrong
+        self.surface.set_shaded(None)
+        self.surface_panel.status.setText('no surface built for this set yet')
+
+    # ----------------------------------------------------------- surface
+    def rebuild_surface(self, arcsec: float | None = None) -> bool:
+        """Build the working set's DEM on a worker - the same stages the
+        server runs - and shade it. Slow and exact; the panel says how long."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return False
+        from ..surface import params as surface_params
+        try:
+            p = surface_params.load()
+        except (KeyError, OSError) as e:
+            self._surface_failed(str(e))
+            return False
+        if arcsec is not None:
+            p = p.with_arcsec(arcsec)
+        if not self.builder.build(self.working_set, p):
+            self.statusBar().showMessage('a surface is still building')
+            return False
+        self._surface_started = time.monotonic()
+        self.surface_panel.building(f'building at {p.arcsec:g}″…')
+        self.statusBar().showMessage(f'building the surface at {p.arcsec:g}″ - the same stages the server runs')
+        return True
+
+    def _surface_built(self, shaded):
+        seconds = time.monotonic() - self._surface_started
+        self.surface.set_shaded(shaded)
+        self.surface_panel.built(shaded, seconds)
+        self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
+
+    def _surface_failed(self, text: str):
+        self.surface_panel.failed(text)
+        self.statusBar().showMessage('the surface could not be built')
+        QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
 
     def _load_failed(self, text: str):
         QApplication.restoreOverrideCursor()
@@ -178,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="a zone's osm-squares directory to open a square from")
     ap.add_argument('square', nargs='?', help='the square, e.g. N20E087')
     ap.add_argument('--size', type=int, default=3, help='working set side, odd (default 3)')
+    ap.add_argument('--surface', type=float, metavar='ARCSEC', nargs='?', const=3.0,
+                    help='build and show the surface once the square is open, at this resolution (default 3)')
     args = ap.parse_args(argv[1:])
     if bool(args.zone_dir) != bool(args.square):
         ap.error('give both a zone directory and a square, or neither')
@@ -191,4 +246,6 @@ def main(argv: list[str] | None = None) -> int:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
+    if args.surface is not None:
+        win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a))
     return app.exec()
