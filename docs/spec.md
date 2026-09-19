@@ -760,8 +760,11 @@ other goes red. The file itself moved into the package (`danu/params/`) so the
 editor can read it once installed, with `params/elevation.toml` a symlink to
 it, as `relief.ramp` and `osmconf.ini` are.
 
-`isofill` via CFFI, whole-set rebuild, hillshade and both ramps with all three
-scaling modes, unreachable-ground overlay, envelope outline. Slow and exact.
+`isofill` as a library - through `ctypes` rather than the CFFI named here,
+since the API is plain C arrays and the standard library does it with one less
+package to ship on every platform - whole-set rebuild, hillshade and both ramps
+with all three scaling modes, unreachable-ground overlay, envelope outline.
+Slow and exact.
 
 Ends when a test asserts the two paths agree: the golden fixture driven through
 the shell build - the first case, which exists and runs `danu-build-zone` - and

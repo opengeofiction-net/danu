@@ -129,9 +129,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gdal-bin python3-gdal python3-numpy python3-pyosmium \
                                   osmium-tool xz-utils zip python3-pytest libgdal-dev
+      # binary and library both; ldconfig so the library is found by name
       - name: build and install isofill
         working-directory: extern/isofill
-        run: make && sudo make install
+        run: make && sudo make install && sudo ldconfig
       # and the one ui test that needs PROJ: the canvas projection against gdalwarp's
       - run: python3 -m pytest tests/golden tests/test_mercator_proj.py -q
         env:

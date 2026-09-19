@@ -49,3 +49,17 @@ def test_the_shell_holds_the_same_values_as_the_file():
         assert float(shell[var]) == float(d[section][key]), \
             f'{var}={shell[var]} in the shell, [{section}] {key} = {d[section][key]} in the file'
     # grad_min is held to the isofill binary's default in tests/golden, where the binary is
+
+
+def test_the_library_version_this_module_wants_is_the_submodules():
+    """danu.surface.isofill_lib speaks to one isofill; extern/isofill is that
+    one, and its header says which. Bumping the submodule without updating
+    the module - or the other way round - goes red here."""
+    import re
+    from danu.surface import isofill_lib
+    header = (ROOT / 'extern' / 'isofill' / 'src' / 'isofill.h').read_text()
+    m = re.search(r'#define ISOFILL_VERSION "([^"]+)"', header)
+    assert m, 'extern/isofill/src/isofill.h no longer defines ISOFILL_VERSION'
+    assert isofill_lib.EXPECTED_VERSION == m.group(1)
+    m = re.search(r'#define ISOFILL_NO_ELEV \((-?\d+)\)', header)
+    assert m and int(m.group(1)) == isofill_lib.NO_ELEV
