@@ -256,7 +256,9 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     by default - the binary's own in-core path is a call to the same
     function - and through the binary where the library cannot be loaded, or
     where the raster is larger than the in-core fill would hold and the
-    binary would band it, which the library does not do.
+    binary would band it, which the library does not do. ``library`` forces
+    the choice: True demands the library and raises rather than fall back,
+    False never tries it; None is the default described above.
     shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] ${ISOFILL_EXTRA} cont.tif rounded.tif
     The same flags and no others. The shell passes no --grad-min and relies
     on isofill's default, so neither does the binary call here nor the
@@ -297,8 +299,14 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
     if (a.RasterXSize, a.RasterYSize) != (b.RasterXSize, b.RasterYSize):
         raise ValueError(f'{b_path.name} is {b.RasterXSize}x{b.RasterYSize}, '
                          f'{a_path.name} is {a.RasterXSize}x{a.RasterYSize}')
-    if any(abs(x - y) > 1e-9 for x, y in zip(a.GetGeoTransform(), b.GetGeoTransform())):
-        raise ValueError(f'{b_path.name} is not on {a_path.name}\'s grid')
+    ga, gb = a.GetGeoTransform(), b.GetGeoTransform()
+    res = abs(ga[1])
+    # in cells, not degrees: an origin around 100 and a cell of 1/3600 are
+    # eight orders apart, and one absolute tolerance cannot serve both
+    off_by = max(abs(ga[0] - gb[0]), abs(ga[3] - gb[3])) / res
+    scale_by = max(abs(ga[1] - gb[1]), abs(ga[5] - gb[5])) / res
+    if off_by > 1e-6 or scale_by > 1e-9:
+        raise ValueError(f'{b_path.name} is not on {a_path.name}\'s grid: origin off by {off_by:g} cells')
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,

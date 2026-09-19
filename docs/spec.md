@@ -768,8 +768,9 @@ Slow and exact.
 
 Ends when a test asserts the two paths agree: the golden fixture driven through
 the shell build - the first case, which exists and runs `danu-build-zone` - and
-through the editor's own path - the second case - both compared cell for cell
-to the one reference. That assertion is what closes the risk. Showing the same hillshade on screen demonstrates it
+through the editor's own path - the second case, run both ways the editor can
+call `isofill`, as a binary and as a library - all compared cell for cell to
+the one reference. That assertion is what closes the risk. Showing the same hillshade on screen demonstrates it
 once, for one square, on one afternoon.
 
 **Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
