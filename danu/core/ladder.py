@@ -37,8 +37,11 @@ DEFAULT_TOP = 200.0
 
 
 def format_ele(value: float) -> str:
-    """The ``ele`` tag for a value: ``125`` not ``125.0``, ``12.5`` when it is."""
-    return str(int(value)) if float(value).is_integer() else repr(float(value))
+    """The ``ele`` tag for a value: ``125`` not ``125.0``, ``12.5`` when it is.
+    Rounded to the millimetre first, so a value that came out of arithmetic
+    - a rung stepped along the ladder - never carries a float's tail into a tag."""
+    v = round(float(value), 3)
+    return str(int(v)) if v.is_integer() else repr(v)
 
 
 # --------------------------------------------------------------- ladder
@@ -166,6 +169,9 @@ def infer(square: Square, extend_above: int = EXTEND_ABOVE) -> Ladder | None:
     residues = Counter()
     for v in values:
         residues[round(v % interval, 6)] += counts[v]
+    # two residues carrying the same weight is two ladders in one square, which
+    # inference cannot serve; the lower residue is taken, deterministically, and
+    # the other reads as bare notches
     phase = max(residues, key=lambda r: (residues[r], -r))
     regular = [v for v in values if _on_phase(v, interval, phase)]
     notches = set(values)
@@ -211,7 +217,8 @@ class LadderSpec:
     def from_toml(cls, d: dict) -> 'LadderSpec':
         if 'values' in d:
             return cls(values=tuple(float(v) for v in d['values']))
-        return cls(interval=float(d['interval']), base=float(d.get('base', 0)),
+        interval = d.get('interval')
+        return cls(interval=None if interval is None else float(interval), base=float(d.get('base', 0)),
                    top=None if d.get('top') is None else float(d['top']))
 
     def to_toml(self) -> str:
@@ -253,9 +260,16 @@ class Overrides:
 
     @classmethod
     def loads(cls, text: str) -> 'Overrides':
+        """A malformed table is reported by name: the file is edited by hand."""
         d = tomllib.loads(text)
-        return cls({k: LadderSpec.from_toml(v) for k, v in d.get('zone', {}).items()},
-                   {k: LadderSpec.from_toml(v) for k, v in d.get('square', {}).items()})
+        out = cls()
+        for kind, into in (('zone', out.zones), ('square', out.squares)):
+            for k, v in d.get(kind, {}).items():
+                try:
+                    into[k] = LadderSpec.from_toml(v)
+                except (ValueError, TypeError) as e:
+                    raise ValueError(f'ladders: [{kind}."{k}"]: {e}') from e
+        return out
 
     @classmethod
     def load(cls, path: str | os.PathLike) -> 'Overrides':

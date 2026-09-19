@@ -1,5 +1,6 @@
 """danu.core.ladder: the ladder a square describes, and the elevation it drives."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from danu.core import edits, ladder as L
 from danu.core.square import Square, SquareName, read_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
-GOBRAS = Path.home() / 'code/ogf/contours/squares/gobras/N20E086_Gobras_City.osm.xz'
+GOBRAS = Path(__file__).parent / 'fixtures' / 'N20E086_ele_census.json'   # ways per ele; the square is 20 MB
 
 
 def square_with(elevations, name=SquareName(10, 10)) -> Square:
@@ -34,9 +35,10 @@ def test_the_fixture_is_a_50_m_ladder_on_the_1_phase_with_an_irregular_tail():
     assert lad.regular(301) and not lad.regular(300) and not lad.regular(145)
 
 
-@pytest.mark.skipif(not GOBRAS.exists(), reason='the Gobras square is not on this machine')
 def test_gobras_reads_as_the_spec_describes_it():
-    sq = read_square(GOBRAS)
+    census = json.loads(GOBRAS.read_text())['ways']
+    sq = square_with([float(e) for e, n in census.items() for _ in range(n)], SquareName(86, 20))
+    assert len(list(sq.contours())) == 2807 and sq.elevations()[-1] == 1075
     lad = L.infer(sq)
     assert lad.interval == 25 and lad.phase == 0
     below = [n for n in lad.notches if n < 100]
@@ -112,6 +114,7 @@ def test_a_regular_ladder_starts_below_sea_level_when_its_phase_is_not_zero():
 
 def test_format_ele():
     assert L.format_ele(125.0) == '125' and L.format_ele(12.5) == '12.5' and L.format_ele(-3) == '-3'
+    assert L.format_ele(0.1 + 0.2) == '0.3' and L.format_ele(1e-05) == '0'
 
 
 # ----------------------------------------------------------- overrides
@@ -143,6 +146,8 @@ def test_a_spec_is_an_interval_or_values_not_both():
         L.LadderSpec()
     with pytest.raises(ValueError):
         L.LadderSpec(interval=10, values=(1, 2))
+    with pytest.raises(ValueError, match=r'\[zone."gobras"\]'):        # a typo names its table
+        L.Overrides.loads('[zone."gobras"]\nintervall = 25\n')
 
 
 def test_the_order_is_square_override_then_inference_then_zone_then_default():
