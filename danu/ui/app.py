@@ -18,7 +18,7 @@ from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
-from ..core import make_square, save
+from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from . import config
 from . import mercator as m
@@ -32,6 +32,7 @@ from .settings import Settings
 from .squares import SquaresItem
 from .overlays import EnvelopeItem, UnreachedLayer
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
+from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController
 
@@ -63,7 +64,7 @@ def user_cache_dir() -> Path:
 
 class MainWindow(QMainWindow):
     def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None,
-                 settings: Settings | None = None):
+                 settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None):
         super().__init__()
         self.setWindowTitle('Danu')
         self.layers = layers
@@ -71,6 +72,11 @@ class MainWindow(QMainWindow):
         self.map = MapView(self)
         self.setCentralWidget(self.map)
         self.fetcher = TileFetcher(cache_dir, parent=self)
+        # the tests hand in a fetcher pointed at files; the app fetches the published ones
+        self.territory = territory_fetcher or TerritoryFetcher(cache_dir.parent / 'territory' if cache_dir else None, parent=self)
+        self.territory.setParent(self)
+        self.territory.ready.connect(self._territory_ready)
+        self.territory.failed.connect(lambda t: self.statusBar().showMessage(t))
         # in config order, first at the bottom; the graticule sits above all
         self.tile_items = []
         for i, layer in enumerate(layers):
@@ -118,6 +124,9 @@ class MainWindow(QMainWindow):
         self.loader.failed.connect(self._load_failed)
         self._pending: tuple[Path, SquareName, int] | None = None
         self._menus()
+        self._territory = QLabel('')
+        self._territory.setToolTip('the territory and owner under the working set, from the wiki and territory.json')
+        self.statusBar().addPermanentWidget(self._territory)
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         self.map.cursorMoved.connect(self._cursor)
@@ -142,6 +151,31 @@ class MainWindow(QMainWindow):
         redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
         if self.working_set is not None:
             self.setWindowTitle(f'Danu - {self.working_set.centre}' + (' *' if self.editor.dirty() else ''))
+
+    # --------------------------------------------------------- territory
+    def _territory_ready(self, index):
+        self.show_territory()
+
+    def show_territory(self):
+        """Whose ground the centre square is on. Warns - in the status line
+        and in colour - and never blocks: opening it is the mapper's call."""
+        if self.working_set is None or self.territory.index is None:
+            return
+        found = self.territory.index.under(self.working_set.centre.bounds)
+        line, warn = territory.describe(found, self.settings.user)
+        if not self.territory.complete:
+            line += ' (owners not read yet)'
+        self._territory.setText(line)
+        self._territory.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
+        if warn:
+            self.statusBar().showMessage(f'{self.working_set.centre} is {line} - opening it anyway')
+
+    def set_user(self):
+        text, ok = QInputDialog.getText(self, 'Your OGF username', 'Username, as the wiki has it:',
+                                        text=self.settings.user)
+        if ok:
+            self.settings.user = text
+            self.show_territory()
 
     # -------------------------------------------------------------- save
     def save_all(self) -> bool:
@@ -318,6 +352,10 @@ class MainWindow(QMainWindow):
         self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
         surface.addAction(self.rebuild_action)
         file.addSeparator()
+        user_action = QAction('Your OGF &username…', self)
+        user_action.triggered.connect(self.set_user)
+        file.addAction(user_action)
+        file.addSeparator()
         quit_action = QAction('&Quit', self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
@@ -378,6 +416,8 @@ class MainWindow(QMainWindow):
             self._fill_recent()
         self._pending = None
         self.setWindowTitle(f'Danu - {ws.centre}')
+        self._territory.setText('territory: looking…')
+        self.territory.refresh()
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
         self.unreached.set_shaded(None)

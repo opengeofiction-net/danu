@@ -92,6 +92,16 @@ class Settings:
         self.q.setValue('elevation/big', float(v))
 
     @property
+    def user(self) -> str:
+        """The mapper's OGF username, for 'is this mine to draw?'. Empty
+        means unknown, and then ownership is shown but never called wrong."""
+        return str(self.q.value('user/name', '') or '')
+
+    @user.setter
+    def user(self, name: str):
+        self.q.setValue('user/name', name.strip())
+
+    @property
     def ladders_file(self) -> Path:
         """The ladder overrides, beside the INI: ~/.config/danu/ladders.toml."""
         return self.file.parent / 'ladders.toml'
