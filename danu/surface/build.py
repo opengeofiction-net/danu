@@ -9,7 +9,8 @@ may exist. Every stage here carries a ``shell:`` line naming the command it
 stands for in ``danu-build-zone``, and a test checks the line is there, so when
 one side changes the other is findable.
 
-Parameters come from ``danu.surface.params`` - the shared file, no defaults -
+Parameters come through ``danu.surface.params`` from the shared file
+``danu/params/elevation.toml``, with no defaults -
 and the resolution is taken as an argument, as the shell takes it from its
 environment. The stages after the DEM - smoothing for the hillshade, the
 Mercator copies, the contour extract, the archive - are not here; the editor
@@ -63,7 +64,7 @@ def _quiet(_: str) -> None:
 class Grid:
     """The raster every stage shares: whole degrees, with half a cell added
     on every side so cell centres sit on the degree lines.
-    shell: eval "$(${PYTHON} -m danu.core.zone_extent ${SRC} ${ARCSEC})" -> WEST EAST SOUTH NORTH TE"""
+    shell: eval "$(${PYTHON} -m danu.core.zone_extent ${SRC} ${ARCSEC})" -> WEST EAST SOUTH NORTH, and TE which is the te property here"""
 
     west: int
     east: int

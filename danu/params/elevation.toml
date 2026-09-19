@@ -1,12 +1,11 @@
-# Parameters shared by the editor and the build.
+# The parameters the elevation build and the editor share.
 #
-# This file is the reason the preview can be trusted: both sides read it, and
-# the golden-surface test asserts they read the same one. Changing a value here
-# changes what the nightly build produces, so it is a deliberate act and the
-# reference surfaces in tests/golden have to be rebuilt with it.
-#
-# Values are those the pipeline reached by measurement through 2026; the
-# reasoning for each is in ogf-docs, Admin:Elevation process.
+# The editor reads this file (danu.surface.params), with no defaults of its
+# own. The shell build does not read it yet: danu-build-zone carries the same
+# values as ${VAR:-default} constants, and tests/test_params.py holds those
+# constants equal to this file, key by key, until the shell reads it too.
+# tests/golden/params.lock holds the reference surface to these values, so a
+# change here is a deliberate rebuild of the reference, not a quiet drift.
 
 [grid]
 arcsec = 1                  # master DEM resolution
