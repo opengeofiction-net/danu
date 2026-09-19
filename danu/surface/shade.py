@@ -77,12 +77,13 @@ def fine_metres(params: Params) -> int:
     return round(params.arcsec * 30.87)
 
 
-def warp_mercator(src: Path, metres: float, out: Path) -> Path:
-    """The raster in spherical Mercator at a cell size in metres, bilinear.
+def warp_mercator(src: Path, metres: float, out: Path, resample: str = 'bilinear') -> Path:
+    """The raster in spherical Mercator at a cell size in metres, bilinear -
+    or nearest, for a raster of classes, which must not be averaged.
     shell: gdalwarp -q -overwrite -t_srs "${MERC}" -r bilinear -tr ${m} ${m} -co TILED=YES -co COMPRESS=DEFLATE -co BIGTIFF=IF_SAFER src out"""
     gdal = _gdal()
     gdal.Warp(str(out), str(src), options=gdal.WarpOptions(
-        dstSRS=MERC, resampleAlg='bilinear', xRes=metres, yRes=metres,
+        dstSRS=MERC, resampleAlg=resample, xRes=metres, yRes=metres,
         creationOptions=CREATE + ['BIGTIFF=IF_SAFER']))
     return out
 
@@ -104,6 +105,7 @@ class Shaded:
     shade: np.ndarray          # uint8 hillshade, same grid
     geotransform: tuple        # of the Mercator grid, in metres
     metres: float
+    classes: np.ndarray | None = None   # first-pass classes on the same grid, or None
 
     @property
     def scene_rect(self) -> tuple[float, float, float, float]:
@@ -121,7 +123,8 @@ class Shaded:
         return to_x(x0), to_y(y1), to_x(x1), to_y(y0)
 
 
-def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0) -> Shaded:
+def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
+              classes: Path | None = None) -> Shaded:
     """The shell's fine hillshade of a DEM, and the warped DEM it came from,
     read back as arrays for the canvas.
     shell: warp ${WORK}/smooth.tif ${FINE} merc-fine.tif; shade merc-fine.tif 2 hillshade-z2.tif; and warp dem.tif for the relief"""
@@ -140,9 +143,26 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0) -> Sh
     if (d_ds.RasterXSize, d_ds.RasterYSize) != (h_ds.RasterXSize, h_ds.RasterYSize) or \
             any(abs(a - b) > 1e-6 for a, b in zip(d_ds.GetGeoTransform(), h_ds.GetGeoTransform())):
         raise RuntimeError('the warped DEM and its hillshade are not on one grid')
+    cls = None
+    if classes is not None:
+        # the same grid, forced: the classes are warped onto the hillshade's
+        # extent and size rather than to a size of their own, so a cell of the
+        # overlay is a cell of the surface
+        gt = h_ds.GetGeoTransform()
+        c_out = work / 'merc-first-pass.tif'
+        gdal.Warp(str(c_out), str(classes), options=gdal.WarpOptions(
+            dstSRS=MERC, resampleAlg='near', width=h_ds.RasterXSize, height=h_ds.RasterYSize,
+            outputBounds=(gt[0], gt[3] + h_ds.RasterYSize * gt[5], gt[0] + h_ds.RasterXSize * gt[1], gt[3]),
+            # 255 is OUTSIDE in the source and nodata in the destination, and
+            # the two must be the same thing: told only the destination, GDAL
+            # rewrites a valid source 255 to 254 to keep it clear of nodata,
+            # and the outside of the drawn area would count as inside it
+            srcNodata=255, dstNodata=255, creationOptions=CREATE))
+        c_ds = gdal.Open(str(c_out))     # held, for the same reason as every dataset here
+        cls = c_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8)
     return Shaded(dem=d_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
                   shade=h_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8),
-                  geotransform=tuple(h_ds.GetGeoTransform()), metres=metres)
+                  geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls)
 
 
 # ------------------------------------------------------------------ display
@@ -203,4 +223,23 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
         colour = colour * lit[..., None]
     out[..., :3] = np.clip(np.rint(colour), 0, 255).astype(np.uint8)
     out[..., 3] = rgba[..., 3]
+    return out
+
+
+# the overlay's colours for first_pass_classes()'s codes: what the contours
+# do not describe, in three shades of warning, everything else see-through
+UNREACHED_RGBA = {1: (200, 30, 30, 150), 2: (230, 120, 20, 140), 3: (235, 200, 40, 130)}
+
+
+def unreached_rgba(classes: np.ndarray, one_level: bool = False) -> np.ndarray:
+    """RGBA for the first-pass overlay. Nothing-in-reach and too-flat are
+    always drawn; one-level-only is drawn only when asked, because on real
+    ground it is mostly the cells inside the barrier beside every contour,
+    which see that contour and nothing else - expected, not undescribed. On
+    gobras it outnumbered the unreached ground two to one and buried it."""
+    out = np.zeros(classes.shape + (4,), np.uint8)
+    for code, rgba in UNREACHED_RGBA.items():
+        if code == 3 and not one_level:
+            continue
+        out[classes == code] = rgba
     return out

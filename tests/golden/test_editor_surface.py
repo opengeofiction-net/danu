@@ -33,7 +33,7 @@ def test_every_stage_names_the_shell_command_it_stands_for():
     # by the second assertion and a stage renamed away is caught by the first
     stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
               'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_mask',
-              'interpolate', 'clamp']
+              'interpolate', 'clamp', 'first_pass_classes']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
     not_stages = set(defs) - set(stages) - {'Result', 'build_dem'}
     assert not_stages == set(), f'new top-level names need a shell: line or listing here: {not_stages}'
@@ -149,3 +149,36 @@ def test_the_files_grad_min_is_the_librarys_default_which_the_library_call_leave
     from danu.surface import isofill_lib, params
     lib = isofill_lib.Isofill.load()
     assert lib.default_grad_min() == params.load().grad_min
+
+
+def test_the_first_pass_reading_says_where_the_contours_do_not_describe_ground(tmp_path):
+    """R20's overlay, from the fixture: every cell is classed, cells outside
+    the drawn area are OUTSIDE, and a sparse square has ground its contours
+    leave the first pass unable to answer."""
+    import numpy as np
+    from danu.surface import build, params, shade
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    r = build.build_dem(zone, tmp_path / 'work', p)
+    assert r.envelopes is not None and r.envelopes.exists()
+    classes_path = build.first_pass_classes(r.constraints, r.drawn_mask, p, tmp_path / 'work')
+    c_ds, m_ds = gdal.Open(str(classes_path)), gdal.Open(str(r.drawn_mask))   # held
+    classes = c_ds.GetRasterBand(1).ReadAsArray()
+    mask = m_ds.GetRasterBand(1).ReadAsArray()
+    assert classes.shape == mask.shape
+    assert ((classes == build.OUTSIDE) == (mask == 0)).all()
+    inside = classes[mask != 0]
+    assert set(np.unique(inside).tolist()) <= {build.ANSWERED, build.UNREACHED, build.DECLINED, build.ONE_ONLY}
+    assert (inside == build.UNREACHED).sum() > 0                     # ground the contours do not reach
+    assert (inside == build.ANSWERED).sum() > (inside != build.ANSWERED).sum() * 0   # and some they do
+    # and the overlay lands on the surface's grid
+    shaded = shade.shade_dem(r.dem, p, tmp_path / 'work', classes=classes_path)
+    assert shaded.classes is not None and shaded.classes.shape == shaded.shade.shape
+    rgba = shade.unreached_rgba(shaded.classes)
+    assert rgba.shape == shaded.shade.shape + (4,)
+    assert (rgba[shaded.classes == build.OUTSIDE][:, 3] == 0).all()
+    assert (rgba[shaded.classes == build.UNREACHED][:, 3] > 0).all()
