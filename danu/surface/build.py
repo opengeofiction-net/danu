@@ -21,7 +21,8 @@ square in the directory, and the editor builds a *working set*. For a square
 in the middle of a drawn zone the editor's surface near the set's edge will
 differ from the zone build's, because the zone had the neighbours' contours to
 look at and the set does not. That is expected, and it is why the golden
-fixture is a single square: there the two are the same job.
+fixture is a single square: there the two are the same job, run with water
+constraints off as its params.lock records, so neither path reaches Overpass.
 """
 
 from __future__ import annotations
@@ -179,6 +180,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     layer.SetAttributeFilter('ele = 0')
     zeros = layer.GetFeatureCount()
     layer.SetAttributeFilter(None)
+    layer = None                # before the datasource, not by refcount luck
     ds = None
     if features == 0:
         log('  no contours in any square, nothing to build yet')
@@ -219,7 +221,9 @@ def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
 
 def water_constraints(cont: Path, grid: Grid, mask: Path, work: Path, log: Log = _quiet) -> None:
     """Rivers and lakes from Overpass written into the constraints, inside the
-    drawn area. The same module, the same way, because it is a command.
+    drawn area. The same module, the same way, because it is a command - and
+    a failure is a warning and the build goes on, as it is in the shell: a
+    surface without them is the one published before they existed.
     shell: ${PYTHON} -m danu.water.constraints cont.tif --bbox "${BBOX}" --mask drawn-mask.tif --report water-report.json  (WATER_CONSTRAINTS=1)"""
     w, s, e, n = grid.te
     run = subprocess.run([sys.executable, '-m', 'danu.water.constraints', str(cont),

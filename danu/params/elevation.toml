@@ -15,7 +15,9 @@ hgt_arcsec = 3              # the .hgt archive stays at 1201 samples
 metres = 1850               # how far a cell may look for a contour pair
 barrier_cells = 2           # how thick a contour is, for the sight test
 grad_min = 0.02             # refuse to extrapolate below this gradient
-pass2 = "diffuse"           # Laplace diffusion; "linear" was removed
+pass2 = "diffuse"           # Laplace diffusion; "linear" was removed. A record, not a
+                            # switch: isofill implements this one and the shell passes
+                            # nothing; the editor refuses any other value
 
 [memory]
 max_mem_mb = 18500          # isofill sizes its own arrays against this

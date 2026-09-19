@@ -1,7 +1,8 @@
 """The parameters the build and the editor share, from one file.
 
-``danu/params/elevation.toml`` is the file; ``params/elevation.toml`` at the
-repository root is a symlink to it so the golden test and a reader of the tree
+``danu/params/elevation.toml`` is the file, in a package that holds data and
+no code so the file installs with the wheel; the code that reads it is here.
+``params/elevation.toml`` at the repository root is a symlink to it so the golden test and a reader of the tree
 find it where the spec says. There are no defaults here: a key the file lacks
 is an error, so the editor cannot quietly assume a value the shell did not.
 
