@@ -53,6 +53,24 @@ def test_the_layer_draws_land_and_leaves_sea_transparent(qtbot):
     assert layer.boundingRect().isEmpty()
 
 
+def test_the_traditional_ramp_is_the_one_compose_applies_in_metres():
+    """compose() recognises the hypsometric ramp by name, and the panel
+    disables scaling for it; both rest on traditional() being that ramp."""
+    from danu.surface.ramp import spectral, traditional
+    assert traditional().name == 'relief.ramp' and spectral().name != 'relief.ramp'
+
+
+def test_full_shadow_is_drawn_and_only_nodata_is_transparent():
+    """gdaldem's hillshade is 1 in complete shadow and 0 only for nodata;
+    compose() must draw the 1 and drop the 0."""
+    s = synthetic()
+    s.shade[:, 0] = 1                                  # a column in full shadow
+    s.shade[:, 1] = shade.HILLSHADE_NODATA             # a column of nodata
+    grey = shade.compose(s, None, shade.Scaling(), mode='hillshade')
+    assert (grey[:, 0, 3] == 255).all() and (grey[:, 0, 0] == 1).all()
+    assert (grey[:, 1, 3] == 0).all()
+
+
 def test_recolour_follows_the_style_without_a_rebuild():
     layer = SurfaceLayer()
     s = synthetic()

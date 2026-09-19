@@ -125,7 +125,7 @@ class SurfaceLayer(QGraphicsItem):
         self.prepareGeometryChange()
         self.shaded = shaded
         if shaded is None:
-            self._pixmap, self._rect = None, QRectF()
+            self._pixmap, self._rect, self._array = None, QRectF(), None
         else:
             l, t, r, b = shaded.scene_rect
             self._rect = QRectF(l, t, r - l, b - t)

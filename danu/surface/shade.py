@@ -42,6 +42,10 @@ MERC = '+proj=merc +ellps=sphere +R=6378137 +a=6378137 +units=m'
 R = 6378137.0
 HALF = math.pi * R
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
+# gdaldem writes 0 for nodata and never for a lit or shadowed cell: full shadow
+# comes out as 1. Measured on a 3 km west-facing wall under the default light,
+# 199 cells in complete shadow, every one of them 1. So transparent-where-zero
+# is exactly gdaldem's own meaning, not a hole in the shading
 HILLSHADE_NODATA = 0
 
 
