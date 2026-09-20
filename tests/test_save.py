@@ -132,3 +132,15 @@ def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_pat
     # staged again, the old contents go
     save.stage_zone([clean], [], tmp_path / 'stage')
     assert set(list_squares(stage)) == {clean.name}
+    # a clean square is staged under its own name whatever its file is called
+    assert files[clean.name].name == 'N10E010.osm.xz' and clean.path.name == 'N10E010_Clean.osm.xz'
+    # a directory this function did not make is not emptied
+    other = tmp_path / 'mine'
+    other.mkdir()
+    (other / 'precious.txt').write_text('x')
+    with pytest.raises(FileExistsError):
+        save.stage_zone([clean], [], other)
+    assert (other / 'precious.txt').exists()
+    (stage / 'sub').mkdir()
+    with pytest.raises(FileExistsError):
+        save.stage_zone([clean], [], stage)

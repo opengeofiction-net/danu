@@ -312,7 +312,7 @@ def test_a_held_button_draws_a_stroke_simplified_on_release_as_one_step(w):
         w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, path[-1], buttons=Qt.MouseButton.NoButton))
     (way,) = ways_at(square, 66)
-    assert 3 <= len(way.refs) <= 6, len(way.refs)            # the press, the corner, the end - and little else
+    assert 3 <= len(way.refs) <= 4, len(way.refs)            # the press, the corner, the end - a wobble at most
     xs = [w.map.mapFromScene(QPointF(*m.lonlat_to_scene(square.nodes[r].lon, square.nodes[r].lat))).x() for r in way.refs]
     assert xs[0] == pytest.approx(pos.x(), abs=2) and xs[-1] == pytest.approx(pos.x() + 200, abs=2)
     assert w.editor.drawing == (square, way.id, True) and 'from a stroke' in w.statusBar().currentMessage()
@@ -346,3 +346,19 @@ def test_a_stroke_that_crosses_a_contour_is_dropped_whole(w):
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
     assert not ways_at(square, 15) and w.statusBar().currentMessage().startswith('stroke not drawn')
     assert w.editor.pending is not None                      # the press stands; the mapper can go another way
+    # continuing a way: a dropped stroke takes the press's node back too
+    key(w, Qt.Key.Key_Escape)
+    (twenty,) = ways_at(square, 20)
+    end = square.nodes[twenty.refs[-1]]
+    w.elevation.set(20)
+    click(w, end.lon, end.lat)                               # continuing the 20 m line from its end
+    n = len(twenty.refs)
+    pos = at(w, end.lon - 0.05, end.lat + 0.03)              # the press adds a node north-west, over the lines' span
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    assert len(twenty.refs) == n + 1
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(end.lon - 0.05, end.lat + 0.12)))   # across the 30 m line
+    for f in range(1, 21):
+        p = pos + (target - pos) * f / 20
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
+    assert len(twenty.refs) == n and 'stroke not drawn' in w.statusBar().currentMessage()

@@ -28,6 +28,7 @@ from . import edits, ladder as L
 from .square import Square, SquareName, write_square
 
 FRAME_NOTE = 'square frame - do not edit'
+STAGE_MARKER = '.danu-stage'
 
 
 def default_path(zone_dir: str | os.PathLike, name: SquareName) -> Path:
@@ -106,18 +107,30 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
     refuses a bare ``.osm`` and decompresses as it goes - but at the fastest
     preset: this copy lives for one build."""
     into = Path(into)
+    marker = into / STAGE_MARKER
     if into.exists():
+        # only a directory this function made is emptied: the marker says so,
+        # and nothing but files and links is touched even then
+        if any(into.iterdir()) and not marker.exists():
+            raise FileExistsError(f'{into} is not a staging directory and is not empty')
         for p in into.iterdir():
-            p.unlink()
+            if p.is_symlink() or p.is_file():
+                p.unlink()
+            else:
+                raise FileExistsError(f'{p} in the staging directory is not a file')
     into.mkdir(parents=True, exist_ok=True)
+    marker.touch()
     dirty_ids = {id(sq) for sq in dirty}
     for sq in squares:
         if not sq.present and not sq.ways:
             continue
+        # always under the square's own name, so the names the build is given
+        # and the files it finds cannot disagree
+        target = into / f'{sq.name.name}.osm.xz'
         if id(sq) in dirty_ids or sq.path is None:
-            write_square(sq, into / f'{sq.name.name}.osm.xz', preset=0)
+            write_square(sq, target, preset=0)
         else:
-            (into / sq.path.name).symlink_to(sq.path.resolve())
+            target.symlink_to(sq.path.resolve())
     return into
 
 

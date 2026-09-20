@@ -67,8 +67,9 @@ def test_simplified_points_are_a_subsequence_within_tolerance(pts, tol):
     # a subsequence: each kept point matched in order, duplicates and all
     idx, k = [], 0
     for p in out:
-        while tuple(pts[k]) != p:
+        while k < len(pts) and tuple(pts[k]) != p:
             k += 1
+        assert k < len(pts), f'{p} is not a point of the input, in order'
         idx.append(k)
         k += 1
     a = np.array(pts, dtype=float)
