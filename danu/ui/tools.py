@@ -35,6 +35,8 @@ from .mapview import MapView, visible_rect
 SNAP_PX = 10.0                  # a node this close is the one meant
 PICK_PX = 8.0                   # a way this close is the one meant
 DRAG_PX = 3.0                   # a press that moves less is a click
+FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
+SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within this of itself on release
 
 
 @dataclass
@@ -66,6 +68,9 @@ class EditController(QObject):
         self.cursor: tuple[float, float] | None = None           # scene
         self.snap: tuple[Square, int, float, float] | None = None  # square, node, x, y
         self.crossing: list = []
+        # a fast draw: the button held and dragged
+        self._stroke: list[tuple[float, float]] | None = None
+        self._press_added = False            # the press put a node down that a dropped stroke should take back
         # dragging a node
         self._press: QPointF | None = None
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
@@ -136,7 +141,10 @@ class EditController(QObject):
             return False
         if self.tool == 'draw':
             if event.button() == Qt.MouseButton.LeftButton:
-                self._draw_click(pos)
+                added = self._draw_click(pos)
+                # if the button stays down and travels, the rest is a stroke
+                self._stroke = [(pos.x(), pos.y())] if (self.drawing or self.pending) else None
+                self._press_added = added
                 return True
             if event.button() == Qt.MouseButton.RightButton:
                 self._stop_drawing()
@@ -150,6 +158,7 @@ class EditController(QObject):
             way = self._way_holding(square, nid)
             if way is not None:
                 self.selection = Selection(square, way, nid)
+                self.elevation.pick_up(way.ele)          # selecting is picking up, as space does
                 n = square.nodes[nid]
                 self._drag = (square, nid, (n.lon, n.lat))
                 self._press = pos
@@ -159,6 +168,7 @@ class EditController(QObject):
         hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
         if hit is not None:
             self.selection = Selection(hit[0], hit[1])
+            self.elevation.pick_up(hit[1].ele)
             self.overlay.update()
             return True
         if self.selection is not None:
@@ -171,6 +181,10 @@ class EditController(QObject):
         if self.working_set is None:
             return False
         if self.tool == 'draw':
+            if self._stroke is not None and event.buttons() & Qt.MouseButton.LeftButton:
+                last = self._stroke[-1]
+                if abs(pos.x() - last[0]) + abs(pos.y() - last[1]) >= self._px(FAST_PX):
+                    self._stroke.append((pos.x(), pos.y()))
             self._update_snap(pos)
             self._update_crossing()
             self.overlay.update()
@@ -189,6 +203,11 @@ class EditController(QObject):
         return False
 
     def mouse_release(self, event, pos: QPointF) -> bool:
+        if self._stroke is not None:
+            stroke, self._stroke = self._stroke, None
+            if len(stroke) > 1:
+                self._fast_draw(stroke)
+                return True
         if self._drag is None:
             return False
         square, nid, before = self._drag
@@ -252,12 +271,15 @@ class EditController(QObject):
         return False
 
     # ------------------------------------------------------------- draw
-    def _draw_click(self, pos: QPointF):
+    def _draw_click(self, pos: QPointF) -> bool:
+        """One click of the draw tool. True when it put a command on the
+        history - a node added or a way begun - so a stroke that is dropped
+        can take the press's node back with it."""
         self._update_snap(pos)
         self._update_crossing()
         if self.crossing:
             self.message.emit('not drawn: ' + self._describe_crossing(self.crossing))
-            return
+            return False
         x, y = self._point(pos)
         lon, lat = m.scene_to_lonlat(x, y)
         ele = self.elevation.value
@@ -270,16 +292,16 @@ class EditController(QObject):
                 self.drawing = (square, way.id, at_end)
                 self.message.emit(f'continuing the {format_ele(ele)} m contour; right click or Enter ends it')
                 self.overlay.update()
-                return
+                return False
             square = self.working_set.at(lon, lat)
             if square is None:
                 self.message.emit('outside the working set')
-                return
+                return False
             node = self.snap[1] if self.snap and self.snap[0] is square else None
             self.pending = (square, node, (lon, lat))
             self.message.emit(f'drawing at {format_ele(ele)} m in {square.name}')
             self.overlay.update()
-            return
+            return False
         if self.pending is not None:
             square, first, first_coord = self.pending
             alloc = self.history.alloc(square)
@@ -301,22 +323,68 @@ class EditController(QObject):
             self.drawing = (square, wid, True)
             self.do(square, cmd)
             self.overlay.update()
-            return
+            return True
         square, wid, at_end = self.drawing
         node = self.snap[1] if self.snap and self.snap[0] is square else None
         way = square.ways[wid]
         if node is not None and node in way.refs and node != way.refs[0 if at_end else -1]:
             # onto its own node other than the far end: a loop, refused
             self.message.emit('a contour may not cross itself')
-            return
+            return False
         if node is not None:
             self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
             if way.closed:
                 self.message.emit(f'closed the {format_ele(ele)} m contour')
                 self._stop_drawing()
-                return
+                return True
         else:
             self.do(square, edits.ExtendWay(wid, at_end, self.history.alloc(square).take(), (lon, lat)))
+        self.overlay.update()
+        return True
+
+    def _fast_draw(self, stroke: list[tuple[float, float]]):
+        """The button was held and dragged: the stroke, simplified to what
+        a mapper would have clicked, goes on as one step. The press already
+        put its first point down, so the stroke continues from there. A
+        stroke that crosses anything is dropped whole and said so."""
+        from ..core.geometry import simplify
+        pts = simplify(stroke, self._px(SIMPLIFY_PX))[1:]     # the first is the press, already down
+        if not pts:
+            return
+        ele, tag = self.elevation.value, self.elevation.model.tag
+        anchor = self._anchor()
+        if anchor is None:
+            return
+        for p in pts:
+            found = self.layer.crossings(anchor, p, ele)
+            if found:
+                if self._press_added:
+                    # the press's node was the start of this stroke; it goes with it
+                    self.undo()
+                self.message.emit('stroke not drawn: ' + self._describe_crossing(found))
+                return
+            anchor = p
+        coords = [m.scene_to_lonlat(x, y) for x, y in pts]
+        cmds: list[edits.Command] = []
+        if self.pending is not None:
+            square, first, first_coord = self.pending
+            alloc = self.history.alloc(square)
+            wid = alloc.take()
+            if first is None:                     # the press was a fresh point: it leads the way
+                all_coords = [first_coord, *coords]
+                cmds.append(edits.AddWay(wid, [alloc.take() for _ in all_coords], all_coords, {'ele': tag}))
+            else:                                 # the press snapped onto a node: shared, at the start
+                cmds.append(edits.AddWay(wid, [alloc.take() for _ in coords], coords, {'ele': tag}))
+                cmds.append(edits.ExtendWayWithExisting(wid, False, first))
+            self.pending = None
+            self.drawing = (square, wid, True)
+        else:
+            square, wid, at_end = self.drawing
+            alloc = self.history.alloc(square)
+            for c in coords:
+                cmds.append(edits.ExtendWay(wid, at_end, alloc.take(), c))
+        self.do(square, edits.Compound(cmds, f'draw {len(pts)} nodes at {tag} m') if len(cmds) > 1 else cmds[0])
+        self.message.emit(f'{len(pts)} nodes from a stroke of {len(stroke)}, at {tag} m')
         self.overlay.update()
 
     def _continuable(self, ele: float) -> tuple[Square, Way, bool] | None:
@@ -470,7 +538,15 @@ class EditOverlay(QGraphicsItem):
             return
         anchor = ctl._anchor()
         target = (ctl.snap[2], ctl.snap[3]) if ctl.snap else ctl.cursor
-        if anchor is not None and target is not None:
+        if ctl._stroke is not None and len(ctl._stroke) > 1:
+            # a fast draw in progress: the mouse's own path, as it will be laid
+            pen = QPen(QColor(30, 30, 30), 1.5); pen.setCosmetic(True)
+            painter.setPen(pen)
+            path = QPainterPath(QPointF(*ctl._stroke[0]))
+            for p in ctl._stroke[1:]:
+                path.lineTo(*p)
+            painter.drawPath(path)
+        elif anchor is not None and target is not None:
             colour = QColor(200, 0, 0) if ctl.crossing else QColor(30, 30, 30)
             pen = QPen(colour, 1.5, Qt.PenStyle.DashLine); pen.setCosmetic(True)
             painter.setPen(pen)

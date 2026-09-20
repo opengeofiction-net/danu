@@ -51,17 +51,15 @@ class _Signals(QObject):
 
 
 class _Job(QRunnable):
-    def __init__(self, ws: WorkingSet, params: Params, work: Path, signals: _Signals):
+    def __init__(self, zone_dir: Path, names: list, params: Params, work: Path, signals: _Signals):
         super().__init__()
-        self.ws, self.params, self.work, self.signals = ws, params, work, signals
+        self.zone_dir, self.names, self.params, self.work, self.signals = zone_dir, names, params, work, signals
 
     def run(self):
         try:
             # here and not at import: building needs GDAL, looking does not
             from ..surface import build
-            zone_dir = next(iter(self.ws.present())).path.parent
-            names = [s.name for s in self.ws.present()]
-            result = build.build_dem(zone_dir, self.work, self.params, names=names)
+            result = build.build_dem(self.zone_dir, self.work, self.params, names=self.names)
             if result.dem is None:
                 self.signals.failed.emit('nothing to build: no square in the set holds a contour')
                 return
@@ -90,15 +88,21 @@ class SurfaceBuilder(QObject):
         self._signals = None
         self.work = Path(tempfile.mkdtemp(prefix='danu-surface-'))
 
-    def build(self, ws: WorkingSet, params: Params) -> bool:
+    def build(self, ws: WorkingSet, params: Params, dirty=()) -> bool:
+        """Build what is drawn, saved or not: the set is staged from memory
+        on this thread - the worker must not read squares the tools are
+        editing - and the worker reads the staged zone."""
         if self.busy:
             return False
+        from ..core.save import stage_zone
+        zone_dir = stage_zone(ws.squares.values(), dirty, self.work / 'zone')
+        names = [sq.name for sq in ws.squares.values() if sq.present or sq.ways]
         self.busy = True
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
         self._signals = sig
-        QThreadPool.globalInstance().start(_Job(ws, params, self.work, sig))
+        QThreadPool.globalInstance().start(_Job(zone_dir, names, params, self.work, sig))
         return True
 
     def _done(self, shaded):

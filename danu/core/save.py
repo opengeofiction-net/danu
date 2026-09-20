@@ -28,6 +28,7 @@ from . import edits, ladder as L
 from .square import Square, SquareName, write_square
 
 FRAME_NOTE = 'square frame - do not edit'
+STAGE_MARKER = '.danu-stage'
 
 
 def default_path(zone_dir: str | os.PathLike, name: SquareName) -> Path:
@@ -93,6 +94,44 @@ class SaveReport:
             parts.append('advice: ' + '; '.join(a.describe() for a in self.advice[:3])
                          + (f' and {len(self.advice) - 3} more' if len(self.advice) > 3 else ''))
         return ', '.join(parts)
+
+
+def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
+    """A zone directory for the build to read that holds the squares as they
+    are in memory, not as they are on disk: a square with unsaved edits, or
+    one drawn from blank with no file yet, is written there; a clean square
+    is a symlink to its file. What the surface shows is then what is drawn,
+    saved or not - the editor's ground rule.
+
+    Written as ``.osm.xz`` because the pipeline reads nothing else - it
+    refuses a bare ``.osm`` and decompresses as it goes - but at the fastest
+    preset: this copy lives for one build."""
+    into = Path(into)
+    marker = into / STAGE_MARKER
+    if into.exists():
+        # only a directory this function made is emptied: the marker says so,
+        # and nothing but files and links is touched even then
+        if any(into.iterdir()) and not marker.exists():
+            raise FileExistsError(f'{into} is not a staging directory and is not empty')
+        for p in into.iterdir():
+            if p.is_symlink() or p.is_file():
+                p.unlink()
+            else:
+                raise FileExistsError(f'{p} in the staging directory is not a file')
+    into.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    dirty_ids = {id(sq) for sq in dirty}
+    for sq in squares:
+        if not sq.present and not sq.ways:
+            continue
+        # always under the square's own name, so the names the build is given
+        # and the files it finds cannot disagree
+        target = into / f'{sq.name.name}.osm.xz'
+        if id(sq) in dirty_ids or sq.path is None:
+            write_square(sq, target, preset=0)
+        else:
+            target.symlink_to(sq.path.resolve())
+    return into
 
 
 def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
