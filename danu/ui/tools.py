@@ -528,7 +528,15 @@ class EditOverlay(QGraphicsItem):
             return
         anchor = ctl._anchor()
         target = (ctl.snap[2], ctl.snap[3]) if ctl.snap else ctl.cursor
-        if anchor is not None and target is not None:
+        if ctl._stroke is not None and len(ctl._stroke) > 1:
+            # a fast draw in progress: the mouse's own path, as it will be laid
+            pen = QPen(QColor(30, 30, 30), 1.5); pen.setCosmetic(True)
+            painter.setPen(pen)
+            path = QPainterPath(QPointF(*ctl._stroke[0]))
+            for p in ctl._stroke[1:]:
+                path.lineTo(*p)
+            painter.drawPath(path)
+        elif anchor is not None and target is not None:
             colour = QColor(200, 0, 0) if ctl.crossing else QColor(30, 30, 30)
             pen = QPen(colour, 1.5, Qt.PenStyle.DashLine); pen.setCosmetic(True)
             painter.setPen(pen)

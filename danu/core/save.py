@@ -98,9 +98,13 @@ class SaveReport:
 def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
     """A zone directory for the build to read that holds the squares as they
     are in memory, not as they are on disk: a square with unsaved edits, or
-    one drawn from blank with no file yet, is written there uncompressed;
-    a clean square is a symlink to its file. What the surface shows is then
-    what is drawn, saved or not - the editor's ground rule."""
+    one drawn from blank with no file yet, is written there; a clean square
+    is a symlink to its file. What the surface shows is then what is drawn,
+    saved or not - the editor's ground rule.
+
+    Written as ``.osm.xz`` because the pipeline reads nothing else - it
+    refuses a bare ``.osm`` and decompresses as it goes - but at the fastest
+    preset: this copy lives for one build."""
     into = Path(into)
     if into.exists():
         for p in into.iterdir():
@@ -111,7 +115,7 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
         if not sq.present and not sq.ways:
             continue
         if id(sq) in dirty_ids or sq.path is None:
-            write_square(sq, into / f'{sq.name.name}.osm')
+            write_square(sq, into / f'{sq.name.name}.osm.xz', preset=0)
         else:
             (into / sq.path.name).symlink_to(sq.path.resolve())
     return into

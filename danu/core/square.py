@@ -353,7 +353,7 @@ class WorkingSet:
 
 # ----------------------------------------------------------------- write
 
-def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu') -> Path:
+def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu', preset: int = 6) -> Path:
     """Write a square as JOSM writes one: ``upload='never'`` and the other
     root attributes it was read with, every node and way ``action='modify'``,
     ids as they are, coordinates as the shortest text that reads back to the
@@ -407,7 +407,7 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     os.close(fd)
     try:
         if path.suffix == '.xz':
-            with lzma.open(tmp, 'wt', encoding='utf-8', preset=6) as f:
+            with lzma.open(tmp, 'wt', encoding='utf-8', preset=preset) as f:
                 f.write(text)
         else:
             Path(tmp).write_text(text, encoding='utf-8')
