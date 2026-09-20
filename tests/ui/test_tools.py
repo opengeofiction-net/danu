@@ -329,8 +329,8 @@ def test_a_held_button_draws_a_stroke_simplified_on_release_as_one_step(w):
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos2 + QPoint(-60, 60), buttons=Qt.MouseButton.NoButton))
     assert len(way.refs) == n_before + 1, w.statusBar().currentMessage()   # a straight stroke is one node
     # a plain click is still a click
-    click(w, 126.6, -23.65)                                  # clear of the 40 m line at -23.6
-    assert len(way.refs) == n_before + 2
+    click(w, 126.4, -23.76)                                  # between the 20 m and 30 m lines, nothing to cross
+    assert len(way.refs) == n_before + 2, w.statusBar().currentMessage()
 
 
 def test_a_stroke_that_crosses_a_contour_is_dropped_whole(w):
