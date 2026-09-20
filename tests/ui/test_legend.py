@@ -47,7 +47,8 @@ def test_the_legend_spans_the_land_sits_at_the_right_edge_and_is_painted(parts):
     assert (lo, hi) == (float(land.min()), float(land.max()))
     r = legend.bar_rect()
     vp = view.viewport().rect()
-    assert legend.visible and vp.right() - 110 < r.right() < vp.right()
+    assert legend.visible and vp.right() - 3 <= r.right() <= vp.right()             # against the map's edge
+    assert legend.rect().left() < r.left()                                          # the labels are on the map side
     assert legend.value_at(r.top()) == pytest.approx(hi) and legend.value_at(r.bottom()) == pytest.approx(lo)
     assert legend.y_for(legend.value_at(r.top() + 30)) == r.top() + 30
     img = render(view)
@@ -71,14 +72,14 @@ def test_pressing_and_dragging_sets_the_centre_and_switches_to_pinch(parts):
     assert panel.scaling.currentText() == 'pinch' and panel.centre.value() == want
     assert layer.style.scaling.mode == 'pinch' and layer.style.scaling.centre == want and fired[-1][0] == want
     y2 = r.top() + r.height() // 2
-    assert legend.move(QPoint(r.center().x() + 30, y2), Qt.MouseButton.LeftButton)     # wandered sideways: still a drag
+    assert legend.move(QPoint(r.center().x() - 30, y2), Qt.MouseButton.LeftButton)     # wandered onto the map: still a drag
     assert layer.style.scaling.centre == round(legend.value_at(y2), 1)
     assert not legend.press(QPoint(5, 5), Qt.MouseButton.LeftButton)                  # off the bar: not ours
     assert not legend.move(QPoint(r.center().x(), y2), Qt.MouseButton.NoButton)       # no button: not a drag
     # the marker is painted where the centre is
     img = render(view)
     yc = legend.y_for(layer.style.scaling.centre)
-    assert any(QColor(img.pixel(r.right() + 5, yc + dy)).red() > 150 for dy in range(-2, 3))
+    assert any(QColor(img.pixel(r.left() - 6, yc + dy)).red() > 150 for dy in range(-2, 3))   # the marker, on the left
 
 
 def test_the_wheel_over_the_bar_sets_the_width_and_never_below_a_metre(parts):

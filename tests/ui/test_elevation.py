@@ -111,6 +111,12 @@ def test_the_wheel_steps_the_elevation_and_alt_the_surface_opacity(window):
     before = w.surface_panel.opacity.value()
     w.map.wheelEvent(wheel(w, -120, Qt.KeyboardModifier.AltModifier))
     assert w.surface_panel.opacity.value() == before - 5
+    # with alt held, X11 and Wayland deliver the wheel as a horizontal delta
+    pos = QPointF(w.map.viewport().rect().center())
+    sideways = QWheelEvent(pos, w.map.viewport().mapToGlobal(pos.toPoint()), QPoint(), QPoint(-120, 0),
+                           Qt.MouseButton.NoButton, Qt.KeyboardModifier.AltModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    w.map.wheelEvent(sideways)
+    assert w.surface_panel.opacity.value() == before - 10
     w.map.wheelEvent(wheel(w, 120, Qt.KeyboardModifier.ControlModifier))
     assert w.map.zoom == z + 1
 

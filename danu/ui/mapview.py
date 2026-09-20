@@ -186,7 +186,10 @@ class MapView(QGraphicsView):
         self.translate(residual.x(), residual.y())
 
     def wheelEvent(self, event):
-        delta = event.angleDelta().y()
+        # with alt held, Qt on X11 and Wayland reports the wheel as a horizontal
+        # delta, so the y alone read as no movement and alt-wheel did nothing
+        d = event.angleDelta()
+        delta = d.y() or d.x()
         if delta == 0:
             return
         if any(h.wheel(event.position().toPoint(), delta) for h in self.hud):

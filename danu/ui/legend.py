@@ -28,8 +28,8 @@ from ..surface import shade
 from .surface import RAMPS, SurfaceLayer, SurfacePanel
 
 WIDTH = 22                 # the bar
-GUTTER = 64                # room for the labels beside it
-MARGIN = 12
+GUTTER = 64                # room for the labels, on the map side of the bar
+MARGIN = 2                 # from the view's right edge
 WHEEL_FACTOR = 1.25        # a notch of the wheel: the window a quarter wider or narrower
 MIN_WIDTH = 1.0
 
@@ -53,14 +53,15 @@ class Legend(QObject):
         return self.land is not None and self.layer.style.mode != 'hillshade'
 
     def rect(self) -> QRect:
-        """Where it sits, in viewport pixels: the right edge, centred."""
+        """Where it sits, in viewport pixels: against the right edge, centred,
+        the labels on the map side of the bar."""
         vp = self.view.viewport().rect()
         h = max(120, int(vp.height() * 0.55))
-        return QRect(vp.right() - GUTTER - WIDTH - MARGIN, vp.top() + (vp.height() - h) // 2, WIDTH + GUTTER, h)
+        return QRect(vp.right() - GUTTER - WIDTH - MARGIN + 1, vp.top() + (vp.height() - h) // 2, WIDTH + GUTTER, h)
 
     def bar_rect(self) -> QRect:
         r = self.rect()
-        return QRect(r.left(), r.top() + 8, WIDTH, r.height() - 16)
+        return QRect(r.right() - WIDTH + 1, r.top() + 8, WIDTH, r.height() - 16)
 
     def contains(self, pos: QPoint) -> bool:
         return self.visible and self.rect().contains(pos)
@@ -129,7 +130,7 @@ class Legend(QObject):
     def _dragging(self, pos: QPoint) -> bool:
         # a drag that began on the bar may wander off it sideways; only the row matters
         r = self.rect()
-        return r.left() - 40 <= pos.x() <= r.right() + 40
+        return r.left() - 40 <= pos.x() <= r.right()
 
     def wheel(self, pos: QPoint, delta: int) -> bool:
         if not self.contains(pos) or not delta:
@@ -160,9 +161,10 @@ class Legend(QObject):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(r.adjusted(0, 0, -1, -1))
         font = QFont(); font.setPointSize(8); p.setFont(font)
-        x = r.right() + 5
-        p.drawText(x, r.top() + 8, f'{format_ele(hi)} m')
-        p.drawText(x, r.bottom(), f'{format_ele(lo)} m')
+        labels = QRect(self.rect().left(), r.top(), GUTTER - 5, r.height())      # left of the bar, right-aligned
+        right = int(Qt.AlignmentFlag.AlignRight)
+        p.drawText(QRect(labels.left(), r.top() - 2, labels.width(), 14), right, f'{format_ele(hi)} m')
+        p.drawText(QRect(labels.left(), r.bottom() - 11, labels.width(), 14), right, f'{format_ele(lo)} m')
         if style.scaling.mode == 'pinch':
             s = style.scaling
             y0, y1 = self.y_for(s.centre + s.width / 2), self.y_for(s.centre - s.width / 2)
@@ -171,7 +173,7 @@ class Legend(QObject):
             p.setPen(QPen(red, 2))
             p.drawRect(QRect(r.left() - 2, y0 - 1, r.width() + 3, max(3, y1 - y0 + 2)))
             p.setBrush(red); p.setPen(Qt.PenStyle.NoPen)
-            p.drawPolygon([QPoint(r.right() + 2, yc), QPoint(r.right() + 9, yc - 5), QPoint(r.right() + 9, yc + 5)])
+            p.drawPolygon([QPoint(r.left() - 3, yc), QPoint(r.left() - 10, yc - 5), QPoint(r.left() - 10, yc + 5)])
             p.setPen(QPen(red, 1))
-            p.drawText(x + 7, yc + 4, f'{format_ele(s.centre)} ±{format_ele(s.width / 2)}')
+            p.drawText(QRect(labels.left(), yc - 7, labels.width() - 8, 14), right, f'{format_ele(s.centre)} ±{format_ele(s.width / 2)}')
         p.restore()
