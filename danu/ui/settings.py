@@ -31,6 +31,7 @@ DEFAULT_KEYS = {
     'edit.delete': 'Delete',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
+    'surface.pinch': 'P',
 }
 
 

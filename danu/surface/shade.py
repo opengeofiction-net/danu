@@ -175,11 +175,11 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
 @dataclass(frozen=True)
 class Scaling:
     """R11: how a ramp is laid over the elevations. ``auto`` stretches the
-    ramp over the land in view; ``manual`` over lo..hi; ``pitch`` over a
+    ramp over the land in view; ``manual`` over lo..hi; ``pinch`` over a
     window of ``width`` metres about ``centre``, so local relief reads on
     ground that is otherwise all one colour. The hypsometric ramp ignores all
     of this: its colours mean metres."""
-    mode: str = 'auto'          # 'auto' | 'manual' | 'pitch'
+    mode: str = 'auto'          # 'auto' | 'manual' | 'pinch'
     lo: float = 0.0
     hi: float = 1000.0
     centre: float = 100.0
@@ -188,13 +188,25 @@ class Scaling:
     def range_for(self, dem: np.ndarray) -> tuple[float, float]:
         if self.mode == 'manual':
             return (self.lo, self.hi) if self.hi > self.lo else (self.lo, self.lo + 1.0)
-        if self.mode == 'pitch':
+        if self.mode == 'pinch':
             return self.centre - self.width / 2.0, self.centre + self.width / 2.0
         land = dem[dem > 0]
         if land.size == 0:
             return 0.0, 1.0
         lo, hi = float(land.min()), float(land.max())
         return (lo, hi) if hi > lo else (lo, lo + 1.0)
+
+
+def ramp_rgba(ramp: Ramp, values: np.ndarray, scaling: Scaling, land: tuple[float, float]) -> np.ndarray:
+    """Colours for elevations through a scaling, exactly as compose() lays
+    them on the DEM: the ramp stretched over the scaling's range, which for
+    ``auto`` is the land's. The legend draws itself with this so it cannot
+    show one thing and the map another."""
+    if scaling.mode == 'auto':
+        lo, hi = land if land[1] > land[0] else (land[0], land[0] + 1.0)
+    else:
+        lo, hi = scaling.range_for(np.zeros(0))
+    return ramp.rescaled(lo, hi).rgba(np.asarray(values, dtype=float))
 
 
 def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'shaded relief',

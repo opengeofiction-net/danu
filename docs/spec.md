@@ -71,9 +71,12 @@ the tools for everything else.
   with its own opacity.
 - **R10** Two ramps: traditional elevation (green - brown - white) and spectral
   (blue - green - yellow - orange - red).
-- **R11** Ramp scaling: autoscale to the working set, manual min/max, and *pitch
-  highlighting* - narrow the ramp to a window around a chosen elevation so local
-  relief reads clearly on ground that is otherwise all one colour.
+- **R11** Ramp scaling: autoscale to the working set, manual min/max, and *pinch*
+  - narrow the ramp to a window around a chosen elevation so local relief reads
+  clearly on ground that is otherwise all one colour. The colour scale on the
+  map is the legend and the control: drag its marker to set the centre, wheel
+  over it for the width, right click or a key to centre it on the active
+  elevation. (Called *pitch* until the phase 3 review, which had no idea why.)
 - **R12** Contours drawn over everything, coloured by elevation, labelled.
 
 ### Drawing

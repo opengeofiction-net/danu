@@ -137,6 +137,9 @@ class MapView(QGraphicsView):
         # the editing tool, if any, sees mouse and key events first and says
         # whether it took them; panning and the cursor report carry on either way
         self.tool = None
+        # heads-up items - the legend - painted over everything in viewport
+        # pixels, and asked about mouse events before the tool
+        self.hud: list = []
         self._apply_zoom()
 
     # ------------------------------------------------------------- zoom
@@ -186,6 +189,9 @@ class MapView(QGraphicsView):
         delta = event.angleDelta().y()
         if delta == 0:
             return
+        if any(h.wheel(event.position().toPoint(), delta) for h in self.hud):
+            event.accept()
+            return
         mods = event.modifiers()
         if mods & Qt.KeyboardModifier.ControlModifier:
             self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
@@ -216,10 +222,22 @@ class MapView(QGraphicsView):
     def visible_scene_rect(self) -> QRectF:
         return self.mapToScene(self.viewport().rect()).boundingRect()
 
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        if self.hud:
+            painter.save()
+            painter.resetTransform()
+            for h in self.hud:
+                h.paint(painter)
+            painter.restore()
+
     def mouseMoveEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         self.cursorMoved.emit(lon, lat)
+        if any(h.move(event.position().toPoint(), event.buttons()) for h in self.hud):
+            event.accept()
+            return
         if self.tool is not None and self.tool.mouse_move(event, p):
             event.accept()
             return
@@ -227,6 +245,9 @@ class MapView(QGraphicsView):
 
     def mousePressEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
+        if any(h.press(event.position().toPoint(), event.button()) for h in self.hud):
+            event.accept()
+            return
         if self.tool is not None and self.tool.mouse_press(event, p):
             event.accept()
             return
