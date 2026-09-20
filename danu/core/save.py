@@ -95,6 +95,28 @@ class SaveReport:
         return ', '.join(parts)
 
 
+def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
+    """A zone directory for the build to read that holds the squares as they
+    are in memory, not as they are on disk: a square with unsaved edits, or
+    one drawn from blank with no file yet, is written there uncompressed;
+    a clean square is a symlink to its file. What the surface shows is then
+    what is drawn, saved or not - the editor's ground rule."""
+    into = Path(into)
+    if into.exists():
+        for p in into.iterdir():
+            p.unlink()
+    into.mkdir(parents=True, exist_ok=True)
+    dirty_ids = {id(sq) for sq in dirty}
+    for sq in squares:
+        if not sq.present and not sq.ways:
+            continue
+        if id(sq) in dirty_ids or sq.path is None:
+            write_square(sq, into / f'{sq.name.name}.osm')
+        else:
+            (into / sq.path.name).symlink_to(sq.path.resolve())
+    return into
+
+
 def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
                 ladder: L.Ladder | None = None) -> SaveReport:
     """Frame if new, split if needed, write, mark clean. ``path`` defaults

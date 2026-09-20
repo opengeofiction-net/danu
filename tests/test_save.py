@@ -104,3 +104,29 @@ def test_off_ladder_advice_comes_back_with_the_save(tmp_path):
     assert [a.value for a in report.advice] == [135] and '135 m used once' in report.describe()
     report = save.save_square(sq, hist)                   # ladder inferred when none is given
     assert [a.value for a in report.advice] == [135]
+
+
+def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_path):
+    from danu.core.square import list_squares
+    clean = Square(name=SquareName(10, 10), present=True, path=tmp_path / 'N10E010_Clean.osm.xz')
+    hist = edits.SetUndoStack()
+    a = hist.alloc(clean)
+    hist.do(clean, edits.AddWay(a.take(), [a.take(), a.take()], [(10.1, 10.5), (10.2, 10.5)], {'ele': '100'}))
+    save.save_square(clean, hist)                                   # on disk, clean
+    edited = Square(name=SquareName(11, 10), present=True, path=tmp_path / 'N10E011.osm.xz')
+    b = hist.alloc(edited)
+    hist.do(edited, edits.AddWay(b.take(), [b.take(), b.take()], [(11.1, 10.5), (11.2, 10.5)], {'ele': '200'}))
+    save.save_square(edited, hist)
+    hist.do(edited, edits.AddWay(b.take(), [b.take(), b.take()], [(11.1, 10.6), (11.2, 10.6)], {'ele': '250'}))   # unsaved
+    blank, _ = drawn_from_blank(1)                                  # never had a file
+    absent = Square(name=SquareName(12, 10))                        # nothing there at all
+    stage = save.stage_zone([clean, edited, blank, absent], hist.dirty_squares(), tmp_path / 'stage')
+    files = list_squares(stage)
+    assert set(files) == {clean.name, edited.name, blank.name}
+    assert files[clean.name].is_symlink() and files[clean.name].resolve() == clean.path.resolve()
+    assert not files[edited.name].is_symlink() and read_square(files[edited.name]).elevations() == [200, 250]
+    assert read_square(files[blank.name]).elevations() == [101]
+    assert read_square(edited.path).elevations() == [200]           # the file on disk untouched
+    # staged again, the old contents go
+    save.stage_zone([clean], [], tmp_path / 'stage')
+    assert set(list_squares(stage)) == {clean.name}

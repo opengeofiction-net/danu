@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
             return False
         if arcsec is not None:
             p = p.with_arcsec(arcsec)
-        if not self.builder.build(self.working_set, p):
+        if not self.builder.build(self.working_set, p, self.editor.history.dirty_squares()):
             self.statusBar().showMessage('a surface is still building')
             return False
         self._surface_started = time.monotonic()

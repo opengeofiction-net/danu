@@ -283,3 +283,66 @@ def test_the_layer_follows_the_edits(w):
     assert 10.0 not in w.contours.paths and w.contours.pick(x, y, 1.0) is None     # nothing left within a unit
     w.editor.undo()
     assert 10.0 in w.contours.paths and w.contours.pick(x, y, 1.0)[1] is ten
+
+
+# ------------------------------------------------------------- E7 review
+
+def test_selecting_a_contour_picks_up_its_elevation(w):
+    square = w.working_set.squares[TEN]
+    (thirty,) = ways_at(square, 30)
+    w.elevation.set(777)
+    click(w, 126.5, -23.7)                                   # the 30 m line, mid-way
+    assert w.editor.selection.way is thirty and w.elevation.value == 30
+    w.elevation.set(777)
+    n = square.nodes[thirty.refs[0]]
+    click(w, n.lon, n.lat)                                   # one of its nodes
+    assert w.editor.selection.node == thirty.refs[0] and w.elevation.value == 30
+
+
+def test_a_held_button_draws_a_stroke_simplified_on_release_as_one_step(w):
+    square = w.working_set.squares[TEN]
+    w.elevation.set(66)
+    w.editor.set_tool('draw')
+    pos = at(w, 126.3, -23.75)
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    # a stroke: east 200 px in 2 px steps with a wobble, then a sharp turn south 100 px
+    path = [QPoint(pos.x() + i, pos.y() + (1 if i % 4 == 0 else 0)) for i in range(0, 201, 2)]
+    path += [QPoint(pos.x() + 200, pos.y() + j) for j in range(0, 101, 2)]
+    for p in path:
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, path[-1], buttons=Qt.MouseButton.NoButton))
+    (way,) = ways_at(square, 66)
+    assert 3 <= len(way.refs) <= 6, len(way.refs)            # the press, the corner, the end - and little else
+    xs = [w.map.mapFromScene(QPointF(*m.lonlat_to_scene(square.nodes[r].lon, square.nodes[r].lat))).x() for r in way.refs]
+    assert xs[0] == pytest.approx(pos.x(), abs=2) and xs[-1] == pytest.approx(pos.x() + 200, abs=2)
+    assert w.editor.drawing == (square, way.id, True) and 'from a stroke' in w.statusBar().currentMessage()
+    w.editor.undo()
+    assert not ways_at(square, 66)                           # one step
+    w.editor.redo()
+    (way,) = ways_at(square, 66)                             # redo makes a fresh Way object
+    # continuing with another stroke from the end
+    pos2 = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(square.nodes[way.refs[-1]].lon, square.nodes[way.refs[-1]].lat)))
+    n_before = len(way.refs)
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos2))
+    for j in range(0, 61, 3):
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos2 + QPoint(-j, j), Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos2 + QPoint(-60, 60), buttons=Qt.MouseButton.NoButton))
+    assert len(way.refs) == n_before + 1, w.statusBar().currentMessage()   # a straight stroke is one node
+    # a plain click is still a click
+    click(w, 126.6, -23.65)                                  # clear of the 40 m line at -23.6
+    assert len(way.refs) == n_before + 2
+
+
+def test_a_stroke_that_crosses_a_contour_is_dropped_whole(w):
+    square = w.working_set.squares[TEN]
+    w.elevation.set(15)
+    w.editor.set_tool('draw')
+    pos = at(w, 126.3, -23.78)                               # north of the 20 m line
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(126.3, -23.83)))    # south of it
+    for f in range(1, 21):
+        p = pos + (target - pos) * f / 20
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
+    assert not ways_at(square, 15) and w.statusBar().currentMessage().startswith('stroke not drawn')
+    assert w.editor.pending is not None                      # the press stands; the mapper can go another way

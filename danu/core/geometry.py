@@ -61,6 +61,38 @@ def touches(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         on(p[None, :], q[None, :], a, d3) | on(p[None, :], q[None, :], b, d4)
 
 
+def simplify(points: list[tuple[float, float]], tolerance: float) -> list[tuple[float, float]]:
+    """Douglas-Peucker: the fewest of the points whose polyline stays within
+    the tolerance of the original. Ends are always kept. A fast-drawn stroke
+    arrives as a point per few pixels of mouse travel and leaves as the
+    handful a mapper would have clicked."""
+    if len(points) <= 2:
+        return list(points)
+    pts = np.asarray(points, dtype=float)
+    keep = np.zeros(len(pts), dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, b = pts[i], pts[j]
+        d = b - a
+        length2 = float(d @ d)
+        seg = pts[i + 1:j]
+        if length2 == 0:
+            dist = np.hypot(*(seg - a).T)
+        else:
+            t = np.clip(((seg - a) @ d) / length2, 0.0, 1.0)
+            dist = np.hypot(*(seg - (a + t[:, None] * d)).T)
+        k = int(dist.argmax())
+        if dist[k] > tolerance:
+            keep[i + 1 + k] = True
+            stack.append((i, i + 1 + k))
+            stack.append((i + 1 + k, j))
+    return [tuple(p) for p in pts[keep]]
+
+
 def nearest_point_on_segments(pt, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """For one point and many segments: the parameter t along each and the
     distance to the nearest point of each."""
