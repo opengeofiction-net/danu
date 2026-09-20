@@ -206,8 +206,9 @@ class SurfacePanel(QDockWidget):
         self.scaling.addItems(['auto', 'manual', 'pinch'])
         self.lo = QDoubleSpinBox(); self.lo.setRange(-500, 9000); self.lo.setValue(0)
         self.hi = QDoubleSpinBox(); self.hi.setRange(-500, 9000); self.hi.setValue(1000)
-        self.centre = QDoubleSpinBox(); self.centre.setRange(-500, 9000); self.centre.setValue(100)
-        self.width = QDoubleSpinBox(); self.width.setRange(1, 5000); self.width.setValue(50)
+        # the planet's range and then some: a legend drag must never be clamped here
+        self.centre = QDoubleSpinBox(); self.centre.setRange(-12000, 12000); self.centre.setValue(100)
+        self.width = QDoubleSpinBox(); self.width.setRange(1, 24000); self.width.setValue(50)
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(0, 100); self.opacity.setValue(85)
         self.show_unreached = QCheckBox('Ground the contours do not describe')
         self.show_unreached.setChecked(True)

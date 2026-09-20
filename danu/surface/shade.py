@@ -197,15 +197,13 @@ class Scaling:
         return (lo, hi) if hi > lo else (lo, lo + 1.0)
 
 
-def ramp_rgba(ramp: Ramp, values: np.ndarray, scaling: Scaling, land: tuple[float, float]) -> np.ndarray:
+def ramp_rgba(ramp: Ramp, values: np.ndarray, scaling: Scaling, dem: np.ndarray) -> np.ndarray:
     """Colours for elevations through a scaling, exactly as compose() lays
-    them on the DEM: the ramp stretched over the scaling's range, which for
-    ``auto`` is the land's. The legend draws itself with this so it cannot
-    show one thing and the map another."""
-    if scaling.mode == 'auto':
-        lo, hi = land if land[1] > land[0] else (land[0], land[0] + 1.0)
-    else:
-        lo, hi = scaling.range_for(np.zeros(0))
+    them on the DEM: the ramp stretched over ``scaling.range_for(dem)``, the
+    one place the range is decided. The legend draws itself with this so it
+    cannot show one thing and the map another; it hands over the DEM, not a
+    range it worked out itself."""
+    lo, hi = scaling.range_for(dem)
     return ramp.rescaled(lo, hi).rgba(np.asarray(values, dtype=float))
 
 

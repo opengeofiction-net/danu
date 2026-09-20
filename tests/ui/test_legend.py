@@ -17,12 +17,10 @@ from .test_surface import synthetic                                    # noqa: E
 
 def test_ramp_rgba_colours_a_value_as_compose_colours_the_cell():
     shaded = synthetic()
-    land = shaded.dem[shaded.dem > 0]
-    lo, hi = float(land.min()), float(land.max())
     for scaling in (shade.Scaling('auto'), shade.Scaling('manual', lo=100, hi=300), shade.Scaling('pinch', centre=200, width=20)):
         composed = shade.compose(shaded, ramp.spectral(), scaling, mode='relief')
         r, c = 10, 20
-        legend = shade.ramp_rgba(ramp.spectral(), np.array([shaded.dem[r, c]]), scaling, (lo, hi))[0]
+        legend = shade.ramp_rgba(ramp.spectral(), np.array([shaded.dem[r, c]]), scaling, shaded.dem)[0]
         assert tuple(legend[:3]) == tuple(composed[r, c, :3]), scaling
 
 

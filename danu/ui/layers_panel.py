@@ -6,8 +6,8 @@ buttons and there is a single slider. Presentation only: it turns the
 TileLayer items' visibility and opacity; nothing here knows what a tile is.
 
 The panel is the only thing that changes a layer's visibility or opacity after
-start-up. If something else ever writes them - a session file, a shortcut -
-the rows need telling, and that is a signal on the item rather than a poll here.
+start-up, and it must stay so: a radio row cannot show 'none' or 'two', so
+anything else writing them would leave the panel wrong with no way back.
 """
 
 from __future__ import annotations

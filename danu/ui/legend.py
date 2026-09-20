@@ -103,7 +103,8 @@ class Legend(QObject):
             p.scaling.setCurrentText('pinch')          # fires _changed
         else:
             p._changed()
-        self.pinched.emit(centre, width)
+        # what the panel holds, which is what the layer got - a spin box clamps
+        self.pinched.emit(p.centre.value(), p.width.value())
 
     def pinch_on_active(self):
         if self.elevation is not None:
@@ -148,7 +149,7 @@ class Legend(QObject):
         r = self.bar_rect()
         # the bar: each row is one elevation, coloured as compose() colours a cell
         rows = np.linspace(hi, lo, r.height())
-        rgba = shade.ramp_rgba(ramp, rows, style.scaling, (lo, hi))
+        rgba = shade.ramp_rgba(ramp, rows, style.scaling, self.layer.shaded.dem)
         img = QImage(1, r.height(), QImage.Format.Format_RGBA8888)
         for i, c in enumerate(rgba):
             img.setPixelColor(0, i, QColor(int(c[0]), int(c[1]), int(c[2])))
