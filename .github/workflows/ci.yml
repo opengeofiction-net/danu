@@ -71,6 +71,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # named once: the install and the check after it cannot then drift
+    env:
+      MSYS2_PACKAGES: >-
+        make
+        mingw-w64-ucrt-x86_64-gcc
+        mingw-w64-ucrt-x86_64-libgfortran
+        mingw-w64-ucrt-x86_64-gdal
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,16 +91,37 @@ jobs:
       # success for the whole of phase 0. MSYS2's UCRT64 environment has gcc,
       # make, and a GDAL whose gdal-config works, so the same Makefile builds
       # here as on Linux with nothing special-cased in it.
+      # libgfortran is named although GDAL depends on it anyway: it provides
+      # fc-libs, and on 2026-09-21 the other provider - gcc-libgfortran -
+      # pinned a gcc-libs the repository had already moved past. pacman under
+      # --noconfirm takes the first provider, could not resolve it, answered
+      # its own "skip gdal for this upgrade?" with yes, installed the
+      # toolchain alone and exited 0; the build then stopped on gdal-config
+      # two steps later, which read as our fault. MSYS2 has since dropped
+      # gcc-libgfortran, so naming the survivor is a no-op today and takes
+      # the coin toss out of the next rename
       - name: install toolchain and gdal (windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: true
-          install: >-
-            make
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gdal
+          install: ${{ env.MSYS2_PACKAGES }}
+      # pacman can answer its own "skip this package?" with yes under
+      # --noconfirm and still exit 0, so the packages are asked for by name
+      # here rather than trusted: pacman -Q fails on one that is not there and
+      # names it. Probing the binaries would not do - gcc and make would
+      # answer for themselves while gdal was missing, and libgfortran has no
+      # binary of its own to ask. gdal-config goes in the log besides, because
+      # a Windows build that fails later is usually a GDAL nobody expected
+      - name: check the packages asked for are installed (windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eu
+          pacman -Q $MSYS2_PACKAGES
+          gdal-config --version
+          gdal-config --libs
       - name: build (linux)
         if: runner.os == 'Linux'
         working-directory: extern/isofill
