@@ -112,7 +112,10 @@ class MainWindow(QMainWindow):
         self.elevation_panel = ElevationPanel(self.elevation, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.elevation_panel)
         self.elevation.changed.connect(self.contours.set_active)
-        self.elevation.changed.connect(lambda _v: self._cursor(*self._last_cursor))
+        # the status line, not the cursor: feeding the last position back through
+        # _cursor let a ladder change re-read the ladder from wherever the
+        # cursor had been, so opening a square named a neighbour
+        self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
@@ -140,8 +143,14 @@ class MainWindow(QMainWindow):
         self._cursor(HOME[0], HOME[1])
 
     def _cursor(self, lon: float, lat: float):
+        """The cursor is here: remember it, let the ladder follow the square
+        it is over, and say so."""
         self._last_cursor = (lon, lat)
         self.elevation.cursor_at(lon, lat)
+        self._refresh_status()
+
+    def _refresh_status(self):
+        lon, lat = self._last_cursor
         self._status.setText(f'{self.elevation.model.tag:>5} m   {lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
 
     def _edited(self):
@@ -415,6 +424,9 @@ class MainWindow(QMainWindow):
         self.editor.set_working_set(ws)
         w, s, e, n = ws.centre.bounds
         self.map.fit_bounds(w, s, e, n)
+        # the view has moved to the square that was opened; the cursor is over
+        # it now, whatever it was over before
+        self._cursor(*self.map.center_lonlat())
         present = sum(1 for _ in ws.present())
         rng = ws.elevation_range()
         self.statusBar().showMessage(
