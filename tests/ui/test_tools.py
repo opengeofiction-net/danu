@@ -362,3 +362,41 @@ def test_a_stroke_that_crosses_a_contour_is_dropped_whole(w):
         w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
     assert len(twenty.refs) == n and 'stroke not drawn' in w.statusBar().currentMessage()
+
+
+def test_a_whole_contour_is_deleted_though_a_node_was_clicked(w):
+    """A contour's nodes are closer together than the snap radius at any zoom
+    that shows the whole line, so a click selects a node and Delete took one
+    node of it. Shift+Delete - and the menu - take the line."""
+    square = w.working_set.squares[TEN]
+    (thirty,) = ways_at(square, 30)
+    n = square.nodes[thirty.refs[0]]
+    click(w, n.lon, n.lat)
+    assert w.editor.selection.node == thirty.refs[0]             # a node, as ever
+    w.edit_actions['edit.delete_way'].trigger()
+    assert thirty.id not in square.ways and not ways_at(square, 30)
+    assert all(r not in square.nodes for r in thirty.refs)       # and its nodes with it
+    assert w.editor.selection is None and '2 nodes' in w.statusBar().currentMessage()
+    assert 30.0 not in w.contours.paths
+    w.editor.undo()
+    assert 30.0 in w.contours.paths and len(ways_at(square, 30)) == 1
+    # nothing selected, and a way already gone
+    w.editor.selection = None
+    w.editor.delete_way()
+    assert w.statusBar().currentMessage() == 'nothing selected'
+
+
+def test_shift_click_selects_the_line_rather_than_a_node(w):
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    n = square.nodes[forty.refs[0]]
+    pos = at(w, n.lon, n.lat)
+    w.map.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(pos), w.map.viewport().mapToGlobal(pos),
+                                      Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                                      Qt.KeyboardModifier.ShiftModifier))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, buttons=Qt.MouseButton.NoButton))
+    sel = w.editor.selection
+    assert sel is not None and sel.way is forty and sel.node is None     # the line, right on a node
+    assert w.elevation.value == 40                                        # and its elevation, as ever
+    w.edit_actions['edit.delete'].trigger()                               # plain Delete now takes the way
+    assert forty.id not in square.ways
