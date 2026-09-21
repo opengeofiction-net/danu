@@ -41,6 +41,24 @@ def test_the_panel_reads_the_square_under_the_cursor_and_keeps_the_value(window,
     assert control.ladder.source == 'default' and control.ladder.square == 'S23E125'
 
 
+def test_opening_a_square_reads_its_own_ladder_with_the_cursor_over_a_neighbour(window, qtbot):
+    """The panel named a neighbour after an open. set_working_set read the
+    centre square, that ladder change refreshed the status line through the
+    last cursor position, and the refresh went the whole way round to
+    cursor_at - so wherever the cursor had been last read the ladder again."""
+    w = window
+    cursor_to(w, 126.5, -23.5)                                   # the 10 m square, in the same set
+    assert w.elevation.ladder.square == 'S24E126'
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.open_working_set(w.zone_dir, SquareName(125, -24))
+    qtbot.waitUntil(lambda: w.working_set is not None, timeout=5000)
+    assert w.elevation.ladder.square == 'S24E125' and w.elevation.ladder.interval == 50
+    lat, lon = (float(x) for x in w._status.text().split()[2:4])   # and the line says where it is now
+    assert (125, -24) <= (lon, lat) <= (126, -23)                  # inside the square that was opened
+    w.elevation.set(301)                                         # a ladder change is not a cursor move
+    assert w.elevation.ladder.square == 'S24E125'
+
+
 def test_a_zone_default_and_a_square_override_from_the_ladders_file(window, tmp_path):
     w = window
     w.settings.ladders_file.write_text('[zone."pizarrales"]\ninterval = 25\n\n[square."pizarrales/S24E126"]\nvalues = [5, 15]\n')

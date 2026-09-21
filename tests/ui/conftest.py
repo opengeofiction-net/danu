@@ -1,5 +1,6 @@
 """Fixtures the UI tests share: a zone with two ladders and a blank, and the window open on it."""
 
+import gc
 import json
 import shutil
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent, QPointF, Qt                       # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, Qt, QThreadPool           # noqa: E402
 from PySide6.QtGui import QMouseEvent                                # noqa: E402
 from PySide6.QtTest import QTest                                     # noqa: E402
 
@@ -17,6 +18,23 @@ from danu.ui.app import MainWindow                                   # noqa: E40
 from danu.ui.config import load_layers                               # noqa: E402
 from danu.ui.settings import Settings                                # noqa: E402
 from danu.ui.territory import TerritoryFetcher                       # noqa: E402
+from danu.ui import territory as _territory, tiles as _tiles         # noqa: E402
+
+# Nothing in this suite reaches the network, and it is stopped here at import
+# rather than in a fixture. A window built in one test goes on painting during
+# later ones - asking its fetcher for every visible tile - and a fixture's
+# patch is undone between tests, which is exactly when those paints were
+# getting out. Measured before this: 809 requests to OGF's own tile servers
+# and the wiki in one run of this suite, on every push, for imagery and
+# polygons no test looks at; and a reply outliving the window that asked for
+# it segfaulted the Linux job on whatever test was running when it landed.
+#
+# A test that wants territory data hands its window a fetcher pointed at the
+# fixtures below. TileFetcher._send is the one place a tile request leaves,
+# and the tile tests replace it in their own subclass, which this leaves alone.
+_territory.GEOMETRY_URL = 'file:///nonexistent/territory.json'
+_territory.ATTRIBUTES_URL = 'file:///nonexistent/territory-admin.json'
+_tiles.TileFetcher._send = lambda self, req: None
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -57,6 +75,27 @@ def territory_files(tmp_path):
     (d / 'territory.json').write_text(json.dumps(GEOMETRY))
     (d / 'admin.json').write_text(json.dumps(ATTRIBUTES))
     return d
+
+
+@pytest.fixture(autouse=True)
+def collected_on_the_main_thread():
+    """A Qt object is destroyed wherever Python happens to collect it, and a
+    test that leaves a window behind leaves it for whoever next triggers a
+    collection. The loader parses a square on a pool thread and triggers
+    plenty, so the crash - reproducible here about one run in three, and
+    seen on the Linux CI job - is that thread deleting a QGraphicsItem while
+    the main thread is painting it:
+
+        Thread (pooled):  Garbage-collecting / ElementTree.feed /
+                          read_square / loader.run
+        main:             SquaresItem._name / SquaresItem.paint
+
+    So each test waits for its workers and collects here, on the main
+    thread, leaving the pool nothing of ours to free.
+    """
+    yield
+    QThreadPool.globalInstance().waitForDone(10000)
+    gc.collect()
 
 
 @pytest.fixture

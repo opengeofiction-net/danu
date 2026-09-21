@@ -65,3 +65,44 @@ def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window,
         w.open_working_set(w.zone_dir, SquareName(125, -22))
     qtbot.waitUntil(lambda: 'unknown' in w._territory.text(), timeout=5000)
     assert w._territory.text() == 'unknown territory (relation 103)'
+
+
+def test_a_window_asks_the_network_for_nothing(qtbot, tmp_path):
+    """The guard itself, over both halves: a window makes its own territory
+    fetcher and its own tile fetcher from the shipped config when none are
+    handed in, and several tests build one that way. Before the guard, one
+    run of this suite made 809 requests to OGF's servers."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from PySide6.QtNetwork import QNetworkAccessManager
+    from danu.ui.app import MainWindow
+    from danu.ui.config import load_layers
+    from danu.ui.settings import Settings
+    asked = []
+    orig = QNetworkAccessManager.get
+    QNetworkAccessManager.get = lambda self, req: (asked.append(req.url().toString()), orig(self, req))[1]
+    try:
+        w = MainWindow(load_layers(), cache_dir=None, settings=Settings(tmp_path / 'danu.ini'))
+        qtbot.addWidget(w)
+        w.resize(400, 300); w.show(); qtbot.waitExposed(w)
+        w.territory.refresh()
+        img = QImage(w.map.viewport().size(), QImage.Format.Format_ARGB32)
+        img.fill(QColor('white'))
+        p = QPainter(img); w.map.render(p); p.end()          # painting is what asks for tiles
+    finally:
+        QNetworkAccessManager.get = orig
+    remote = [u for u in asked if not u.startswith('file:')]
+    assert remote == [], remote
+    assert [u[:5] for u in w.territory.urls.values()] == ['file:', 'file:']
+    w.territory.abort()                       # and nothing is left in flight to outlive the window
+    assert not w.territory._inflight
+
+
+def test_closing_the_window_gives_up_what_is_in_flight(window):
+    """A reply finishing into a fetcher that is going down with its window is
+    a crash rather than a late tile, and 'QIODevice::read (QSslSocket):
+    device not open' on the way there. Both fetchers are given up on close."""
+    w = window
+    w.territory.refresh(force=True)
+    assert w.territory._inflight                      # two file:// requests, really in flight
+    assert w.close()
+    assert not w.territory._inflight and w.fetcher.inflight == 0

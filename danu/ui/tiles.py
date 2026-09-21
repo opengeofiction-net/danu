@@ -150,6 +150,17 @@ class TileFetcher(QObject):
         finally:
             reply.deleteLater()
 
+    def abort(self):
+        """Give up every tile still on its way. Called when the window
+        closes: a reply finishing into a fetcher that is going down with it
+        is a crash rather than a late tile, and Qt grumbles about reading a
+        socket that is no longer open. Signals are blocked first so nothing
+        tries to draw what it was sent."""
+        replies, self._inflight = list(self._inflight.values()), {}
+        for reply in replies:
+            reply.blockSignals(True)
+            reply.abort()
+
     @property
     def inflight(self) -> int:
         return len(self._inflight)
