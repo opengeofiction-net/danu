@@ -91,9 +91,9 @@ def test_recolour_follows_the_style_without_a_rebuild():
     assert not (colour[..., 0] == colour[..., 1]).all()          # coloured now
     west, east = colour[10, 2, :3], colour[10, -3, :3]
     assert tuple(west) != tuple(east)                             # low is not high
-    layer.set_style(Style(mode='relief', ramp='spectral', scaling=shade.Scaling('pitch', centre=200, width=20)))
-    pitched = layer._array.copy()
-    assert tuple(pitched[10, -3, :3]) == tuple(pitched[10, -10, :3])   # everything above 210 m saturates alike
+    layer.set_style(Style(mode='relief', ramp='spectral', scaling=shade.Scaling('pinch', centre=200, width=20)))
+    pinched = layer._array.copy()
+    assert tuple(pinched[10, -3, :3]) == tuple(pinched[10, -10, :3])   # everything above 210 m saturates alike
     layer.set_style(Style(mode='relief', ramp='traditional'))
     trad = layer._array.copy()
     assert (trad[-2, :, 3] == 0).all()                             # sea transparent in metres
@@ -108,8 +108,8 @@ def test_the_panel_enables_what_the_choice_needs_and_drives_the_layer(qtbot):
     assert not panel.lo.isEnabled() and not panel.centre.isEnabled()
     panel.scaling.setCurrentText('manual')
     assert panel.lo.isEnabled() and not panel.centre.isEnabled() and layer.style.scaling.mode == 'manual'
-    panel.scaling.setCurrentText('pitch')
-    assert panel.centre.isEnabled() and layer.style.scaling.mode == 'pitch'
+    panel.scaling.setCurrentText('pinch')
+    assert panel.centre.isEnabled() and layer.style.scaling.mode == 'pinch'
     panel.ramp.setCurrentText('traditional')
     assert not panel.scaling.isEnabled()                           # metres mean metres
     panel.mode.setCurrentText('hillshade')

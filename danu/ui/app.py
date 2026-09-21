@@ -25,6 +25,7 @@ from . import mercator as m
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .layers_panel import LayersPanel
+from .legend import Legend
 from .loader import WorkingSetLoader
 from .mapview import MapView
 from .open_dialog import OpenDialog
@@ -117,6 +118,7 @@ class MainWindow(QMainWindow):
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
+        self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)
@@ -355,6 +357,11 @@ class MainWindow(QMainWindow):
         self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
         self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
         surface.addAction(self.rebuild_action)
+        self.pinch_action = QAction('&Pinch the ramp on the active elevation', self)
+        self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
+        self.pinch_action.triggered.connect(self.legend.pinch_on_active)
+        surface.addAction(self.pinch_action)
+        self.surface_actions = {'surface.pinch': self.pinch_action}
         file.addSeparator()
         user_action = QAction('Your OGF &username…', self)
         user_action.triggered.connect(self.set_user)
@@ -424,6 +431,7 @@ class MainWindow(QMainWindow):
         self.territory.refresh()
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
+        self.legend.refresh()
         self.unreached.set_shaded(None)
         self.envelope.set_rings([])
         self.surface_panel.status.setText('no surface built for this set yet')
@@ -454,6 +462,7 @@ class MainWindow(QMainWindow):
     def _surface_built(self, built):
         seconds = time.monotonic() - self._surface_started
         self.surface.set_shaded(built.shaded)
+        self.legend.refresh()
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)

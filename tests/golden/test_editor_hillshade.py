@@ -31,7 +31,7 @@ def test_every_shade_stage_names_the_shell_command_it_stands_for():
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
     stages = ['smooth', 'fine_metres', 'warp_mercator', 'hillshade', 'shade_dem']
-    display = {'Shaded', 'Scaling', 'compose', 'unreached_rgba'}   # the canvas's, not the shell's
+    display = {'Shaded', 'Scaling', 'compose', 'unreached_rgba', 'ramp_rgba'}   # the canvas's, not the shell's
     assert set(stages) <= set(defs), set(stages) - set(defs)
     assert set(defs) - set(stages) - display == set(), set(defs) - set(stages) - display
     missing = [n for n in stages if 'shell:' not in (ast.get_docstring(defs[n]) or '')]
@@ -90,11 +90,11 @@ def test_the_shaded_relief_composes_where_there_is_land(tmp_path, shell_run):
         assert (rgba[sea][:, 3] == 0).all()                 # sea is see-through
     grey = shade.compose(shaded, None, shade.Scaling(), mode='hillshade')
     assert (grey[..., 0] == grey[..., 1]).all() and (grey[..., 1] == grey[..., 2]).all()
-    pitch = shade.compose(shaded, ramp.spectral(), shade.Scaling('pitch', centre=150, width=20))
-    # a pitch window of 140..160: everything above 160 saturates to the top colour
+    pinch = shade.compose(shaded, ramp.spectral(), shade.Scaling('pinch', centre=150, width=20))
+    # a pinch window of 140..160: everything above 160 saturates to the top colour
     top = ramp.spectral().colour(1.0)[:3]
     high = (shaded.dem > 165) & land
     if high.any():
-        flat = shade.compose(shaded, ramp.spectral(), shade.Scaling('pitch', centre=150, width=20), mode='relief')
+        flat = shade.compose(shaded, ramp.spectral(), shade.Scaling('pinch', centre=150, width=20), mode='relief')
         assert (flat[high][:, :3] == np.array(top, np.uint8)).all()
-    assert pitch.shape == rgba.shape
+    assert pinch.shape == rgba.shape

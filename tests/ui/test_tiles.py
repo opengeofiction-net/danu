@@ -228,12 +228,12 @@ def test_the_window_has_a_layer_per_config_and_the_panel_drives_them(qtbot):
     assert [i.layer.name for i in w.tile_items] == ['ogf-carto', 'ttopo', 'cyclogf']
     assert [i.isVisible() for i in w.tile_items] == [True, False, False]
     assert [i.zValue() for i in w.tile_items] == [0, 1, 2]
-    row = w.panel.rows[1]
-    assert not row.slider.isEnabled()
-    row.check.setChecked(True)
-    assert w.tile_items[1].isVisible() and row.slider.isEnabled()
-    row.slider.setValue(40)
-    assert abs(w.tile_items[1].opacity() - 0.4) < 1e-9
-    assert row.pct.text().strip() == '40%'
-    row.check.setChecked(False)
-    assert not w.tile_items[1].isVisible()
+    # one layer at a time, one opacity
+    assert w.panel.active is w.tile_items[0] and w.panel.radios[0].isChecked()
+    w.panel.radios[1].setChecked(True)
+    assert [i.isVisible() for i in w.tile_items] == [False, True, False] and w.panel.active is w.tile_items[1]
+    w.panel.slider.setValue(40)
+    assert abs(w.tile_items[1].opacity() - 0.4) < 1e-9 and w.panel.pct.text().strip() == '40%'
+    w.panel.radios[2].setChecked(True)
+    assert [i.isVisible() for i in w.tile_items] == [False, False, True]
+    assert abs(w.tile_items[2].opacity() - 0.4) < 1e-9                  # the one opacity follows the choice

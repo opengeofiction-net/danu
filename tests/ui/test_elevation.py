@@ -89,7 +89,7 @@ def test_keys_are_rebound_through_the_settings(zone, tmp_path, qtbot):
     assert w.elevation_actions['elevation.sea_level'].shortcut().isEmpty()
     assert w.elevation_actions['elevation.small_up'].shortcut() == QKeySequence('W')
     assert 'PgUp' in w.elevation_panel.keys.text()
-    assert set(DEFAULT_KEYS) == set(w.elevation_actions) | set(w.edit_actions) | set(w.file_actions)   # every default key is an action
+    assert set(DEFAULT_KEYS) == set(w.elevation_actions) | set(w.edit_actions) | set(w.file_actions) | set(w.surface_actions)
 
 
 # ---------------------------------------------------------------- wheel
@@ -111,6 +111,12 @@ def test_the_wheel_steps_the_elevation_and_alt_the_surface_opacity(window):
     before = w.surface_panel.opacity.value()
     w.map.wheelEvent(wheel(w, -120, Qt.KeyboardModifier.AltModifier))
     assert w.surface_panel.opacity.value() == before - 5
+    # with alt held, X11 and Wayland deliver the wheel as a horizontal delta
+    pos = QPointF(w.map.viewport().rect().center())
+    sideways = QWheelEvent(pos, w.map.viewport().mapToGlobal(pos.toPoint()), QPoint(), QPoint(-120, 0),
+                           Qt.MouseButton.NoButton, Qt.KeyboardModifier.AltModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    w.map.wheelEvent(sideways)
+    assert w.surface_panel.opacity.value() == before - 10
     w.map.wheelEvent(wheel(w, 120, Qt.KeyboardModifier.ControlModifier))
     assert w.map.zoom == z + 1
 

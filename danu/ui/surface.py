@@ -180,6 +180,7 @@ class SurfacePanel(QDockWidget):
     layer's Style and asks the window to rebuild; it computes nothing."""
 
     rebuild = Signal(float)              # arcsec
+    styleChanged = Signal(object)        # the Style, after every change
 
     def __init__(self, layer: SurfaceLayer, parent=None, unreached=None, envelope=None):
         super().__init__('Surface', parent)
@@ -202,11 +203,12 @@ class SurfacePanel(QDockWidget):
         self.ramp = QComboBox()
         self.ramp.addItems(list(RAMPS))
         self.scaling = QComboBox()
-        self.scaling.addItems(['auto', 'manual', 'pitch'])
+        self.scaling.addItems(['auto', 'manual', 'pinch'])
         self.lo = QDoubleSpinBox(); self.lo.setRange(-500, 9000); self.lo.setValue(0)
         self.hi = QDoubleSpinBox(); self.hi.setRange(-500, 9000); self.hi.setValue(1000)
-        self.centre = QDoubleSpinBox(); self.centre.setRange(-500, 9000); self.centre.setValue(100)
-        self.width = QDoubleSpinBox(); self.width.setRange(1, 5000); self.width.setValue(50)
+        # the planet's range and then some: a legend drag must never be clamped here
+        self.centre = QDoubleSpinBox(); self.centre.setRange(-12000, 12000); self.centre.setValue(100)
+        self.width = QDoubleSpinBox(); self.width.setRange(1, 24000); self.width.setValue(50)
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(0, 100); self.opacity.setValue(85)
         self.show_unreached = QCheckBox('Ground the contours do not describe')
         self.show_unreached.setChecked(True)
@@ -222,7 +224,7 @@ class SurfacePanel(QDockWidget):
         form.addRow('Ramp', self.ramp)
         form.addRow('Scaling', self.scaling)
         form.addRow('Min / max', self._pair(self.lo, self.hi))
-        form.addRow('Pitch centre / width', self._pair(self.centre, self.width))
+        form.addRow('Pinch centre / width', self._pair(self.centre, self.width))
         form.addRow('Opacity', self.opacity)
         form.addRow(self.show_unreached)
         form.addRow(self.show_one_level)
@@ -259,14 +261,15 @@ class SurfacePanel(QDockWidget):
                                            self.centre.value(), self.width.value()))
 
     def _changed(self, *_):
-        manual, pitch = self.scaling.currentText() == 'manual', self.scaling.currentText() == 'pitch'
+        manual, pinch = self.scaling.currentText() == 'manual', self.scaling.currentText() == 'pinch'
         for w in (self.lo, self.hi):
             w.setEnabled(manual)
         for w in (self.centre, self.width):
-            w.setEnabled(pitch)
+            w.setEnabled(pinch)
         self.ramp.setEnabled(self.mode.currentText() != 'hillshade')
         self.scaling.setEnabled(self.mode.currentText() != 'hillshade' and self.ramp.currentText() != 'traditional')
         self.layer.set_style(self.current_style())
+        self.styleChanged.emit(self.layer.style)
 
     def building(self, text: str):
         self.button.setEnabled(False)
