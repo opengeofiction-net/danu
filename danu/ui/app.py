@@ -265,6 +265,8 @@ class MainWindow(QMainWindow):
                     answer == QMessageBox.StandardButton.Save and not self.save_all()):
                 event.ignore()
                 return
+        self.territory.abort()
+        self.fetcher.abort()
         self.builder.cleanup()
         super().closeEvent(event)
 
