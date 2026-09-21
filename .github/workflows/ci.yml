@@ -84,6 +84,15 @@ jobs:
       # success for the whole of phase 0. MSYS2's UCRT64 environment has gcc,
       # make, and a GDAL whose gdal-config works, so the same Makefile builds
       # here as on Linux with nothing special-cased in it.
+      # libgfortran is named although GDAL depends on it anyway: it provides
+      # fc-libs, and on 2026-09-21 the other provider - gcc-libgfortran -
+      # pinned a gcc-libs the repository had already moved past. pacman under
+      # --noconfirm takes the first provider, could not resolve it, answered
+      # its own "skip gdal for this upgrade?" with yes, installed the
+      # toolchain alone and exited 0; the build then stopped on gdal-config
+      # two steps later, which read as our fault. MSYS2 has since dropped
+      # gcc-libgfortran, so naming the survivor is a no-op today and takes
+      # the coin toss out of the next rename
       - name: install toolchain and gdal (windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -93,7 +102,22 @@ jobs:
           install: >-
             make
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-libgfortran
             mingw-w64-ucrt-x86_64-gdal
+      # pacman can answer its own "skip this package?" with yes under
+      # --noconfirm and still exit 0, so what was asked for is checked rather
+      # than trusted - see the note above. The versions are worth the log
+      # lines besides: a Windows build that fails later is usually a GDAL that
+      # is not the one anybody expected
+      - name: check the toolchain is what was asked for (windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eu
+          gdal-config --version
+          gdal-config --libs
+          gcc --version | head -1
+          make --version | head -1
       - name: build (linux)
         if: runner.os == 'Linux'
         working-directory: extern/isofill
