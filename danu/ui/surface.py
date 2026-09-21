@@ -86,6 +86,7 @@ class SurfaceBuilder(QObject):
         super().__init__(parent)
         self.busy = False
         self._signals = None
+        self._job = None
         self.work = Path(tempfile.mkdtemp(prefix='danu-surface-'))
 
     def build(self, ws: WorkingSet, params: Params, dirty=()) -> bool:
@@ -101,8 +102,10 @@ class SurfaceBuilder(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        self._signals = sig
-        QThreadPool.globalInstance().start(_Job(zone_dir, names, params, self.work, sig))
+        job = _Job(zone_dir, names, params, self.work, sig)
+        job.setAutoDelete(False)         # Python owns it; see the note in loader.py
+        self._signals, self._job = sig, job
+        QThreadPool.globalInstance().start(job)
         return True
 
     def _done(self, shaded):

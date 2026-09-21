@@ -53,6 +53,7 @@ class WorkingSetLoader(QObject):
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._signals: _Signals | None = None
+        self._job: _Job | None = None
         self.busy = False
 
     def load(self, zone_dir: Path, centre: SquareName, size: int = 3) -> bool:
@@ -62,8 +63,16 @@ class WorkingSetLoader(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        self._signals = sig                      # keep it alive for the job's life
-        QThreadPool.globalInstance().start(_Job(Path(zone_dir), centre, size, sig))
+        job = _Job(Path(zone_dir), centre, size, sig)
+        # Both kept, and the runnable's deletion taken off Qt. The pool deletes
+        # a runnable's C++ side when run() returns, and nothing here held the
+        # Python wrapper: once start() returned, the only reference was the
+        # argument temporary, so the object could be freed while a pool thread
+        # was still inside run(). Python owns it now, and the next load
+        # replaces it - on this thread, where Qt objects should be freed.
+        job.setAutoDelete(False)
+        self._signals, self._job = sig, job
+        QThreadPool.globalInstance().start(job)
         return True
 
     def _done(self, ws):

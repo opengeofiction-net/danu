@@ -40,10 +40,14 @@ class TerritoryFetcher(QObject):
     failed = Signal(str)
 
     def __init__(self, cache_dir: Path | None, parent: QObject | None = None,
-                 geometry_url: str = GEOMETRY_URL, attributes_url: str = ATTRIBUTES_URL):
+                 geometry_url: str | None = None, attributes_url: str | None = None):
         super().__init__(parent)
         self.cache_dir = cache_dir
-        self.urls = {'geometry': geometry_url, 'attributes': attributes_url}
+        # read here rather than defaulted in the signature: a default binds at
+        # import and could not then be pointed elsewhere, which is how the
+        # tests keep off the network
+        self.urls = {'geometry': geometry_url or GEOMETRY_URL,
+                     'attributes': attributes_url or ATTRIBUTES_URL}
         self.max_age = {'geometry': GEOMETRY_MAX_AGE, 'attributes': ATTRIBUTES_MAX_AGE}
         self.nam = QNetworkAccessManager(self)
         self.text: dict[str, str | None] = {'geometry': None, 'attributes': None}
@@ -129,6 +133,16 @@ class TerritoryFetcher(QObject):
             return
         self.index = T.TerritoryIndex(geometry, attributes)
         self.ready.emit(self.index)
+
+    def abort(self):
+        """Give up whatever is in flight. A window closing has no use for the
+        territory files, and a reply finishing into a fetcher that is being
+        taken down with it is a crash rather than a wasted request; signals
+        are blocked first so nothing tries to report the abort."""
+        replies, self._inflight = list(self._inflight.values()), {}
+        for reply in replies:
+            reply.blockSignals(True)
+            reply.abort()
 
     @property
     def complete(self) -> bool:
