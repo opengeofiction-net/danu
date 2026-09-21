@@ -152,7 +152,12 @@ class EditController(QObject):
             return False
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-        node = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
+        # shift means the line, not a node of it. A contour's nodes are some
+        # 87 m apart in Gobras, which is under the snap radius at every zoom
+        # that shows a whole contour, so without this the way itself could
+        # only be selected by zooming in past seeing it
+        whole = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        node = None if whole else self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
         if node is not None:
             square, nid, _ = node
             way = self._way_holding(square, nid)
@@ -450,6 +455,25 @@ class EditController(QObject):
         return f'{verb} {what}{more} - contours may not cross'
 
     # ----------------------------------------------------------- select
+    def delete_way(self):
+        """The selected contour, whole, whether a node of it or the line is
+        what was clicked - the way to be rid of a contour that should not be
+        there at all."""
+        sel = self.selection
+        if sel is None:
+            self.message.emit('nothing selected')
+            return
+        if sel.way.id not in sel.square.ways:
+            self.selection = None
+            self.message.emit('that contour is already gone')
+            return
+        nodes, what = len(sel.way.refs), format_ele(sel.way.ele) if sel.way.ele is not None else None
+        self.do(sel.square, edits.DeleteWay(sel.way.id))
+        self.selection = None
+        self.message.emit(f'deleted the {what} m contour, {nodes} nodes' if what
+                          else f'deleted a way of {nodes} nodes')
+        self.overlay.update()
+
     def delete_selected(self):
         sel = self.selection
         if sel is None:

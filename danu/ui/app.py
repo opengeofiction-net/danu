@@ -325,6 +325,7 @@ class MainWindow(QMainWindow):
                 ('edit.undo', '&Undo', ed.undo),
                 ('edit.redo', '&Redo', ed.redo),
                 ('edit.delete', '&Delete selected', ed.delete_selected),
+                ('edit.delete_way', 'Delete whole &contour', ed.delete_way),
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw'))):
             a = QAction(text, self)
@@ -337,6 +338,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.redo'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.delete'])
+        edit.addAction(self.edit_actions['edit.delete_way'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])
