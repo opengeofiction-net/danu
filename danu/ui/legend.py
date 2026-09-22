@@ -62,20 +62,28 @@ class Legend(QWidget):
         self.setCursor(Qt.CursorShape.SizeVerCursor)
         self.setToolTip('the ramp as the surface shows it - drag to pinch about a height, '
                         'wheel for the width, right click to pinch on the active elevation')
-        view.installEventFilter(self)
+        # the viewport's resize, not the view's: the view is told first and
+        # lays its viewport out afterwards, so a filter on the view reads the
+        # size the viewport is about to stop having - measured, 398 while the
+        # view was already 900 - and the scale was left marooned against an
+        # edge the map no longer had. Held by name, because the filter must
+        # not ask the view for anything: Qt resizes children as it takes a
+        # window down, and by then the view's C++ object can be gone
+        self._viewport = view.viewport()
+        self._viewport.installEventFilter(self)
         self.panel.styleChanged.connect(self.refresh)
         self.refresh()
         self.raise_()
 
     # ------------------------------------------------------------ layout
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if obj is self.view and event.type() == QEvent.Type.Resize:
+        if obj is self._viewport and event.type() == QEvent.Type.Resize:   # identity, no C++ asked
             self.place()
         return False
 
     def place(self):
         """Over the viewport's right edge, centred."""
-        vp = self.view.viewport().geometry()
+        vp = self._viewport.geometry()
         h = max(120, int(vp.height() * 0.55))
         w = WIDTH + GUTTER
         self.setGeometry(vp.right() - w - MARGIN + 1, vp.top() + (vp.height() - h) // 2, w, h)

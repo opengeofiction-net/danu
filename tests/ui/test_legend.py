@@ -70,6 +70,21 @@ def test_a_pan_does_not_move_the_legend(parts):
     assert view.viewport().geometry().contains(legend.geometry())     # and still over the map
 
 
+def test_the_legend_follows_the_window_as_it_is_resized(parts):
+    """It was left marooned in the middle of a widened map: the filter watched
+    the view, which is told of a resize before it lays its viewport out, so
+    the scale was placed against the edge the map was about to stop having."""
+    from PySide6.QtWidgets import QApplication
+    view, layer, panel, legend = parts
+    for w, h in ((900, 620), (480, 360), (700, 500)):
+        view.resize(w, h)
+        QApplication.processEvents()
+        vp = view.viewport().geometry()
+        assert vp.right() - 4 <= legend.geometry().right() <= vp.right(), (w, h, legend.geometry(), vp)
+        assert vp.contains(legend.geometry())
+        assert legend.geometry().height() <= vp.height()
+
+
 def test_dragging_sets_the_centre_and_switches_to_pinch(parts):
     view, layer, panel, legend = parts
     assert panel.scaling.currentText() == 'auto'
