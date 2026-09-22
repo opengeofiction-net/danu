@@ -1,5 +1,7 @@
 """The terminal's contents: Qt's network chatter out, everything else in."""
 
+import atexit
+
 import pytest
 
 pytest.importorskip('PySide6')
@@ -24,7 +26,8 @@ def test_what_counts_as_chatter(category, text, noise):
 
 def test_the_handler_drops_the_chatter_counts_it_and_passes_the_rest(qapp, capsys, monkeypatch):
     monkeypatch.delenv('DANU_QT_MESSAGES', raising=False)
-    monkeypatch.setattr(messages, 'suppressed', 0)
+    was = messages.suppressed
+    messages.suppressed = 0
     try:
         assert messages.install()
         qWarning('QIODevice::read (QSslSocket): device not open')
@@ -33,9 +36,15 @@ def test_the_handler_drops_the_chatter_counts_it_and_passes_the_rest(qapp, capsy
         err = capsys.readouterr().err
         assert 'QSslSocket' not in err
         assert 'something a mapper can act on' in err and 'the surface could not be built' in err
+        assert err.splitlines()[0] == 'something a mapper can act on'    # as Qt prints it, unprefixed
         assert messages.suppressed == 1
     finally:
+        # the handler, the count and the exit report all put back: install()
+        # registers the report with atexit, which would otherwise fire after
+        # the suite's summary and read as a stray line
         qInstallMessageHandler(None)
+        atexit.unregister(messages._report)
+        messages.suppressed = was
 
 
 def test_asking_for_everything_leaves_qt_alone(monkeypatch):

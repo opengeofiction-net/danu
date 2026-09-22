@@ -32,12 +32,19 @@ def test_a_layer_takes_the_rasters_reference_or_none_but_never_an_empty_one():
         if has_reference:
             assert ref.ExportToWkt()                      # reads, rather than raising
 
-    # and what the empty one this replaces would have left behind. The data
-    # source is held: a layer whose source has been collected is a dangling
-    # pointer, and GDAL says so rather than crashing
+    # and what the empty one this replaces would have left behind. Held, because
+    # a layer whose data source has been collected is a dangling pointer, which
+    # GDAL answers with a TypeError rather than a crash.
+    #
+    # How it goes wrong is this GDAL's business - here GetSpatialRef gives an
+    # object that raises OGR Error on being read - so what is asked is only
+    # that it is not a reference anyone can use, which is the reason srs_for
+    # returns None instead.
     held = drv.CreateDataSource('e')
     empty = held.CreateLayer('l', geom_type=ogr.wkbPolygon, srs=osr.SpatialReference())
     stray = empty.GetSpatialRef()
-    assert stray is not None                              # a reference, it says
-    with pytest.raises(RuntimeError):
-        stray.ExportToWkt()                               # which cannot be read
+    if stray is not None:
+        try:
+            assert not stray.ExportToWkt()
+        except RuntimeError:
+            pass

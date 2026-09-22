@@ -19,8 +19,13 @@ once, so the multiplexing is worth having and the reports are filtered
 instead. It does not quieten the socket message, which is emitted either way
 - measured over five runs each.
 
-Nothing is filtered silently: the count is reported when the application
-exits, and ``DANU_QT_MESSAGES=all`` shows everything Qt says.
+Nothing is filtered silently: whatever is filtered is counted and the count
+reported as the application exits, and ``DANU_QT_MESSAGES=all`` leaves Qt's
+own handler in place, which reports nothing because it filters nothing.
+
+What is not filtered is printed as Qt prints it - measured: Qt's handler gives
+a plain message for the default category and ``category: message`` for a named
+one, so a line pasted into a bug report reads the same either way.
 """
 
 from __future__ import annotations
@@ -35,9 +40,11 @@ from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 NOISE = (
     'QIODevice::read (QSslSocket): device not open',
 )
-# and these categories, but only for what they say about a connection ending
+# and these categories, but only for what they say about a connection ending.
+# The wording is Qt's own, as it appeared in the review's terminal; a future
+# Qt saying it differently means one line through, not a line lost
 NOISY = {
-    'qt.network.http2': ('GOAWAY', 'signaled shutdown', 'signalled shutdown'),
+    'qt.network.http2': ('GOAWAY', 'signaled shutdown'),
 }
 
 suppressed = 0
@@ -66,6 +73,7 @@ def install() -> bool:
         if is_noise(category, message):
             suppressed += 1
             return
+        # as Qt formats it: bare for the default category, prefixed for a named one
         where = f'{category}: ' if category and category != 'default' else ''
         print(f'{where}{message}', file=sys.stderr)
 
