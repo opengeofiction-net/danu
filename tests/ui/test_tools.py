@@ -631,3 +631,54 @@ def test_clicks_on_the_contour_being_redrawn_do_not_end_the_redraw(w):
     assert not [n for n in square.nodes if not any(n in y.refs for y in square.ways.values())]   # and left nothing
     w.editor.undo()
     assert square.ways[wid].refs == ids
+
+
+def test_a_straight_stroke_onto_a_node_while_already_drawing(w):
+    """A stroke simplifies to its two ends, and landing the release on a node
+    takes one of them, which leaves nothing drawn - the branch for that read
+    the elevation before it had been looked up, and the gesture crashed."""
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(8)]
+    wid = contour(w, square, 160, pts)
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(160)
+    w.editor.set_tool('draw')
+    click(w, *pts[1])                                        # the redraw begins
+    click(w, 126.30, -23.26)                                 # and is under way
+    start = at(w, 126.30, -23.26)
+    w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, start, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, start))
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(*pts[4])))
+    for f in range(1, 11):                                   # straight, released on one of its nodes
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, start + (target - start) * f / 10,
+                                   Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
+    assert 'redrew 2 nodes of the 160 m contour as 1' in w.statusBar().currentMessage()
+    assert all(ids[k] not in square.nodes for k in (2, 3))
+    refs = square.ways[wid].refs
+    assert all(a != b for a, b in zip(refs, refs[1:]))       # and no node twice over
+    assert w.editor.drawing is None
+    w.editor.undo()
+    assert square.ways[wid].refs == ids
+
+
+def test_a_line_looping_back_to_where_it_began_closes_rather_than_redrawing(w):
+    """There is no stretch between a node and itself, so this is not a redraw:
+    what was drawn is a contour of its own, closed, sharing the node it left
+    from - which is what was drawn."""
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(8)]
+    wid = contour(w, square, 170, pts)
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(170)
+    w.editor.set_tool('draw')
+    click(w, *pts[3])
+    click(w, 126.40, -23.24)
+    click(w, 126.48, -23.24)
+    click(w, *pts[3])                                        # back to where it began
+    key(w, Qt.Key.Key_Return)
+    assert 'closed the 170 m contour' in w.statusBar().currentMessage()
+    assert square.ways[wid].refs == ids                      # the contour itself is untouched
+    drawn = [y for i, y in square.ways.items() if i != wid and y.ele == 170]
+    assert len(drawn) == 1 and drawn[0].closed
+    assert drawn[0].refs[0] == ids[3] and drawn[0].refs[-1] == ids[3]     # hung off the node it left

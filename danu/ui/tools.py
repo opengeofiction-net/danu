@@ -402,6 +402,7 @@ class EditController(QObject):
         put its first point down, so the stroke continues from there. A
         stroke that crosses anything is dropped whole and said so."""
         from ..core.geometry import simplify
+        ele, tag = self.elevation.value, self.elevation.model.tag
         pts = simplify(stroke, self._px(SIMPLIFY_PX))[1:]     # the first is the press, already down
         # a stroke let go on an existing node ends on it, so that drawing a
         # replacement in one gesture means what the same line clicked means
@@ -414,7 +415,6 @@ class EditController(QObject):
             if end_node is not None and self.drawing:
                 self._close_onto(self.drawing[0], self.drawing[1], self.drawing[2], end_node, ele)
             return
-        ele, tag = self.elevation.value, self.elevation.model.tag
         anchor = self._anchor()
         if anchor is None:
             return

@@ -259,6 +259,8 @@ def rotate_ring(refs: list[int], by: int) -> list[int]:
     """A closed way's refs turned so another of its nodes leads. The same ring
     through the same ground; only where it is cut open moves."""
     body = refs[:-1]
+    if not body:                     # not reachable through the tools: a closed way
+        return list(refs)            # has at least one node. rotate_ring is public
     by %= len(body)
     out = body[by:] + body[:by]
     return out + [out[0]]
