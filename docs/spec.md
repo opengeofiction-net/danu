@@ -885,6 +885,145 @@ to finish and for the shell to start reading `elevation.toml`, which is the
 same change. Recommended for the start of phase 4, before the incremental path
 adds a third caller. Not decided here; decided by the reader.
 
+### What phase 3 actually did
+
+Ended on 2026-09-23, in seventeen pull requests here and one in `isofill`, over
+the four days from the 19th, with the exit criterion met the way the phase
+asked: a square nobody has drawn gets a hill through the edit commands, is
+saved as the editor saves, and `danu-build-zone` builds the zone it lands in -
+the editor's own path building the same cells, and the summit reading the top
+contour's value (`tests/golden/test_editor_surface.py`). 157 tests that need
+neither Qt nor GDAL, 155 on the canvas, 29 that need GDAL. Where it departed
+from the plan:
+
+**Undo is one history over the working set, not one per square.** R17 asks for
+one undo key and an edit near an edge touches the neighbour, so `SetUndoStack`
+records `(square, command)` and `dirty` is answered per square, because each is
+its own file to save. Every command says which ways it changes (`ways()`), and
+that is what the canvas redraws - one projected geometry per way, so an edit
+re-projects what the command names and rebuilds only the levels it was and is
+at. On the gobras 3x3, 6,401 contours and 335,293 segments, an edit costs
+0.19 s and a pick 65 ms.
+
+**The ladder is read from the data, and the data is odd.** The modal gap
+between distinct elevations is the interval, the residue most contours share
+is the phase, and the notches are every value that exists with the regular run
+filled and continued. `N20E086` reads as 25 m on phase 0, and the ad hoc run
+below 100 m - 0, 3, 5, 7, 9, 10, 12, 13, 15 and on - is kept as the mapper
+left it. The spec's own worked example is a test, from a checked-in census of
+ways per elevation (2,807 ways, 78 lines) rather than the 20 MB square, because
+inference needs no geometry. `off_ladder` names 113 and 135 in that square, and
+the 43, 55, 87 and 91 the spec lists.
+
+**R16 moved to where the spec always said it was.** *Enforced on commit,
+warned live*, which the tools did not do at first: every click was refused
+outright, and the first attempt to redraw a stretch of a real contour was
+refused for crossing the very wiggle it was replacing. So a crossing with the
+contour a line began on no longer blocks, and what is asked instead is whether
+the contour that results crosses anything - checked over the new run once the
+swap is in, and taken back with its reason if it does. Everything else is still
+refused at the click.
+
+**Redrawing a stretch was asked for in the review and is the phase's largest
+addition.** Start on a contour, draw a new section, end on the contour, and the
+stretch between the two points is replaced: same way, same id, same tags, one
+step of undo, `redrew 11 nodes of the 100 m contour as 2`. Two stretches run
+between any two nodes of a ring, so the one the line was drawn along is the one
+replaced, and where that straddles the ring's join the ring is turned first -
+the same ring cut open elsewhere, which the build cannot see: the golden square
+with all 25 of its rings turned a third of the way round differs from itself in
+0 of 1,442,401 cells. A way's direction means nothing for a contour, which is
+what makes that safe; `natural=coastline` carries the land on its left and the
+sea on its right, and `build.water_mask` reads the sea from exactly that, so a
+coastline can never be a redraw's target - the elevation is what keeps it out,
+and now a test says so.
+
+**What the review found that the tests could not.** Four faults reached the
+mapper's hands through green suites, and each was found by driving the real app
+rather than by reasoning:
+
+- *Every click snapped to the contour being redrawn.* Its nodes are 87 m apart
+  in gobras - under the ten-pixel snap radius at every zoom that shows a whole
+  contour - so click after click landed on one, and each ended the redraw over
+  a sliver and left the rest of the gesture as a new line. Clicks on that
+  contour are ordinary points now and the redraw ends when the line does.
+- *Deleting a contour was there and out of reach*, for the same arithmetic: a
+  way could only be selected at zoom 16 and above, where it does not fit on
+  the screen. Shift and a click take the line; shift and Delete take it away.
+- *Opening a square named a neighbour.* A ladder change refreshed the status
+  line through the last cursor position, and that position read the ladder
+  again from wherever the cursor had been. The fixture's own working set does
+  not contain the view's home, which is why no test saw it.
+- *The colour scale tore across the map on every pan.* A scroll blits the
+  pixels the viewport has and repaints only what the move exposed, so anything
+  drawn in viewport coordinates is dragged along. Giving up the blit costs a
+  full repaint per pan step - 104 ms at zoom 11 on the gobras set, 28 ms at
+  zoom 15 - so the scale is a widget instead, and a child of the view: a child
+  of the *viewport* is carried off by the scroll with everything else in it,
+  measured at -33866, -30325 after one pan.
+
+**The wheel was wrong, out of the spec's own reading of the keys.** "The wheel
+follows the keys" made it step the elevation, with ctrl to zoom, and in use
+reaching for the wheel to zoom and changing the drawing elevation instead was
+the thing that would not stop happening. It zooms; ctrl steps. The map is
+dragged with the right button as JOSM does it, because the left belongs to the
+tools and on this ground almost every press lands on a contour. Zoom and the
+current tool are on the map as well as on the keys.
+
+**The suite was making 809 requests to OGF's servers per run.** A window builds
+a real tile fetcher from the shipped layer config and painting it asks for every
+visible tile; since R7 landed it also fetched the territory files, a megabyte
+and a half, on every open. None of it was looked at by any test. Stopped at
+conftest import rather than in a fixture, because a window built in one test
+goes on painting during later ones and a fixture's patch is undone between
+tests. 809 to nil, counted.
+
+**And it was crashing.** Two of six runs on this machine, roughly one in seven
+on CI, landing on whatever test was running - which is why it read as the change
+under review each time. A Qt object is destroyed wherever Python collects it,
+and the loader parsing a square on a pool thread triggers plenty of collections:
+the crash was that thread deleting a `QGraphicsItem` while the main thread
+painted it. Each test now waits for its workers and collects on the main thread.
+A second shape of it, which does not reproduce here at all, was a runnable built
+inline as `start()`'s argument: the pool deletes its C++ side when `run()`
+returns and nothing held the Python wrapper. Both workers own their jobs now.
+
+**Two facts corrected in the spec, both mine.** R4 said ids must be unique
+across a zone; they need only be unique within a square, because a square is
+edited, sent and built as one file. And `territory.json` is `[lat, lon]`, not
+the `[lon, lat]` the spec claimed - gobras found no territory at all until the
+axes were swapped.
+
+**Six claims I got wrong and had to withdraw.** Worth listing, because each was
+stated before it was measured: that repeating an arc rule would fix the redraw
+taking the inside (the arc rule was not what was wrong); that a screenshot
+showed the colour scale smearing (it was the synthetic surface's own edge, and
+the artefact does not reproduce offscreen at all); that a widget over the
+viewport did not paint (it had been scrolled off the window); that turning
+HTTP/2 off silenced the socket message (five runs each way say otherwise, and
+it costs 1.4 to 2.5 times the tile latency); and twice, an assertion that could
+not fail - a tautology in the tool tests, and a version-tolerant check that
+asserted nothing on the version it was written against. The pattern is the
+same each time: a plausible mechanism, reported before it was tested.
+
+**Not done, by choice.** The validation panel is phase 6 (R29-R33), so the
+crossing and duplicate checks that would *find* rogue contours are not here -
+the review hit that limit, and the crossing test from E4 would make an interim
+finder cheap if it is wanted before then. The surface does not update while
+drawing: that is R19 and the whole of phase 4. Starting a redraw on a
+contour's end node continues it rather than redrawing, because a redraw wants
+contour on both sides. A log of clicks, positions and actions, which would have
+shortened three of the review's findings to one reading, belongs with phase 6's
+session files. And `QIODevice::read (QSslSocket)` is still Qt's own, still
+emitted, and now filtered rather than fixed.
+
+**The optimisation the review asked for is phase 4's, deliberately.** The
+per-edit cost above, `.osm.xz` re-compressed on every build of a dirty square
+(0.7 s for gobras' 20 MB), `WorkingSet.open` at 1.4 s and the canvas at 0.8 s
+for a 3x3: all of it is the same question the incremental path asks, which is
+what to recompute per edit. Sized there, with the `danu.cli` port, rather than
+piecemeal here.
+
 **Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
 Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
 Ends when a square can be drawn from blank and built by the server unchanged.
@@ -986,6 +1125,11 @@ Recorded so the reasoning is not relitigated:
 | editor config | TOML via `tomllib`, user file under `QStandardPaths` |
 | tile cache | `QNetworkDiskCache` |
 | phase 2 path | a second golden case over the editor's own surface path; the shell build untouched; `danu.cli` still the preferred shape, re-evaluated at phase 4 and at the end |
+| panning | the right button drags the map, as JOSM does; the left belongs to the tools, because on this ground almost every press lands on a contour |
+| the wheel | zooms; ctrl and the wheel step the elevation, ctrl and shift by the big step, alt the overlay's opacity |
+| redrawing | a line from a contour back to it replaces the stretch it was drawn along, ends when the line ends, and never touches a coastline |
+| crossings | warned live, and refused on what results - so a redraw may cross the stretch it is replacing, which goes with it |
+| tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 
 ## Open questions
 
