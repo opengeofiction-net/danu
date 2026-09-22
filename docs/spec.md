@@ -65,6 +65,11 @@ the tools for everything else.
 
 ### Map and layers
 
+- **R7a** The map is dragged with the right button, as JOSM does it. The left
+  button belongs to the tools: on ground as thick with contours as Gobras
+  almost every press lands on one, so left-drag panning is not something a
+  mapper can rely on. Zoom and the current tool are on the map as well as on
+  the keys.
 - **R8** Any OGF tile layer as a backdrop - `ogf-carto`, `ttopo`, `cyclogf`,
   and any other the config names - each with independent opacity.
 - **R9** The interpolated surface overlays the map as hillshade or colour ramp,
@@ -378,9 +383,13 @@ typing its elevation is the slow way to get there.
 
 ### Wheel
 
-Follows the keys. Wheel alone steps by the small increment, shift by the big
-one, ctrl zooms the map. Alt is free and is given to the opacity of the active
-overlay.
+The wheel zooms, which is what a hand on a map expects. Ctrl and the wheel step
+the active elevation by the small increment, ctrl and shift by the big one, and
+alt is given to the opacity of the active overlay.
+
+It was the other way round - wheel to step, ctrl to zoom - until the phase 3
+review, where reaching for the wheel to zoom and changing the drawing elevation
+instead was the thing that would not stop happening.
 
 ## The elevation ladder
 

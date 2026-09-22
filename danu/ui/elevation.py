@@ -176,7 +176,8 @@ class ElevationPanel(QDockWidget):
                           f"{k('elevation.nudge_up')} / {k('elevation.nudge_down')} a metre, "
                           f"{k('elevation.pick_up')} picks up the contour under the cursor, "
                           f"{k('elevation.sea_level')} sea level. "
-                          "Wheel steps, shift-wheel big, ctrl-wheel zooms.")
+                          "The wheel zooms; ctrl-wheel steps, ctrl-shift-wheel by the big step. "
+                          "The right button drags the map.")
 
     # ------------------------------------------------------- from model
     def refresh_advice(self):
