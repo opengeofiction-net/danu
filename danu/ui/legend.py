@@ -3,25 +3,41 @@
 A bar down the right of the view shows the ramp as the surface is coloured
 now: over the land's range, through the scaling in force, so a pinched ramp
 reads as a band of colour between saturated ends, exactly as the map does.
-Ticks name the ends and the pinch centre.
+Ticks name the ends and the pinch centre, on the map side of the bar.
 
-It is the control too. Drag on the bar to set the pinch centre to the
-elevation under the pointer, wheel over it to widen or narrow the window,
-right click - or the key - to centre it on the active elevation. Any of
-those switches the scaling to pinch; the panel's spin boxes follow, since
-the panel is the one place a Style is made.
+It is the control too. Drag on it to set the pinch centre to the elevation
+under the pointer, wheel over it to widen or narrow the window, right click -
+or the key - to centre it on the active elevation. Any of those switches the
+scaling to pinch; the panel's spin boxes follow, since the panel is the one
+place a Style is made.
 
-Painted as the view's foreground, in device pixels, not as a widget over
-the viewport: a child widget there was repainted over by the scene on every
-update, and a scene item would scale with the map. The view asks it about
-mouse events before the tools see them.
+A widget over the map, and a child of the **view** rather than of its
+viewport. It was painted into the view's foreground first, in viewport
+coordinates, and tore across the map as the map was panned. A scroll blits
+the pixels the viewport already has and repaints only what the move exposed,
+which drags anything drawn in those coordinates along with it; giving up the
+blit for the whole viewport would cure that and costs a repaint of 28 ms at
+zoom 15 and 104 ms at zoom 11 on a three by three Gobras set, paid on every
+step of a pan.
+
+So the bar is a widget, and the parent matters: a child of the *viewport* is
+moved by the scroll with everything else in it - QWidget::scroll takes a
+widget's children along, measured at -33866, -30325 after one pan - while a
+child of the *view*, raised over the viewport, neither moves with the scroll
+nor is repainted by the scene, and the scene is not repainted for it.
+
+None of the tearing reproduces under the offscreen platform, which does not
+blit: a panned view and a clean repaint of it come out identical, before this
+change and after. The choice rests on the measurements above rather than on a
+test that can show the artefact.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
+from PySide6.QtWidgets import QWidget
 
 from ..core.ladder import format_ele
 from ..surface import shade
@@ -29,13 +45,13 @@ from .surface import RAMPS, SurfaceLayer, SurfacePanel
 
 WIDTH = 22                 # the bar
 GUTTER = 64                # room for the labels, on the map side of the bar
-MARGIN = 2                 # from the view's right edge
+MARGIN = 2                 # from the viewport's right edge
 WHEEL_FACTOR = 1.25        # a notch of the wheel: the window a quarter wider or narrower
 MIN_WIDTH = 1.0
 
 
-class Legend(QObject):
-    """Reads the layer and the panel; writes the panel; paints in the view."""
+class Legend(QWidget):
+    """Reads the layer and the panel; writes the panel."""
 
     pinched = Signal(float, float)        # centre, width - after any change from here
 
@@ -43,30 +59,36 @@ class Legend(QObject):
         super().__init__(view)
         self.view, self.layer, self.panel, self.elevation = view, layer, panel, elevation
         self.land: tuple[float, float] | None = None        # what the bar spans
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setToolTip('the ramp as the surface shows it - drag to pinch about a height, '
+                        'wheel for the width, right click to pinch on the active elevation')
+        view.installEventFilter(self)
         self.panel.styleChanged.connect(self.refresh)
-        view.hud.append(self)
         self.refresh()
+        self.raise_()
 
     # ------------------------------------------------------------ layout
-    @property
-    def visible(self) -> bool:
-        return self.land is not None and self.layer.style.mode != 'hillshade'
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if obj is self.view and event.type() == QEvent.Type.Resize:
+            self.place()
+        return False
 
-    def rect(self) -> QRect:
-        """Where it sits, in viewport pixels: against the right edge, centred,
-        the labels on the map side of the bar."""
-        vp = self.view.viewport().rect()
+    def place(self):
+        """Over the viewport's right edge, centred."""
+        vp = self.view.viewport().geometry()
         h = max(120, int(vp.height() * 0.55))
-        return QRect(vp.right() - GUTTER - WIDTH - MARGIN + 1, vp.top() + (vp.height() - h) // 2, WIDTH + GUTTER, h)
+        w = WIDTH + GUTTER
+        self.setGeometry(vp.right() - w - MARGIN + 1, vp.top() + (vp.height() - h) // 2, w, h)
 
     def bar_rect(self) -> QRect:
-        r = self.rect()
-        return QRect(r.right() - WIDTH + 1, r.top() + 8, WIDTH, r.height() - 16)
-
-    def contains(self, pos: QPoint) -> bool:
-        return self.visible and self.rect().contains(pos)
+        """The coloured bar, in this widget's own coordinates."""
+        return QRect(self.width() - WIDTH, 8, WIDTH, self.height() - 16)
 
     # -------------------------------------------------------------- data
+    @property
+    def has_land(self) -> bool:
+        return self.land is not None and self.layer.style.mode != 'hillshade'
+
     def refresh(self, *_):
         """What the bar spans: the land in the surface, else nothing to show."""
         shaded = self.layer.shaded
@@ -75,10 +97,12 @@ class Legend(QObject):
             self.land = (float(land.min()), float(land.max())) if land.size and land.max() > land.min() else None
         else:
             self.land = None
-        self.view.viewport().update()
+        self.place()
+        self.setVisible(self.has_land)
+        self.update()
 
     def value_at(self, y: int) -> float:
-        """The elevation at a viewport row of the bar - top is high."""
+        """The elevation at a row of the bar - top is high."""
         lo, hi = self.land
         r = self.bar_rect()
         t = 1.0 - (y - r.top()) / max(1, r.height() - 1)
@@ -111,38 +135,47 @@ class Legend(QObject):
         if self.elevation is not None:
             self.pinch(centre=self.elevation.value)
 
-    # the view asks these first, with viewport positions; True when taken
+    # -- the moves, in this widget's coordinates; the event handlers call them
     def press(self, pos: QPoint, button) -> bool:
-        if not self.contains(pos):
+        if not self.has_land:
             return False
         if button == Qt.MouseButton.RightButton:
             self.pinch_on_active()
         elif button == Qt.MouseButton.LeftButton:
             self.pinch(centre=round(self.value_at(pos.y()), 1))
+        else:
+            return False
         return True
 
     def move(self, pos: QPoint, buttons) -> bool:
-        if not self.visible or not (buttons & Qt.MouseButton.LeftButton) or not self._dragging(pos):
+        if not self.has_land or not (buttons & Qt.MouseButton.LeftButton):
             return False
         self.pinch(centre=round(self.value_at(pos.y()), 1))
         return True
 
-    def _dragging(self, pos: QPoint) -> bool:
-        # a drag that began on the bar may wander off it sideways; only the row matters
-        r = self.rect()
-        return r.left() - 40 <= pos.x() <= r.right()
-
-    def wheel(self, pos: QPoint, delta: int) -> bool:
-        if not self.contains(pos) or not delta:
+    def wheel(self, delta: int) -> bool:
+        if not self.has_land or not delta:
             return False
         w = self.layer.style.scaling.width
         self.pinch(width=round(w / WHEEL_FACTOR if delta > 0 else w * WHEEL_FACTOR, 1))
         return True
 
+    def mousePressEvent(self, event):
+        self.press(event.position().toPoint(), event.button())
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        self.move(event.position().toPoint(), event.buttons())
+        event.accept()
+
+    def wheelEvent(self, event):
+        d = event.angleDelta()
+        self.wheel(d.y() or d.x())
+        event.accept()
+
     # ------------------------------------------------------------ paint
-    def paint(self, p: QPainter):
-        """In viewport pixels; the view has reset the transform."""
-        if not self.visible:
+    def paintEvent(self, event):
+        if not self.has_land:
             return
         style = self.layer.style
         ramp = RAMPS[style.ramp]()
@@ -154,14 +187,14 @@ class Legend(QObject):
         img = QImage(1, r.height(), QImage.Format.Format_RGBA8888)
         for i, c in enumerate(rgba):
             img.setPixelColor(0, i, QColor(int(c[0]), int(c[1]), int(c[2])))
-        p.save()
+        p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.drawImage(r, img)
         p.setPen(QPen(QColor(60, 60, 60), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(r.adjusted(0, 0, -1, -1))
         font = QFont(); font.setPointSize(8); p.setFont(font)
-        labels = QRect(self.rect().left(), r.top(), GUTTER - 5, r.height())      # left of the bar, right-aligned
+        labels = QRect(0, r.top(), r.left() - 5, r.height())         # left of the bar, right-aligned
         right = int(Qt.AlignmentFlag.AlignRight)
         p.drawText(QRect(labels.left(), r.top() - 2, labels.width(), 14), right, f'{format_ele(hi)} m')
         p.drawText(QRect(labels.left(), r.bottom() - 11, labels.width(), 14), right, f'{format_ele(lo)} m')
@@ -176,4 +209,4 @@ class Legend(QObject):
             p.drawPolygon([QPoint(r.left() - 3, yc), QPoint(r.left() - 10, yc - 5), QPoint(r.left() - 10, yc + 5)])
             p.setPen(QPen(red, 1))
             p.drawText(QRect(labels.left(), yc - 7, labels.width() - 8, 14), right, f'{format_ele(s.centre)} ±{format_ele(s.width / 2)}')
-        p.restore()
+        p.end()
