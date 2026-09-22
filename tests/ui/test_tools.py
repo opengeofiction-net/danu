@@ -682,3 +682,19 @@ def test_a_line_looping_back_to_where_it_began_closes_rather_than_redrawing(w):
     drawn = [y for i, y in square.ways.items() if i != wid and y.ele == 170]
     assert len(drawn) == 1 and drawn[0].closed
     assert drawn[0].refs[0] == ids[3] and drawn[0].refs[-1] == ids[3]     # hung off the node it left
+
+
+def test_how_far_answers_in_lengths_whichever_branch_it_takes(w):
+    """The two stretches are compared by the same measure however the gesture
+    went: a mean distance from what was drawn, or - with nothing drawn
+    between the ends - the stretch's own length, not a count of its nodes."""
+    square = w.working_set.squares[TEN]
+    wid = contour(w, square, 180, [(126.2, -23.30), (126.3, -23.30), (126.9, -23.30)])
+    refs = list(square.ways[wid].refs)
+    ed = w.editor
+    short, long_ = refs[0:2], refs[1:3]                      # 0.1 and 0.6 degrees of it
+    assert ed._how_far(square, [], short) < ed._how_far(square, [], long_)
+    assert ed._how_far(square, [], [refs[0]]) == float('inf')     # nothing to measure
+    # and with something drawn, the nearer stretch wins whatever its node count
+    near = ed._how_far(square, [refs[1]], short)
+    assert near < ed._how_far(square, [refs[0]], long_)

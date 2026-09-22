@@ -401,9 +401,8 @@ class EditController(QObject):
         a mapper would have clicked, goes on as one step. The press already
         put its first point down, so the stroke continues from there. A
         stroke that crosses anything is dropped whole and said so."""
-        from ..core.geometry import simplify
         ele, tag = self.elevation.value, self.elevation.model.tag
-        pts = simplify(stroke, self._px(SIMPLIFY_PX))[1:]     # the first is the press, already down
+        pts = geometry.simplify(stroke, self._px(SIMPLIFY_PX))[1:]   # the first is the press, already down
         # a stroke let go on an existing node ends on it, so that drawing a
         # replacement in one gesture means what the same line clicked means
         square_now = self.drawing[0] if self.drawing else (self.pending[0] if self.pending else None)
@@ -467,12 +466,16 @@ class EditController(QObject):
         """
         temp = square.ways[wid]
         ele = temp.ele
-        if ele is None or node in temp.refs:
+        if ele is None or node in temp.refs or self.redraw_origin is None:
             return None
+        # the contour the line began on, as recorded when it began, rather than
+        # whichever way happens to hold both ends: two contours at one
+        # elevation can share a node, and the wrong one would be spliced
+        origin_square, origin_id = self.redraw_origin
+        target = origin_square.ways.get(origin_id)
         began = temp.refs[0] if at_end else temp.refs[-1]
-        target = next((w for w in square.ways.values()
-                       if w.id != wid and w.ele == ele and began in w.refs and node in w.refs), None)
-        if target is None:
+        if (target is None or origin_square is not square or target.id == wid or target.ele != ele
+                or began not in target.refs or node not in target.refs):
             return None
         run = list(temp.refs) if at_end else list(reversed(temp.refs))
         # a last point put down on top of where it joins is that node twice
@@ -562,10 +565,15 @@ class EditController(QObject):
         way round then replaced nothing at all and left the original where it
         was, which is what the review saw.
         """
-        if not drawn or len(arc) < 2:
-            return float(len(arc))              # nothing drawn: the shorter stretch
         pts = np.array([self.layer.node_xy(square, r) for r in arc], dtype=float)
+        if len(pts) < 2:
+            return float('inf')
         a, b = pts[:-1], pts[1:]
+        if not drawn:
+            # nothing was drawn between the two ends, so there is nothing for a
+            # stretch to be near: take the one that is shorter on the ground,
+            # which is a length like the other answer rather than a node count
+            return float(np.hypot(*(b - a).T).sum())
         total = 0.0
         for nid in drawn:
             _, d = geometry.nearest_point_on_segments(self.layer.node_xy(square, nid), a, b)
