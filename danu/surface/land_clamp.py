@@ -43,7 +43,7 @@ import os
 import sys
 
 import numpy as np
-from osgeo import gdal, ogr
+from osgeo import gdal, ogr, osr
 
 gdal.UseExceptions()
 ogr.UseExceptions()
@@ -138,9 +138,16 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
 
     # Polygonize to get connected regions - GDAL does the connectivity, reading
     # the mask off disk, so this needs no scipy and no whole-raster array
+    # the rasters' own reference, given to every layer made from them: without
+    # it RasterizeLayer has nothing to build a transformer from and says so -
+    # 'Failed to fetch spatial reference on layer encl ... assuming matching
+    # coordinate systems' on every build. They do match; this says as much
+    srs = osr.SpatialReference()
+    if proj:
+        srs.ImportFromWkt(proj)
     drv = ogr_memory_driver()
     ds = drv.CreateDataSource('p')
-    layer = ds.CreateLayer('poly', geom_type=ogr.wkbPolygon)
+    layer = ds.CreateLayer('poly', geom_type=ogr.wkbPolygon, srs=srs)
     layer.CreateField(ogr.FieldDefn('v', ogr.OFTInteger))
     gdal.Polygonize(cand_band, cand_band, layer, 0)
 
@@ -164,7 +171,7 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
     sea_band_w.FlushCache()
 
     enclosed_ds = drv.CreateDataSource('encl')
-    enclosed = enclosed_ds.CreateLayer('encl', geom_type=ogr.wkbPolygon)
+    enclosed = enclosed_ds.CreateLayer('encl', geom_type=ogr.wkbPolygon, srs=srs)
 
     kept = total = 0
     for feat in layer:

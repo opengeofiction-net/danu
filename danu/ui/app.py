@@ -28,6 +28,7 @@ from .layers_panel import LayersPanel
 from .legend import Legend
 from .loader import WorkingSetLoader
 from .mapview import MapView
+from .messages import install as quieten_qt
 from .open_dialog import OpenDialog
 from .settings import Settings
 from .squares import SquaresItem
@@ -510,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     if bool(args.zone_dir) != bool(args.square):
         ap.error('give both a zone directory and a square, or neither')
 
+    quieten_qt()          # before the first request; see danu.ui.messages
     app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
