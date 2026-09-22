@@ -7,6 +7,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt              # noqa: E402
 from PySide6.QtGui import QKeyEvent, QMouseEvent                     # noqa: E402
 from PySide6.QtTest import QTest                                     # noqa: E402
 
+from danu.core import edits                                          # noqa: E402
 from danu.core.square import SquareName                              # noqa: E402
 from danu.ui import mercator as m                                    # noqa: E402
 
@@ -400,3 +401,172 @@ def test_shift_click_selects_the_line_rather_than_a_node(w):
     assert w.elevation.value == 40                                        # and its elevation, as ever
     w.edit_actions['edit.delete'].trigger()                               # plain Delete now takes the way
     assert forty.id not in square.ways
+
+
+# ------------------------------------------- redrawing a stretch of a contour
+
+def contour(w, square, ele, points) -> int:
+    """Put a contour into a square through the history, as the tools would."""
+    alloc = w.editor.history.alloc(square)
+    ids = [alloc.take() for _ in points]
+    wid = alloc.take()
+    w.editor.do(square, edits.AddWay(wid, ids, list(points), {'ele': str(ele)}))
+    return wid
+
+
+def ring(w, square, ele, centre, radius, n=8) -> int:
+    import math
+    cx, cy = centre
+    pts = [(cx + radius * math.cos(2 * math.pi * k / n), cy + radius * math.sin(2 * math.pi * k / n))
+           for k in range(n)]
+    wid = contour(w, square, ele, pts)
+    w.editor.do(square, edits.ExtendWayWithExisting(wid, True, square.ways[wid].refs[0]))
+    return wid
+
+
+def test_a_line_drawn_from_a_contour_back_to_it_redraws_that_stretch(w):
+    square = w.working_set.squares[TEN]
+    wid = contour(w, square, 70, [(126.2 + 0.1 * i, -23.45) for i in range(6)])
+    way = square.ways[wid]
+    ids = list(way.refs)
+    ways_before = set(square.ways)
+    w.elevation.set(70)
+    w.editor.set_tool('draw')
+    click(w, square.nodes[ids[1]].lon, square.nodes[ids[1]].lat)      # begun on the contour
+    click(w, 126.35, -23.40)                                          # a detour north of it
+    click(w, 126.45, -23.40)
+    click(w, square.nodes[ids[4]].lon, square.nodes[ids[4]].lat)      # and back onto it
+    assert set(square.ways) == ways_before                            # no second way beside it
+    assert way.id == wid and way.tags == {'ele': '70'}                # the same contour
+    assert [way.refs[0], way.refs[-1]] == [ids[0], ids[5]] and len(way.refs) == 6
+    assert way.refs[1] == ids[1] and way.refs[4] == ids[4]            # the two ends it was drawn between
+    assert square.nodes[way.refs[2]].lat == pytest.approx(-23.40, abs=0.002)
+    assert ids[2] not in square.nodes and ids[3] not in square.nodes  # what it replaced is gone
+    assert 'redrew 2 nodes of the 70 m contour as 2' in w.statusBar().currentMessage()
+    assert w.editor.drawing is None and w.editor.selection.way is way
+    w.editor.undo()                                                   # one step
+    assert square.ways[wid].refs == ids and ids[2] in square.nodes
+
+
+def test_a_stretch_is_redrawn_only_at_the_contours_own_value(w):
+    square = w.working_set.squares[TEN]
+    wid = contour(w, square, 70, [(126.2 + 0.1 * i, -23.45) for i in range(6)])
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(75)                                               # a different level
+    w.editor.set_tool('draw')
+    click(w, square.nodes[ids[1]].lon, square.nodes[ids[1]].lat)
+    click(w, 126.35, -23.40)
+    click(w, square.nodes[ids[4]].lon, square.nodes[ids[4]].lat)      # touching another level: refused
+    assert square.ways[wid].refs == ids
+    assert 'meets the 70 m contour' in w.statusBar().currentMessage()
+
+
+def test_a_ring_is_redrawn_round_the_way_it_was_drawn_over(w):
+    """Two stretches run between any two nodes of a ring. The one under what
+    was drawn is the one meant, whether or not it straddles the ring's join."""
+    square = w.working_set.squares[TEN]
+    wid = ring(w, square, 80, (126.5, -23.2), 0.1)
+    ids = list(square.ways[wid].refs)                                 # n0..n7, n0
+    w.elevation.set(80)
+    w.editor.set_tool('draw')
+    # over the short stretch: from n1 to n3, drawn just outside n2
+    import math
+    a, b = square.nodes[ids[1]], square.nodes[ids[3]]
+    click(w, a.lon, a.lat)
+    click(w, 126.5 + 0.13 * math.cos(math.pi / 2), -23.2 + 0.13 * math.sin(math.pi / 2))
+    click(w, b.lon, b.lat)
+    way = square.ways[wid]
+    assert way.closed and len(way.refs) == 9                          # n2 gone, one drawn in its place
+    assert ids[2] not in square.nodes and ids[5] in square.nodes      # the far side untouched
+    assert 'redrew 1 nodes' in w.statusBar().currentMessage()
+    w.editor.undo()
+    assert square.ways[wid].refs == ids
+
+
+def test_a_ring_redrawn_over_the_stretch_that_straddles_its_join(w):
+    square = w.working_set.squares[TEN]
+    wid = ring(w, square, 90, (126.5, -23.2), 0.1)
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(90)
+    w.editor.set_tool('draw')
+    import math
+    a, b = square.nodes[ids[6]], square.nodes[ids[0]]                 # the stretch between them holds n7 only
+    click(w, a.lon, a.lat)
+    click(w, 126.5 + 0.13 * math.cos(-math.pi / 4), -23.2 + 0.13 * math.sin(-math.pi / 4))   # outside n7
+    click(w, b.lon, b.lat)
+    way = square.ways[wid]
+    assert way.closed and len(way.refs) == 9                          # eight nodes, one of them new
+    assert ids[7] not in square.nodes                                 # the stretch over the join went
+    assert all(ids[k] in square.nodes for k in (1, 2, 3, 4, 5))       # and the long way round stayed
+    assert 'redrew 1 nodes' in w.statusBar().currentMessage()
+    w.editor.undo()
+    assert set(square.ways[wid].refs) == set(ids) and square.ways[wid].closed
+
+
+def test_a_stroke_from_a_contour_back_to_it_redraws_the_stretch_too(w):
+    """The gesture a mapper reaches for: hold the button down on the contour,
+    sweep the new shape, let go on the contour again."""
+    square = w.working_set.squares[TEN]
+    wid = contour(w, square, 60, [(126.2 + 0.1 * i, -23.35) for i in range(6)])
+    way = square.ways[wid]
+    ids = list(way.refs)
+    ways_before = set(square.ways)
+    w.elevation.set(60)
+    w.editor.set_tool('draw')
+    start, end = square.nodes[ids[1]], square.nodes[ids[4]]
+    pos = at(w, start.lon, start.lat)
+    w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(end.lon, end.lat)))
+    for f in range(1, 21):                                   # a sweep north, released on the far node
+        p = pos + (target - pos) * f / 20 + QPoint(0, -30 if 4 < f < 17 else 0)
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
+    assert set(square.ways) == ways_before and 'redrew 2 nodes' in w.statusBar().currentMessage()
+    assert [way.refs[0], way.refs[-1]] == [ids[0], ids[5]]
+    assert way.refs[1] == ids[1] and way.refs[-2] == ids[4]
+    assert ids[2] not in square.nodes and ids[3] not in square.nodes
+    assert square.nodes[way.refs[2]].lat > -23.35             # the sweep went north of the old line
+    assert w.editor.drawing is None
+    w.editor.undo(); w.editor.undo()                          # the stroke, then the redraw
+    assert square.ways[wid].refs == ids
+
+
+def test_a_redraw_may_cross_the_stretch_it_replaces(w):
+    """The point of redrawing is often to cut across a wiggle, so a crossing
+    with the contour the line began on does not refuse the click - R16 is
+    answered on what results, which no longer has the wiggle in it."""
+    square = w.working_set.squares[TEN]
+    zigzag = [(126.2, -23.30), (126.3, -23.25), (126.35, -23.35), (126.4, -23.25),
+              (126.45, -23.35), (126.5, -23.25), (126.6, -23.30)]
+    wid = contour(w, square, 110, zigzag)
+    way = square.ways[wid]
+    ids = list(way.refs)
+    w.elevation.set(110)
+    w.editor.set_tool('draw')
+    click(w, *zigzag[1])
+    click(w, 126.4, -23.30)                                  # straight through the zigzag
+    assert w.editor.drawing is not None, w.statusBar().currentMessage()
+    click(w, *zigzag[5])
+    assert 'redrew 3 nodes of the 110 m contour as 1' in w.statusBar().currentMessage()
+    assert len(way.refs) == 5 and all(ids[k] not in square.nodes for k in (2, 3, 4))
+    w.editor.undo()
+    assert square.ways[wid].refs == ids
+
+
+def test_a_redraw_that_would_leave_a_crossing_is_refused_and_taken_back(w):
+    """And the other side of it: what results must not cross, so a line drawn
+    across the middle of a ring is put back rather than left there."""
+    square = w.working_set.squares[TEN]
+    wid = ring(w, square, 120, (126.5, -23.2), 0.1)
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(120)
+    w.editor.set_tool('draw')
+    a, b = square.nodes[ids[0]], square.nodes[ids[1]]        # two nodes side by side on the ring
+    click(w, a.lon, a.lat)
+    click(w, 126.35, -23.2)                                  # out the far side, through the middle
+    click(w, b.lon, b.lat)
+    assert w.statusBar().currentMessage().startswith('not redrawn')
+    assert square.ways[wid].refs == ids and all(i in square.nodes for i in ids)
+    assert not w.editor.history.can_undo or w.editor.history.describe_undo() != 'redraw'
+    assert w.editor.drawing is None                          # and the line is over

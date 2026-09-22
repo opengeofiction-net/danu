@@ -25,7 +25,9 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
-from ..core import edits
+import numpy as np
+
+from ..core import edits, geometry
 from ..core.ladder import format_ele
 from ..core.square import Square, Way, WorkingSet
 from . import mercator as m
@@ -71,6 +73,10 @@ class EditController(QObject):
         # a fast draw: the button held and dragged
         self._stroke: list[tuple[float, float]] | None = None
         self._press_added = False            # the press put a node down that a dropped stroke should take back
+        # the contour a redraw began on, whose crossings do not block: the
+        # stretch being redrawn goes when the new one lands, so a line that
+        # cuts across a wiggle is refused on what results, not on every click
+        self.redraw_origin: tuple[Square, int] | None = None
         # dragging a node
         self._press: QPointF | None = None
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
@@ -282,8 +288,8 @@ class EditController(QObject):
         can take the press's node back with it."""
         self._update_snap(pos)
         self._update_crossing()
-        if self.crossing:
-            self.message.emit('not drawn: ' + self._describe_crossing(self.crossing))
+        if self.blocking():
+            self.message.emit('not drawn: ' + self._describe_crossing(self.blocking()))
             return False
         x, y = self._point(pos)
         lon, lat = m.scene_to_lonlat(x, y)
@@ -303,6 +309,9 @@ class EditController(QObject):
                 self.message.emit('outside the working set')
                 return False
             node = self.snap[1] if self.snap and self.snap[0] is square else None
+            # begun on a contour at this elevation: what follows may be a redraw
+            origin = self._way_at(square, node, ele) if node is not None else None
+            self.redraw_origin = (square, origin.id) if origin is not None else None
             self.pending = (square, node, (lon, lat))
             self.message.emit(f'drawing at {format_ele(ele)} m in {square.name}')
             self.overlay.update()
@@ -337,15 +346,42 @@ class EditController(QObject):
             self.message.emit('a contour may not cross itself')
             return False
         if node is not None:
-            self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
-            if way.closed:
-                self.message.emit(f'closed the {format_ele(ele)} m contour')
-                self._stop_drawing()
-                return True
+            self._close_onto(square, wid, at_end, node, ele)
         else:
             self.do(square, edits.ExtendWay(wid, at_end, self.history.alloc(square).take(), (lon, lat)))
-        self.overlay.update()
+            self.overlay.update()
         return True
+
+    def _close_onto(self, square: Square, wid: int, at_end: bool, node: int, ele: float):
+        """The line has come back to a node that was already there. If it
+        began on the same contour, that is a redraw of the stretch between
+        the two; otherwise it joins, as a shared node."""
+        swap = self._section_replacement(square, wid, at_end, node)
+        if swap is not None:
+            cmd, target, drawn = swap
+            self.do(square, cmd)
+            # R16 is answered here rather than at every click: a line redrawing
+            # a stretch crosses the stretch as often as not, and that crossing
+            # goes with it. What has to hold is the contour that results
+            bad = self._crossings_along(square, target, cmd.commands[-2].refs)
+            if bad:
+                self.undo()
+                self.message.emit('not redrawn: the new line would leave ' + self._describe_crossing(bad))
+                self._stop_drawing()
+                return
+            self.message.emit(f'redrew {len(cmd.commands[-2].old) - 2} nodes of the '
+                              f'{format_ele(ele)} m contour as {drawn}')
+            self.drawing = self.pending = None
+            self.crossing = []
+            self.selection = Selection(square, target)
+            self.overlay.update()
+            return
+        self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
+        if square.ways[wid].closed:
+            self.message.emit(f'closed the {format_ele(ele)} m contour')
+            self._stop_drawing()
+            return
+        self.overlay.update()
 
     def _fast_draw(self, stroke: list[tuple[float, float]]):
         """The button was held and dragged: the stroke, simplified to what
@@ -354,7 +390,16 @@ class EditController(QObject):
         stroke that crosses anything is dropped whole and said so."""
         from ..core.geometry import simplify
         pts = simplify(stroke, self._px(SIMPLIFY_PX))[1:]     # the first is the press, already down
+        # a stroke let go on an existing node ends on it, so that drawing a
+        # replacement in one gesture means what the same line clicked means
+        square_now = self.drawing[0] if self.drawing else (self.pending[0] if self.pending else None)
+        hit = self.layer.pick_node(stroke[-1][0], stroke[-1][1], self._px(SNAP_PX))
+        end_node = hit[1] if hit is not None and square_now is not None and hit[0] is square_now else None
+        if end_node is not None:
+            pts = pts[:-1]
         if not pts:
+            if end_node is not None and self.drawing:
+                self._close_onto(self.drawing[0], self.drawing[1], self.drawing[2], end_node, ele)
             return
         ele, tag = self.elevation.value, self.elevation.model.tag
         anchor = self._anchor()
@@ -362,6 +407,9 @@ class EditController(QObject):
             return
         for p in pts:
             found = self.layer.crossings(anchor, p, ele)
+            if self.redraw_origin is not None:
+                sq, wid = self.redraw_origin
+                found = [c for c in found if not (c[0] is sq and c[1].id == wid)]
             if found:
                 if self._press_added:
                     # the press's node was the start of this stroke; it goes with it
@@ -390,7 +438,75 @@ class EditController(QObject):
                 cmds.append(edits.ExtendWay(wid, at_end, alloc.take(), c))
         self.do(square, edits.Compound(cmds, f'draw {len(pts)} nodes at {tag} m') if len(cmds) > 1 else cmds[0])
         self.message.emit(f'{len(pts)} nodes from a stroke of {len(stroke)}, at {tag} m')
+        if end_node is not None:
+            self._close_onto(square, self.drawing[1], self.drawing[2], end_node, ele)
         self.overlay.update()
+
+    def _section_replacement(self, square: Square, wid: int, at_end: bool, node: int):
+        """A line begun on a contour and brought back to it is a redraw of the
+        stretch between the two points, not a second way beside it - the
+        review asked for it and R13 is the place for it. Both ends must be
+        nodes of one contour at the elevation being drawn at: a line that
+        ends on a different contour, or on one at another level, still joins
+        as it did.
+
+        Returns the commands, the contour, and how many nodes were drawn.
+        """
+        temp = square.ways[wid]
+        ele = temp.ele
+        if ele is None or node in temp.refs:
+            return None
+        began = temp.refs[0] if at_end else temp.refs[-1]
+        target = next((w for w in square.ways.values()
+                       if w.id != wid and w.ele == ele and began in w.refs and node in w.refs), None)
+        if target is None:
+            return None
+        run = list(temp.refs) if at_end else list(reversed(temp.refs))
+        run.append(node)                                  # from where it began to where it came back
+        i, j = target.refs.index(began), target.refs.index(node)
+        if i > j:
+            i, j = j, i
+            run.reverse()
+        cmds: list[edits.Command] = []
+        if target.closed:
+            # two ways round a ring; the one it was drawn over is the one meant
+            body = len(target.refs) - 1
+            inner, outer = target.refs[i + 1:j], target.refs[j + 1:-1] + target.refs[:i]
+            if self._mean_distance(square, outer, run) < self._mean_distance(square, inner, run):
+                cmds.append(edits.RotateRing(target.id, j))
+                i, j = 0, (i - j) % body
+                run.reverse()
+        cmds.append(edits.ReplaceSection(target.id, i, j, run))
+        cmds.append(edits.DeleteWay(wid))                 # after the splice, so its nodes are not orphans
+        drawn = len(run) - 2
+        return edits.Compound(cmds, f'redraw {drawn} nodes of a {format_ele(ele)} m contour'), target, drawn
+
+    def _way_at(self, square: Square, node: int, ele: float) -> Way | None:
+        """The contour at this elevation holding a node, if there is one."""
+        return next((w for w in square.ways.values() if w.ele == ele and node in w.refs), None)
+
+    def _crossings_along(self, square: Square, way: Way, refs: list[int]) -> list:
+        """What a run of a way's own refs crosses, now that it is in place."""
+        found: list = []
+        for a, b in zip(refs, refs[1:]):
+            if a not in square.nodes or b not in square.nodes:
+                continue
+            for c in self.layer.crossings(self.layer.node_xy(square, a), self.layer.node_xy(square, b), way.ele):
+                if c not in found:
+                    found.append(c)
+        return found
+
+    def _mean_distance(self, square: Square, node_ids: list[int], run: list[int]) -> float:
+        """How far a stretch of contour lies, on average, from what was drawn."""
+        if not node_ids:
+            return 0.0
+        pts = np.array([self.layer.node_xy(square, r) for r in run], dtype=float)
+        a, b = pts[:-1], pts[1:]
+        total = 0.0
+        for nid in node_ids:
+            _, d = geometry.nearest_point_on_segments(self.layer.node_xy(square, nid), a, b)
+            total += float(d.min())
+        return total / len(node_ids)
 
     def _continuable(self, ele: float) -> tuple[Square, Way, bool] | None:
         """The contour whose end the snap is on, if it is at this elevation
@@ -406,10 +522,19 @@ class EditController(QObject):
                     return square, way, False
         return None
 
+    def blocking(self) -> list:
+        """The crossings that refuse a click - every one but those with the
+        contour a redraw began on."""
+        if self.redraw_origin is None:
+            return self.crossing
+        sq, wid = self.redraw_origin
+        return [c for c in self.crossing if not (c[0] is sq and c[1].id == wid)]
+
     def _stop_drawing(self):
         self.drawing = None
         self.pending = None
         self.crossing = []
+        self.redraw_origin = None
         self.overlay.update()
 
     def _update_snap(self, pos: QPointF):
@@ -443,8 +568,8 @@ class EditController(QObject):
             return
         q = (self.snap[2], self.snap[3]) if self.snap else self.cursor
         self.crossing = self.layer.crossings(a, q, self.elevation.value)
-        if self.crossing:
-            self.message.emit(self._describe_crossing(self.crossing))
+        if self.blocking():
+            self.message.emit(self._describe_crossing(self.blocking()))
 
     @staticmethod
     def _describe_crossing(found) -> str:
@@ -571,7 +696,7 @@ class EditOverlay(QGraphicsItem):
                 path.lineTo(*p)
             painter.drawPath(path)
         elif anchor is not None and target is not None:
-            colour = QColor(200, 0, 0) if ctl.crossing else QColor(30, 30, 30)
+            colour = QColor(200, 0, 0) if ctl.blocking() else QColor(30, 30, 30)
             pen = QPen(colour, 1.5, Qt.PenStyle.DashLine); pen.setCosmetic(True)
             painter.setPen(pen)
             painter.drawLine(QPointF(*anchor), QPointF(*target))
