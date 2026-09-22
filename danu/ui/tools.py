@@ -19,6 +19,7 @@ band, the snap mark and the selection; the window owns the menu.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
@@ -35,6 +36,7 @@ from .contours import ContourLayer
 from .mapview import MapView, visible_rect
 
 SNAP_PX = 10.0                  # a node this close is the one meant
+FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
 DRAG_PX = 3.0                   # a press that moves less is a click
 FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
@@ -153,7 +155,7 @@ class EditController(QObject):
                 self._press_added = added
                 return True
             if event.button() == Qt.MouseButton.RightButton:
-                self._stop_drawing()
+                self.finish_line()
                 return True
             return False
         if event.button() != Qt.MouseButton.LeftButton:
@@ -243,7 +245,7 @@ class EditController(QObject):
         if self.working_set is None or event.button() != Qt.MouseButton.LeftButton:
             return False
         if self.tool == 'draw':
-            self._stop_drawing()
+            self.finish_line()
             return True
         if self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX)) is not None:
             return True                              # a node: the press selected it
@@ -274,7 +276,7 @@ class EditController(QObject):
                 self.overlay.update()
             return True
         if self.tool == 'draw' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._stop_drawing()
+            self.finish_line()
             return True
         if self.tool == 'draw' and key == Qt.Key.Key_Backspace and self.drawing:
             self.undo()
@@ -313,7 +315,8 @@ class EditController(QObject):
             origin = self._way_at(square, node, ele) if node is not None else None
             self.redraw_origin = (square, origin.id) if origin is not None else None
             self.pending = (square, node, (lon, lat))
-            self.message.emit(f'drawing at {format_ele(ele)} m in {square.name}')
+            self.message.emit(f'redrawing the {format_ele(ele)} m contour - end on it with Enter or a right click'
+                              if origin is not None else f'drawing at {format_ele(ele)} m in {square.name}')
             self.overlay.update()
             return False
         if self.pending is not None:
@@ -321,6 +324,8 @@ class EditController(QObject):
             alloc = self.history.alloc(square)
             wid = alloc.take()
             second = self.snap[1] if self.snap and self.snap[0] is square else None
+            if second is not None and self._on_origin(square, second):
+                second = None                    # not onto the contour being redrawn - see below
             cmds = []
             fresh_ids, fresh_coords = [], []
             if first is None:
@@ -340,6 +345,14 @@ class EditController(QObject):
             return True
         square, wid, at_end = self.drawing
         node = self.snap[1] if self.snap and self.snap[0] is square else None
+        # not onto the contour being redrawn. Drawing a new section means
+        # drawing alongside the old one, and its nodes are eighty metres apart
+        # in Gobras - so click after click landed on one, each ending the
+        # redraw at once over a sliver of contour and starting a fresh line.
+        # A redraw ends when the line does: Enter, a right click, a double
+        # click, or letting go of a stroke
+        if node is not None and self._on_origin(square, node):
+            node = None
         way = square.ways[wid]
         if node is not None and node in way.refs and node != way.refs[0 if at_end else -1]:
             # onto its own node other than the far end: a loop, refused
@@ -462,6 +475,13 @@ class EditController(QObject):
         if target is None:
             return None
         run = list(temp.refs) if at_end else list(reversed(temp.refs))
+        # a last point put down on top of where it joins is that node twice
+        # over, and a segment of no length between them
+        if len(run) > 1:
+            x, y = self.layer.node_xy(square, node)
+            lx, ly = self.layer.node_xy(square, run[-1])
+            if math.hypot(lx - x, ly - y) < self._px(4.0):
+                run.pop()
         run.append(node)                                  # from where it began to where it came back
         i, j = target.refs.index(began), target.refs.index(node)
         if i > j:
@@ -480,6 +500,42 @@ class EditController(QObject):
         cmds.append(edits.DeleteWay(wid))                 # after the splice, so its nodes are not orphans
         drawn = len(run) - 2
         return edits.Compound(cmds, f'redraw {drawn} nodes of a {format_ele(ele)} m contour'), target, drawn
+
+    def _on_origin(self, square: Square, node: int) -> bool:
+        """Is this node one of the contour a redraw began on?"""
+        if self.redraw_origin is None:
+            return False
+        sq, wid = self.redraw_origin
+        way = sq.ways.get(wid)
+        return sq is square and way is not None and node in way.refs
+
+    def finish_line(self):
+        """End the line. A redraw joins back to the contour it began on if
+        its last node came near one - which is what the mapper was aiming at,
+        rather than at a particular node of it."""
+        if self.drawing is not None and self.redraw_origin is not None:
+            square, wid, at_end = self.drawing
+            way = square.ways.get(wid)
+            sq, owid = self.redraw_origin
+            origin = sq.ways.get(owid)
+            if way is not None and origin is not None and way.ele is not None:
+                last = way.refs[-1 if at_end else 0]
+                node = self._nearest_of(sq, origin, self.layer.node_xy(square, last), self._px(FINISH_PX))
+                if node is not None and node != last:
+                    self._close_onto(square, wid, at_end, node, way.ele)
+                    return
+        self._stop_drawing()
+
+    def _nearest_of(self, square: Square, way: Way, point: tuple[float, float], within: float) -> int | None:
+        best, best_d = None, within
+        for ref in way.refs:
+            if ref not in square.nodes:
+                continue
+            x, y = self.layer.node_xy(square, ref)
+            d = math.hypot(x - point[0], y - point[1])
+            if d <= best_d:
+                best, best_d = ref, d
+        return best
 
     def _way_at(self, square: Square, node: int, ele: float) -> Way | None:
         """The contour at this elevation holding a node, if there is one."""

@@ -436,6 +436,7 @@ def test_a_line_drawn_from_a_contour_back_to_it_redraws_that_stretch(w):
     click(w, 126.35, -23.40)                                          # a detour north of it
     click(w, 126.45, -23.40)
     click(w, square.nodes[ids[4]].lon, square.nodes[ids[4]].lat)      # and back onto it
+    key(w, Qt.Key.Key_Return)                                         # which ends the line
     assert set(square.ways) == ways_before                            # no second way beside it
     assert way.id == wid and way.tags == {'ele': '70'}                # the same contour
     assert [way.refs[0], way.refs[-1]] == [ids[0], ids[5]] and len(way.refs) == 6
@@ -474,7 +475,7 @@ def test_a_ring_is_redrawn_round_the_way_it_was_drawn_over(w):
     a, b = square.nodes[ids[1]], square.nodes[ids[3]]
     click(w, a.lon, a.lat)
     click(w, 126.5 + 0.13 * math.cos(math.pi / 2), -23.2 + 0.13 * math.sin(math.pi / 2))
-    click(w, b.lon, b.lat)
+    click(w, b.lon, b.lat); key(w, Qt.Key.Key_Return)
     way = square.ways[wid]
     assert way.closed and len(way.refs) == 9                          # n2 gone, one drawn in its place
     assert ids[2] not in square.nodes and ids[5] in square.nodes      # the far side untouched
@@ -493,7 +494,7 @@ def test_a_ring_redrawn_over_the_stretch_that_straddles_its_join(w):
     a, b = square.nodes[ids[6]], square.nodes[ids[0]]                 # the stretch between them holds n7 only
     click(w, a.lon, a.lat)
     click(w, 126.5 + 0.13 * math.cos(-math.pi / 4), -23.2 + 0.13 * math.sin(-math.pi / 4))   # outside n7
-    click(w, b.lon, b.lat)
+    click(w, b.lon, b.lat); key(w, Qt.Key.Key_Return)
     way = square.ways[wid]
     assert way.closed and len(way.refs) == 9                          # eight nodes, one of them new
     assert ids[7] not in square.nodes                                 # the stretch over the join went
@@ -547,7 +548,7 @@ def test_a_redraw_may_cross_the_stretch_it_replaces(w):
     click(w, *zigzag[1])
     click(w, 126.4, -23.30)                                  # straight through the zigzag
     assert w.editor.drawing is not None, w.statusBar().currentMessage()
-    click(w, *zigzag[5])
+    click(w, *zigzag[5]); key(w, Qt.Key.Key_Return)
     assert 'redrew 3 nodes of the 110 m contour as 1' in w.statusBar().currentMessage()
     assert len(way.refs) == 5 and all(ids[k] not in square.nodes for k in (2, 3, 4))
     w.editor.undo()
@@ -568,7 +569,7 @@ def test_a_redraw_that_would_leave_a_crossing_is_refused_and_taken_back(w):
     click(w, *hook[1])
     click(w, 126.45, -23.20)                                 # up over the returning arm, twice
     assert w.editor.drawing is not None, w.statusBar().currentMessage()
-    click(w, *hook[2])
+    click(w, *hook[2]); key(w, Qt.Key.Key_Return)
     assert w.statusBar().currentMessage().startswith('not redrawn'), w.statusBar().currentMessage()
     assert square.ways[wid].refs == ids and all(i in square.nodes for i in ids)
     assert w.editor.drawing is None                          # and the line is over
@@ -596,7 +597,37 @@ def test_the_stretch_replaced_is_the_one_the_line_was_drawn_along(w, what, first
     for k in drawn:                                          # drawn outside the ring, over one stretch
         a = 2 * math.pi * k / n
         click(w, cx + r * 1.3 * math.cos(a), cy + r * 1.3 * math.sin(a))
-    click(w, *on_ring[last])
+    click(w, *on_ring[last]); key(w, Qt.Key.Key_Return)
     gone = [k for k in range(n) if ids[k] not in square.nodes]
     assert gone == replaced, f'{what}: {w.statusBar().currentMessage()}'
     assert square.ways[wid].closed and len(square.ways[wid].refs) == n + 1 - len(replaced) + len(drawn)
+
+
+def test_clicks_on_the_contour_being_redrawn_do_not_end_the_redraw(w):
+    """The review's bug. Drawing a new section means drawing alongside the old
+    one, whose nodes are eighty metres apart in Gobras, so click after click
+    landed on one - and each ended the redraw there and then, over a sliver
+    of contour, leaving the rest of the gesture to start a fresh line. Those
+    clicks are ordinary points now, and the line ends when the mapper ends
+    it."""
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(8)]
+    wid = contour(w, square, 150, pts)
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(150)
+    w.editor.set_tool('draw')
+    click(w, *pts[1])
+    assert 'redrawing the 150 m contour' in w.statusBar().currentMessage()
+    for k in (2, 3, 4, 5):                                   # straight over its own nodes
+        click(w, *pts[k])
+        assert w.editor.drawing is not None, f'ended at {k}: {w.statusBar().currentMessage()}'
+        assert 'redrew' not in w.statusBar().currentMessage()
+    click(w, *pts[6])
+    key(w, Qt.Key.Key_Return)
+    assert 'redrew 4 nodes of the 150 m contour as 4' in w.statusBar().currentMessage()
+    way = square.ways[wid]
+    assert len(way.refs) == 8 and [way.refs[0], way.refs[-1]] == [ids[0], ids[7]]
+    assert all(ids[k] not in square.nodes for k in (2, 3, 4, 5))    # the old stretch went
+    assert not [n for n in square.nodes if not any(n in y.refs for y in square.ways.values())]   # and left nothing
+    w.editor.undo()
+    assert square.ways[wid].refs == ids
