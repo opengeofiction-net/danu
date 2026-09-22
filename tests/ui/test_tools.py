@@ -555,18 +555,48 @@ def test_a_redraw_may_cross_the_stretch_it_replaces(w):
 
 
 def test_a_redraw_that_would_leave_a_crossing_is_refused_and_taken_back(w):
-    """And the other side of it: what results must not cross, so a line drawn
-    across the middle of a ring is put back rather than left there."""
+    """The other side of it: what results must not cross, and the only way to
+    reach that check is a line crossing the part of its own contour that
+    stays - crossings with the rest are refused as they always were."""
     square = w.working_set.squares[TEN]
-    wid = ring(w, square, 120, (126.5, -23.2), 0.1)
+    hook = [(126.2, -23.30), (126.3, -23.30), (126.4, -23.30), (126.5, -23.30),
+            (126.5, -23.25), (126.35, -23.25)]              # east, then back west above
+    wid = contour(w, square, 140, hook)
     ids = list(square.ways[wid].refs)
-    w.elevation.set(120)
+    w.elevation.set(140)
     w.editor.set_tool('draw')
-    a, b = square.nodes[ids[0]], square.nodes[ids[1]]        # two nodes side by side on the ring
-    click(w, a.lon, a.lat)
-    click(w, 126.35, -23.2)                                  # out the far side, through the middle
-    click(w, b.lon, b.lat)
-    assert w.statusBar().currentMessage().startswith('not redrawn')
+    click(w, *hook[1])
+    click(w, 126.45, -23.20)                                 # up over the returning arm, twice
+    assert w.editor.drawing is not None, w.statusBar().currentMessage()
+    click(w, *hook[2])
+    assert w.statusBar().currentMessage().startswith('not redrawn'), w.statusBar().currentMessage()
     assert square.ways[wid].refs == ids and all(i in square.nodes for i in ids)
-    assert not w.editor.history.can_undo or w.editor.history.describe_undo() != 'redraw'
     assert w.editor.drawing is None                          # and the line is over
+
+
+@pytest.mark.parametrize('what,first,last,drawn,replaced', [
+    ('a bulge over a short stretch', 2, 5, [3, 4], [3, 4]),
+    ('the long way round', 1, 10, [3, 5, 7], list(range(2, 10))),
+    # the review's case: any two nodes side by side in the file have nothing
+    # between them, and measuring from the contour to the drawing called that
+    # a perfect match - so this replaced nothing and left the original alone
+    ('two neighbours, drawn the long way', 0, 1, [10, 8, 6, 4, 2], list(range(2, 12))),
+])
+def test_the_stretch_replaced_is_the_one_the_line_was_drawn_along(w, what, first, last, drawn, replaced):
+    import math
+    square = w.working_set.squares[TEN]
+    cx, cy, r, n = 126.5, -23.2, 0.1, 12
+    on_ring = [(cx + r * math.cos(2 * math.pi * k / n), cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    wid = contour(w, square, 130, on_ring)
+    ids = list(square.ways[wid].refs)
+    w.editor.do(square, edits.ExtendWayWithExisting(wid, True, ids[0]))
+    w.elevation.set(130)
+    w.editor.set_tool('draw')
+    click(w, *on_ring[first])
+    for k in drawn:                                          # drawn outside the ring, over one stretch
+        a = 2 * math.pi * k / n
+        click(w, cx + r * 1.3 * math.cos(a), cy + r * 1.3 * math.sin(a))
+    click(w, *on_ring[last])
+    gone = [k for k in range(n) if ids[k] not in square.nodes]
+    assert gone == replaced, f'{what}: {w.statusBar().currentMessage()}'
+    assert square.ways[wid].closed and len(square.ways[wid].refs) == n + 1 - len(replaced) + len(drawn)

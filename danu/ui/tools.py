@@ -366,7 +366,7 @@ class EditController(QObject):
             bad = self._crossings_along(square, target, cmd.commands[-2].refs)
             if bad:
                 self.undo()
-                self.message.emit('not redrawn: the new line would leave ' + self._describe_crossing(bad))
+                self.message.emit('not redrawn: the result ' + self._describe_crossing(bad))
                 self._stop_drawing()
                 return
             self.message.emit(f'redrew {len(cmd.commands[-2].old) - 2} nodes of the '
@@ -469,10 +469,10 @@ class EditController(QObject):
             run.reverse()
         cmds: list[edits.Command] = []
         if target.closed:
-            # two ways round a ring; the one it was drawn over is the one meant
+            # two ways round a ring; the one it was drawn along is the one meant
             body = len(target.refs) - 1
-            inner, outer = target.refs[i + 1:j], target.refs[j + 1:-1] + target.refs[:i]
-            if self._mean_distance(square, outer, run) < self._mean_distance(square, inner, run):
+            inner, outer = target.refs[i:j + 1], target.refs[j:-1] + target.refs[:i + 1]
+            if self._how_far(square, run[1:-1], outer) < self._how_far(square, run[1:-1], inner):
                 cmds.append(edits.RotateRing(target.id, j))
                 i, j = 0, (i - j) % body
                 run.reverse()
@@ -496,17 +496,25 @@ class EditController(QObject):
                     found.append(c)
         return found
 
-    def _mean_distance(self, square: Square, node_ids: list[int], run: list[int]) -> float:
-        """How far a stretch of contour lies, on average, from what was drawn."""
-        if not node_ids:
-            return 0.0
-        pts = np.array([self.layer.node_xy(square, r) for r in run], dtype=float)
+    def _how_far(self, square: Square, drawn: list[int], arc: list[int]) -> float:
+        """How far what was drawn lies, on average, from a stretch of the
+        contour - ends included, so the stretch is the whole polyline.
+
+        Asked this way round, from the drawing to the stretch. The other way
+        round reads zero for a stretch with no nodes between its ends, which
+        is any two neighbours in the file: clicking those and drawing the long
+        way round then replaced nothing at all and left the original where it
+        was, which is what the review saw.
+        """
+        if not drawn or len(arc) < 2:
+            return float(len(arc))              # nothing drawn: the shorter stretch
+        pts = np.array([self.layer.node_xy(square, r) for r in arc], dtype=float)
         a, b = pts[:-1], pts[1:]
         total = 0.0
-        for nid in node_ids:
+        for nid in drawn:
             _, d = geometry.nearest_point_on_segments(self.layer.node_xy(square, nid), a, b)
             total += float(d.min())
-        return total / len(node_ids)
+        return total / len(drawn)
 
     def _continuable(self, ele: float) -> tuple[Square, Way, bool] | None:
         """The contour whose end the snap is on, if it is at this elevation
