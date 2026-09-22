@@ -118,13 +118,14 @@ def wheel(w, delta, mods=Qt.KeyboardModifier.NoModifier):
                        Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False)
 
 
-def test_the_wheel_steps_the_elevation_and_alt_the_surface_opacity(window):
+def test_ctrl_and_the_wheel_step_the_elevation_and_alt_the_surface_opacity(window):
     w = window
     w.elevation.set(100)
     z = w.map.zoom
-    w.map.wheelEvent(wheel(w, 120))
-    w.map.wheelEvent(wheel(w, 120, Qt.KeyboardModifier.ShiftModifier))
-    w.map.wheelEvent(wheel(w, -120))
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    w.map.wheelEvent(wheel(w, 120, ctrl))
+    w.map.wheelEvent(wheel(w, 120, ctrl | Qt.KeyboardModifier.ShiftModifier))
+    w.map.wheelEvent(wheel(w, -120, ctrl))
     assert w.elevation.value == 150 and w.map.zoom == z
     before = w.surface_panel.opacity.value()
     w.map.wheelEvent(wheel(w, -120, Qt.KeyboardModifier.AltModifier))
@@ -135,8 +136,8 @@ def test_the_wheel_steps_the_elevation_and_alt_the_surface_opacity(window):
                            Qt.MouseButton.NoButton, Qt.KeyboardModifier.AltModifier, Qt.ScrollPhase.NoScrollPhase, False)
     w.map.wheelEvent(sideways)
     assert w.surface_panel.opacity.value() == before - 10
-    w.map.wheelEvent(wheel(w, 120, Qt.KeyboardModifier.ControlModifier))
-    assert w.map.zoom == z + 1
+    w.map.wheelEvent(wheel(w, 120))
+    assert w.map.zoom == z + 1                   # the wheel alone is the zoom now
 
 
 # -------------------------------------------------------------- pick up
