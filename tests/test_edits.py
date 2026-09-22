@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from danu.core import edits
-from danu.core.square import Square, SquareName, read_square, write_square
+from danu.core.square import Node, Square, SquareName, read_square, write_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -342,3 +342,63 @@ def test_every_command_says_which_ways_it_touches(square):
     dn.apply(square)
     assert dn.ways(square) == holders                   # still answers after apply, from its own record
     assert edits.Compound([edits.SetTags(way.id, {}, {}), edits.DeleteWay(new_way)]).ways(square) == {way.id, new_way}
+
+
+# ------------------------------------------------- redrawing a stretch of a way
+
+def line_square(n=8) -> tuple[Square, int, list[int]]:
+    """A square with one open contour of n nodes running east."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    ids = [alloc.take() for _ in range(n)]
+    edits.AddWay(alloc.take(), ids, [(10.1 + 0.1 * i, 10.5) for i in range(n)], {'ele': '100'}).apply(sq)
+    return sq, min(sq.ways), ids
+
+
+def test_a_stretch_of_a_way_is_swapped_for_another_and_put_back():
+    sq, wid, ids = line_square()
+    alloc = edits.IdAllocator(sq)
+    fresh = [alloc.take(), alloc.take()]
+    for nid, lat in zip(fresh, (10.6, 10.7)):
+        sq.nodes[nid] = Node(id=nid, lat=lat, lon=10.4)
+    before = edits.snapshot(sq)
+    cmd = edits.ReplaceSection(wid, 2, 5, [ids[2], *fresh, ids[5]])
+    cmd.apply(sq)
+    assert sq.ways[wid].refs == [ids[0], ids[1], ids[2], *fresh, ids[5], ids[6], ids[7]]
+    assert all(n not in sq.nodes for n in (ids[3], ids[4]))     # what it replaced is gone
+    assert sq.ways[wid].tags == {'ele': '100'} and sq.ways[wid].id == wid
+    assert cmd.describe() == 'redraw 2 nodes as 2'
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+    cmd.apply(sq)
+    assert len(sq.ways[wid].refs) == 8                           # and again, the same
+
+
+def test_a_node_the_rest_of_the_square_still_uses_is_not_deleted_with_the_stretch():
+    sq, wid, ids = line_square()
+    alloc = edits.IdAllocator(sq)
+    other = alloc.take()
+    edits.AddWay(other, [ids[3], alloc.take()], [(10.4, 10.5), (10.4, 11.0)], {'ele': '200'}).apply(sq)
+    cmd = edits.ReplaceSection(wid, 2, 5, [ids[2], ids[5]])
+    cmd.apply(sq)
+    assert ids[3] in sq.nodes and ids[4] not in sq.nodes         # one is held by the 200 m way
+    cmd.undo(sq)
+    assert ids[4] in sq.nodes and sq.ways[wid].refs == ids
+
+
+def test_a_ring_is_turned_so_a_stretch_over_its_join_is_one_run():
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    ring = [alloc.take() for _ in range(6)]
+    edits.AddWay(alloc.take(), ring, [(10.1 + 0.1 * i, 10.5 + 0.05 * (i % 3)) for i in range(6)], {'ele': '50'}).apply(sq)
+    wid = min(sq.ways)
+    sq.ways[wid].refs.append(ring[0])                            # closed
+    assert edits.rotate_ring(sq.ways[wid].refs, 2) == [*ring[2:], ring[0], ring[1], ring[2]]
+    before = edits.snapshot(sq)
+    turn = edits.RotateRing(wid, 4)
+    turn.apply(sq)
+    w = sq.ways[wid]
+    assert w.closed and len(w.refs) == 7 and w.refs[0] == ring[4]
+    assert set(w.refs) == set(ring)                              # the same ring, cut elsewhere
+    turn.undo(sq)
+    assert edits.snapshot(sq) == before
