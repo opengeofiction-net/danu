@@ -84,3 +84,25 @@ def test_segment_lengths_are_metres_and_shrink_with_latitude():
     b = seg_lengths([(0.0, 60.0), (1.0, 60.0)])
     assert 110_000 < a[0] < 112_000
     assert b[0] < a[0] * 0.55
+
+
+def test_a_layer_takes_the_rasters_reference_or_none_but_never_an_empty_one():
+    """An empty SpatialReference is not the same as no reference: a layer made
+    with one answers GetSpatialRef with an object that raises when read, where
+    None is simply nothing. Measured that way round before fixing it."""
+    from osgeo import ogr, osr
+    from danu.surface.land_clamp import srs_for
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    assert srs_for(None) is None and srs_for('') is None
+    got = srs_for(wgs84.ExportToWkt())
+    assert got is not None and 'WGS 84' in got.ExportToWkt()
+    # and what each does to a layer
+    drv = ogr.GetDriverByName('MEM')
+    for proj, readable in ((wgs84.ExportToWkt(), True), (None, False)):
+        ds = drv.CreateDataSource('m')
+        layer = ds.CreateLayer('l', geom_type=ogr.wkbPolygon, srs=srs_for(proj))
+        ref = layer.GetSpatialRef()
+        assert (ref is not None) is readable
+        if readable:
+            assert ref.ExportToWkt()                      # reads, rather than raising

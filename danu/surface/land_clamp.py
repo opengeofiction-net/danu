@@ -53,6 +53,17 @@ NODATA = -9999
 
 
 
+def srs_for(proj: str | None):
+    """A spatial reference from a raster's projection, or None if it has not
+    got one. Never an empty SpatialReference: a layer made with one of those
+    reports a reference that cannot be read."""
+    if not proj:
+        return None
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(proj)
+    return srs
+
+
 def ogr_memory_driver():
     """The OGR in-memory driver, by whichever name this GDAL calls it.
 
@@ -141,10 +152,12 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
     # the rasters' own reference, given to every layer made from them: without
     # it RasterizeLayer has nothing to build a transformer from and says so -
     # 'Failed to fetch spatial reference on layer encl ... assuming matching
-    # coordinate systems' on every build. They do match; this says as much
-    srs = osr.SpatialReference()
-    if proj:
-        srs.ImportFromWkt(proj)
+    # coordinate systems' on every build. They do match; this says as much.
+    #
+    # None when the raster has none, and not an empty SpatialReference: a
+    # layer made with an empty one answers GetSpatialRef with an object that
+    # raises OGR Error on being read, where None is simply no reference
+    srs = srs_for(proj)
     drv = ogr_memory_driver()
     ds = drv.CreateDataSource('p')
     layer = ds.CreateLayer('poly', geom_type=ogr.wkbPolygon, srs=srs)
