@@ -470,7 +470,12 @@ class EditController(QObject):
             return None
         # the contour the line began on, as recorded when it began, rather than
         # whichever way happens to hold both ends: two contours at one
-        # elevation can share a node, and the wrong one would be spliced
+        # elevation can share a node, and the wrong one would be spliced.
+        # The elevation is also what keeps a coastline out of this. A way's
+        # direction means nothing anywhere else, but a coastline carries the
+        # land on its left and the sea on its right, so re-splicing or
+        # turning one would move the sea; a coastline has no ele and can
+        # never be a target
         origin_square, origin_id = self.redraw_origin
         target = origin_square.ways.get(origin_id)
         began = temp.refs[0] if at_end else temp.refs[-1]

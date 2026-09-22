@@ -698,3 +698,32 @@ def test_how_far_answers_in_lengths_whichever_branch_it_takes(w):
     # and with something drawn, the nearer stretch wins whatever its node count
     near = ed._how_far(square, [refs[1]], short)
     assert near < ed._how_far(square, [refs[0]], long_)
+
+
+def test_a_coastline_is_never_redrawn(w):
+    """A way's direction means nothing for a contour, which is why a stretch
+    of one can be re-spliced and a ring turned. A coastline carries the land
+    on its left and the sea on its right, and the build reads the sea from
+    that - so one must never be a redraw's target. The elevation is what
+    keeps it out: a coastline has none."""
+    square = w.working_set.squares[TEN]
+    alloc = w.editor.history.alloc(square)
+    shore = [(126.2, -23.20), (126.4, -23.20), (126.6, -23.22), (126.8, -23.20)]
+    ids = [alloc.take() for _ in shore]
+    wid = alloc.take()
+    w.editor.do(square, edits.AddWay(wid, ids, shore, {'natural': 'coastline'}))
+    coast = square.ways[wid]
+    assert coast.ele is None
+    before = list(coast.refs)
+    w.elevation.set(190)
+    w.editor.set_tool('draw')
+    click(w, *shore[1])                                      # begun on the coastline
+    assert w.editor.redraw_origin is None                    # which is not a redraw
+    assert 'drawing at 190 m' in w.statusBar().currentMessage()
+    click(w, 126.5, -23.15)
+    click(w, *shore[2])
+    key(w, Qt.Key.Key_Return)
+    assert coast.refs == before and coast.tags == {'natural': 'coastline'}
+    assert 'redrew' not in w.statusBar().currentMessage()
+    drawn = [y for i, y in square.ways.items() if i != wid and y.ele == 190]
+    assert len(drawn) == 1 and set(drawn[0].refs) & set(before)   # joined to it, sharing nodes

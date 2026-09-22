@@ -274,7 +274,14 @@ class RotateRing(Command):
 
     The same ring through the same ground, so the build reads the same
     surface from it: measured on the golden square with all 25 of its rings
-    turned a third of the way round, 0 of 1,442,401 cells differ."""
+    turned a third of the way round, 0 of 1,442,401 cells differ.
+
+    Contours only. A way's direction means nothing for these, but a
+    ``natural=coastline`` carries the land on its left and the sea on its
+    right - ``danu.surface.build.water_mask`` reads the sea from it - so
+    turning one would move the shore. The editor keeps them out by asking a
+    redraw's target for the elevation being drawn at, which a coastline has
+    not got."""
     way_id: int
     by: int
 
