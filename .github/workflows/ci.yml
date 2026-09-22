@@ -170,6 +170,6 @@ jobs:
         working-directory: extern/isofill
         run: make && sudo make install && sudo ldconfig
       # and the one ui test that needs PROJ: the canvas projection against gdalwarp's
-      - run: python3 -m pytest tests/golden tests/test_mercator_proj.py -q
+      - run: python3 -m pytest tests/golden tests/test_mercator_proj.py tests/test_land_clamp.py -q
         env:
           PYTHONPATH: .
