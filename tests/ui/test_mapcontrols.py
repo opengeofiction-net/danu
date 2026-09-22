@@ -49,3 +49,22 @@ def test_the_buttons_do_not_take_the_keys_from_the_map(window):
     w = window
     for b in (w.controls.zoom_in, w.controls.zoom_out, w.controls.select, w.controls.draw):
         assert b.focusPolicy().name == 'NoFocus'
+
+
+def test_the_tools_are_drawn_not_named(window):
+    """A small icon and a tooltip, as the review asked: 'Sel' and 'Draw' had
+    to be read, and 'Draw' did not fit in a square button anyway."""
+    w = window
+    for b, word in ((w.controls.select, 'Select'), (w.controls.draw, 'Draw')):
+        assert b.text() == '' and not b.icon().isNull()
+        assert b.toolTip().startswith(word) and '(' in b.toolTip()      # and says its key
+        assert b.icon().pixmap(18, 18).size().width() == 18
+    # drawn in the palette's ink, so a dark desktop does not get a dark mark
+    from PySide6.QtGui import QColor
+    img = w.controls.draw.icon().pixmap(18, 18).toImage()
+    marks = [QColor(img.pixel(x, y)) for x in range(18) for y in range(18)
+             if QColor(img.pixel(x, y)).alpha() > 128]
+    assert marks, 'the icon is blank'
+    ink = w.controls.palette().color(w.controls.palette().ColorRole.ButtonText)
+    assert min(abs(c.lightness() - ink.lightness()) for c in marks) < 40
+    assert w.controls.zoom_in.text() == '+'                             # these read as symbols
