@@ -5,11 +5,18 @@ a scroll. Integer zooms only for now, matching the tiles; ctrl and the mouse
 wheel step between them about the cursor. Fractional zoom can come when there
 is something to want it for.
 
-The wheel follows the keys (spec, *Elevation control*): alone it steps the
-active elevation by the small increment, with shift by the big one, with ctrl
-it zooms, and alt is given to the opacity of the active overlay - the surface,
+The wheel zooms, which is what a hand on a map expects; ctrl and the wheel
+step the active elevation by the small increment, ctrl and shift by the big
+one, and alt is given to the opacity of the active overlay - the surface,
 today. The view only reports the steps; what an elevation or an opacity is
-lives elsewhere.
+lives elsewhere. It was the other way round until the phase 3 review, where
+reaching for the wheel to zoom and changing the drawing elevation instead was
+the thing that would not stop happening.
+
+The right button drags the map, as it does in JOSM. The left button belongs
+to the tools, and on ground as thick with contours as Gobras almost every
+press lands on one, so left-drag panning is not something a mapper can rely
+on. A right click that does not move still ends a line.
 
 The graticule is the only thing drawn here. It is not decoration: degree lines
 are the squares' edges, and a viewer with nothing else loaded still shows a
@@ -137,6 +144,8 @@ class MapView(QGraphicsView):
         # the editing tool, if any, sees mouse and key events first and says
         # whether it took them; panning and the cursor report carry on either way
         self.tool = None
+        self._pan_last: QPointF | None = None      # the right button dragging the map
+        self._pan_moved = False
         self._apply_zoom()
 
     # ------------------------------------------------------------- zoom
@@ -191,11 +200,11 @@ class MapView(QGraphicsView):
             return
         mods = event.modifiers()
         if mods & Qt.KeyboardModifier.ControlModifier:
-            self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
+            self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), delta < 0)
         elif mods & Qt.KeyboardModifier.AltModifier:
             self.opacityWheel.emit(delta < 0)
         else:
-            self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), delta < 0)
+            self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
         event.accept()
 
     # --------------------------------------------------------- position
@@ -223,12 +232,51 @@ class MapView(QGraphicsView):
         p = self.mapToScene(event.position().toPoint())
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         self.cursorMoved.emit(lon, lat)
+        if self.panning and event.buttons() & Qt.MouseButton.RightButton:
+            self.pan_to(event.position())
+            event.accept()
+            return
         if self.tool is not None and self.tool.mouse_move(event, p):
             event.accept()
             return
         super().mouseMoveEvent(event)
 
+    # ------------------------------------------------------------- panning
+    def pan_start(self, pos: QPointF):
+        self._pan_last = self.mapToScene(pos.toPoint())
+        self._pan_moved = False
+        self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def pan_to(self, pos: QPointF):
+        """Keep the ground that was grabbed under the pointer. The anchor is
+        read again after each move, so centerOn's rounding to whole pixels
+        corrects rather than accumulates."""
+        if self._pan_last is None:
+            return
+        now = self.mapToScene(pos.toPoint())
+        delta = self._pan_last - now
+        if delta.isNull():
+            return
+        self._pan_moved = True
+        self.centerOn(self.mapToScene(self.viewport().rect().center()) + delta)
+        self._pan_last = self.mapToScene(pos.toPoint())
+
+    def pan_end(self) -> bool:
+        """True if the drag actually moved: a right click that did not is a
+        click, and the tools want it."""
+        moved, self._pan_last, self._pan_moved = self._pan_moved, None, False
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        return moved
+
+    @property
+    def panning(self) -> bool:
+        return self._pan_last is not None
+
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            self.pan_start(event.position())
+            event.accept()
+            return
         p = self.mapToScene(event.position().toPoint())
         if self.tool is not None and self.tool.mouse_press(event, p):
             event.accept()
@@ -236,6 +284,13 @@ class MapView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton and self.panning:
+            if self.pan_end():                     # it was a drag, not a click
+                event.accept()
+                return
+            if self.tool is not None and self.tool.mouse_press(event, self.mapToScene(event.position().toPoint())):
+                event.accept()                     # a right click: the tools' to answer
+                return
         p = self.mapToScene(event.position().toPoint())
         if self.tool is not None and self.tool.mouse_release(event, p):
             event.accept()
