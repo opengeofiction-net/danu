@@ -18,6 +18,10 @@ from danu.ui import messages                                          # noqa: E4
     ('qt.network.http2', 'something nobody has seen before', False),   # the category is not blanket
     ('qt.network.ssl', 'certificate verify failed', False),            # a real network fault stays
     ('', 'QPainter::begin: Paint device returned engine == 0', False),
+    # the socket rule is that message and no other: anything carrying it along
+    # with something else is somebody saying more than Qt did, and comes through
+    ('', 'while fetching a tile: QIODevice::read (QSslSocket): device not open', False),
+    ('', '  QIODevice::read (QSslSocket): device not open  ', True),   # bare, whatever the spacing
     ('default', 'the surface could not be built', False),
 ])
 def test_what_counts_as_chatter(category, text, noise):

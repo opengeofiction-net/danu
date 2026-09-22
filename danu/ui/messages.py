@@ -36,10 +36,11 @@ import sys
 
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
-# matched anywhere in the text, whatever the category
-NOISE = (
+# matched whole, whatever the category: one message, named, rather than a
+# substring that could quietly take something else with it
+NOISE = frozenset({
     'QIODevice::read (QSslSocket): device not open',
-)
+})
 # and these categories, but only for what they say about a connection ending.
 # The wording is Qt's own, as it appeared in the review's terminal; a future
 # Qt saying it differently means one line through, not a line lost
@@ -51,7 +52,7 @@ suppressed = 0
 
 
 def is_noise(category: str, text: str) -> bool:
-    if any(n in text for n in NOISE):
+    if text.strip() in NOISE:
         return True
     return any(m in text for m in NOISY.get(category, ()))
 

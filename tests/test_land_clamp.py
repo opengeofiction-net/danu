@@ -43,8 +43,10 @@ def test_a_layer_takes_the_rasters_reference_or_none_but_never_an_empty_one():
     held = drv.CreateDataSource('e')
     empty = held.CreateLayer('l', geom_type=ogr.wkbPolygon, srs=osr.SpatialReference())
     stray = empty.GetSpatialRef()
-    if stray is not None:
+    usable = stray is not None
+    if usable:
         try:
-            assert not stray.ExportToWkt()
+            usable = bool(stray.ExportToWkt())
         except RuntimeError:
-            pass
+            usable = False
+    assert not usable                                     # whichever way this GDAL fails it
