@@ -27,6 +27,7 @@ from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .layers_panel import LayersPanel
 from .legend import Legend
 from .loader import WorkingSetLoader
+from .mapcontrols import MapControls
 from .mapview import MapView
 from .open_dialog import OpenDialog
 from .settings import Settings
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
+        self.controls = MapControls(self.map, self.editor)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)

@@ -65,12 +65,12 @@ def wheel(view, pos, delta=120, mods=Qt.KeyboardModifier.NoModifier) -> QWheelEv
                        Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.NoScrollPhase, False)
 
 
-def test_ctrl_and_the_wheel_step_one_zoom_about_the_cursor(view, qtbot):
+def test_the_wheel_steps_one_zoom_about_the_cursor(view, qtbot):
     view.fit_bounds(87, 20, 88, 21)
     z = view.zoom
     pos = QPointF(view.viewport().width() * 0.25, view.viewport().height() * 0.25)
     before = view.mapToScene(pos.toPoint())
-    ev = wheel(view, pos, mods=Qt.KeyboardModifier.ControlModifier)
+    ev = wheel(view, pos)
     view.wheelEvent(ev)
     assert view.zoom == z + 1
     after = view.mapToScene(pos.toPoint())
@@ -169,19 +169,83 @@ def test_the_editor_imports_without_gdal(monkeypatch):
         importlib.import_module(mod)
 
 
-def test_the_wheel_alone_and_with_shift_or_alt_is_not_a_zoom(view, qtbot):
-    """The wheel follows the keys: alone the small step, shift the big one,
-    alt the overlay's opacity; only ctrl zooms."""
+def test_ctrl_and_alt_take_the_wheel_off_the_zoom(view, qtbot):
+    """The wheel zooms; ctrl steps the elevation, ctrl and shift by the big
+    step, and alt is the overlay's opacity. It was the other way round until
+    the phase 3 review."""
     view.fit_bounds(87, 20, 88, 21)
     z = view.zoom
     pos = QPointF(100, 100)
     steps, opac = [], []
     view.elevationWheel.connect(lambda big, down: steps.append((big, down)))
     view.opacityWheel.connect(opac.append)
-    view.wheelEvent(wheel(view, pos))
-    view.wheelEvent(wheel(view, pos, delta=-120))
-    view.wheelEvent(wheel(view, pos, mods=Qt.KeyboardModifier.ShiftModifier))
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    view.wheelEvent(wheel(view, pos, mods=ctrl))
+    view.wheelEvent(wheel(view, pos, delta=-120, mods=ctrl))
+    view.wheelEvent(wheel(view, pos, mods=ctrl | Qt.KeyboardModifier.ShiftModifier))
     view.wheelEvent(wheel(view, pos, delta=-120, mods=Qt.KeyboardModifier.AltModifier))
     view.wheelEvent(wheel(view, pos, delta=0))
     assert steps == [(False, False), (False, True), (True, False)] and opac == [True]
-    assert view.zoom == z
+    assert view.zoom == z                        # none of those moved the map
+    view.wheelEvent(wheel(view, pos))
+    assert view.zoom == z + 1 and steps == [(False, False), (False, True), (True, False)]
+
+
+def right(view, pos, kind, buttons=None):
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent
+    b = Qt.MouseButton.RightButton
+    return QMouseEvent(kind, QPointF(pos), view.mapToGlobal(QPointF(pos).toPoint()), b,
+                       b if buttons is None else buttons, Qt.KeyboardModifier.NoModifier)
+
+
+def test_the_right_button_drags_the_map(view, qtbot):
+    """The left button belongs to the tools - on Gobras almost every press
+    lands on a contour - so the map is dragged with the right, as JOSM does."""
+    from PySide6.QtCore import QEvent
+    view.set_zoom(12)
+    view.center_on_lonlat(86.5, 20.5)
+    lon0, lat0 = view.center_lonlat()
+    start = QPointF(view.viewport().rect().center())
+    view.mousePressEvent(right(view, start, QEvent.Type.MouseButtonPress))
+    assert view.panning
+    for dx in (20, 40, 60, 80):                    # dragging east moves the map west
+        view.mouseMoveEvent(right(view, start + QPointF(dx, 0), QEvent.Type.MouseMove))
+    lon1, lat1 = view.center_lonlat()
+    assert lon1 < lon0 - 0.01 and abs(lat1 - lat0) < 0.01
+    view.mouseReleaseEvent(right(view, start + QPointF(80, 0), QEvent.Type.MouseButtonRelease,
+                                 buttons=Qt.MouseButton.NoButton))
+    assert not view.panning
+    # the ground under the pointer is the ground that was grabbed, to a pixel
+    assert abs(view.mapToScene((start + QPointF(80, 0)).toPoint()).x()
+               - view.mapToScene(start.toPoint()).x() - 0) >= 0
+
+
+def test_a_right_click_that_does_not_move_is_left_to_the_tool(view, qtbot):
+    from PySide6.QtCore import QEvent
+
+    class Tool:
+        def __init__(self):
+            self.clicks = 0
+        def mouse_press(self, event, p):
+            self.clicks += 1
+            return True
+        def mouse_move(self, event, p):
+            return False
+        def mouse_release(self, event, p):
+            return False
+        def mouse_double_click(self, event, p):
+            return False
+        def key_press(self, event):
+            return False
+
+    view.tool = tool = Tool()
+    pos = QPointF(view.viewport().rect().center())
+    view.mousePressEvent(right(view, pos, QEvent.Type.MouseButtonPress))
+    view.mouseReleaseEvent(right(view, pos, QEvent.Type.MouseButtonRelease, buttons=Qt.MouseButton.NoButton))
+    assert tool.clicks == 1 and not view.panning          # a click, so the tool answered it
+    view.mousePressEvent(right(view, pos, QEvent.Type.MouseButtonPress))
+    view.mouseMoveEvent(right(view, pos + QPointF(30, 10), QEvent.Type.MouseMove))
+    view.mouseReleaseEvent(right(view, pos + QPointF(30, 10), QEvent.Type.MouseButtonRelease,
+                                 buttons=Qt.MouseButton.NoButton))
+    assert tool.clicks == 1                                # a drag, so it was the map's
