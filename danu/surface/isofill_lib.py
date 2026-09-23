@@ -32,7 +32,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.7.0'
+EXPECTED_VERSION = '0.8.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -90,15 +90,26 @@ class Isofill:
                 ctypes.POINTER(ctypes.c_ubyte), ctypes.POINTER(ctypes.c_ubyte),
                 ctypes.c_int, ctypes.c_int, ctypes.POINTER(_Params),
                 ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_run_ex.restype = ctypes.c_longlong
+            lib.isofill_run_ex.argtypes = lib.isofill_run.argtypes + [
+                ctypes.POINTER(ctypes.c_float)]
             return cls(lib, cand, version)
         raise IsofillError('no libisofill could be loaded:\n  ' + '\n  '.join(errors))
 
     def run(self, constraints: np.ndarray, params: Params, mask: np.ndarray | None = None,
             water: np.ndarray | None = None, nodata: float | None = None,
-            pass2: bool = True, threads: int = 0) -> tuple[np.ndarray, int]:
+            pass2: bool = True, threads: int = 0,
+            keep_pass1: bool = False) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
         """Fill. ``constraints`` is rows x cols; cells equal to ``nodata`` (or
         NO_ELEV when None) are unset. Returns (surface float32 rows x cols,
-        cells the first pass set)."""
+        cells the first pass set).
+
+        ``keep_pass1`` adds the first pass to that, as the third item: the
+        surface as ``--no-pass2`` would write it, sentinels and all, taken
+        before the second pass overwrote the cells the first declined. The
+        first pass is nearly all of the run, so a caller that wants both -
+        which is the editor, drawing the ground its contours do not describe
+        over the surface they made - gets both for one fill rather than two."""
         cons = np.ascontiguousarray(constraints, dtype=np.float32)
         rows, cols = cons.shape
         out = np.empty_like(cons)
@@ -122,13 +133,16 @@ class Isofill:
         p.pass2 = int(bool(pass2))
         p.threads = int(threads)
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
-        filled = self.lib.isofill_run(
-            cons.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-            int(nodata is not None), float(nodata if nodata is not None else 0.0),
-            cptr(m), cptr(w), cols, rows, ctypes.byref(p),
-            out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+        fptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))                              # noqa: E731
+        pass1 = np.empty_like(cons) if keep_pass1 else None
+        filled = self.lib.isofill_run_ex(
+            fptr(cons), int(nodata is not None), float(nodata if nodata is not None else 0.0),
+            cptr(m), cptr(w), cols, rows, ctypes.byref(p), fptr(out),
+            fptr(pass1) if pass1 is not None else None)
         if filled < 0:
-            raise IsofillError('isofill_run: ' + ('out of memory' if filled == -2 else 'bad arguments'))
+            raise IsofillError('isofill_run_ex: ' + ('out of memory' if filled == -2 else 'bad arguments'))
+        if keep_pass1:
+            return out, int(filled), pass1
         return out, int(filled)
 
 

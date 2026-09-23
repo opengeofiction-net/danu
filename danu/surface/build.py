@@ -544,7 +544,7 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
 
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
                 isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
-                extra: list[str] | None = None) -> Path:
+                extra: list[str] | None = None, keep_pass1: bool = False) -> Path:
     """The surface between the constraints, by isofill.
 
     isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
@@ -593,6 +593,11 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     flags for trying a change on one zone before it becomes the default, and it
     takes the binary, since the library has no flags to give them to.
 
+    ``keep_pass1`` writes ``pass1.npy`` beside the surface: what the first pass
+    left, from this same fill rather than from a second one. Only the library
+    can give it - the binary writes one raster - so asking for it and getting
+    nothing is how the caller learns to fall back.
+
     No ``--grad-min``: the file's value is held equal to isofill's own default
     by a test, and neither path passes it. ``pass2`` has one implemented value
     and this refuses any other rather than ignoring it."""
@@ -623,7 +628,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                     raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {params.max_mem_mb}; the binary bands it')
                 log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
             else:
-                return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
+                return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
+                                            keep_pass1)
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
 
 
@@ -645,7 +651,7 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
-                         out: Path, log: Log) -> Path:
+                         out: Path, log: Log, keep_pass1: bool = False) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -660,8 +666,13 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         w_ds = gdal.Open(str(water))
         _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
-    surface, filled = lib.run(cons, params, mask=m, water=w, nodata=nodata)
+    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=keep_pass1)
+    surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
+    if keep_pass1:
+        # the first pass is nearly all of the fill, so the alternative is
+        # running the whole thing again to read it
+        np.save(out.with_name('pass1.npy'), result[2])
     drv = gdal.GetDriverByName('GTiff')
     o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
                    options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
@@ -747,7 +758,8 @@ class Result:
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
               water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
-              extra: list[str] | None = None, stage: Log = _quiet) -> Result:
+              extra: list[str] | None = None, stage: Log = _quiet,
+              keep_pass1: bool = False) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     constraints (off unless asked), water mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
@@ -793,7 +805,10 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         stage('water from the coastline direction')
         wmask = water_mask(gpkg, cont, work, log)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
-    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra)
+    pass1 = work / 'pass1.npy'
+    if pass1.exists():
+        pass1.unlink()                       # never a previous build's
+    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask,
@@ -922,14 +937,30 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
 
     The published build never runs this - it is the diagnostic isofill's README
     describes, ``--no-pass2`` - and the editor runs it on every surface, for the
-    overlay."""
-    lib = isofill_lib.Isofill.load()
+    overlay.
+
+    It reads the first pass ``build_dem(keep_pass1=True)`` left rather than
+    filling again where there is one, which is the difference between an edit
+    costing one fill and two: the first pass is 0.56 s of a 0.67 s run, so the
+    second fill was 95 s of the 208 s an edit took at 1 arcsecond on a three by
+    three working set. Without one - the binary writes a single raster, and a
+    build that took the binary leaves none - it runs the fill itself, which is
+    what it always did."""
     ds = gdal.Open(str(cont))
     band = ds.GetRasterBand(1)
-    cons = band.ReadAsArray().astype(np.float32)
     m_ds = gdal.Open(str(mask))          # held: a chained Open().GetRasterBand() frees the dataset under the band
     m = m_ds.GetRasterBand(1).ReadAsArray()
-    surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
+    kept = Path(work) / 'pass1.npy'
+    if kept.exists():
+        surface = np.load(kept)
+        cons = np.empty(surface.shape, dtype=np.float32)      # only its shape is wanted below
+        if surface.shape != m.shape:
+            raise ValueError(f'the kept first pass is {surface.shape}, the mask is {m.shape}')
+    else:
+        log('  no first pass was kept, so the fill runs again for the overlay')
+        lib = isofill_lib.Isofill.load()
+        cons = band.ReadAsArray().astype(np.float32)
+        surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
     classes = np.full(cons.shape, ANSWERED, np.uint8)
     classes[surface == OUT_OF_REACH] = UNREACHED
     classes[surface == NO_ELEV] = DECLINED

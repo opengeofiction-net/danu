@@ -276,6 +276,66 @@ def test_the_library_is_the_binary_on_a_raster_the_golden_square_does_not_cover(
     assert (from_library[20, 10:118] == 100).all()                # constraints as themselves
 
 
+def test_the_overlay_reads_the_fill_the_surface_already_did(tmp_path):
+    """The first pass is nearly all of a fill - 0.56 s of a 0.67 s run - so
+    classifying the cells it could not answer used to cost a second fill of
+    the whole raster: 95 s of the 208 s an edit took at 1 arcsecond on a three
+    by three set. build_dem keeps it now. What the overlay gets has to be what
+    the second fill gave, cell for cell, or the saving bought a different
+    overlay."""
+    import json
+
+    import numpy as np
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+
+    kept = build.build_dem(zone, tmp_path / 'kept', p, library=True, keep_pass1=True)
+    assert (tmp_path / 'kept' / 'pass1.npy').exists(), 'nothing was kept'
+    lines = []
+    a = build.first_pass_classes(kept.constraints, kept.drawn_mask, p, tmp_path / 'kept',
+                                 log=lines.append)
+    assert not any('runs again' in l for l in lines), lines
+
+    again = build.build_dem(zone, tmp_path / 'again', p, library=True)
+    assert not (tmp_path / 'again' / 'pass1.npy').exists()
+    lines = []
+    b = build.first_pass_classes(again.constraints, again.drawn_mask, p, tmp_path / 'again',
+                                 log=lines.append)
+    assert any('runs again' in l for l in lines), 'the fallback did not say so'
+
+    da, db = gdal.Open(str(a)), gdal.Open(str(b))            # held
+    A, B = da.GetRasterBand(1).ReadAsArray(), db.GetRasterBand(1).ReadAsArray()
+    assert A.shape == B.shape
+    assert int((A != B).sum()) == 0, f'{int((A != B).sum())} of {A.size} classed differently'
+    assert (json.loads((tmp_path / 'kept' / 'first-pass.json').read_text())
+            == json.loads((tmp_path / 'again' / 'first-pass.json').read_text()))
+    # and it is a real classification, not an empty one either way
+    assert (A == build.UNREACHED).sum() > 0 and (A == build.ANSWERED).sum() > 0
+
+
+def test_a_kept_first_pass_does_not_outlive_the_build_that_made_it(tmp_path):
+    """pass1.npy sits in the working directory, which is reused. A build that
+    does not keep one must not leave the last one there for the overlay to
+    read, or the mapper is shown the ground of an edit ago."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+    build.build_dem(zone, work, p, library=True, keep_pass1=True)
+    assert (work / 'pass1.npy').exists()
+    build.build_dem(zone, work, p, library=True)                 # the same directory, not keeping
+    assert not (work / 'pass1.npy').exists(), 'the last build\'s first pass was left behind'
+
+
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
     from danu.surface import isofill_lib
     try:
