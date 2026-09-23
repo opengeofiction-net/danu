@@ -59,15 +59,31 @@ NODATA = -9999
 # one, and first_pass_classes looks for it - and a convention they each spell
 # out separately is one that can quietly stop holding.
 #
-# The geotransform travels with it because a shape is not a grid: a working set
+# What travels with it is what the reader has to agree with to be reading its
+# own fill. The geotransform, because a shape is not a grid - a working set
 # moved one square over has the same pixel dimensions and different ground
-# under them, and a kept pass from the previous edit would classify against it
-# without anything noticing.
+# under them. And the values the first pass was run with, because
+# first_pass_classes is handed params of its own and would otherwise ignore
+# them entirely whenever a kept pass existed.
+#
+# What is not covered is a different mask over the same grid with the same
+# parameters: the mask shapes the fill and is not hashed here. Nothing produces
+# one - the drawn mask is derived from the constraints - and hashing 8.6 million
+# bytes on every edit to catch it is not a trade worth making.
 PASS1 = 'pass1.npz'
 
 
 def _pass1_file(work: Path) -> Path:
     return Path(work) / PASS1
+
+
+def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
+    """What the first pass was run with, as numbers a kept pass can carry: the
+    nodata that decides which cells are constraints, and the three values that
+    shape pass 1. ``nan`` for no nodata, compared with ``equal_nan``."""
+    return np.array([np.nan if nodata is None else float(nodata),
+                     float(params.fill_cells), float(params.barrier_cells),
+                     float(params.grad_min)], dtype=float)
 # the shell's own test for "ele is a number", in the GeoPackage's SQLite
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
@@ -697,7 +713,8 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         # the first pass is nearly all of the fill, so the alternative is
         # running the whole thing again to read it
         np.savez(pass1, surface=result[2],
-                 gt=np.asarray(ds.GetGeoTransform(), dtype=float))
+                 gt=np.asarray(ds.GetGeoTransform(), dtype=float),
+                 fill=_fill_identity(params, nodata))
     drv = gdal.GetDriverByName('GTiff')
     o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
                    options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
@@ -965,7 +982,10 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     overlay.
 
     It reads the first pass ``build_dem(keep_pass1=True)`` left rather than
-    filling again where there is one, which is the difference between an edit
+    filling again where there is one - having checked that the pass is of this
+    grid and was filled with the parameters being asked for, since otherwise
+    ``params`` would mean something on one path and nothing on the other -
+    which is the difference between an edit
     costing one fill and two: the first pass is 0.56 s of a 0.67 s run, so the
     second fill was 95 s of the 208 s an edit took at 1 arcsecond on a three by
     three working set. Without one - the binary writes a single raster, and a
@@ -986,12 +1006,17 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     kept = _pass1_file(work)
     if kept.exists():
         with np.load(kept) as held:
-            surface, gt = held['surface'], held['gt']
+            surface, gt, fill = held['surface'], held['gt'], held['fill']
+        want = _fill_identity(params, band.GetNoDataValue())
         if surface.shape != grid or not np.array_equal(gt, np.asarray(ds.GetGeoTransform())):
             raise ValueError(
-                f'the kept first pass is {surface.shape} at {tuple(gt[:1]) + tuple(gt[3:4])}, '
-                f'the constraints are {grid} at {ds.GetGeoTransform()[:1] + ds.GetGeoTransform()[3:4]}; '
+                f'the kept first pass is {surface.shape} at {(gt[0], gt[3])}, the constraints '
+                f'are {grid} at {(ds.GetGeoTransform()[0], ds.GetGeoTransform()[3])}; '
                 f"it is not this build's")
+        if not np.array_equal(fill, want, equal_nan=True):
+            raise ValueError(
+                f'the kept first pass was filled with nodata/radius/barrier/grad_min {tuple(fill)}, '
+                f'and this asks for {tuple(want)}; it is not this build\'s')
     else:
         log('  no first pass was kept, so the fill runs again for the overlay')
         lib = isofill_lib.Isofill.load()

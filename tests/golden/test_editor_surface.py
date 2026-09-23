@@ -358,24 +358,31 @@ def test_a_first_pass_from_another_grid_is_refused_rather_than_classified(tmp_pa
 
     kept = build._pass1_file(work)
     with np.load(kept) as held:
-        surface, gt = held['surface'], held['gt']
+        surface, gt, fill = held['surface'], held['gt'], held['fill']
 
     # a pass of the right shape from the wrong ground, which is the case a
     # shape check cannot see: a working set moved one square over has the same
     # pixel dimensions and a different origin
     moved = np.array(gt, dtype=float)
     moved[0] += 1.0
-    np.savez(kept, surface=surface, gt=moved)
+    np.savez(kept, surface=surface, gt=moved, fill=fill)
     with pytest.raises(ValueError, match="not this build's"):
         build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
 
     # and the wrong shape, which it can
-    np.savez(kept, surface=surface[: surface.shape[0] // 2], gt=gt)
+    np.savez(kept, surface=surface[: surface.shape[0] // 2], gt=gt, fill=fill)
     with pytest.raises(ValueError, match="not this build's"):
         build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
 
+    # and a pass of this grid filled with something else, which is what makes
+    # the params argument mean the same thing on both paths
+    np.savez(kept, surface=surface, gt=gt, fill=fill)
+    other = params.load().with_arcsec(lock['arcsec'] * 2)       # a different radius
+    assert other.fill_cells != p.fill_cells
+    with pytest.raises(ValueError, match='nodata/radius/barrier/grad_min'):
+        build.first_pass_classes(r.constraints, r.drawn_mask, other, work)
+
     # the pass this build actually kept is accepted
-    np.savez(kept, surface=surface, gt=gt)
     lines = []
     build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
     assert not any('runs again' in l for l in lines), lines
@@ -430,6 +437,10 @@ def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkey
 
 
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
+    """And refuses it by version, before it asks for any symbol the newer
+    library is the only one to have. A library one version behind would
+    otherwise fail with a ctypes AttributeError about isofill_run_ex, which
+    tells whoever is reading the log nothing about what to do."""
     from danu.surface import isofill_lib
     try:
         isofill_lib.Isofill.load()
@@ -437,6 +448,28 @@ def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
         pytest.skip(f'no loadable libisofill here: {str(e).splitlines()[0]}')
     monkeypatch.setattr(isofill_lib, 'EXPECTED_VERSION', '9.9.9')
     with pytest.raises(isofill_lib.IsofillError, match='wants 9.9.9'):
+        isofill_lib.Isofill.load()
+
+    # the ordering itself: a library with no isofill_run_ex at all is still
+    # refused by version, not by the missing symbol
+    class Symbol:
+        def __init__(self, returns=None):
+            self.returns, self.restype, self.argtypes = returns, None, None
+
+        def __call__(self, *a):
+            return self.returns
+
+    class OneVersionBehind:
+        """A library with no isofill_run_ex, which is what 0.7.0 is."""
+
+        def __getattr__(self, name):
+            if name == 'isofill_run_ex':
+                raise AttributeError(name)
+            return Symbol(b'0.7.0' if name == 'isofill_version' else 0)
+
+    monkeypatch.setattr(isofill_lib, 'EXPECTED_VERSION', '0.8.0')
+    monkeypatch.setattr(isofill_lib.ctypes, 'CDLL', lambda _p: OneVersionBehind())
+    with pytest.raises(isofill_lib.IsofillError, match='is isofill 0.7.0'):
         isofill_lib.Isofill.load()
 
 

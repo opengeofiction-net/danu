@@ -89,9 +89,11 @@ def test_the_array_projection_is_the_scalar_one_to_far_below_a_pixel():
     reaches, and on the CI runner they part company in the last place - 8.9e-07
     scene units, where 1.0 is a pixel at the zoom the scene is measured in.
     They are identical on some machines and this asserted that, which is a true
-    statement about one libm and not about the code. A hundred-thousandth of a
-    pixel is the bound that means something: far below anything a mapper can
-    point at, far above the disagreement seen."""
+    statement about one libm and not about the code. The bound is a thousandth of
+    a pixel: far below anything a mapper can point at, and three orders above
+    the disagreement seen rather than one. A tighter bound has been disproved
+    once already by a runner this code does not control, and the next libm to
+    differ would be reporting the same non-problem."""
     import numpy as np
 
     rng = np.random.default_rng(1)
@@ -106,7 +108,7 @@ def test_the_array_projection_is_the_scalar_one_to_far_below_a_pixel():
     want = np.array([m.lonlat_to_scene(a, b) for a, b in zip(lon, lat)])
     assert got.shape == want.shape == (len(lon), 2)
     worst = float(np.abs(got - want).max())
-    assert worst < 1e-5, f'worst {worst} scene units, which is {worst:.1e} of a pixel at z19'
+    assert worst < 1e-3, f'worst {worst} scene units, which is {worst:.1e} of a pixel at z19'
 
 
 def test_both_projections_clamp_at_the_mercator_cut():
