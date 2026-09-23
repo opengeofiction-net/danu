@@ -83,6 +83,25 @@ def test_the_shell_file_says_where_the_dem_is_and_what_ground_it_covers(tmp_path
     assert '=== golden: interpolate' in run.stdout
 
 
+def test_an_overridden_archive_spacing_reaches_the_grid_it_is_reported_on(tmp_path):
+    """HGT_ARCSEC can be overridden in the shell's environment, and the shell
+    slices the .hgt archive at whatever it ends up being. TE_HGT has to follow
+    it rather than the file, or the warp and the slicing are on different
+    grids - and SRTMHGT, which insists on exactly 1201 samples square, then
+    refuses every slice."""
+    if shutil.which('isofill') is None:
+        pytest.skip('isofill not on PATH')
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(zone / 'S24E125_Drawn.osm.xz', ele='100')
+    for arcsec, half in (('3', '124.999583333'), ('1', '124.999861111')):
+        out = tmp_path / f'surface-{arcsec}.sh'
+        run = run_cli(zone, tmp_path / f'work{arcsec}', '--arcsec', '30',
+                      '--hgt-arcsec', arcsec, '--shell', str(out))
+        assert run.returncode == 0, run.stderr[-2000:]
+        assert read_assignments(out)['TE_HGT'].startswith(half), read_assignments(out)
+
+
 def test_a_zone_of_blank_templates_builds_nothing_and_says_so(tmp_path):
     """Templates are laid out before the drawing starts, so a zone with
     nothing in it yet is not a failure - but the caller has to be able to tell

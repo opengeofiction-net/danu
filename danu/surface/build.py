@@ -15,6 +15,10 @@ argument rather than from the file, because the golden reference is built at 3
 arcseconds so it stays committable, and the shell passes ``--arcsec`` for the
 same reason.
 
+The golden test still runs the whole shell script against that reference, so
+the surface is still pinned cell for cell. What it no longer does is hold two
+implementations to each other, because there are not two.
+
 Where the two callers legitimately differ: the shell builds a *zone*, every
 square in the directory, and the editor builds a *working set*. For a square in
 the middle of a drawn zone the editor's surface near the set's edge will differ
@@ -33,7 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
 from typing import Callable, Iterable
@@ -100,10 +104,6 @@ class Grid:
     def size(self) -> tuple[int, int]:
         w, s, e, n = self.te
         return round((e - w) / self.res), round((n - s) / self.res)
-
-    @property
-    def sq_degrees(self) -> int:
-        return (self.east - self.west) * (self.north - self.south)
 
 
 def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None = None,
@@ -416,7 +416,12 @@ def water_areas(water_file: Path, grid: Grid, work: Path, log: Log = _quiet) -> 
                               'CPL_TMPDIR': str(work)}):
         gdal.VectorTranslate(str(areas), str(water_file), options=gdal.VectorTranslateOptions(
             format='GPKG', layers=['multipolygons'], where="natural='water'", layerName='water'))
-    log(f'  {_feature_count(areas, "water")} water areas')
+    found = _feature_count(areas, 'water')
+    log(f'  {found} water areas')
+    if found == 0:
+        log(f'  WARNING: {water_file.name} has no natural=water areas, so the mask is empty and '
+            f'enclosed water will read as land. The coastline direction is the other way to this, '
+            f'and it is what a zone with no water file uses')
     out = work / 'water-mask.tif'
     gdal.Rasterize(str(out), str(areas), options=gdal.RasterizeOptions(
         format='GTiff', burnValues=[1], initValues=[0], outputType=gdal.GDT_Byte,
@@ -730,6 +735,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('zone_dir', type=Path, help='the directory of .osm.xz squares')
     ap.add_argument('work', type=Path, help='where the working rasters go')
     ap.add_argument('--arcsec', type=float, help='resolution; the file\'s value by default')
+    ap.add_argument('--hgt-arcsec', type=float,
+                    help='the spacing TE_HGT is reported at; the file\'s value by default. An '
+                         'argument for the same reason --arcsec is: the caller may be overriding '
+                         'it, and TE_HGT has to be the grid the caller then slices on')
     ap.add_argument('--params', type=Path, help='an elevation.toml other than the packaged one')
     ap.add_argument('--water-constraints', action='store_true',
                     help='read rivers and lakes from Overpass as constraints')
@@ -748,6 +757,8 @@ def main(argv: list[str] | None = None) -> int:
     p = params_module.load(args.params)
     if args.arcsec is not None:
         p = p.with_arcsec(args.arcsec)
+    if args.hgt_arcsec is not None:
+        p = replace(p, hgt_arcsec=float(args.hgt_arcsec))
 
     began = time.monotonic()
     prefix = f'{args.zone}: ' if args.zone else ''

@@ -125,7 +125,11 @@ timings_report() {
 # died in there would have been carried on from silently.
 SURFACE=${WORK}/surface.sh
 rm -f ${SURFACE}
-surface_args=(--arcsec "${ARCSEC}" --zone "${ZONE}"
+# Both resolutions are passed, not just read from the file: either can be
+# overridden here, and TE_HGT has to be the grid this script then slices the
+# .hgt archive on. SRTMHGT insists on exactly 1201 samples square, so half a
+# cell of the wrong size makes every slice fractional and the archive empty
+surface_args=(--arcsec "${ARCSEC}" --hgt-arcsec "${HGT_ARCSEC}" --zone "${ZONE}"
 	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}"
 	"${params_args[@]}")
 # Set WATER_CONSTRAINTS=0 to build a zone without the drawn rivers and lakes,
