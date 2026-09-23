@@ -93,9 +93,10 @@ def test_every_stage_is_named_and_documented():
     tree = ast.parse(src)
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
-    stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
-              'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_areas',
-              'water_mask', 'interpolate', 'clamp', 'first_pass_classes', 'first_pass_reading']
+    stages = ['Grid', 'squares_with_constraints', 'grid_for', 'is_staging', 'lines_osmconf',
+              'check_long_ways', 'collect', 'rasterise', 'drawn_area', 'water_constraints',
+              'water_areas', 'water_mask', 'interpolate', 'clamp', 'first_pass_classes',
+              'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
     not_stages = set(defs) - set(stages) - {'Result', 'build_dem', 'main'}
     assert not_stages == set(), f'new top-level names need listing here: {not_stages}'
@@ -141,6 +142,79 @@ def test_the_editors_surface_is_the_shells_surface(tmp_path, library):
     # and the grids are the same grid, not merely the same shape
     ref_gt, new_gt = ref_ds.GetGeoTransform(), new_ds.GetGeoTransform()
     assert all(abs(x - y) < 1e-12 for x, y in zip(ref_gt, new_gt)), (ref_gt, new_gt)
+
+
+def test_a_staged_square_builds_the_same_surface_uncompressed(tmp_path):
+    """The editor stages the square it is holding uncompressed, because the
+    build expands it anyway - xz at the fastest preset was 377 ms of the 549 a
+    staging of the gobras 3x3 took, and the reader paid for it again. What the
+    build makes of it has to be the same surface to the cell, or the saving
+    bought a different map."""
+    import numpy as np
+    from danu.core import save
+    from danu.core.square import SquareName, read_square
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    square = read_square(zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+
+    # staged as the editor stages it: the square it holds, written out bare
+    bare = save.stage_zone([square], [square], tmp_path / 'bare')
+    staged = {f.name for f in bare.iterdir() if not f.name.startswith('.')}
+    assert staged == {'S24E125.osm'}, staged
+    assert build.is_staging(bare) and not build.is_staging(zone)
+
+    # and the same square staged the way it used to be, compressed
+    packed = tmp_path / 'packed'
+    packed.mkdir()
+    (packed / save.STAGE_MARKER).touch()
+    save.write_square(square, packed / 'S24E125.osm.xz', preset=0)
+
+    a = build.build_dem(packed, tmp_path / 'wa', p)
+    b = build.build_dem(bare, tmp_path / 'wb', p)
+    assert a.dem is not None and b.dem is not None
+    ds_a, ds_b = gdal.Open(str(a.dem)), gdal.Open(str(b.dem))     # held
+    A = ds_a.GetRasterBand(1).ReadAsArray()
+    B = ds_b.GetRasterBand(1).ReadAsArray()
+    assert A.shape == B.shape
+    assert int((A != B).sum()) == 0, f'{int((A != B).sum())} of {A.size} cells differ'
+    # and it is the reference surface, not merely the same as itself
+    ref = gdal.Open(str(EXPECTED))
+    assert int((ref.GetRasterBand(1).ReadAsArray() != B).sum()) == 0
+
+
+def test_a_loose_square_is_read_only_where_it_was_meant(tmp_path):
+    """The marker is the whole difference. In a zone directory a bare .osm is
+    a drop somebody never packed, and building from it would put work in the
+    surface that nobody else can see; in a staging directory it is how the
+    editor hands over what it is holding."""
+    import lzma
+
+    from danu.core import save
+    from danu.core.square import SquareName
+    from danu.surface import build
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    loose = zone / 'S24E125_Los_Pizarrales.osm'
+    with lzma.open(SQUARE, 'rb') as src, open(loose, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    (zone / SQUARE.name).unlink()                 # only the loose one is there
+
+    lines = []
+    found = build.squares_with_constraints(zone, log=lines.append)
+    assert found == {}, 'a loose square in a zone directory is not built from'
+    assert any('uncompressed' in l for l in lines) and any('xz these' in l for l in lines)
+
+    (zone / save.STAGE_MARKER).touch()            # now it is a staging directory
+    lines = []
+    found = build.squares_with_constraints(zone, log=lines.append)
+    assert list(found) == [SquareName(125, -24)]
+    assert lines == [], lines
 
 
 def test_the_files_grad_min_is_the_binarys_default_which_both_paths_rely_on():

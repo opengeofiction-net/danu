@@ -45,6 +45,7 @@ from typing import Callable, Iterable
 import numpy as np
 from osgeo import gdal, ogr
 
+from ..core.save import STAGE_MARKER
 from ..core.square import SquareName, has_constraints, list_squares, loose_squares
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
@@ -124,16 +125,31 @@ def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None 
 
     ``listing`` is that directory listing, where the caller has already made
     one and would otherwise be walking the directory twice."""
-    found = list_squares(zone_dir, compressed_only=True) if listing is None else dict(listing)
-    if names is None:
+    staged = is_staging(zone_dir)
+    found = (list_squares(zone_dir, compressed_only=not staged) if listing is None
+             else dict(listing))
+    if names is not None:
+        wanted = set(names)
+        found = {n: p for n, p in found.items() if n in wanted}
+    elif not staged:
+        # a bare .osm here is a drop nobody packed, and the zone would be built
+        # without that mapper's work in it. In a staging directory it is meant
         loose = loose_squares(zone_dir)
         if loose:
             log(f'  WARNING: not read, being uncompressed: {" ".join(f.name for f in loose)}')
             log('  the squares are held as .osm.xz - xz these and remove the .osm')
-    else:
-        wanted = set(names)
-        found = {n: p for n, p in found.items() if n in wanted}
     return {n: p for n, p in found.items() if has_constraints(str(p))}
+
+
+def is_staging(zone_dir: Path) -> bool:
+    """Whether this directory is one ``danu.core.save.stage_zone`` made.
+
+    It decides one thing: whether a bare ``.osm`` beside the squares is meant.
+    In a zone directory it is a drop somebody never packed, and reading it
+    would build a zone from a file nobody else can see; in a staging directory
+    it is how the editor hands over the square it has in memory, uncompressed
+    because the build is about to expand it anyway."""
+    return (Path(zone_dir) / STAGE_MARKER).exists()
 
 
 def grid_for(names: Iterable[SquareName], arcsec: float) -> Grid:
@@ -260,10 +276,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     water edges at ele 0. Ways without one - the frame, stray tagging - are
     ignored.
 
-    The squares are held compressed and GDAL has no VSI handler for xz - there
-    is one for zip, gzip and 7z, but not this - so each is expanded into the
-    working directory, read, and dropped again. One at a time, so the cost is
-    the largest square rather than the whole zone."""
+    A zone's squares are held compressed; a staging directory's edited ones are
+    not. Either is read, and an expanded one is read where it lies."""
     gpkg = work / 'contours.gpkg'
     if gpkg.exists():
         gpkg.unlink()
@@ -281,19 +295,30 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                               # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
         for name, path in sorted(squares.items()):
-            with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
+            # GDAL has no VSI handler for xz - there is one for zip, gzip and
+            # 7z, but not this - so a compressed square is expanded into the
+            # working directory, read, and dropped again. One at a time, so the
+            # cost is the largest square rather than the whole zone. A square
+            # that is already expanded, which is how the editor stages the one
+            # it is holding, is read where it lies.
+            expanded = path.suffix != '.xz'
+            source = path
+            if not expanded:
+                with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+                source = square
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
-            ele_ways = check_long_ways(square, log, name=path.name)
+            ele_ways = check_long_ways(source, log, name=path.name)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
             else:
                 opts['accessMode'] = 'append'
-            gdal.VectorTranslate(str(gpkg), str(square), options=gdal.VectorTranslateOptions(**opts))
+            gdal.VectorTranslate(str(gpkg), str(source), options=gdal.VectorTranslateOptions(**opts))
             first = False
-            square.unlink()
+            if not expanded:
+                square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver
             # spills to disk over OSM_MAX_TMPFILE_SIZE, and if that write fails
             # it hands back an empty layer rather than an error. That cost
@@ -731,7 +756,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
-    listing = list_squares(Path(zone_dir), compressed_only=True)
+    listing = list_squares(Path(zone_dir), compressed_only=not is_staging(zone_dir))
     squares = squares_with_constraints(Path(zone_dir), names, log, listing=listing)
     # how many of the zone's squares are templates, which is a zone-wide count
     # and means nothing about a working set - the editor asks for named squares

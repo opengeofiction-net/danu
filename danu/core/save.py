@@ -103,9 +103,16 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
     is a symlink to its file. What the surface shows is then what is drawn,
     saved or not - the editor's ground rule.
 
-    Written as ``.osm.xz`` because the pipeline reads nothing else - it
-    refuses a bare ``.osm`` and decompresses as it goes - but at the fastest
-    preset: this copy lives for one build."""
+    An edited square is written as a bare ``.osm``. This copy lives for one
+    build and is read once, by a build that is about to expand it anyway, so
+    compressing it is work done to be undone: xz at the fastest preset was 377
+    ms of the 549 a staging took on the gobras 3x3, and the reader paid for it
+    again. A clean square stays the symlink to its own ``.osm.xz``.
+
+    That makes a staging directory the one place a bare ``.osm`` beside the
+    squares is meant rather than a mapper's drop that never got packed, which
+    is why ``.danu-stage`` is written first: the build reads the marker and
+    takes loose squares only there."""
     into = Path(into)
     marker = into / STAGE_MARKER
     if into.exists():
@@ -126,11 +133,10 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
             continue
         # always under the square's own name, so the names the build is given
         # and the files it finds cannot disagree
-        target = into / f'{sq.name.name}.osm.xz'
         if id(sq) in dirty_ids or sq.path is None:
-            write_square(sq, target, preset=0)
+            write_square(sq, into / f'{sq.name.name}.osm')
         else:
-            target.symlink_to(sq.path.resolve())
+            (into / f'{sq.name.name}.osm.xz').symlink_to(sq.path.resolve())
     return into
 
 

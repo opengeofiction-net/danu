@@ -159,3 +159,47 @@ def test_main_refuses_half_an_open_request():
     from danu.ui.app import main
     with pytest.raises(SystemExit):
         main(['danu', '/some/zone'])
+
+
+def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
+    """JOSM will save a way whose node was deleted under it, so a ref can have
+    no node. The points come from the refs that are placed, so pairing the
+    way's full ref list with them afterwards put every ref after the gap on
+    the next node's position - and dropped the last one. A click then snapped
+    to one node and dragged another."""
+    from danu.core.square import Node, Square, Way
+
+    sq = Square(name=SquareName(87, 20), present=True)
+    places = {1: (87.1, 20.1), 3: (87.3, 20.3), 4: (87.4, 20.4)}     # no node 2
+    for i, (lon, lat) in places.items():
+        sq.nodes[i] = Node(id=i, lat=lat, lon=lon)
+    sq.ways[10] = Way(id=10, refs=[1, 2, 3, 4], tags={'ele': '100'})
+
+    layer = ContourLayer()
+    layer.set_working_set(WorkingSet(centre=sq.name, size=1, squares={sq.name: sq}))
+
+    geom = layer._geoms[(sq.name, 10)]
+    assert geom.refs == [1, 3, 4] and len(geom.pts) == 3, 'the refs follow the points'
+    assert [ref for _, ref in layer._node_ref] == [1, 3, 4], 'no ref is dropped'
+    for (square, ref), xy in zip(layer._node_ref, layer._node_xy):
+        node = square.nodes[ref]
+        assert tuple(xy) == m.lonlat_to_scene(node.lon, node.lat), f'ref {ref} is at another node'
+
+
+def test_the_layer_projects_a_way_exactly_as_the_scalar_projection_does(ws):
+    """The whole working set is projected at once now - 342,000 points on the
+    gobras 3x3, and a Python call per point was a third of the time that took.
+    A projection that disagreed with itself by a ulp would put a contour and
+    the node a mapper is snapping to in two different places, so the array
+    form is held to the scalar one bit for bit."""
+    import numpy as np
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    checked = 0
+    for geom in layer._geoms.values():
+        nodes = geom.square.nodes
+        want = np.array([m.lonlat_to_scene(nodes[r].lon, nodes[r].lat) for r in geom.refs])
+        assert np.array_equal(geom.pts, want), f'way {geom.way.id} is not where the scalar puts it'
+        checked += len(want)
+    assert checked > 1000, f'only {checked} points were compared'

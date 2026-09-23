@@ -28,7 +28,8 @@ through a raster, and a contour at 0 m still wants drawing.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from itertools import chain
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF
@@ -63,11 +64,29 @@ class WayGeom:
     """One way projected: the square it is in, the way, its elevation (None
     for a coastline, which is here to snap to and not to draw) and its points
     in scene units. The layer keeps one per way so an edit re-projects the
-    ways it touched and nothing else."""
+    ways it touched and nothing else.
+
+    ``refs`` are the node ids those points belong to, in the same order and the
+    same number: a way can name a node the square does not have - JOSM will
+    save a way whose node was deleted under it - and that ref has no point.
+    Kept together because the alternative, pairing ``way.refs`` with ``pts``
+    afterwards, silently pairs every ref after a gap with the next node's
+    position, so a click snapped to one node and dragged another."""
     square: Square
     way: Way
     ele: float | None
     pts: np.ndarray
+    refs: list[int] = field(default_factory=list)
+
+    @property
+    def node_ref(self) -> list[tuple[Square, int]]:
+        """(square, ref) per point, which is what the layer's node index is
+        made of. Built once here rather than per rebuild."""
+        if self._node_ref is None:
+            self._node_ref = [(self.square, r) for r in self.refs]
+        return self._node_ref
+
+    _node_ref: list[tuple[Square, int]] | None = None
 
 
 class ContourLayer(QGraphicsItem):
@@ -123,14 +142,19 @@ class ContourLayer(QGraphicsItem):
     @staticmethod
     def _project(square: Square, way: Way) -> WayGeom | None:
         """A contour or a coastline with at least two placed nodes; anything
-        else is not a line and is not kept."""
+        else is not a line and is not kept.
+
+        The refs are carried alongside the points, so both drop a node the
+        square does not have and the two stay aligned."""
         ele = way.ele
         if ele is None and way.tags.get('natural') != 'coastline':
             return None
-        pts = [m.lonlat_to_scene(lon, lat) for lon, lat in square.coords(way)]
-        if len(pts) < 2:
+        nodes = square.nodes
+        placed = [(r, nodes[r]) for r in way.refs if r in nodes]
+        if len(placed) < 2:
             return None
-        return WayGeom(square, way, ele, np.asarray(pts, dtype=float))
+        pts = m.lonlat_to_scene_array([n.lon for _, n in placed], [n.lat for _, n in placed])
+        return WayGeom(square, way, ele, pts, [r for r, _ in placed])
 
     def refresh(self, square: Square, way_ids: set[int]):
         """Some ways of a square changed - an edit, or its undo. Re-project
@@ -157,32 +181,53 @@ class ContourLayer(QGraphicsItem):
         for g in self._geoms.values():
             if g.ele is None or g.ele not in levels:
                 continue
+            # tolist() first: stepping a numpy (n, 2) array row by row in
+            # Python builds an array scalar per coordinate, and there are
+            # 342,000 of them in the gobras 3x3. The same path building over
+            # plain floats is 66 ms against 400 ms, measured on that set
+            pts = g.pts.tolist()
             path = self.paths.setdefault(g.ele, QPainterPath())
-            path.moveTo(*g.pts[0])
-            for x, y in g.pts[1:]:
+            path.moveTo(pts[0][0], pts[0][1])
+            for x, y in pts[1:]:
                 path.lineTo(x, y)
-            self.labels.append(self._label(g.ele, [tuple(p) for p in g.pts]))
+            self.labels.append(self._label(g.ele, pts))
         all_levels = sorted(self.paths)
         self.index_levels = set(all_levels[::INDEX_EVERY_N])
 
     def _rebuild_arrays(self):
-        # always replaced: a set with no contours after one with many must
-        # not leave the old segments behind for pick to find
-        self._ways = [g for g in self._geoms.values() if g.ele is not None]
-        seg_a = [g.pts[:-1] for g in self._ways]
+        """The flat segment and node arrays, from the per-way geometry.
+
+        Always replaced: a set with no contours after one with many must not
+        leave the old segments behind for pick to find.
+
+        Built with one vectorised operation per array rather than one small
+        array per way. The per-way form cost 136 ms on the gobras 3x3 - paid on
+        every edit, since an edit to one way rebuilds all of them - of which
+        almost none was the concatenation: it was six thousand calls to
+        ``np.full`` and ``np.arange``, and a Python loop over all 342,000 points
+        to build the node index."""
         empty = np.zeros((0, 2))
-        self._seg_a = np.concatenate(seg_a) if seg_a else empty
-        self._seg_b = np.concatenate([g.pts[1:] for g in self._ways]) if seg_a else empty
-        self._seg_ele = np.concatenate([np.full(len(g.pts) - 1, g.ele) for g in self._ways]) if seg_a else np.zeros(0)
-        self._seg_way = np.concatenate([np.full(len(g.pts) - 1, i) for i, g in enumerate(self._ways)]) if seg_a else np.zeros(0, dtype=np.int64)
-        self._seg_i = np.concatenate([np.arange(len(g.pts) - 1) for g in self._ways]) if seg_a else np.zeros(0, dtype=np.int64)
-        node_xy, self._node_ref = [], []
-        for g in self._geoms.values():                    # contours and coastlines both
-            for ref, pt in zip(g.way.refs, g.pts):
-                if ref in g.square.nodes:
-                    node_xy.append(pt)
-                    self._node_ref.append((g.square, ref))
-        self._node_xy = np.asarray(node_xy, dtype=float) if node_xy else empty
+        self._ways = [g for g in self._geoms.values() if g.ele is not None]
+        # a projected way always has two points or more, so every count is >= 1
+        counts = np.array([len(g.pts) - 1 for g in self._ways], dtype=np.int64)
+        if not len(counts):
+            self._seg_a = self._seg_b = empty
+            self._seg_ele = np.zeros(0)
+            self._seg_way = np.zeros(0, dtype=np.int64)
+            self._seg_i = np.zeros(0, dtype=np.int64)
+        else:
+            self._seg_a = np.concatenate([g.pts[:-1] for g in self._ways])
+            self._seg_b = np.concatenate([g.pts[1:] for g in self._ways])
+            self._seg_ele = np.repeat(np.array([g.ele for g in self._ways], dtype=float), counts)
+            self._seg_way = np.repeat(np.arange(len(self._ways), dtype=np.int64), counts)
+            # the per-way 0..n-1 ramp, without a per-way arange: a running
+            # index minus where each way starts
+            starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
+            self._seg_i = np.arange(counts.sum(), dtype=np.int64) - np.repeat(starts, counts)
+        geoms = list(self._geoms.values())                # contours and coastlines both
+        pts = [g.pts for g in geoms if len(g.pts)]
+        self._node_xy = np.concatenate(pts) if pts else empty
+        self._node_ref = list(chain.from_iterable(g.node_ref for g in geoms if len(g.pts)))
 
     @staticmethod
     def _label(ele: float, pts: list[tuple[float, float]]) -> Label:

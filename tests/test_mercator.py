@@ -79,3 +79,24 @@ def test_zoom_to_fit_picks_the_largest_zoom_that_fits():
     assert m.zoom_to_fit(1000, 800, x0, y0, x1, y1) == 10
     assert m.zoom_to_fit(10, 10, 0, 0, m.WORLD, m.WORLD) == 0
     assert m.zoom_to_fit(1e9, 1e9, 0, 0, 1, 1) == m.MAX_ZOOM
+
+
+def test_the_array_projection_is_the_scalar_one_bit_for_bit():
+    """The editor projects a whole working set at once. Same arithmetic in the
+    same order, so it has to be the same answer to the last bit: a contour and
+    the node a mapper snaps to are projected by different callers, and a ulp
+    between them is a node that will not sit on its own line."""
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    lon = rng.uniform(-180, 180, 50_000)
+    lat = rng.uniform(-89.9, 89.9, 50_000)
+    # and the places the formula is delicate: the poles it clamps at, the
+    # equator, the meridian, and coordinates small enough to go exponential
+    lon = np.concatenate([lon, [0.0, -0.0, 180.0, -180.0, 1e-7, -1e-7]])
+    lat = np.concatenate([lat, [0.0, -0.0, 90.0, -90.0, m.MAX_LAT, -m.MAX_LAT]])
+
+    got = m.lonlat_to_scene_array(lon, lat)
+    want = np.array([m.lonlat_to_scene(a, b) for a, b in zip(lon, lat)])
+    assert got.shape == want.shape == (len(lon), 2)
+    assert np.array_equal(got, want), f'worst {np.abs(got - want).max()} scene units'

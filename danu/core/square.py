@@ -391,6 +391,7 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     failure mid-write leaves the old file whole."""
     import html
     import tempfile
+    from decimal import Decimal
     path = Path(path)
 
     def q(v) -> str:            # single quotes, as JOSM writes them; & < > ' escaped
@@ -400,9 +401,17 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
         # the shortest digits that read back to the same float, written as a
         # plain decimal: repr(1e-05) is '1e-05', and a node within eleven
         # metres of the equator or the meridian would carry an exponent into
-        # a file every other tool writes as decimals
-        from decimal import Decimal
-        return format(Decimal(repr(float(v))), 'f')
+        # a file every other tool writes as decimals.
+        #
+        # Only such a node pays for the conversion. repr already gives a plain
+        # decimal for every coordinate that is not tiny, and Decimal(repr(v))
+        # formatted 'f' is then that same string - held here over every
+        # coordinate in the gobras set and 400,000 random ones. A square is
+        # 320,000 coordinates and this is 94 ms of a write rather than 191
+        s = repr(float(v))
+        if 'e' in s or 'E' in s:
+            return format(Decimal(s), 'f')
+        return s
 
     attrs = dict(square.attrs)
     attrs.setdefault('version', '0.6')
@@ -455,10 +464,12 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     mappers, and so which squares a zone is built over.
 
     Reads in chunks and stops at the first, since a filled square can be 87 MB
-    and most are answered by the first page. Decompressing as it goes, so a
-    blank template costs a few kilobytes rather than the whole file."""
+    and most are answered by the first page. Decompressing as it goes, where
+    the file is compressed, so a blank template costs a few kilobytes rather
+    than the whole file."""
     tail = b''
-    with lzma.open(path, 'rb') as f:
+    opener = lzma.open if Path(path).suffix == '.xz' else open
+    with opener(path, 'rb') as f:
         while True:
             block = f.read(chunk)
             if not block:
