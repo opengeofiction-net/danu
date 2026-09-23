@@ -603,6 +603,8 @@ one change.
 
 ## Plan
 
+### Phase 0
+
 **Phase 0 - move the pipeline.** Create the repository. Move the nineteen
 scripts and their configuration in, with history where git makes that easy.
 Restructure the logic into `danu.core`, `danu.surface`, `danu.water` and
@@ -686,6 +688,8 @@ forced rebuilds and the decision phase 2 inherits. They are forced because the
 quiet nights the pipeline would otherwise have are not evidence - see
 `danu-soak` above.
 
+### Phase 1
+
 **Phase 1 - viewer.** Map, tile layers with opacity, open a 3x3 working set,
 draw contours as vectors over it, no editing. Ends when a mapper can look at
 their square. It also carried the debt above - `isofill` building on the Windows
@@ -743,6 +747,8 @@ on the branch before the pull request exists, from the same prompt the
 workflow uses (`packaging/ci/cr`). Over phases 0 and 1 the substantive
 findings came from the local pass more often than not; the public rounds
 dropped from five to one or two.
+
+### Phase 2
 
 **Phase 2 - the surface.** The question phase 0 left is settled, for now, the
 second way: the golden test grows a second case driving the editor's own
@@ -885,6 +891,12 @@ to finish and for the shell to start reading `elevation.toml`, which is the
 same change. Recommended for the start of phase 4, before the incremental path
 adds a third caller. Not decided here; decided by the reader.
 
+### Phase 3
+
+**Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
+Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
+Ends when a square can be drawn from blank and built by the server unchanged.
+
 ### What phase 3 actually did
 
 Ended on 2026-09-23, in seventeen pull requests here and one in `isofill`, over
@@ -1024,25 +1036,31 @@ for a 3x3: all of it is the same question the incremental path asks, which is
 what to recompute per edit. Sized there, with the `danu.cli` port, rather than
 piecemeal here.
 
-**Phase 3 - editing.** Draw, continue, move, delete. Elevation control in full.
-Snapping. Undo. Save to `.osm.xz` with id allocation and long-way splitting.
-Ends when a square can be drawn from blank and built by the server unchanged.
+### Phase 4
 
 **Phase 4 - live.** The incremental path, the job queue, preview and exact
 states. Ends when drawing a contour moves the hillshade under the cursor inside
 50 ms.
 
+### Phase 5
+
 **Phase 5 - water.** Overpass import and cache, elevations on water, burn and
 flatten with accept and roll back, profile tool. Ends when the gobras experiment
 is reproducible by hand in the editor.
 
+### Phase 6
+
 **Phase 6 - checks and polish.** The validation panel, measure, difference,
 magnify, autosave and crash recovery, session files.
+
+### Phase 7
 
 **Phase 7 - release.** Installers for Linux and Windows, GDAL and Qt bundled,
 `isofill` built for both, a settings UI, first-run help, and somewhere for a
 crash to go. Ends when someone who has never opened a terminal can install it
 and draw a contour.
+
+### Phase scheduling
 
 Phases 1 to 4 are the spine; 5 onward are separable and could ship in any order.
 
