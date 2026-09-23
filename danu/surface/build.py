@@ -86,7 +86,9 @@ def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
     pass 2 on the C params and leaves grad_min at the library's default, and of
     those only radius and barrier shape the first pass - pass 2 is the step
     after it. grad_min is carried because the file's value is held equal to
-    that default by a test, and a change to either would change the fill.
+    that default by two tests in tests/golden/test_editor_surface.py - one
+    reading the binary's usage text, one the library's own defaults - and a
+    change to either would change the fill.
     ``threads`` does not change an answer. So this is the whole of what a kept
     pass has to have been filled with, not a sample of it; if another Params
     field ever reaches pass 1, it belongs here."""
