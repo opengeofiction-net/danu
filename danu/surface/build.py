@@ -45,8 +45,7 @@ from typing import Callable, Iterable
 import numpy as np
 from osgeo import gdal, ogr
 
-from ..core.square import (SquareName, has_constraints, list_squares, loose_squares,
-                           read_square)
+from ..core.square import SquareName, has_constraints, list_squares, loose_squares
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
@@ -71,12 +70,12 @@ class Grid:
     """The raster every stage shares: whole degrees, with half a cell added on
     every side so cell centres sit on the degree lines.
 
-    SRTM is grid registered - 1201 samples per degree, pixel centres on whole
-    arcseconds - so the raster corner sits half a pixel outside the degree line.
-    The master and the 3 arcsecond products each need that offset at their own
-    spacing: using one for the other leaves a fractional sample count per degree
-    and SRTMHGT, which insists on exactly 1201 square, then refuses every slice.
-    ``te_at`` takes the spacing for that reason."""
+    SRTM is grid registered - pixel centres on whole arcseconds - so the raster
+    corner sits half a pixel outside the degree line. The master and the 3
+    arcsecond products each need that offset at their own spacing: using one for
+    the other leaves a fractional sample count per degree, and SRTMHGT takes
+    1201 or 3601 samples square and nothing in between, so it then refuses every
+    slice. ``te_at`` takes the spacing for that reason."""
 
     west: int
     east: int
@@ -107,7 +106,8 @@ class Grid:
 
 
 def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None = None,
-                             log: Log = _quiet) -> dict[SquareName, Path]:
+                             log: Log = _quiet,
+                             listing: dict[SquareName, Path] | None = None) -> dict[SquareName, Path]:
     """The squares that hold any ``ele``, by name; the rest are templates.
 
     A zone's directory carries the blank templates handed out to mappers - one
@@ -120,8 +120,11 @@ def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None 
     a square starting at 26 degrees yields geometry from 25.9996 - which floors
     to the wrong degree. Any tolerance that fixes that is wide enough to discard
     a genuine sliver of data, whereas the filename says exactly which degree
-    square a file describes."""
-    found = list_squares(zone_dir, compressed_only=True)
+    square a file describes.
+
+    ``listing`` is that directory listing, where the caller has already made
+    one and would otherwise be walking the directory twice."""
+    found = list_squares(zone_dir, compressed_only=True) if listing is None else dict(listing)
     if names is None:
         loose = loose_squares(zone_dir)
         if loose:
@@ -170,9 +173,64 @@ def lines_osmconf(work: Path) -> Path:
     return out
 
 
-def check_long_ways(square_path: Path, log: Log) -> int:
+# The tokens the long-way guard counts, and an overlap longer than the longest
+# of them so one split across a read boundary is still seen whole
+_SCAN = re.compile(rb"""<way\b|</way>|<nd\b|k=["']ele["']""")
+_SCAN_OVERLAP = 16
+
+
+def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int]:
+    """(ways over 2,000 nodes, ways over 10,000, the longest, ways tagged ele),
+    by scanning the XML rather than parsing it.
+
+    Scanned, because this runs on every square of every zone every night and on
+    every working set the editor opens. Parsing a square into objects to count
+    its ``nd`` elements costs the whole file's geometry for four integers - on
+    the largest squares, tens of seconds and a few hundred MB - which is what the
+    shell's one streaming ``awk`` pass was avoiding.
+
+    Unlike that ``awk``, an ``ele`` is only credited to a way when it is inside
+    one: the old pass counted a tag anywhere, so an ``ele`` on a node before a
+    way made that way look tagged."""
+    over = drop = longest = ele_ways = 0
+    nodes = 0
+    in_way = has_ele = False
+    carry = b''
+    with open(path, 'rb') as f:
+        while True:
+            block = f.read(chunk)
+            if not block:
+                break
+            buf = carry + block
+            # a token starting in the last few bytes may not be complete yet, so
+            # it waits for the next block rather than being half-read here
+            limit = len(buf) - _SCAN_OVERLAP if len(block) == chunk else len(buf)
+            for m in _SCAN.finditer(buf):
+                if m.start() >= limit:
+                    break
+                token = m.group()
+                if token == b'<way':
+                    in_way, nodes, has_ele = True, 0, False
+                elif token == b'<nd':
+                    nodes += in_way
+                elif token == b'</way>':
+                    over += nodes > 2000
+                    drop += nodes > 10000
+                    longest = max(longest, nodes)
+                    ele_ways += has_ele
+                    in_way = False
+                elif in_way:
+                    has_ele = True
+            carry = buf[max(limit, 0):]
+    return over, drop, longest, ele_ways
+
+
+def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> int:
     """How many ways in the square carry an ``ele``, having refused it if any
-    way is too long for GDAL to read.
+    way is too long for GDAL to read. Takes the expanded square, which
+    ``collect`` has written out for GDAL anyway, and ``name`` for the messages -
+    the expanded file is called square.osm and saying so would tell an operator
+    nothing about which square to go and fix.
 
     GDAL's OSM driver drops any way over 10,000 nodes. It says so once per node
     beyond the limit, so one 45,000 node contour buries the message under 35,000
@@ -183,17 +241,15 @@ def check_long_ways(square_path: Path, log: Log) -> int:
     stops. The warning threshold is the OSM API's own limit, which these files
     would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
     both."""
-    sq = read_square(square_path)
-    longest = max((len(w.refs) for w in sq.ways.values()), default=0)
-    drop = sum(1 for w in sq.ways.values() if len(w.refs) > 10000)
-    over = sum(1 for w in sq.ways.values() if len(w.refs) > 2000)
+    name = name or square_path.name
+    over, drop, longest, ele_ways = _way_counts(square_path)
     if drop:
-        raise ValueError(f'{square_path.name} has {drop} way(s) over 10,000 nodes (longest {longest}); '
+        raise ValueError(f'{name} has {drop} way(s) over 10,000 nodes (longest {longest}); '
                          f'GDAL drops these silently. Run danu.core.split_long_ways')
     if over:
-        log(f'  WARNING: {square_path.name} has {over} way(s) over 2,000 nodes (longest {longest}), '
+        log(f'  WARNING: {name} has {over} way(s) over 2,000 nodes (longest {longest}), '
             f'which the OSM API would reject on upload')
-    return sum(1 for w in sq.ways.values() if 'ele' in w.tags)
+    return ele_ways
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> Path | None:
@@ -225,9 +281,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                               # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
         for name, path in sorted(squares.items()):
-            ele_ways = check_long_ways(path, log)
             with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
+            # the guard reads the expanded file, not the archive: GDAL needs it
+            # expanded regardless, so the square is decompressed once a build
+            ele_ways = check_long_ways(square, log, name=path.name)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
@@ -469,8 +527,13 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     the chosen sample switches. A hillshade is a derivative and shows that
     plainly where a slope histogram averages it away. isofill takes the steepest
     pair of contours in line of sight and declines to fill at all from one,
-    which is also what keeps water enclosed by a coastline empty. It writes
-    Int16, so there is no rounding step after it.
+    which is also what keeps water enclosed by a coastline empty.
+
+    Its output is Float32, and has been since September 2026 - both passes work
+    in float and write float. There is no rounding step after it either way:
+    ``clamp`` writes the published DEM, and the whole-metre grid is what the
+    float output exists to escape. (isofill's own README still says Int16 in its
+    opening summary and Float32 forty lines later; the code writes Float32.)
 
     The barrier - how wide a contour is for the sight test only, not for its
     value - was tuned by measuring open water, so 1 was tried on the grounds
@@ -536,7 +599,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                 log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
-    return _interpolate_binary(cont, mask, water, params, out, isofill, extra)
+    return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
 
 
 def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
@@ -586,7 +649,7 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
-                        isofill: str, extra: list[str] | None = None) -> Path:
+                        isofill: str, extra: list[str] | None = None, log: Log = _quiet) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -614,12 +677,18 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
         cmd += ['--water', str(water)]
     cmd += list(extra or [])
     cmd += [str(cont), str(out)]
+    # which of the two ran, in the zone's own log. The library and the binary
+    # are held equal cell for cell by the golden test, so this is not a warning
+    # - but a build that silently changed code path between one night and the
+    # next would be a bad thing to have to work out afterwards
+    log(f'  isofill as the binary: {isofill}')
     run = subprocess.run(cmd, capture_output=True, text=True)
     if run.returncode != 0:
         raise RuntimeError(f'isofill failed ({run.returncode}):\n{run.stderr[-2000:]}')
     return out
 
-def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = _quiet) -> Path:
+def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = _quiet,
+          params: Params | None = None) -> Path:
     """Sea to zero, land never zero, the constraints back untouched, written as
     the published DEM is written.
 
@@ -630,7 +699,8 @@ def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = 
     out = work / 'dem.tif'
     if out.exists():
         out.unlink()
-    land_clamp.clamp(str(rounded), str(cont), str(out), str(water) if water else None, log=log)
+    land_clamp.clamp(str(rounded), str(cont), str(out), str(water) if water else None,
+                     log=log, params=params)
     return out
 
 
@@ -661,12 +731,12 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
-    squares = squares_with_constraints(Path(zone_dir), names, log)
+    listing = list_squares(Path(zone_dir), compressed_only=True)
+    squares = squares_with_constraints(Path(zone_dir), names, log, listing=listing)
     # how many of the zone's squares are templates, which is a zone-wide count
     # and means nothing about a working set - the editor asks for named squares
     # and the ones it did not ask for are not blank, they are elsewhere
-    blank = (len(list_squares(Path(zone_dir), compressed_only=True)) - len(squares)
-             if names is None else 0)
+    blank = len(listing) - len(squares) if names is None else 0
     if not squares:
         # two different nothings: a zone whose squares are all still templates,
         # and a working set the editor opened over ground nobody has drawn.
@@ -700,7 +770,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra)
     stage('clamp')
-    dem = clamp(rounded, cont, wmask, work, log)
+    dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask,
                   envelopes=work / 'drawn.geojson', blank=blank)
 
@@ -776,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
         result = build_dem(args.zone_dir, args.work, p, water=args.water_constraints,
                            log=log, water_file=args.water_areas,
                            extra=args.isofill_extra.split() or None, stage=stage)
-    except (ValueError, FileExistsError) as e:
+    except (ValueError, FileExistsError, RuntimeError, isofill_lib.IsofillError) as e:
         print(f'{prefix}{e}', file=sys.stderr)
         return 1
     if args.shell:

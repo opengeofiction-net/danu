@@ -109,7 +109,7 @@ def temp_raster(path, cols, rows, gt, proj, dtype=gdal.GDT_Byte):
     return ds
 
 
-def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
+def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None):
     """The interpolated raster made publishable: sea to exactly zero, land
     never zero, the burned constraints back untouched. Returns (regions kept
     as sea, regions found, sea cells, land cells at 1..9 m, cells the water
@@ -213,17 +213,25 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None):
 
     sea_ds, sea_band = open_band(sea_path)
 
+    # LERC_ZSTD, not DEFLATE. LERC is made for elevation rasters and takes a
+    # stated maximum error, so it can be told how much precision is wanted
+    # rather than preserving bits nobody reads. At 0.05 m that is 42.7 MB for
+    # zone-ellarca against 102 for DEFLATE, and it reads three times faster -
+    # and 0.05 m is a twentieth of the whole-metre quantisation this DEM went to
+    # Float32 to escape, so it cannot bring it back. Checked in QGIS against the
+    # DEFLATE original: no visible difference.
+    #
+    # The three numbers come from elevation.toml's [publish], because this is
+    # the write that produces the published DEM and a parameter with two homes
+    # has none.
+    if params is None:
+        from .params import load
+        params = load()
     out_ds = gdal.GetDriverByName('GTiff').Create(
         out_path, cols, rows, 1, gdal.GDT_Float32,
-        # LERC_ZSTD, not DEFLATE. LERC is made for elevation rasters and takes a
-        # stated maximum error, so it can be told how much precision is wanted
-        # rather than preserving bits nobody reads. At 0.05 m that is 42.7 MB
-        # for zone-ellarca against 102 for DEFLATE, and it reads three times
-        # faster - and 0.05 m is a twentieth of the whole-metre quantisation
-        # this DEM went to Float32 to escape, so it cannot bring it back.
-        # Checked in QGIS against the DEFLATE original: no visible difference.
-        options=['TILED=YES', 'COMPRESS=LERC_ZSTD', 'MAX_Z_ERROR=0.05',
-                 'ZSTD_LEVEL=9',
+        options=['TILED=YES', f'COMPRESS={params.dem_compress}',
+                 f'MAX_Z_ERROR={params.dem_max_z_error:g}',
+                 f'ZSTD_LEVEL={params.dem_zstd_level:d}',
                  'BIGTIFF=IF_SAFER'])
     out_ds.SetGeoTransform(gt)
     out_ds.SetProjection(proj)

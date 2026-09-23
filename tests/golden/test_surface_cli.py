@@ -52,8 +52,9 @@ def run_cli(zone: pathlib.Path, work: pathlib.Path, *args: str):
 
 def test_the_grid_it_reports_is_the_grid_the_hgt_slicing_needs(tmp_path):
     """TE_HGT is the degree extent at 3 arcseconds, not at the master's
-    resolution. SRTMHGT insists on exactly 1201 samples square, so half a cell
-    of the wrong size makes every slice fractional and the archive empty."""
+    resolution. SRTMHGT takes 1201 or 3601 samples square and nothing in
+    between, so half a cell of the wrong size makes every slice fractional and
+    the archive comes out empty."""
     from danu.surface.build import Grid
     g = Grid(west=125, east=126, south=-24, north=-23, arcsec=1)
     assert g.te == (124.999861111, -24.000138889, 126.000138889, -22.999861111)
@@ -87,8 +88,8 @@ def test_an_overridden_archive_spacing_reaches_the_grid_it_is_reported_on(tmp_pa
     """HGT_ARCSEC can be overridden in the shell's environment, and the shell
     slices the .hgt archive at whatever it ends up being. TE_HGT has to follow
     it rather than the file, or the warp and the slicing are on different
-    grids - and SRTMHGT, which insists on exactly 1201 samples square, then
-    refuses every slice."""
+    grids - and SRTMHGT, which takes 1201 or 3601 samples square and nothing
+    in between, then refuses every slice."""
     if shutil.which('isofill') is None:
         pytest.skip('isofill not on PATH')
     zone = tmp_path / 'zone'
@@ -181,6 +182,44 @@ def test_a_different_parameter_file_can_be_given_for_one_run(tmp_path):
 
 
 # ------------------------------------------------------------ the guards
+
+def test_the_long_way_scan_answers_what_parsing_the_square_answers(tmp_path):
+    """The guard scans the square instead of parsing it into objects, because
+    it runs on every square of every zone every night. This is what says the
+    cheap answer is the same answer - on the real fixture, against the parse
+    it replaced."""
+    from danu.core.square import read_square
+    from danu.surface.build import _way_counts
+    expanded = tmp_path / SQUARE.name.replace('.xz', '')
+    with lzma.open(SQUARE, 'rb') as src, open(expanded, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    square = read_square(expanded)
+    ways = square.ways.values()
+    expected = (sum(1 for w in ways if len(w.refs) > 2000),
+                sum(1 for w in ways if len(w.refs) > 10000),
+                max((len(w.refs) for w in ways), default=0),
+                sum(1 for w in ways if 'ele' in w.tags))
+    assert expected[2] > 0 and expected[3] > 0, 'the fixture has to have ways to count'
+    assert _way_counts(expanded) == expected
+    # and the same however the reads happen to fall, since a token split across
+    # a block boundary is the way a scan like this goes wrong
+    for chunk in (7, 13, 64, 1000):
+        assert _way_counts(expanded, chunk=chunk) == expected, f'lost a token at chunk {chunk}'
+
+
+def test_a_way_too_long_for_gdal_names_the_square_and_not_the_temporary_file(tmp_path):
+    """GDAL drops a way over 10,000 nodes silently and its ground comes out as
+    a void. The guard reads the expanded copy, which is called square.osm for
+    every square in the zone, so the message has to carry the real name or it
+    tells an operator nothing about what to go and fix."""
+    from danu.surface import build
+    nodes = ''.join(f'<node id="-{i + 1}" lat="-23.5" lon="125.5"/>' for i in range(3))
+    refs = ''.join(f'<nd ref="-{(i % 3) + 1}"/>' for i in range(10_001))
+    expanded = tmp_path / 'square.osm'
+    expanded.write_text(f'<?xml version="1.0"?>\n<osm version="0.6">{nodes}'
+                        f'<way id="-1">{refs}<tag k="ele" v="10"/></way></osm>')
+    with pytest.raises(ValueError, match=r'S24E125_Real\.osm\.xz has 1 way'):
+        build.check_long_ways(expanded, print, name='S24E125_Real.osm.xz')
 
 def test_a_square_that_converts_to_nothing_stops_the_build(tmp_path, monkeypatch):
     """The OSM driver hands back an empty layer rather than an error when its
