@@ -50,6 +50,17 @@ def test_the_shell_runs_the_surface_build_rather_than_its_own_copy():
     assert not re.search(r'(^|\s)isofill\s+--', code, re.M), 'danu-build-zone still calls isofill'
 
 
+def test_the_shell_hands_a_replacement_parameter_file_to_both_commands():
+    """PARAMS is the override that FILL_METRES, BARRIER_CELLS and MAX_MEM used
+    to have one each of. The parameters the shell reads and the ones the
+    surface reads have to come from the same file, or a run with PARAMS set
+    builds at one resolution and slices the archive at another."""
+    code = '\n'.join(shell_code())
+    assert 'params_args+=(--params "${PARAMS}")' in code
+    assert code.count('"${params_args[@]}"') == 2, \
+        'both danu.surface.params and danu.surface.build need the same file'
+
+
 def test_the_shell_takes_the_surfaces_answer_by_its_exit_status():
     """``eval "$(cmd)"`` takes eval's status and not the command's, so under
     ``set -e`` a surface build that died would be carried on from silently -

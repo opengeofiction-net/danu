@@ -37,9 +37,12 @@ PUB=${PUB:-${PUBROOT}}/${ZONE}
 
 RAMP=${CONF}/relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
-# as natural=water instead, which for an inland sea is usual. Optional, and no
-# zone has had one since the coastline's own direction started giving the same
-# artefact from the squares themselves
+# as natural=water instead, which for an inland sea is usual. Used only to tell
+# land at sea level from the sea itself - the squares remain the elevation
+# source of truth. Optional: with no file the surface derives the same mask from
+# the coastline's own direction, which is what every zone does today - the
+# directory is empty on util - so this path is held up by its test rather than
+# by a nightly build
 WATER=$(ls ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf 2>/dev/null | head -1)
 
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
@@ -70,7 +73,13 @@ fi
 # here and a test held them equal to the file, which is a way of noticing that
 # a duplicate has drifted rather than a reason to keep one. An environment
 # override still wins, which is how the golden reference is built at 3"
-${PYTHON} -m danu.surface.params --shell > ${WORK}/params.sh
+# PARAMS names a different elevation.toml for one run. It is the override that
+# FILL_METRES, BARRIER_CELLS and MAX_MEM used to have one each of, and it covers
+# every parameter rather than the three somebody thought to expose - which is
+# what trying a change on one zone before it becomes the default needs
+params_args=()
+[ -z "${PARAMS:-}" ] || params_args+=(--params "${PARAMS}")
+${PYTHON} -m danu.surface.params --shell "${params_args[@]}" > ${WORK}/params.sh
 . ${WORK}/params.sh
 ARCSEC=${ARCSEC:-${DANU_ARCSEC}}
 HGT_ARCSEC=${HGT_ARCSEC:-${DANU_HGT_ARCSEC}}
@@ -117,7 +126,8 @@ timings_report() {
 SURFACE=${WORK}/surface.sh
 rm -f ${SURFACE}
 surface_args=(--arcsec "${ARCSEC}" --zone "${ZONE}"
-	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}")
+	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}"
+	"${params_args[@]}")
 # Set WATER_CONSTRAINTS=0 to build a zone without the drawn rivers and lakes,
 # which is also what a failure inside the step falls back to: a zone without
 # them is the DEM we published yesterday
@@ -279,7 +289,7 @@ du -sh ${PUB} | sed 's/^/  published /'
 if [ -z "${KEEP_WORK:-}" ]; then
 	WAS=$(du -sm ${WORK} | cut -f1)
 	rm -rf ${WORK}/hgt
-	rm -f ${WORK}/cont.tif ${WORK}/rounded.tif \
+	rm -f ${WORK}/cont.tif ${WORK}/filled.tif ${WORK}/rounded.tif \
 		${WORK}/smooth.tif ${WORK}/smooth.vrt ${WORK}/water-mask.tif \
 		${WORK}/water-areas.gpkg ${WORK}/merc-*.tif ${WORK}/dem-hgtres.tif \
 		${WORK}/drawn.geojson ${WORK}/drawn-mask.tif ${WORK}/water-report.json \

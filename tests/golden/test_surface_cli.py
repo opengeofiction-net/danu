@@ -143,6 +143,24 @@ def test_the_blank_count_is_the_zones_and_not_a_working_sets(tmp_path):
     assert not any('squares, none with contours' in l for l in lines), lines
 
 
+def test_a_different_parameter_file_can_be_given_for_one_run(tmp_path):
+    """PARAMS is what FILL_METRES, BARRIER_CELLS and MAX_MEM used to be three
+    separate environment overrides for. Trying a change on one zone before it
+    becomes the default is the reason those existed, and a whole file covers
+    every parameter rather than the three somebody thought to expose."""
+    from danu.surface import params
+    packaged = pathlib.Path(str(params.resources.files('danu.params')
+                                .joinpath('elevation.toml'))).read_text()
+    other = tmp_path / 'elevation.toml'
+    other.write_text(packaged.replace('metres = 1850', 'metres = 925'))
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(zone / 'S24E125_Drawn.osm.xz', ele='100')
+    run = run_cli(zone, tmp_path / 'work', '--arcsec', '3', '--params', str(other),
+                  '--shell', str(tmp_path / 'surface.sh'))
+    assert 'fill bounded to 925 m = 10 cells' in run.stdout, run.stdout + run.stderr
+
+
 # ------------------------------------------------------------ the guards
 
 def test_a_square_that_converts_to_nothing_stops_the_build(tmp_path, monkeypatch):
