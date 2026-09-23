@@ -239,14 +239,23 @@ def _tags(elem) -> dict[str, str]:
     return {t.get('k'): t.get('v', '') for t in elem.iter('tag')}
 
 
-def list_squares(zone_dir: str | os.PathLike) -> dict[SquareName, Path]:
+def list_squares(zone_dir: str | os.PathLike, compressed_only: bool = False) -> dict[SquareName, Path]:
     """Every square file in a zone directory, by name. Files which are not
     squares - ``EMPTY.osm.xz``, the template - are ignored. Two files for one
     square is an error, not a choice: which one the build would read is the
-    order the filesystem lists them in, and this should not be luckier."""
+    order the filesystem lists them in, and this should not be luckier.
+
+    ``compressed_only`` takes ``.osm.xz`` and nothing else, which is what the
+    build wants: the squares are held compressed, and a bare ``.osm`` beside
+    them is somebody's drop that never got packed rather than a second version
+    of the square. ``loose_squares`` finds those, to be reported rather than
+    read - building the zone without that mapper's work in it, silently, is the
+    outcome worth avoiding."""
     found: dict[SquareName, Path] = {}
     for entry in sorted(Path(zone_dir).iterdir()):
         if not entry.is_file():
+            continue
+        if compressed_only and entry.suffix != '.xz':
             continue
         try:
             name = SquareName.from_filename(entry)
@@ -257,6 +266,20 @@ def list_squares(zone_dir: str | os.PathLike) -> dict[SquareName, Path]:
                 f'{name} is both {found[name].name} and {entry.name} in {zone_dir}')
         found[name] = entry
     return found
+
+
+def loose_squares(zone_dir: str | os.PathLike) -> list[Path]:
+    """Square files left uncompressed, which the build does not read."""
+    out = []
+    for entry in sorted(Path(zone_dir).iterdir()):
+        if not entry.is_file() or entry.suffix == '.xz':
+            continue
+        try:
+            SquareName.from_filename(entry)
+        except ValueError:
+            continue
+        out.append(entry)
+    return out
 
 
 @dataclass
@@ -420,3 +443,26 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
         Path(tmp).unlink(missing_ok=True)
         raise
     return path
+
+
+# any way carrying an elevation is a constraint, contour or water edge alike
+_HAS_ELE = re.compile(rb"""k=["']ele["']""")
+
+
+def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
+    """True if the square has any ``ele`` tag - which is what separates a
+    square somebody has drawn from one of the blank templates handed out to
+    mappers, and so which squares a zone is built over.
+
+    Reads in chunks and stops at the first, since a filled square can be 87 MB
+    and most are answered by the first page. Decompressing as it goes, so a
+    blank template costs a few kilobytes rather than the whole file."""
+    tail = b''
+    with lzma.open(path, 'rb') as f:
+        while True:
+            block = f.read(chunk)
+            if not block:
+                return False
+            if _HAS_ELE.search(tail + block):
+                return True
+            tail = block[-16:]

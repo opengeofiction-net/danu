@@ -26,7 +26,7 @@
 # is still to do.
 #
 # Whether a square holds contours is decided by reading it for an ele tag, the
-# same test zone_extent.py uses to pick the squares a zone is built on. Taking
+# same test has_constraints uses to pick the squares a zone is built on. Taking
 # it from the filename instead would be quicker and would eventually disagree
 # with what was built, which is worse than slow: an index nobody can trust is
 # not worth drawing.
@@ -52,7 +52,7 @@ def classify_square(path, chunk=1 << 20):
     """'contour', 'coastline' or 'blank'.
 
     Any ele tag at all is a constraint as far as building goes, which is the
-    question zone_extent.py asks. It is the wrong question for an index: a
+    question has_constraints asks. It is the wrong question for an index: a
     coastline is drawn at ele=0, so a square holding nothing but a shore has
     constraints and no terrain, and reporting it as drawn tells a mapper the
     ground is done when the whole of it is still to do. zone-penquisset is
@@ -161,7 +161,7 @@ def main():
         n_blank += len(blank)
 
         # The zone as built is the box round the squares holding any constraint,
-        # a lone coastline included - that is the question zone_extent.py asks
+        # a lone coastline included - that is the question has_constraints asks
         # and this box has to agree with what was actually built
         extent = (drawn + shore) or blank
         west = min(s[0] for s in extent)

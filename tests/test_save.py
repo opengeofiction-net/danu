@@ -123,7 +123,7 @@ def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_pat
     stage = save.stage_zone([clean, edited, blank, absent], hist.dirty_squares(), tmp_path / 'stage')
     files = list_squares(stage)
     assert set(files) == {clean.name, edited.name, blank.name}
-    from danu.core.zone_extent import has_constraints
+    from danu.core.square import has_constraints
     assert all(p.name.endswith('.osm.xz') and has_constraints(str(p)) for p in files.values())   # what the pipeline reads
     assert files[clean.name].is_symlink() and files[clean.name].resolve() == clean.path.resolve()
     assert not files[edited.name].is_symlink() and read_square(files[edited.name]).elevations() == [200, 250]
