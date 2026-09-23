@@ -143,11 +143,20 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     overlay runs isofill's first pass a second time, which on a three by three
     working set at 1 arcsecond was 95 s of the 208 an edit took.
 
+    There is nothing conditional about it - the worker always asks, because the
+    overlay is always built - so what this pins is that it always asks, and
+    that the classes it gets back are the ones the surface is shaded with.
+
     The worker is exercised against a stub of danu.surface.build, because the
-    two halves of this path have no job that can run them together - the ui
-    job has Qt and no GDAL, the golden job has GDAL and no Qt. What is pinned
-    here is the asking; that the kept pass gives the same overlay as a second
-    fill is pinned in tests/golden."""
+    two halves of this path have no job that can run them together: the ui job
+    has Qt and no GDAL, the golden job has GDAL and no Qt. That the kept pass
+    gives the same overlay as a second fill is pinned in tests/golden.
+
+    The stub is installed on the danu.surface package rather than in the ui
+    module because the worker's import is inside run() - there is no name bound
+    in danu.ui.surface to replace. Deleting the keyword from the worker makes
+    this test fail, which is how that target was checked rather than reasoned
+    about."""
     import sys
     import types
 
@@ -173,9 +182,11 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
         asked['keep_pass1'] = keep_pass1
         return Result()
 
+    classes = tmp_path / 'first-pass.tif'
+
     def first_pass_classes(cont, mask, p, work, **kw):
-        asked['classified'] = True
-        return tmp_path / 'first-pass.tif'
+        asked['classified'] = (cont, mask)
+        return classes
 
     stub.build_dem = build_dem
     stub.first_pass_classes = first_pass_classes
@@ -187,8 +198,13 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     monkeypatch.setitem(sys.modules, 'danu.surface.build', stub)
 
     shaded = object()
-    monkeypatch.setattr('danu.ui.surface.shade.shade_dem',
-                        lambda dem, p, work, classes=None: shaded)
+    shading = {}
+
+    def shade_dem(dem, p, work, classes=None):
+        shading.update(dem=dem, classes=classes)
+        return shaded
+
+    monkeypatch.setattr('danu.ui.surface.shade.shade_dem', shade_dem)
 
     b = SurfaceBuilder()
     trouble = []
@@ -196,7 +212,12 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     with qtbot.waitSignal(b.finished, timeout=30000) as got:
         assert b.build(ws, params.load().with_arcsec(3))
     assert not trouble, trouble
-    assert asked == {'keep_pass1': True, 'classified': True}, asked
+    assert asked['keep_pass1'] is True, asked
+    # the classes were asked for from this build's own rasters, and are what
+    # the surface is shaded with - a stub whose answer nothing used would pin
+    # nothing
+    assert asked['classified'] == (Result.constraints, Result.drawn_mask), asked
+    assert shading == {'dem': Result.dem, 'classes': classes}, shading
     assert got.args[0].shaded is shaded
     assert not b.busy
     b.cleanup()
