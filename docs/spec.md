@@ -1096,6 +1096,44 @@ out in the wash - the old script's `say` for the interpolate stage fired before
 the drawn area and water steps, so every build has been recording isofill's time
 under "water from the coastline direction".
 
+**F2, the optimisation pass.** Phase 3 shipped correct-but-slow deliberately,
+and this is where the bill came due. Everything below was measured on the local
+gobras 3x3 - 6,317 contours, 335,751 segments, 342,068 points - before and after.
+
+The per-edit costs first. `_rebuild_arrays` built one small numpy array per way
+and walked all 342,000 points in Python to build the node index, and an edit to
+one way rebuilds all of them: one vectorised operation per array took it from
+122 ms to 12 ms, and an edit from 136 ms to 15 ms. `_rebuild_levels` stepped a
+numpy `(n, 2)` array row by row, which builds an array scalar per coordinate;
+`tolist()` first is 66 ms against 400. The whole set is projected through one
+numpy call per way rather than a Python call per point, held to the scalar
+projection bit for bit because a contour and the node a mapper snaps to are
+projected by different callers. Staging writes the edited square as a bare
+`.osm` - it lives for one build, read by a build that expands it anyway, so xz
+was work done to be undone - which took a staging from 692 ms to 177.
+
+Then the one that mattered. The editor was running isofill's first pass **twice**
+for every surface: once inside `build_dem`, and again in `first_pass_classes` to
+classify the cells it could not answer for the overlay. The first pass is nearly
+all of a fill - 0.56 s of a 0.67 s run - so the second was 95 s of the 208 s an
+edit took at 1". isofill 0.8.0 adds `isofill_run_ex`, which hands back the first
+pass from the same fill; the classes it gives are identical to the second
+fill's, cell for cell. An edit at 1" is 114 s rather than 208.
+
+Two things this pass is worth recording beyond the numbers. A correctness bug
+fell out of the first change: the node index paired `way.refs` with the
+projected points, but a ref whose node the square has lost has no point - JOSM
+will save a way whose node was deleted under it - so every ref after such a gap
+sat on the next node's position and the last was dropped. A click snapped to one
+node and dragged another. And `_label` was left alone: it looked like the
+obvious next target at 45 ms, and vectorised it is 38.6, because numpy's
+per-call overhead eats the gain on arrays averaging 54 points. Measuring first
+is the difference between those two outcomes.
+
+What F2 does not do is reach 50 ms. After it, the whole-raster solve is 85% of
+an edit at 1"; the micro-costs are noise. That is the incremental path's job,
+and F2's was to stop the waste around it.
+
 ### Phase 5
 
 **Phase 5 - water.** Overpass import and cache, elevations on water, burn and
