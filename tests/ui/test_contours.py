@@ -211,3 +211,28 @@ def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
         start = layer._node_ref.index((geom.square, geom.refs[0]))
         assert np.array_equal(layer._node_xy[start:start + len(geom.pts)], geom.pts)
         break
+
+
+def test_the_node_index_cache_is_a_cache_and_not_part_of_the_geometry():
+    """WayGeom's lazily built node index was an annotated attribute in a
+    dataclass body, which makes it a field: a constructor parameter, and part
+    of __repr__ and __eq__. What a WayGeom is should not depend on whether
+    something has asked it for its node index yet."""
+    import dataclasses
+    import inspect
+
+    from danu.ui.contours import WayGeom
+
+    cache = {f.name: f for f in dataclasses.fields(WayGeom)}['_node_ref']
+    assert not cache.init and not cache.repr and not cache.compare
+    assert '_node_ref' not in str(inspect.signature(WayGeom.__init__))
+
+    import numpy as np
+    from danu.core.square import Square, Way
+    sq = Square(name=SquareName(87, 20), present=True)
+    way = Way(id=1, refs=[1, 2], tags={'ele': '100'})
+    geom = WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])
+    before = repr(geom)
+    assert geom.node_ref == [(sq, 1), (sq, 2)]
+    assert geom.node_ref is geom.node_ref, 'built once, not per call'
+    assert repr(geom) == before, 'asking for the index changed what the geometry is'

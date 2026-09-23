@@ -53,6 +53,15 @@ from .params import Params
 gdal.UseExceptions()
 
 NODATA = -9999
+# The first pass, kept beside the surface for the overlay to read. Named here
+# because three places have to agree about it - the fill writes it, the build
+# clears the last one, and first_pass_classes looks for it - and a convention
+# they each spell out separately is one that can quietly stop holding.
+PASS1 = 'pass1.npy'
+
+
+def _pass1_file(work: Path) -> Path:
+    return Path(work) / PASS1
 # the shell's own test for "ele is a number", in the GeoPackage's SQLite
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
@@ -593,7 +602,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     flags for trying a change on one zone before it becomes the default, and it
     takes the binary, since the library has no flags to give them to.
 
-    ``keep_pass1`` writes ``pass1.npy`` beside the surface: what the first pass
+    ``keep_pass1`` writes the first pass beside the surface, under the one name
+    ``PASS1``, which is what ``first_pass_classes`` looks for: what the first pass
     left, from this same fill rather than from a second one. Only the library
     can give it - the binary writes one raster - so asking for it and getting
     nothing is how the caller learns to fall back.
@@ -629,7 +639,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                 log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
-                                            keep_pass1)
+                                            _pass1_file(work) if keep_pass1 else None)
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
 
 
@@ -651,7 +661,7 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
-                         out: Path, log: Log, keep_pass1: bool = False) -> Path:
+                         out: Path, log: Log, pass1: Path | None = None) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -666,13 +676,13 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         w_ds = gdal.Open(str(water))
         _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
-    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=keep_pass1)
+    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None)
     surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
-    if keep_pass1:
+    if pass1 is not None:
         # the first pass is nearly all of the fill, so the alternative is
         # running the whole thing again to read it
-        np.save(out.with_name('pass1.npy'), result[2])
+        np.save(pass1, result[2])
     drv = gdal.GetDriverByName('GTiff')
     o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
                    options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
@@ -805,7 +815,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         stage('water from the coastline direction')
         wmask = water_mask(gpkg, cont, work, log)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
-    pass1 = work / 'pass1.npy'
+    pass1 = _pass1_file(work)
     if pass1.exists():
         pass1.unlink()                       # never a previous build's
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
@@ -950,7 +960,7 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     band = ds.GetRasterBand(1)
     m_ds = gdal.Open(str(mask))          # held: a chained Open().GetRasterBand() frees the dataset under the band
     m = m_ds.GetRasterBand(1).ReadAsArray()
-    kept = Path(work) / 'pass1.npy'
+    kept = _pass1_file(work)
     if kept.exists():
         surface = np.load(kept)
         cons = np.empty(surface.shape, dtype=np.float32)      # only its shape is wanted below

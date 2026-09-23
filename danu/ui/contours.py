@@ -78,15 +78,24 @@ class WayGeom:
     pts: np.ndarray
     refs: list[int] = field(default_factory=list)
 
+    # A cache, not a field: annotated with a default inside a dataclass body it
+    # became a constructor parameter and part of __repr__ and __eq__, which is
+    # not what a lazily built index of the object's own data should be.
+    _node_ref: list[tuple[Square, int]] | None = field(
+        init=False, repr=False, compare=False, default=None)
+
     @property
     def node_ref(self) -> list[tuple[Square, int]]:
         """(square, ref) per point, which is what the layer's node index is
-        made of. Built once here rather than per rebuild."""
+        made of. Built once here rather than per rebuild.
+
+        It caches ``refs`` and ``square``, which a WayGeom does not change
+        after ``_project`` builds it - an edited way is re-projected into a new
+        one rather than mutated. That invariant is what makes the cache safe.
+        """
         if self._node_ref is None:
             self._node_ref = [(self.square, r) for r in self.refs]
         return self._node_ref
-
-    _node_ref: list[tuple[Square, int]] | None = None
 
 
 class ContourLayer(QGraphicsItem):

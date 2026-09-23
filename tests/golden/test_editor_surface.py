@@ -336,6 +336,31 @@ def test_a_kept_first_pass_does_not_outlive_the_build_that_made_it(tmp_path):
     assert not (work / 'pass1.npy').exists(), 'the last build\'s first pass was left behind'
 
 
+def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkeypatch):
+    """The fill writes it, the build clears the last one, and the overlay
+    looks for it. Three places agreeing by convention is a convention that
+    can quietly stop holding, so they derive it from one name - and moving
+    that name has to move all three."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+
+    monkeypatch.setattr(build, 'PASS1', 'somewhere-else.npy')
+    r = build.build_dem(zone, work, p, library=True, keep_pass1=True)
+    assert (work / 'somewhere-else.npy').exists(), 'the fill did not follow the name'
+    assert not (work / 'pass1.npy').exists()
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
+    assert not any('runs again' in l for l in lines), 'the overlay did not follow the name'
+    build.build_dem(zone, work, p, library=True)
+    assert not (work / 'somewhere-else.npy').exists(), 'the clearing did not follow the name'
+
+
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
     from danu.surface import isofill_lib
     try:
