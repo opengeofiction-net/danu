@@ -261,3 +261,35 @@ def test_working_set_contains_matches_membership_away_from_the_seam(zone):
     assert ws.contains(124.0, -25.0) and not ws.contains(127.0, -25.0)
     assert ws.contains(126.9, -22.1) and not ws.contains(126.9, -22.0)
     assert ws.unwrap(125.0) == 125.0
+
+
+def test_a_square_is_read_by_what_it_is_not_by_what_it_is_called(tmp_path):
+    """A compressed square under a bare .osm name used to be scanned as text:
+    has_constraints found no ele in the compressed bytes, called it a blank
+    template, and the square was dropped from the build with nothing said.
+    That is the silent-loss failure this pipeline keeps meeting, and the first
+    six bytes of the file close it."""
+    from danu.core.square import (Node, SquareName, Way, has_constraints, read_square,
+                                  write_square)
+
+    square = Square(name=SquareName(125, -24), present=True)
+    square.nodes[-1] = Node(id=-1, lat=-23.5, lon=125.5)
+    square.nodes[-2] = Node(id=-2, lat=-23.6, lon=125.6)
+    square.ways[-1] = Way(id=-1, refs=[-1, -2], tags={'ele': '100'})
+
+    packed = write_square(square, tmp_path / 'S24E125.osm.xz')
+    bare = write_square(square, tmp_path / 'S24E125.osm')
+    assert packed.read_bytes()[:6] == b'\xfd7zXZ\x00' and bare.read_bytes()[:1] == b'<'
+    assert has_constraints(str(packed)) and has_constraints(str(bare))
+
+    # the same bytes under the other name, which is what the suffix test got wrong
+    misnamed = tmp_path / 'S24E125_misnamed.osm'
+    misnamed.write_bytes(packed.read_bytes())
+    assert has_constraints(str(misnamed)), 'a compressed square read as text again'
+    assert read_square(misnamed).elevations() == [100]
+
+    # and an uncompressed square under an .xz name, the other way round
+    other = tmp_path / 'S24E125_other.osm.xz'
+    other.write_bytes(bare.read_bytes())
+    assert has_constraints(str(other))
+    assert read_square(other).elevations() == [100]

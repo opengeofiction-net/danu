@@ -78,9 +78,18 @@ def _pass1_file(work: Path) -> Path:
 
 
 def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
-    """What the first pass was run with, as numbers a kept pass can carry: the
-    nodata that decides which cells are constraints, and the three values that
-    shape pass 1. ``nan`` for no nodata, compared with ``equal_nan``."""
+    """What the first pass was run with, as numbers a kept pass can carry:
+    the nodata that decides which cells are constraints, and the three values
+    that reach it. ``nan`` for no nodata, compared with ``equal_nan``.
+
+    Those three are all of them. ``isofill_lib.run`` sets radius, barrier and
+    pass 2 on the C params and leaves grad_min at the library's default, and of
+    those only radius and barrier shape the first pass - pass 2 is the step
+    after it. grad_min is carried because the file's value is held equal to
+    that default by a test, and a change to either would change the fill.
+    ``threads`` does not change an answer. So this is the whole of what a kept
+    pass has to have been filled with, not a sample of it; if another Params
+    field ever reaches pass 1, it belongs here."""
     return np.array([np.nan if nodata is None else float(nodata),
                      float(params.fill_cells), float(params.barrier_cells),
                      float(params.grad_min)], dtype=float)
@@ -332,6 +341,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # cost is the largest square rather than the whole zone. A square
             # that is already expanded, which is how the editor stages the one
             # it is holding, is read where it lies.
+            #
+            # Whether an expanded square should be here at all was decided by
+            # squares_with_constraints, which reads the staging marker: outside
+            # a staging directory a bare .osm is reported and never reaches
+            # this dict. This step takes the files it is given.
             expanded = path.suffix != '.xz'
             source = path
             if not expanded:
@@ -983,8 +997,9 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
 
     It reads the first pass ``build_dem(keep_pass1=True)`` left rather than
     filling again where there is one - having checked that the pass is of this
-    grid and was filled with the parameters being asked for, since otherwise
-    ``params`` would mean something on one path and nothing on the other -
+    grid and was filled with the four values that reach the first pass, since
+    otherwise ``params`` would mean something on one path and nothing on the
+    other -
     which is the difference between an edit
     costing one fill and two: the first pass is 0.56 s of a 0.67 s run, so the
     second fill was 95 s of the 208 s an edit took at 1 arcsecond on a three by

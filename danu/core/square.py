@@ -200,9 +200,8 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
         name = SquareName.from_filename(path)
     square = Square(name=name, path=path, present=True)
 
-    opener = lzma.open if path.suffix == '.xz' else open
     root = None
-    with opener(path, 'rb') as f:
+    with open_square_file(path) as f:
         for event, elem in ElementTree.iterparse(f, events=('start', 'end')):
             if event == 'start':
                 if elem.tag == 'osm':
@@ -458,6 +457,21 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 _HAS_ELE = re.compile(rb"""k=["']ele["']""")
 
 
+# xz's magic bytes. A square is read by what it is rather than by what it is
+# called: a compressed file under a bare .osm name would otherwise be scanned
+# as text, find no ele in the compressed bytes, and be taken for a blank
+# template - so the square would be dropped from the build with nothing said.
+# That is the failure this codebase keeps meeting, and a six byte read closes it
+_XZ_MAGIC = b'\xfd7zXZ\x00'
+
+
+def open_square_file(path: str | os.PathLike):
+    """The square's bytes, decompressed if they are compressed."""
+    with open(path, 'rb') as probe:
+        compressed = probe.read(len(_XZ_MAGIC)) == _XZ_MAGIC
+    return lzma.open(path, 'rb') if compressed else open(path, 'rb')
+
+
 def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     """True if the square has any ``ele`` tag - which is what separates a
     square somebody has drawn from one of the blank templates handed out to
@@ -466,10 +480,10 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     Reads in chunks and stops at the first, since a filled square can be 87 MB
     and most are answered by the first page. Decompressing as it goes, where
     the file is compressed, so a blank template costs a few kilobytes rather
-    than the whole file."""
+    than the whole file - and compressed is decided by the file's first bytes,
+    not by its name."""
     tail = b''
-    opener = lzma.open if Path(path).suffix == '.xz' else open
-    with opener(path, 'rb') as f:
+    with open_square_file(path) as f:
         while True:
             block = f.read(chunk)
             if not block:

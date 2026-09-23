@@ -236,3 +236,22 @@ def test_the_node_index_cache_is_a_cache_and_not_part_of_the_geometry():
     assert geom.node_ref == [(sq, 1), (sq, 2)]
     assert geom.node_ref is geom.node_ref, 'built once, not per call'
     assert repr(geom) == before, 'asking for the index changed what the geometry is'
+
+
+def test_a_geometry_whose_refs_and_points_disagree_is_refused():
+    """The node index puts refs against points one for one, so a WayGeom whose
+    two did not line up would file a node at another node's position - the bug
+    this pairing replaced. _project keeps them aligned; this is what says so
+    for anything else that ever builds one."""
+    import numpy as np
+    import pytest as _pytest
+
+    from danu.core.square import Square, Way
+    from danu.ui.contours import WayGeom
+
+    sq = Square(name=SquareName(87, 20), present=True)
+    way = Way(id=1, refs=[1, 2, 3], tags={'ele': '100'})
+    with _pytest.raises(ValueError, match='3 refs against 2 points'):
+        WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2, 3])
+    WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])          # aligned, accepted
+    WayGeom(sq, way, 100.0, np.zeros((2, 2)))                  # and no refs at all

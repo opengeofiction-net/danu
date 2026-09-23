@@ -78,6 +78,15 @@ class WayGeom:
     pts: np.ndarray
     refs: list[int] = field(default_factory=list)
 
+    def __post_init__(self):
+        # _rebuild_arrays builds the node index by putting refs against points
+        # one for one, so a WayGeom whose two disagreed would file a node at
+        # another node's position - which is the bug this pairing replaced.
+        # Whether each ref is one the square has is _project's business; that
+        # they line up is every caller's, so it is checked here
+        if self.refs and len(self.refs) != len(self.pts):
+            raise ValueError(f'{len(self.refs)} refs against {len(self.pts)} points')
+
     # A cache, not a field: annotated with a default inside a dataclass body it
     # became a constructor parameter and part of __repr__ and __eq__, which is
     # not what a lazily built index of the object's own data should be.
