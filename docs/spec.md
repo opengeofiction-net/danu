@@ -688,16 +688,18 @@ rebuilds and the decision phase 2 inherits. They are forced because the quiet
 nights the pipeline would otherwise have are not evidence - see `danu-soak`
 above.
 
-**Five of the six nights are in, and they are clean.** Two zones a night in
-name order, queued at 02:45 and built at 03:00: alved and antumnia on the 19th,
+**All six nights are in, and they are clean.** Two zones a night in name
+order, queued at 02:45 and built at 03:00: alved and antumnia on the 19th,
 axian and deodeca, ellarca and gobras, gwynian and hesperis, iscu and january
-on the 23rd - ten of the thirty-two zones, each rebuilt from its squares and
+on the 23rd, and kofuku and liberian the same evening - the sixth night was run
+by hand rather than waited for, so that phase 0 closed before phase 4 opened.
+That is twelve of the thirty-two zones, each rebuilt from its squares and
 published rather than found unchanged. The sizes are what makes them builds
 rather than no-ops: 63M and 153M, 479M and 7.1M, 176M and 73M, 972M and 7.8M,
-6.6M and 7.9M. Neither unit failed once in the week. The sixth and last night
-is queued for 2026-09-24, and after it the soak stops queueing of its own
-accord - the count reaches zero and the script exits - so there is nothing to
-turn off.
+6.6M and 7.9M, 368M and 67M. Neither unit failed once in the week. The soak
+then stopped queueing of its own accord - the count reached zero, the cursor
+stands at twelve, and the script removed its own `limit-build.txt` - so there
+was nothing to turn off. **Phase 0 is closed.**
 
 What the week did turn up was in its own logs, and nobody read them: every
 build printed `Failed to fetch spatial reference on layer encl`, which is ours
@@ -707,7 +709,8 @@ the other end, in phase 3's review, because the editor runs the same build and
 prints the same line where a mapper can see it. That is the argument for the
 editor and the server being one codebase, made by accident: a warning that had
 been on the server nightly for a week was found the day a person watched it
-happen.
+happen. The fix is in the editor's tree; the sixth night still printed it twice,
+because `util` had not taken it yet.
 
 ### Phase 1
 
