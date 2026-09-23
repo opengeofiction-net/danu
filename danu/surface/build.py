@@ -663,7 +663,12 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     blank = (len(list_squares(Path(zone_dir), compressed_only=True)) - len(squares)
              if names is None else 0)
     if not squares:
-        log(f'  {blank} squares, none with contours - nothing to build yet')
+        # two different nothings: a zone whose squares are all still templates,
+        # and a working set the editor opened over ground nobody has drawn.
+        # blank counts the first and is 0 for the second, so the message has to
+        # say which rather than reporting "0 squares, none with contours"
+        log(f'  {blank} squares, none with contours - nothing to build yet' if names is None
+            else '  no contours in this working set - nothing to build')
         return Result(None, None, {}, None, None, None, None, blank=blank)
     grid = grid_for(squares, params.arcsec)
     log(f'  {len(squares)} squares with contours ({blank} blank), '

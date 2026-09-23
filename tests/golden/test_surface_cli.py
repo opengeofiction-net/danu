@@ -7,6 +7,7 @@ build at all - is an interface, not a log line.
 
 import lzma
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -65,12 +66,11 @@ def test_the_grid_it_reports_is_the_grid_the_hgt_slicing_needs(tmp_path):
 @pytest.mark.skipif(not (ROOT / 'tests' / 'golden' / 'expected.tif').exists(),
                     reason='no golden fixture')
 def test_the_shell_file_says_where_the_dem_is_and_what_ground_it_covers(tmp_path):
-    import shutil
+    if shutil.which('isofill') is None:
+        pytest.skip('isofill not on PATH')
     zone = tmp_path / 'zone'
     zone.mkdir()
     shutil.copy(SQUARE, zone / SQUARE.name)
-    if shutil.which('isofill') is None:
-        pytest.skip('isofill not on PATH')
     run = run_cli(zone, tmp_path / 'work', '--arcsec', '3', '--zone', 'golden',
                   '--shell', str(tmp_path / 'surface.sh'))
     assert run.returncode == 0, run.stdout[-3000:] + run.stderr[-3000:]
@@ -122,19 +122,25 @@ def test_the_blank_count_is_the_zones_and_not_a_working_sets(tmp_path):
     blank made the number negative."""
     from danu.core.square import SquareName
     from danu.surface import build, params
+    if shutil.which('isofill') is None:
+        pytest.skip('isofill not on PATH')
     zone = tmp_path / 'zone'
     zone.mkdir()
     write_square(zone / 'S24E125_Drawn.osm.xz', ele='100')
     write_square(zone / 'S23E125_Drawn.osm.xz', ele='100')
     write_square(zone / 'S22E125_Blank.osm.xz', ele=None)
-    import shutil
-    if shutil.which('isofill') is None:
-        pytest.skip('isofill not on PATH')
     p = params.load().with_arcsec(30)          # 121x121, so the fill is instant
     whole = build.build_dem(zone, tmp_path / 'w1', p)
     assert whole.blank == 1 and len(whole.squares) == 2
     one = build.build_dem(zone, tmp_path / 'w2', p, names=[SquareName(125, -24)])
     assert one.blank == 0 and len(one.squares) == 1
+    # and an empty working set does not report the zone's blank count at it
+    lines = []
+    empty = build.build_dem(zone, tmp_path / 'w3', p, names=[SquareName(125, -22)],
+                            log=lines.append)
+    assert empty.dem is None
+    assert any('working set' in l for l in lines), lines
+    assert not any('squares, none with contours' in l for l in lines), lines
 
 
 # ------------------------------------------------------------ the guards
