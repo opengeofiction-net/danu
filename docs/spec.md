@@ -1122,7 +1122,9 @@ classify the cells it could not answer for the overlay. The first pass is nearly
 all of a fill - 0.56 s of a 0.67 s run - so the second was 95 s of the 208 s an
 edit took at 1". isofill 0.8.0 adds `isofill_run_ex`, which hands back the first
 pass from the same fill; the classes it gives are identical to the second
-fill's, cell for cell. An edit at 1" is 114 s rather than 208.
+fill's, cell for cell. An edit at 1" is 114 s rather than 208 - measured back
+to back in one process after a warming run, since the absolute pair moves a few
+per cent between runs on this machine and the ratio does not.
 
 Two things this pass is worth recording beyond the numbers. A correctness bug
 fell out of the first change: the node index paired `way.refs` with the

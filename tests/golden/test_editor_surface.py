@@ -295,14 +295,14 @@ def test_the_overlay_reads_the_fill_the_surface_already_did(tmp_path):
     p = params.load().with_arcsec(lock['arcsec'])
 
     kept = build.build_dem(zone, tmp_path / 'kept', p, library=True, keep_pass1=True)
-    assert (tmp_path / 'kept' / 'pass1.npy').exists(), 'nothing was kept'
+    assert build._pass1_file(tmp_path / 'kept').exists(), 'nothing was kept'
     lines = []
     a = build.first_pass_classes(kept.constraints, kept.drawn_mask, p, tmp_path / 'kept',
                                  log=lines.append)
     assert not any('runs again' in l for l in lines), lines
 
     again = build.build_dem(zone, tmp_path / 'again', p, library=True)
-    assert not (tmp_path / 'again' / 'pass1.npy').exists()
+    assert not build._pass1_file(tmp_path / 'again').exists()
     lines = []
     b = build.first_pass_classes(again.constraints, again.drawn_mask, p, tmp_path / 'again',
                                  log=lines.append)
@@ -319,7 +319,7 @@ def test_the_overlay_reads_the_fill_the_surface_already_did(tmp_path):
 
 
 def test_a_kept_first_pass_does_not_outlive_the_build_that_made_it(tmp_path):
-    """pass1.npy sits in the working directory, which is reused. A build that
+    """The kept pass sits in the working directory, which is reused. A build that
     does not keep one must not leave the last one there for the overlay to
     read, or the mapper is shown the ground of an edit ago."""
     from danu.surface import build, params
@@ -331,9 +331,77 @@ def test_a_kept_first_pass_does_not_outlive_the_build_that_made_it(tmp_path):
     p = params.load().with_arcsec(lock['arcsec'])
     work = tmp_path / 'work'
     build.build_dem(zone, work, p, library=True, keep_pass1=True)
-    assert (work / 'pass1.npy').exists()
+    assert build._pass1_file(work).exists()
     build.build_dem(zone, work, p, library=True)                 # the same directory, not keeping
-    assert not (work / 'pass1.npy').exists(), 'the last build\'s first pass was left behind'
+    assert not build._pass1_file(work).exists(), 'the last build\'s first pass was left behind'
+
+
+def test_a_first_pass_from_another_grid_is_refused_rather_than_classified(tmp_path):
+    """The kept pass is checked against the constraints raster - the grid the
+    classes are written on and whose geotransform measures the reading - and
+    not against the mask beside it, which came out of the same build as the
+    pass and so agrees with it whatever build is being classified.
+
+    A shape on its own is not enough: a working set moved one square over has
+    the same pixel dimensions and different ground under them, so the kept pass
+    carries the geotransform it was filled from."""
+    import numpy as np
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+    r = build.build_dem(zone, work, p, library=True, keep_pass1=True)
+
+    kept = build._pass1_file(work)
+    with np.load(kept) as held:
+        surface, gt = held['surface'], held['gt']
+
+    # a pass of the right shape from the wrong ground, which is the case a
+    # shape check cannot see: a working set moved one square over has the same
+    # pixel dimensions and a different origin
+    moved = np.array(gt, dtype=float)
+    moved[0] += 1.0
+    np.savez(kept, surface=surface, gt=moved)
+    with pytest.raises(ValueError, match="not this build's"):
+        build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
+
+    # and the wrong shape, which it can
+    np.savez(kept, surface=surface[: surface.shape[0] // 2], gt=gt)
+    with pytest.raises(ValueError, match="not this build's"):
+        build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
+
+    # the pass this build actually kept is accepted
+    np.savez(kept, surface=surface, gt=gt)
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
+    assert not any('runs again' in l for l in lines), lines
+
+
+def test_the_binary_says_it_cannot_keep_a_first_pass(tmp_path):
+    """Asking for one and getting nothing looks, from the overlay, like a
+    build that never asked - and the second fill it then runs is the cost the
+    flag exists to avoid. So the build that could not says so."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    lines = []
+    r = build.build_dem(zone, tmp_path / 'work', p, library=False, keep_pass1=True,
+                        log=lines.append)
+    assert r.dem is not None
+    assert not build._pass1_file(tmp_path / 'work').exists()
+    assert any('binary cannot keep the first pass' in l for l in lines), lines
+    # and the overlay does fall back, as that line said it would
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, tmp_path / 'work', log=lines.append)
+    assert any('runs again' in l for l in lines), lines
 
 
 def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkeypatch):
@@ -350,15 +418,15 @@ def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkey
     p = params.load().with_arcsec(lock['arcsec'])
     work = tmp_path / 'work'
 
-    monkeypatch.setattr(build, 'PASS1', 'somewhere-else.npy')
+    monkeypatch.setattr(build, 'PASS1', 'somewhere-else.npz')
     r = build.build_dem(zone, work, p, library=True, keep_pass1=True)
-    assert (work / 'somewhere-else.npy').exists(), 'the fill did not follow the name'
-    assert not (work / 'pass1.npy').exists()
+    assert (work / 'somewhere-else.npz').exists(), 'the fill did not follow the name'
+    assert not (work / 'pass1.npz').exists(), 'the default name was written as well'
     lines = []
     build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
     assert not any('runs again' in l for l in lines), 'the overlay did not follow the name'
     build.build_dem(zone, work, p, library=True)
-    assert not (work / 'somewhere-else.npy').exists(), 'the clearing did not follow the name'
+    assert not (work / 'somewhere-else.npz').exists(), 'the clearing did not follow the name'
 
 
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):

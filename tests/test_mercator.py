@@ -107,3 +107,21 @@ def test_the_array_projection_is_the_scalar_one_to_far_below_a_pixel():
     assert got.shape == want.shape == (len(lon), 2)
     worst = float(np.abs(got - want).max())
     assert worst < 1e-5, f'worst {worst} scene units, which is {worst:.1e} of a pixel at z19'
+
+
+def test_both_projections_clamp_at_the_mercator_cut():
+    """Mercator's y runs to infinity at the poles, so both forms clamp the
+    latitude before projecting - the scalar on its first line, the array with
+    np.clip. Beyond the cut they have to agree exactly rather than to within
+    a fraction of a pixel, because there the disagreement would not be a
+    rounding difference: one clamping and the other not puts the pole at
+    infinity against the edge of the world."""
+    import numpy as np
+
+    beyond = [m.MAX_LAT, -m.MAX_LAT, 85.1, -85.1, 89.9, 90.0, -90.0, 1e6]
+    got = m.lonlat_to_scene_array([10.0] * len(beyond), beyond)
+    want = np.array([m.lonlat_to_scene(10.0, b) for b in beyond])
+    assert np.array_equal(got, want), f'{got} != {want}'
+    # and the clamp really is doing something: past it, y stops moving
+    assert got[beyond.index(90.0)][1] == got[beyond.index(1e6)][1]
+    assert np.isfinite(got).all()

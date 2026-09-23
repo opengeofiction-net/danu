@@ -53,11 +53,17 @@ from .params import Params
 gdal.UseExceptions()
 
 NODATA = -9999
-# The first pass, kept beside the surface for the overlay to read. Named here
-# because three places have to agree about it - the fill writes it, the build
-# clears the last one, and first_pass_classes looks for it - and a convention
-# they each spell out separately is one that can quietly stop holding.
-PASS1 = 'pass1.npy'
+# The first pass, kept beside the surface for the overlay to read, with the
+# geotransform of the raster it was filled from. Named here because three
+# places have to agree about it - the fill writes it, the build clears the last
+# one, and first_pass_classes looks for it - and a convention they each spell
+# out separately is one that can quietly stop holding.
+#
+# The geotransform travels with it because a shape is not a grid: a working set
+# moved one square over has the same pixel dimensions and different ground
+# under them, and a kept pass from the previous edit would classify against it
+# without anything noticing.
+PASS1 = 'pass1.npz'
 
 
 def _pass1_file(work: Path) -> Path:
@@ -603,10 +609,11 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     takes the binary, since the library has no flags to give them to.
 
     ``keep_pass1`` writes the first pass beside the surface, under the one name
-    ``PASS1``, which is what ``first_pass_classes`` looks for: what the first pass
-    left, from this same fill rather than from a second one. Only the library
-    can give it - the binary writes one raster - so asking for it and getting
-    nothing is how the caller learns to fall back.
+    ``PASS1``, which is what ``first_pass_classes`` looks for: what the first
+    pass left, from this same fill rather than from a second one. Only the
+    library can give it - the binary writes one raster - and where the binary
+    is what runs, for any of the reasons above, that is logged rather than left
+    for the overlay to find out by filling again.
 
     No ``--grad-min``: the file's value is held equal to isofill's own default
     by a test, and neither path passes it. ``pass2`` has one implemented value
@@ -640,6 +647,13 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
                                             _pass1_file(work) if keep_pass1 else None)
+    if keep_pass1:
+        # the caller asked for the first pass and is not going to get one: the
+        # binary writes a single raster. Said here rather than left for the
+        # overlay to discover, because from there it looks like a build that
+        # never asked, and the second fill it then runs is the cost this flag
+        # exists to avoid
+        log('  the binary cannot keep the first pass, so the overlay will fill again')
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
 
 
@@ -682,7 +696,8 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
     if pass1 is not None:
         # the first pass is nearly all of the fill, so the alternative is
         # running the whole thing again to read it
-        np.save(pass1, result[2])
+        np.savez(pass1, surface=result[2],
+                 gt=np.asarray(ds.GetGeoTransform(), dtype=float))
     drv = gdal.GetDriverByName('GTiff')
     o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
                    options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
@@ -958,20 +973,31 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     what it always did."""
     ds = gdal.Open(str(cont))
     band = ds.GetRasterBand(1)
+    # The constraints raster is the grid: its geotransform measures the reading
+    # below and its size is what the classes are written out on. Everything else
+    # is checked against it rather than against whatever it came with - a kept
+    # first pass and the mask beside it are from the same build, so they agree
+    # with each other and would say nothing about belonging to this one.
+    grid = (ds.RasterYSize, ds.RasterXSize)
     m_ds = gdal.Open(str(mask))          # held: a chained Open().GetRasterBand() frees the dataset under the band
     m = m_ds.GetRasterBand(1).ReadAsArray()
+    if m.shape != grid:
+        raise ValueError(f'the drawn mask is {m.shape}, the constraints are {grid}')
     kept = _pass1_file(work)
     if kept.exists():
-        surface = np.load(kept)
-        cons = np.empty(surface.shape, dtype=np.float32)      # only its shape is wanted below
-        if surface.shape != m.shape:
-            raise ValueError(f'the kept first pass is {surface.shape}, the mask is {m.shape}')
+        with np.load(kept) as held:
+            surface, gt = held['surface'], held['gt']
+        if surface.shape != grid or not np.array_equal(gt, np.asarray(ds.GetGeoTransform())):
+            raise ValueError(
+                f'the kept first pass is {surface.shape} at {tuple(gt[:1]) + tuple(gt[3:4])}, '
+                f'the constraints are {grid} at {ds.GetGeoTransform()[:1] + ds.GetGeoTransform()[3:4]}; '
+                f"it is not this build's")
     else:
         log('  no first pass was kept, so the fill runs again for the overlay')
         lib = isofill_lib.Isofill.load()
         cons = band.ReadAsArray().astype(np.float32)
         surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
-    classes = np.full(cons.shape, ANSWERED, np.uint8)
+    classes = np.full(grid, ANSWERED, np.uint8)
     classes[surface == OUT_OF_REACH] = UNREACHED
     classes[surface == NO_ELEV] = DECLINED
     classes[surface == ONE_LEVEL] = ONE_ONLY

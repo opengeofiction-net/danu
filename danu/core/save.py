@@ -106,8 +106,14 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
     An edited square is written as a bare ``.osm``. This copy lives for one
     build and is read once, by a build that is about to expand it anyway, so
     compressing it is work done to be undone: xz at the fastest preset was 377
-    ms of the 549 a staging took on the gobras 3x3, and the reader paid for it
-    again. A clean square stays the symlink to its own ``.osm.xz``.
+    ms of a staging on the gobras 3x3, and the reader paid for it again. A
+    clean square stays the symlink to its own ``.osm.xz``.
+
+    That staging was 692 ms when the two costs were measured, and 549 by the
+    time the compression went - the coordinate writing above had been fixed in
+    between. Both numbers are of the same operation on the same set at
+    different points in one afternoon; what the change itself was worth is
+    692 ms to 177.
 
     That makes a staging directory the one place a bare ``.osm`` beside the
     squares is meant rather than a mapper's drop that never got packed, which
