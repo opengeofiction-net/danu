@@ -656,9 +656,12 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
-    all_squares = list_squares(Path(zone_dir), compressed_only=True) if names is None else {}
     squares = squares_with_constraints(Path(zone_dir), names, log)
-    blank = len(all_squares) - len(squares)
+    # how many of the zone's squares are templates, which is a zone-wide count
+    # and means nothing about a working set - the editor asks for named squares
+    # and the ones it did not ask for are not blank, they are elsewhere
+    blank = (len(list_squares(Path(zone_dir), compressed_only=True)) - len(squares)
+             if names is None else 0)
     if not squares:
         log(f'  {blank} squares, none with contours - nothing to build yet')
         return Result(None, None, {}, None, None, None, None, blank=blank)

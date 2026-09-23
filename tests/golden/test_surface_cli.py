@@ -115,6 +115,28 @@ def test_a_square_left_uncompressed_is_reported_and_not_quietly_skipped(tmp_path
     assert a.get('NORTH') == '-23', run.stdout
 
 
+def test_the_blank_count_is_the_zones_and_not_a_working_sets(tmp_path):
+    """BLANK is how many of the zone's squares are still templates. A working
+    set is a handful of named squares out of a zone, so the ones it did not
+    ask for are not blank - they are somewhere else, and counting them as
+    blank made the number negative."""
+    from danu.core.square import SquareName
+    from danu.surface import build, params
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(zone / 'S24E125_Drawn.osm.xz', ele='100')
+    write_square(zone / 'S23E125_Drawn.osm.xz', ele='100')
+    write_square(zone / 'S22E125_Blank.osm.xz', ele=None)
+    import shutil
+    if shutil.which('isofill') is None:
+        pytest.skip('isofill not on PATH')
+    p = params.load().with_arcsec(30)          # 121x121, so the fill is instant
+    whole = build.build_dem(zone, tmp_path / 'w1', p)
+    assert whole.blank == 1 and len(whole.squares) == 2
+    one = build.build_dem(zone, tmp_path / 'w2', p, names=[SquareName(125, -24)])
+    assert one.blank == 0 and len(one.squares) == 1
+
+
 # ------------------------------------------------------------ the guards
 
 def test_a_square_that_converts_to_nothing_stops_the_build(tmp_path, monkeypatch):
