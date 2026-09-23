@@ -43,10 +43,19 @@ def lonlat_to_scene(lon: float, lat: float) -> tuple[float, float]:
 def lonlat_to_scene_array(lon, lat):
     """``lonlat_to_scene`` for whole arrays, as an (n, 2) array of scene points.
 
-    The same arithmetic in the same order, so it is the same answer: a test
-    holds the two bit for bit over 200,000 random points, because a projection
-    that disagreed with itself by a ulp would put a contour and the node the
-    mapper is snapping to in two different places.
+    The same arithmetic in the same order. It is not bit for bit the same
+    answer everywhere: ``numpy``'s log, tan and cos are not always the libm
+    ``math`` reaches, and on the CI runner the two part company in the last
+    place - 8.9e-07 scene units, a millionth of a pixel at the zoom the scene
+    is measured in. A test holds them to a hundred-thousandth of one, which is
+    far below anything a mapper can point at and far above the disagreement
+    seen. They are bit for bit identical on this machine, which is why the
+    first version of that test claimed it.
+
+    What matters more than either number is that a contour and the node the
+    mapper snaps to are projected the same way: both come from here, through
+    ``ContourLayer._project``, so they agree with each other exactly whatever
+    libm is underneath.
 
     Worth having because the editor projects a whole working set at once -
     342,000 points on the gobras 3x3 - and a Python call per point was a third

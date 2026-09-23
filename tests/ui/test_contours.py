@@ -186,12 +186,14 @@ def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
         assert tuple(xy) == m.lonlat_to_scene(node.lon, node.lat), f'ref {ref} is at another node'
 
 
-def test_the_layer_projects_a_way_exactly_as_the_scalar_projection_does(ws):
+def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
     """The whole working set is projected at once now - 342,000 points on the
     gobras 3x3, and a Python call per point was a third of the time that took.
-    A projection that disagreed with itself by a ulp would put a contour and
-    the node a mapper is snapping to in two different places, so the array
-    form is held to the scalar one bit for bit."""
+
+    To a hundred-thousandth of a pixel rather than to the last bit: numpy's
+    log, tan and cos are not always the libm math reaches. What has to be exact
+    is the layer agreeing with itself, and it does by construction - a
+    contour's points and the node index's are the same array."""
     import numpy as np
 
     layer = ContourLayer()
@@ -200,6 +202,12 @@ def test_the_layer_projects_a_way_exactly_as_the_scalar_projection_does(ws):
     for geom in layer._geoms.values():
         nodes = geom.square.nodes
         want = np.array([m.lonlat_to_scene(nodes[r].lon, nodes[r].lat) for r in geom.refs])
-        assert np.array_equal(geom.pts, want), f'way {geom.way.id} is not where the scalar puts it'
+        worst = float(np.abs(geom.pts - want).max())
+        assert worst < 1e-5, f'way {geom.way.id} is {worst} scene units from where the scalar puts it'
         checked += len(want)
     assert checked > 1000, f'only {checked} points were compared'
+    # and the node index is the contour's own points, not a second projection
+    for geom in layer._geoms.values():
+        start = layer._node_ref.index((geom.square, geom.refs[0]))
+        assert np.array_equal(layer._node_xy[start:start + len(geom.pts)], geom.pts)
+        break

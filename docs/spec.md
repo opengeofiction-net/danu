@@ -1106,9 +1106,13 @@ one way rebuilds all of them: one vectorised operation per array took it from
 122 ms to 12 ms, and an edit from 136 ms to 15 ms. `_rebuild_levels` stepped a
 numpy `(n, 2)` array row by row, which builds an array scalar per coordinate;
 `tolist()` first is 66 ms against 400. The whole set is projected through one
-numpy call per way rather than a Python call per point, held to the scalar
-projection bit for bit because a contour and the node a mapper snaps to are
-projected by different callers. Staging writes the edited square as a bare
+numpy call per way rather than a Python call per point. That is held to the
+scalar projection to a hundred-thousandth of a pixel - not to the last bit,
+which is what the test first asserted and what CI disproved: numpy's log, tan
+and cos are not always the libm `math` reaches, and the two part company in the
+last place on the runner. What has to be exact is a contour and the node a
+mapper snaps to agreeing with each other, and they do by construction, being
+the same array. Staging writes the edited square as a bare
 `.osm` - it lives for one build, read by a build that expands it anyway, so xz
 was work done to be undone - which took a staging from 692 ms to 177.
 
