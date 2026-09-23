@@ -1,28 +1,27 @@
-"""The surface, the editor's way: the stages of ``danu-build-zone`` that make
-a DEM from contour squares, as functions.
+"""From contour squares to a DEM: extent, collect, rasterise, drawn area,
+water, interpolate, clamp.
 
-This is the second of two paths to the same surface. The first is the shell
-build, which runs on the server every night and is pinned by the golden test.
-This one is what the editor calls, and it is pinned by the same golden test to
-the same reference, cell for cell - that assertion is the whole reason the two
-may exist. Every stage here carries a ``shell:`` line naming the command it
-stands for in ``danu-build-zone``, and a test checks the line is there, so when
-one side changes the other is findable.
+There is one implementation of these stages and this is it. The editor calls
+the functions; ``danu-build-zone`` calls ``python -m danu.surface.build`` and
+carries on from the DEM with the stages that only a publisher needs - smoothing
+for the hillshade, the Mercator copies, the contour extract, the ``.hgt``
+archive. Until phase 4 the shell had its own copy of everything above the DEM
+and the golden test held the two to the same reference cell for cell; the copy
+is gone, and the reasoning that lived in its comments is in the docstrings here.
 
 Parameters come through ``danu.surface.params`` from the shared file
-``danu/params/elevation.toml``, with no defaults -
-and the resolution is taken as an argument, as the shell takes it from its
-environment. The stages after the DEM - smoothing for the hillshade, the
-Mercator copies, the contour extract, the archive - are not here; the editor
-paints from the DEM directly (S3) and publishes nothing.
+``danu/params/elevation.toml``, with no defaults. The resolution is taken as an
+argument rather than from the file, because the golden reference is built at 3
+arcseconds so it stays committable, and the shell passes ``--arcsec`` for the
+same reason.
 
-Where the two paths legitimately differ: the shell builds a *zone*, every
-square in the directory, and the editor builds a *working set*. For a square
-in the middle of a drawn zone the editor's surface near the set's edge will
-differ from the zone build's, because the zone had the neighbours' contours to
-look at and the set does not. That is expected, and it is why the golden
-fixture is a single square: there the two are the same job, run with water
-constraints off as its params.lock records, so neither path reaches Overpass.
+Where the two callers legitimately differ: the shell builds a *zone*, every
+square in the directory, and the editor builds a *working set*. For a square in
+the middle of a drawn zone the editor's surface near the set's edge will differ
+from the zone build's, because the zone had the neighbours' contours to look at
+and the set does not. That is expected, and it is why the golden fixture is a
+single square: there the two are the same job, run with water constraints off as
+its params.lock records, so neither path reaches Overpass.
 """
 
 from __future__ import annotations
@@ -42,8 +41,8 @@ from typing import Callable, Iterable
 import numpy as np
 from osgeo import gdal, ogr
 
-from ..core.square import SquareName, list_squares, read_square
-from ..core.zone_extent import has_constraints
+from ..core.square import (SquareName, has_constraints, list_squares, loose_squares,
+                           read_square)
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
@@ -65,9 +64,15 @@ def _quiet(_: str) -> None:
 
 @dataclass(frozen=True)
 class Grid:
-    """The raster every stage shares: whole degrees, with half a cell added
-    on every side so cell centres sit on the degree lines.
-    shell: eval "$(${PYTHON} -m danu.core.zone_extent ${SRC} ${ARCSEC})" -> WEST EAST SOUTH NORTH, and TE which is the te property here"""
+    """The raster every stage shares: whole degrees, with half a cell added on
+    every side so cell centres sit on the degree lines.
+
+    SRTM is grid registered - 1201 samples per degree, pixel centres on whole
+    arcseconds - so the raster corner sits half a pixel outside the degree line.
+    The master and the 3 arcsecond products each need that offset at their own
+    spacing: using one for the other leaves a fractional sample count per degree
+    and SRTMHGT, which insists on exactly 1201 square, then refuses every slice.
+    ``te_at`` takes the spacing for that reason."""
 
     west: int
     east: int
@@ -79,34 +84,57 @@ class Grid:
     def res(self) -> float:
         return self.arcsec / 3600
 
-    @property
-    def te(self) -> tuple[float, float, float, float]:
-        """gdal's -te: minx miny maxx maxy. Formatted to nine places and read
-        back, as the shell's string is, so the origin is the shell's origin
-        to the last digit it kept."""
-        half = self.arcsec / 7200
+    def te_at(self, arcsec: float) -> tuple[float, float, float, float]:
+        """gdal's -te at some other spacing: minx miny maxx maxy. Formatted to
+        nine places and read back, as the shell wrote it, so that a grid origin
+        is the same number whoever computed it."""
+        half = arcsec / 7200
         raw = (self.west - half, self.south - half, self.east + half, self.north + half)
         return tuple(float(f'{v:.9f}') for v in raw)
+
+    @property
+    def te(self) -> tuple[float, float, float, float]:
+        return self.te_at(self.arcsec)
 
     @property
     def size(self) -> tuple[int, int]:
         w, s, e, n = self.te
         return round((e - w) / self.res), round((n - s) / self.res)
 
+    @property
+    def sq_degrees(self) -> int:
+        return (self.east - self.west) * (self.north - self.south)
 
-def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None = None) -> dict[SquareName, Path]:
+
+def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None = None,
+                             log: Log = _quiet) -> dict[SquareName, Path]:
     """The squares that hold any ``ele``, by name; the rest are templates.
-    shell: zone_extent.py reads each file for an ele tag (has_constraints)"""
-    found = list_squares(zone_dir)
-    if names is not None:
+
+    A zone's directory carries the blank templates handed out to mappers - one
+    frame way, no contours - alongside the squares which have been filled in,
+    and building over the blanks costs pixels for nothing: a third of them on
+    zone-roantra, plus a published ``.hgt`` of pure zeroes for each. Which
+    squares hold something is decided by reading the files rather than by taking
+    the extent of the collected geometry: a square is cut out of its DEM on
+    pixel boundaries, so lines clipped at its edge overhang by half a cell, and
+    a square starting at 26 degrees yields geometry from 25.9996 - which floors
+    to the wrong degree. Any tolerance that fixes that is wide enough to discard
+    a genuine sliver of data, whereas the filename says exactly which degree
+    square a file describes."""
+    found = list_squares(zone_dir, compressed_only=True)
+    if names is None:
+        loose = loose_squares(zone_dir)
+        if loose:
+            log(f'  WARNING: not read, being uncompressed: {" ".join(f.name for f in loose)}')
+            log('  the squares are held as .osm.xz - xz these and remove the .osm')
+    else:
         wanted = set(names)
         found = {n: p for n, p in found.items() if n in wanted}
     return {n: p for n, p in found.items() if has_constraints(str(p))}
 
 
 def grid_for(names: Iterable[SquareName], arcsec: float) -> Grid:
-    """The bounding whole degrees of the squares that hold constraints.
-    shell: WEST=min EAST=max+1 SOUTH=min NORTH=max+1 over the squares zone_extent.py found"""
+    """The bounding whole degrees of the squares that hold constraints."""
     names = list(names)
     if not names:
         raise ValueError('no squares with constraints: nothing to build')
@@ -118,9 +146,23 @@ def grid_for(names: Iterable[SquareName], arcsec: float) -> Grid:
 # --------------------------------------------------------------- collect
 
 def lines_osmconf(work: Path) -> Path:
-    """GDAL's OSM config with closed ways read as lines, so a coastline drawn
-    closed is a constraint and not an area filed under multipolygons.
-    shell: sed 's/^closed_ways_are_polygons=.*/closed_ways_are_polygons=/' ${OSMCONF} > ${WORK}/osmconf-lines.ini"""
+    """GDAL's OSM config with closed ways read as lines.
+
+    This is the difference between a coastline being a constraint and not being
+    one. A coastline is drawn closed and tagged ``natural=coastline``, ``natural``
+    is on GDAL's list of area keys, so the driver calls the way an area and files
+    it under ``multipolygons`` - a layer the collect reads nothing from, and which
+    does not carry ``ele`` anyway. The contours survive only because they are
+    tagged with nothing but ``ele``.
+
+    Silently, and the sea then has nothing holding it down: the fill runs its
+    whole radius out from the lowest contour it can see and the zero line lands
+    there instead of on the shore. On zone-axian that put 99% of the published
+    ele=0 vertices more than 500 m out to sea, a median of 1,693 m.
+
+    Derived from the one packaged ``osmconf.ini`` rather than kept as a second
+    copy, because ``water_areas`` wants the opposite - ``natural=water`` has to
+    be an area there."""
     text = resources.files('danu.surface').joinpath('osmconf.ini').read_text(encoding='utf-8')
     text = re.sub(r'^closed_ways_are_polygons=.*$', 'closed_ways_are_polygons=', text, flags=re.M)
     out = work / 'osmconf-lines.ini'
@@ -128,10 +170,19 @@ def lines_osmconf(work: Path) -> Path:
     return out
 
 
-def check_long_ways(square_path: Path, log: Log) -> None:
-    """A way over 10,000 nodes is dropped silently by GDAL and its ground
-    comes out as a void; over 2,000 the OSM API would refuse it on upload.
-    shell: the awk over ${SQUARE} counting <nd /> per way (sq_over, sq_drop, sq_max)"""
+def check_long_ways(square_path: Path, log: Log) -> int:
+    """How many ways in the square carry an ``ele``, having refused it if any
+    way is too long for GDAL to read.
+
+    GDAL's OSM driver drops any way over 10,000 nodes. It says so once per node
+    beyond the limit, so one 45,000 node contour buries the message under 35,000
+    identical lines and GDAL's own 1,000 error cap hides the rest - which is how
+    ten contours between 101 m and 171 m went missing from S37E147_Madison_City,
+    45% of that square's contour length, and came back as voids nobody could
+    account for. A blank square is better than a quietly wrong one, so this
+    stops. The warning threshold is the OSM API's own limit, which these files
+    would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
+    both."""
     sq = read_square(square_path)
     longest = max((len(w.refs) for w in sq.ways.values()), default=0)
     drop = sum(1 for w in sq.ways.values() if len(w.refs) > 10000)
@@ -142,22 +193,39 @@ def check_long_ways(square_path: Path, log: Log) -> None:
     if over:
         log(f'  WARNING: {square_path.name} has {over} way(s) over 2,000 nodes (longest {longest}), '
             f'which the OSM API would reject on upload')
+    return sum(1 for w in sq.ways.values() if 'ele' in w.tags)
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> Path | None:
     """Every square's contour ways into one GeoPackage layer, ``contour``, with
     a numeric ``ele``. None when there are no contours at all.
-    shell: xz -dc ${f} > ${SQUARE}; OSM_CONFIG_FILE=osmconf-lines.ini ogr2ogr -f GPKG [-append] contours.gpkg ${SQUARE} lines -where "ele IS NOT NULL" -nln contour [-nlt LINESTRING]; then DELETE FROM contour WHERE ${NONNUM}"""
+
+    Every way carrying a numeric ``ele`` is a constraint: contours, and the
+    water edges at ele 0. Ways without one - the frame, stray tagging - are
+    ignored.
+
+    The squares are held compressed and GDAL has no VSI handler for xz - there
+    is one for zip, gzip and 7z, but not this - so each is expanded into the
+    working directory, read, and dropped again. One at a time, so the cost is
+    the largest square rather than the whole zone."""
     gpkg = work / 'contours.gpkg'
     if gpkg.exists():
         gpkg.unlink()
     conf = lines_osmconf(work)
     square = work / 'square.osm'
     first = True
+    before = 0
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
+                              # A square whose in-memory database exceeds
+                              # OSM_MAX_TMPFILE_SIZE (100 MB) spills to disk.
+                              # Without this GDAL writes the spill relative to
+                              # the current directory, which under systemd is /
+                              # and unwritable: the copy fails and the driver
+                              # returns the square as zero features, silently,
+                              # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
         for name, path in sorted(squares.items()):
-            check_long_ways(path, log)
+            ele_ways = check_long_ways(path, log)
             with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
@@ -168,9 +236,31 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             gdal.VectorTranslate(str(gpkg), str(square), options=gdal.VectorTranslateOptions(**opts))
             first = False
             square.unlink()
+            # A square can convert to nothing and still succeed: the OSM driver
+            # spills to disk over OSM_MAX_TMPFILE_SIZE, and if that write fails
+            # it hands back an empty layer rather than an error. That cost
+            # liberian 16,555 of its 20,472 constraint lines - 81% of the zone -
+            # across every build until CPL_TMPDIR was set above, and nothing in
+            # the run said so. The count at the end cannot see it, because the
+            # other squares carry the total past zero
+            now = _feature_count(gpkg)
+            if ele_ways and now == before:
+                raise ValueError(
+                    f'{path.name} has {ele_ways} way(s) tagged ele but converted to none. '
+                    f'Check the run for "Cannot create" - the OSM driver loses a square '
+                    f'silently when its temporary file cannot be written')
+            before = now
     if not gpkg.exists():
         return None
     ds = ogr.Open(str(gpkg), update=1)
+    # ele is a string, and not every string is a height. Squares carry ele=TBD
+    # on lake outlines nobody has surveyed yet, ele=tbd on peaks, the odd
+    # ele=169s typo - and rasterising -a ele coerces each of them to 0, planting
+    # a sea level constraint across whatever the way runs over. Worse than no
+    # constraint, since the fill then drags the ground around it down to meet
+    # the line. Cleaned here rather than filtered on the way in: the where above
+    # goes to the OSM driver, whose OGR SQL has no pattern test this needs, and
+    # the GeoPackage is SQLite and does
     dropped = ds.ExecuteSQL(f'SELECT DISTINCT ele FROM contour WHERE {NONNUM}', dialect='SQLite')
     bad = [f.GetField(0) for f in dropped]
     ds.ReleaseResultSet(dropped)
@@ -185,9 +275,17 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     layer = None                # before the datasource, not by refcount luck
     ds = None
     if features == 0:
+        # Not a failure. A zone's directory holds the blank templates handed out
+        # to mappers - one frame way, no contours - and a zone which is all
+        # templates has nothing to build yet rather than something wrong with it
         log('  no contours in any square, nothing to build yet')
         return None
     log(f'  {features} constraint lines')
+    # Water with nothing holding it at sea level is the largest error this
+    # pipeline can produce - 46 m RMS over the water in the one roantra square
+    # the water file did not reach - and it is silent, because the result looks
+    # like plausible terrain. A zone with no zero constraint anywhere either has
+    # no sea, which is fine, or has sea nobody has drawn a coastline for
     log(f'  {zeros} of them at ele 0, holding sea level')
     if zeros == 0:
         log('  WARNING: no ele 0 constraint anywhere. If this ground has sea, its squares need '
@@ -195,11 +293,32 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     return gpkg
 
 
+def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
+    """A layer's feature count, or 0 where the file or the layer is not there
+    yet - which is the state a square that converted to nothing leaves."""
+    if not gpkg.exists():
+        return 0
+    ds = ogr.Open(str(gpkg))
+    if ds is None:
+        return 0
+    layer = ds.GetLayerByName(layer_name)
+    n = layer.GetFeatureCount() if layer is not None else 0
+    layer = None
+    ds = None
+    return int(n)
+
+
 # ------------------------------------------------------------- rasterise
 
 def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     """The constraints as an Int16 raster of metres, nodata where none.
-    shell: gdal_rasterize -q -at -a ele -a_nodata -9999 -init -9999 -ot Int16 -tr ${RES} ${RES} -te ${TE} -co TILED=YES -co COMPRESS=DEFLATE contours.gpkg cont.tif"""
+
+    Int16, not Int32: elevations fit with room to spare and so does the nodata,
+    and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set.
+
+    All touched, not only the cells a line passes through the middle of: a thin
+    line leaves diagonal gaps, and the fill's sight test threads them - a ray
+    reaches the ground behind a coastline without crossing it."""
     out = work / 'cont.tif'
     gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
         format='GTiff', allTouched=True, attribute='ele', noData=NODATA, initValues=[NODATA],
@@ -210,7 +329,31 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
 
 def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
     """Where the contours describe ground, as a byte mask on the same grid.
-    shell: ${PYTHON} -m danu.surface.drawn_mask cont.tif drawn.geojson; gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} -co ... drawn.geojson drawn-mask.tif"""
+
+    The zone raster is the bounding box of the squares holding contours, and a
+    bounding box is not the shape they describe: zone-gobras is five drawn
+    squares in a four by four box, and even within those five only 37% of the
+    area has contours near it.
+
+    Unmasked, the second pass carries values across the undescribed ground in
+    streaks the length of whatever it is allowed to cross - every row is
+    anchored at zero only beyond its ends, so across an empty region there is
+    nothing in between to stop it. Measured on ellarca, the blocks smeared right
+    across were 100% cells the first pass never reached, against a 0.1% median
+    elsewhere.
+
+    ``drawn_mask`` takes the convex hull of the contours in each degree square,
+    clipped to that square. It masks where there is no data, not where the fill
+    is merely far from a contour: inside the described area the fill still
+    reaches everywhere, which is the point of the reach behaviour. Bounding the
+    carry instead, with isofill's ``--pass2-tile``, would suppress the streaks by
+    reopening the voids.
+
+    On gobras that is 5.5% of the raster against 31.2% for the squares that
+    contain the contours, and it takes nothing from makaska's S37E147, whose
+    sparse contours span their square: the hull covers 95.1% of it and masks out
+    none of its terrain. Contours inside the mask still inform cells outside it,
+    so its edge is not a wall to the ground beyond."""
     geojson = work / 'drawn.geojson'
     n = drawn_mask.envelopes(str(cont), str(geojson))
     log(f'  drawn area: {n} square envelopes')
@@ -223,10 +366,25 @@ def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
 
 def water_constraints(cont: Path, grid: Grid, mask: Path, work: Path, log: Log = _quiet) -> None:
     """Rivers and lakes from Overpass written into the constraints, inside the
-    drawn area. The same module, the same way, because it is a command - and
-    a failure is a warning and the build goes on, as it is in the shell: a
-    surface without them is the one published before they existed.
-    shell: ${PYTHON} -m danu.water.constraints cont.tif --bbox "${BBOX}" --mask drawn-mask.tif --report water-report.json  (WATER_CONSTRAINTS=1)"""
+    drawn area.
+
+    Contours describe the ground every 25 m of height and say nothing between,
+    which is exactly where a river is. The interpolator has no reason to put the
+    valley floor under the drawn water rather than anywhere else in the band, so
+    it does not. Reading the water as a constraint of its own puts it there.
+
+    After the mask, and not before it, for two reasons which are really the same
+    one. ``drawn_mask`` derives the envelope from the constraints, so water
+    written earlier grows the mask along every river and the fill then works
+    ground the contours never described. And the water is held inside that
+    envelope, because a graded river reaching past the last contour has nothing
+    to blend into: it came out as a 4.7 km strip of 449 m ground standing in a
+    void held at zero, which is a wall in the hillshade at the edge of the
+    mapped contours.
+
+    A failure is a warning and the build goes on, which is also what happens
+    with no network: a zone without this is the DEM we published yesterday.
+    Run as a command, because it is one."""
     w, s, e, n = grid.te
     run = subprocess.run([sys.executable, '-m', 'danu.water.constraints', str(cont),
                           '--bbox', f'{w},{s},{e},{n}', '--mask', str(mask),
@@ -237,11 +395,56 @@ def water_constraints(cont: Path, grid: Grid, mask: Path, work: Path, log: Log =
         log(run.stderr[-800:])
 
 
+def water_areas(water_file: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
+    """Sea and lakes from a curated water file, as a byte mask.
+
+    ``natural=water`` states that its interior is water; a closed coastline ring
+    does not, being equally able to describe an island - which is why this reads
+    the areas and ``water_mask`` reads directions. Used only to tell land at sea
+    level from the sea itself; the squares remain the elevation source of truth.
+
+    The file is per zone and optional. No zone has had one since the coastline
+    direction below started producing the same artefact from the squares
+    themselves, and the directory it is read from is empty on the server."""
+    log(f'  water areas from {water_file.name}')
+    areas = work / 'water-areas.gpkg'
+    for f in (areas, work / 'water-mask.tif'):
+        if f.exists():
+            f.unlink()
+    conf = resources.files('danu.surface').joinpath('osmconf.ini')
+    with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
+                              'CPL_TMPDIR': str(work)}):
+        gdal.VectorTranslate(str(areas), str(water_file), options=gdal.VectorTranslateOptions(
+            format='GPKG', layers=['multipolygons'], where="natural='water'", layerName='water'))
+    log(f'  {_feature_count(areas, "water")} water areas')
+    out = work / 'water-mask.tif'
+    gdal.Rasterize(str(out), str(areas), options=gdal.RasterizeOptions(
+        format='GTiff', burnValues=[1], initValues=[0], outputType=gdal.GDT_Byte,
+        xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te), creationOptions=CREATE))
+    return out
+
+
 def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | None:
-    """Sea, from the coastline's direction. None when the squares carry no
-    coastline. The editor has no curated water file; the shell's other branch
-    - natural=water areas from a zone's water file - is not here.
-    shell: ${PYTHON} -m danu.surface.sea_mask contours.gpkg cont.tif water-mask.tif  (the no-${WATER} branch)"""
+    """Sea, from the coastline's own direction - land on the left, water on the
+    right - which the squares already carry. None when they carry no coastline.
+
+    It exists to stop the fill leaving elevation offshore: on zone-alved it
+    covers 96.8% of the cells which had it, and 99.6% of what it marks is
+    genuinely sea. Same artefact as ``water_areas``, same slot, no file to
+    maintain.
+
+    Built before the fill, not after it. It has always been derived from the
+    collected contours and the constraint raster, both of which exist by now, so
+    the order was free either way - until ``--pass2 diffuse``, which needs the
+    sea as a boundary rather than as something to clean up afterwards. Laplace
+    has no notion of running out of information: bounded by a coastline at zero
+    on one side and whatever the far shore carries on the other, it ramps
+    between them and fills the sea. On zone-ellarca that took the sea from
+    67.32% of the zone to 59.76%, because ``land_clamp`` looks for candidate sea
+    where the DEM reads zero and water carrying a value is no longer recognised
+    as water. The linear pass never needed telling, since it anchored every row
+    and column at zero one step past its ends - a pull towards zero wherever the
+    data is sparse, which was doing this job as a side effect."""
     out = work / 'water-mask.tif'
     if out.exists():
         out.unlink()
@@ -252,26 +455,64 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
 
 
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
-                isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet) -> Path:
-    """The surface between the constraints, by isofill. Through the library
-    by default - the binary's own in-core path is a call to the same
-    function - and through the binary where the library cannot be loaded, or
-    where the raster is larger than the in-core fill would hold and the
-    binary would band it, which the library does not do. ``library`` forces
-    the choice: True demands the library and raises rather than fall back,
-    False never tries it; None is the default described above.
-    shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] ${ISOFILL_EXTRA} cont.tif rounded.tif
-    The same flags and no others. The shell passes no --grad-min and relies
-    on isofill's default, so neither does the binary call here nor the
-    library call, which starts from the library's own defaults and sets only
-    what the flags set. The file's grad_min is held equal to that default by
-    a test. pass2 has one implemented value and this refuses any other
-    rather than ignoring it."""
+                isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
+                extra: list[str] | None = None) -> Path:
+    """The surface between the constraints, by isofill.
+
+    isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
+    sample, which terraces the surface into plateaus with straight edges where
+    the chosen sample switches. A hillshade is a derivative and shows that
+    plainly where a slope histogram averages it away. isofill takes the steepest
+    pair of contours in line of sight and declines to fill at all from one,
+    which is also what keeps water enclosed by a coastline empty. It writes
+    Int16, so there is no rounding step after it.
+
+    The barrier - how wide a contour is for the sight test only, not for its
+    value - was tuned by measuring open water, so 1 was tried on the grounds
+    that a thicker wall occludes the second contour a cell needs in order to
+    interpolate at all, pushing cells out of the first pass and into the second,
+    which has to invent them. Measured on zone-ellarca inside the described
+    area, first pass only, at barrier 0, 1, 2 and 3, the ground the first pass
+    resolves is 54.88, 54.71, 49.29 and 46.46%: all of the cost sits between 1
+    and 2, 5.4 points, a ninth of what the pass answers.
+
+    It was reverted because none of that reaches the map. Five zones were built
+    at 1 and inspected against the same zones at 2, and the hillshade is the
+    same picture - the cells that move are ones the second pass was already
+    filling with the value the first pass would have derived. What does not come
+    back is the cost: 195 s against 175 s on ellarca, and elevation left over
+    water 0.776% against 0.738%, or on zone-tapira, which is 92% sea, 42 cells
+    against 12. So 2 stands, on runtime and on the sea, and the measurement is
+    kept because it says where to look if the first pass ever needs widening:
+    the whole of the barrier's effect on coverage is in that one step.
+
+    Needs isofill 0.4.0 or later, which fills the cells the first pass found
+    nothing for rather than leaving them at zero - the behaviour 0.3.1 had
+    behind ``--no-reach``. Against 0.3.1's default, 114,309 cells in zone-tapira
+    read 1 m between ground at 130 m.
+
+    Through the library by default - the binary's own in-core path is a call to
+    the same function - and through the binary where the library cannot be
+    loaded, or where the raster is larger than the in-core fill would hold and
+    the binary would band it, which the library does not do. ``library`` forces
+    the choice: True demands the library and raises rather than fall back, False
+    never tries it; None is the default described above. ``extra`` is further
+    flags for trying a change on one zone before it becomes the default, and it
+    takes the binary, since the library has no flags to give them to.
+
+    No ``--grad-min``: the file's value is held equal to isofill's own default
+    by a test, and neither path passes it. ``pass2`` has one implemented value
+    and this refuses any other rather than ignoring it."""
     if params.pass2 != 'diffuse':
         raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
     if out.exists():
         out.unlink()
+    if extra:
+        log(f'  extra isofill flags, so the binary: {" ".join(extra)}')
+        if library is True:
+            raise ValueError(f'extra isofill flags ({" ".join(extra)}) need the binary, not the library')
+        library = False
     if library is not False:
         try:
             lib = isofill_lib.Isofill.load()
@@ -290,7 +531,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                 log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
-    return _interpolate_binary(cont, mask, water, params, out, isofill)
+    return _interpolate_binary(cont, mask, water, params, out, isofill, extra)
 
 
 def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
@@ -313,8 +554,8 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
                          out: Path, log: Log) -> Path:
     """The library call, with the rasters read to arrays and the surface written
-    as the binary writes it: Float32, ZSTD, the float predictor.
-    shell: the in-core branch of isofill.c's main(), which is isofill_run()"""
+    as the binary writes it: Float32, ZSTD, the float predictor. This is the
+    in-core branch of isofill.c's own main(), which is isofill_run()."""
     band = ds.GetRasterBand(1)
     cons = band.ReadAsArray().astype(np.float32)
     nodata = band.GetNoDataValue()
@@ -340,13 +581,33 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
-                        isofill: str) -> Path:
-    """The same binary the shell runs, with the same flags and no others.
-    shell: isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} --mask drawn-mask.tif [--water water-mask.tif] cont.tif rounded.tif"""
+                        isofill: str, extra: list[str] | None = None) -> Path:
+    """The binary, with the flags the build sets and no others.
+
+    What isofill may hold is a budget, not a peak. The two passes decide
+    separately whether to band, and they are not equal: the first reads each
+    band with a radius margin, so every interior cell still sees its whole
+    search circle and a banded run is exact. The second banded is an
+    approximation. So the budget wants to be large enough for the second pass on
+    the largest zone even where the first must band - 13.6 GB for zone-yuethon
+    at 46801 square, against 26.5 GB to hold that zone's first pass whole.
+
+    isofill sizes its own arrays against the budget, and GDAL's block cache, the
+    rasterisation and the contour reads all sit outside it. Once isofill's own
+    figures were made honest - the banded first pass also holds the whole output
+    array, and the second pass holds both mask rasters - the measured peak on
+    zone-axian is 1.06 times the budget, so it is close to the real ceiling
+    rather than a number to multiply. 18500 clears every zone's second pass, the
+    largest being zone-yuethon at 18104 MB, and puts the peak near 19.6 GB:
+    inside util's guaranteed 24 without leaning on the balloon, which the host
+    can reclaim mid-run. Below it the big zones fall to the second pass's
+    out-of-core path, which is an approximation - at 15000, zone-axian took it
+    and came out with a different sea."""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
            '--max-mem', str(params.max_mem_mb), '--mask', str(mask)]
     if water is not None:
         cmd += ['--water', str(water)]
+    cmd += list(extra or [])
     cmd += [str(cont), str(out)]
     run = subprocess.run(cmd, capture_output=True, text=True)
     if run.returncode != 0:
@@ -354,9 +615,13 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     return out
 
 def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = _quiet) -> Path:
-    """Sea to zero, land never zero, the constraints back untouched, written
-    as the published DEM is written.
-    shell: ${PYTHON} -m danu.surface.land_clamp rounded.tif cont.tif dem.tif ${WATER_MASK}"""
+    """Sea to zero, land never zero, the constraints back untouched, written as
+    the published DEM is written.
+
+    Land at sea level is not the sea. Flat coastal ground whose nearest
+    constraint is the coastline interpolates to zero, and zero is transparent in
+    the relief ramp, so it would vanish from the map - 64% of the low land in
+    zone-roantra did."""
     out = work / 'dem.tif'
     if out.exists():
         out.unlink()
@@ -376,36 +641,128 @@ class Result:
     drawn_mask: Path | None
     water_mask: Path | None
     envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
+    blank: int = 0                      # squares with a file but no contours
 
 
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
               water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
-              library: bool | None = None) -> Result:
-    """From squares to a DEM, in the shell's order: extent, collect, rasterise,
-    drawn area, water constraints (off unless asked), water mask, interpolate,
-    clamp. ``names`` limits the build to a working set; None builds the zone
-    as the shell does. The DEM is None when there was nothing to build."""
+              library: bool | None = None, water_file: Path | None = None,
+              extra: list[str] | None = None, stage: Log = _quiet) -> Result:
+    """From squares to a DEM: extent, collect, rasterise, drawn area, water
+    constraints (off unless asked), water mask, interpolate, clamp. ``names``
+    limits the build to a working set; None builds the whole zone. ``stage`` is
+    called with each stage's name as it starts, which is where the timings come
+    from. The DEM is None when there was nothing to build."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
-    squares = squares_with_constraints(Path(zone_dir), names)
+    stage('extent')
+    all_squares = list_squares(Path(zone_dir), compressed_only=True) if names is None else {}
+    squares = squares_with_constraints(Path(zone_dir), names, log)
+    blank = len(all_squares) - len(squares)
     if not squares:
-        log('  no squares with contours - nothing to build yet')
-        return Result(None, None, {}, None, None, None, None)
+        log(f'  {blank} squares, none with contours - nothing to build yet')
+        return Result(None, None, {}, None, None, None, None, blank=blank)
     grid = grid_for(squares, params.arcsec)
-    log(f'  {len(squares)} squares with contours, {grid.west}..{grid.east} by {grid.south}..{grid.north}, '
+    log(f'  {len(squares)} squares with contours ({blank} blank), '
+        f'{grid.west}..{grid.east} by {grid.south}..{grid.north}, '
         f'{grid.size[0]}x{grid.size[1]} at {params.arcsec:g}"')
     log(f'  fill bounded to {params.fill_metres:g} m = {params.fill_cells} cells')
+    stage('collect')
     gpkg = collect(squares, work, log)
     if gpkg is None:
-        return Result(None, grid, squares, None, None, None, None)
+        return Result(None, grid, squares, None, None, None, None, blank=blank)
+    stage(f'rasterise at {params.arcsec:g}"')
     cont = rasterise(gpkg, grid, work)
+    stage('drawn area')
     mask = drawn_area(cont, grid, work, log)
     if water:
+        stage('water constraints from the drawn rivers and lakes')
         water_constraints(cont, grid, mask, work, log)
-    wmask = water_mask(gpkg, cont, work, log)
-    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log)
+    if water_file is not None:
+        stage('water areas')
+        wmask = water_areas(Path(water_file), grid, work, log)
+    else:
+        stage('water from the coastline direction')
+        wmask = water_mask(gpkg, cont, work, log)
+    stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
+    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra)
+    stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log)
-    return Result(dem, grid, squares, gpkg, cont, mask, wmask, envelopes=work / 'drawn.geojson')
+    return Result(dem, grid, squares, gpkg, cont, mask, wmask,
+                  envelopes=work / 'drawn.geojson', blank=blank)
+
+
+# ------------------------------------------------------------------- cli
+
+def _shell_assignments(result: Result, params: Params) -> str:
+    """What ``danu-build-zone`` needs in order to carry on from the DEM: the
+    degree extent for the .hgt slicing, the 3 arcsecond grid for the derivative,
+    and the DEM itself. Written to a file and sourced rather than eval'd from
+    stdout - ``eval "$(cmd)"`` takes eval's exit status, so a build that died
+    here would have been carried on from silently."""
+    lines = [f'SQUARES={len(result.squares)}', f'BLANK={result.blank}']
+    if result.grid is not None:
+        g = result.grid
+        lines += [f'WEST={g.west}', f'EAST={g.east}', f'SOUTH={g.south}', f'NORTH={g.north}',
+                  'TE_HGT="{} {} {} {}"'.format(*(f'{v:.9f}' for v in g.te_at(params.hgt_arcsec)))]
+    lines.append(f'DEM={result.dem or ""}')
+    return '\n'.join(lines) + '\n'
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m danu.surface.build <zone-dir> <work-dir>`` - the stages up to
+    the DEM, for a caller that goes on to publish. The log goes to stdout; the
+    shell assignments go to the file ``--shell`` names, so nothing on stdout is
+    ever evaluated."""
+    import argparse
+    import time
+    from . import params as params_module
+
+    ap = argparse.ArgumentParser(prog='python -m danu.surface.build', description=main.__doc__)
+    ap.add_argument('zone_dir', type=Path, help='the directory of .osm.xz squares')
+    ap.add_argument('work', type=Path, help='where the working rasters go')
+    ap.add_argument('--arcsec', type=float, help='resolution; the file\'s value by default')
+    ap.add_argument('--params', type=Path, help='an elevation.toml other than the packaged one')
+    ap.add_argument('--water-constraints', action='store_true',
+                    help='read rivers and lakes from Overpass as constraints')
+    ap.add_argument('--water-areas', type=Path, metavar='FILE',
+                    help='a curated natural=water file, in place of the coastline direction')
+    ap.add_argument('--isofill-extra', default='', metavar='FLAGS',
+                    help='further isofill flags, for trying a change on one zone')
+    ap.add_argument('--shell', type=Path, metavar='FILE', help='write shell assignments here')
+    ap.add_argument('--timings', type=Path, metavar='FILE', help='append stage timings here')
+    ap.add_argument('--since', type=float, default=0.0, metavar='SECONDS',
+                    help='what the caller\'s clock read when it handed over, so the '
+                         'timings are one series and not two')
+    ap.add_argument('--zone', default='', help='the zone name, for the stage headings')
+    args = ap.parse_args(argv)
+
+    p = params_module.load(args.params)
+    if args.arcsec is not None:
+        p = p.with_arcsec(args.arcsec)
+
+    began = time.monotonic()
+    prefix = f'{args.zone}: ' if args.zone else ''
+
+    def log(line: str) -> None:
+        print(line, flush=True)
+
+    def stage(name: str) -> None:
+        if args.timings:
+            with open(args.timings, 'a', encoding='utf-8') as fh:
+                fh.write(f'{round(args.since + time.monotonic() - began)}\t{name}\n')
+        print(f'=== {prefix}{name} ===', flush=True)
+
+    try:
+        result = build_dem(args.zone_dir, args.work, p, water=args.water_constraints,
+                           log=log, water_file=args.water_areas,
+                           extra=args.isofill_extra.split() or None, stage=stage)
+    except (ValueError, FileExistsError) as e:
+        print(f'{prefix}{e}', file=sys.stderr)
+        return 1
+    if args.shell:
+        Path(args.shell).write_text(_shell_assignments(result, p), encoding='utf-8')
+    return 0
 
 
 # ------------------------------------------------------------ first pass
@@ -424,8 +781,7 @@ def first_pass_reading(classes: np.ndarray, gt: tuple) -> dict:
     on the ground than at the equator and at 60 N half the size. Counted here
     and nowhere else, so the build log and the panel say one number; the
     Mercator grid the overlay is drawn on inflates area by 1/cos² and is not
-    a place to measure it.
-    shell: none - the validation table asks for OUT_OF_REACH as area and fraction, and this is it"""
+    a place to measure it."""
     rows, cols = classes.shape
     lat_rows = gt[3] + (np.arange(rows) + 0.5) * gt[5]
     km_per_deg = 111.32
@@ -449,7 +805,10 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     area. R20 calls this the single most useful thing the editor can tell a
     mapper - here is ground your contours do not describe - and the
     validation table wants it as area and fraction.
-    shell: isofill --no-pass2 ... cont.tif pass1.tif, whose sentinels are -32767 OUT_OF_REACH, -32768 NO_ELEV, -32766 ONE_LEVEL. The shell build never runs this - it is the diagnostic isofill's README describes - and the editor's surface build runs it every time, for the overlay"""
+
+    The published build never runs this - it is the diagnostic isofill's README
+    describes, ``--no-pass2`` - and the editor runs it on every surface, for the
+    overlay."""
     lib = isofill_lib.Isofill.load()
     ds = gdal.Open(str(cont))
     band = ds.GetRasterBand(1)
@@ -477,3 +836,8 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
     o.FlushCache()
     o = None
     return out
+
+
+
+if __name__ == '__main__':
+    sys.exit(main())

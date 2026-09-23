@@ -4,48 +4,27 @@
 #
 #   danu-build-zone <zone>
 #
-# Reads /opt/opengeofiction/elevation/osm-squares/<zone>/*.osm.xz and publishes to
-# /opt/opengeofiction/sync-to-ogf/dem/<zone>, which reaches
+# Reads /var/lib/danu/osm-squares/<zone>/*.osm.xz and publishes to the zone's
+# directory under /var/lib/danu/publish, which reaches
 # data.opengeofiction.net/dem/<zone> through sync-to-ogf@dem.
 #
 # Run as the ogf user, by danu-build.service or by hand. One zone at a time; the
 # whole set is danu-build.
 #
-# The parameters below are not arbitrary - each was measured by rebuilding
-# zone-roantra and differencing against the DEM the old process published:
-#
-#   ARCSEC=1        3" loses 80% of the contour geometry to rasterisation, and
-#                   halves again to 2.44 m RMS at 1". Compressed, every zone's
-#                   DEM at 1" is half a gigabyte for the whole planet
-#   FILL_METRES     how far a cell may look for a contour. 1852 m is the old
-#                   process's radius of 20 cells at 3", and holds that distance
-#                   at 1" as 60 cells. Beyond it a cell has no elevation
-#                   information of its own and takes what the second pass
-#                   carries in
-#   ISOFILL_EXTRA   further isofill flags, for trying a change on one zone
-#                   before it becomes the default. Empty normally
-#   BARRIER_CELLS   how wide a contour is for the sight test only, not for its
-#                   value. At 3" a one cell line is a 93 m wall; at 1" the same
-#                   cell is 31 m, so rays thread gaps which could not exist on
-#                   the coarser grid. 2 gives 62 m, close to what the coarse grid
-#                   gave for nothing. 1 was tried and reverted - see below
-#   SMOOTH_CELLS    hillshade is a derivative, so it renders the slope
-#                   discontinuity at every contour as a visible band. No
-#                   interpolator avoids it - the best of them, r.fillnulls
-#                   bicubic, has the lowest error of any tested and still bands.
-#                   Only a low pass removes it, so the hillshade gets a smoothed
-#                   copy and the DEM does not
+# The surface itself - everything from the squares to the DEM - is
+# danu.surface.build, the same code the editor runs. What is left here is what
+# only a publisher needs: the smoothed copy for the hillshade, the Mercator
+# rasters, the contour extract, the .hgt archive and the publish. The
+# parameters are read from danu/params/elevation.toml, which carries the
+# measurements behind each of them.
 #
 set -e
 
 ZONE=${1:?usage: danu-build-zone <zone>}
 
-# Overridable so the pipeline can be run against a copy off the server, which
-# is how it gets tested against zone-roantra's known good output
 # Installed layout by default; every one is overridable so the pipeline can be
-# run against a copy off the server, which is how it gets tested against
-# zone-roantra's known good output
-# where the configuration lives; ${CONF}/osmconf.ini and so on
+# run against a copy off the server, which is how the golden test runs it
+# where the configuration lives; ${CONF}/relief.ramp and so on
 CONF=${CONF:-/etc/danu}
 BASE=${BASE:-/var/lib/danu}
 WORKBASE=${WORKBASE:-/var/cache/danu}
@@ -56,51 +35,13 @@ SRC=${BASE}/osm-squares/${ZONE}
 WORK=${WORKBASE}/${ZONE}
 PUB=${PUB:-${PUBROOT}}/${ZONE}
 
-ARCSEC=${ARCSEC:-1}                     # master DEM resolution
-HGT_ARCSEC=${HGT_ARCSEC:-3}             # the .hgt archive stays at 1201
-FILL_METRES=${FILL_METRES:-1850}
-BARRIER_CELLS=${BARRIER_CELLS:-2}
-ISOFILL_EXTRA=${ISOFILL_EXTRA:-}
-# What isofill may hold. The two passes decide separately whether to band, and
-# they are not equal: the first reads each band with a radius margin, so every
-# interior cell still sees its whole search circle and a banded run is exact.
-# The second banded is an approximation. So this wants to be large enough for
-# the second pass on the largest zone even where the first must band - 13.6 GB
-# for zone-yuethon at 46801 square, against 26.5 GB to hold that zone's first
-# pass whole.
-#
-# The number is not the peak. isofill sizes its own arrays against it, and
-# GDAL's block cache, the rasterisation and the contour reads all sit outside
-# that. Once isofill's own figures were made honest - the banded first pass also
-# holds the whole output array, and the second pass holds both mask rasters -
-# the measured peak on zone-axian is 1.06 times the budget, so this is close to
-# the real ceiling rather than a number to multiply.
-#
-# 18500 clears every zone's second pass, the largest being zone-yuethon at
-# 18104 MB, and puts the peak near 19.6 GB: inside util's guaranteed 24 without
-# leaning on the balloon, which the host can reclaim mid-run. Below it the big
-# zones fall to the second pass's out-of-core path, which is an approximation -
-# at 15000, zone-axian took it and came out with a different sea.
-MAX_MEM=${MAX_MEM:-18500}
-SMOOTH_CELLS=${SMOOTH_CELLS:-5}
 RAMP=${CONF}/relief.ramp
 # Water areas for the zone, if there are any: coastline plus whatever is mapped
-# as natural=water instead, which for an inland sea is usual. Used only to tell
-# land at sea level from the sea itself - the squares remain the elevation
-# source of truth. Without it enclosed water reads 1 m instead of 0
+# as natural=water instead, which for an inland sea is usual. Optional, and no
+# zone has had one since the coastline's own direction started giving the same
+# artefact from the squares themselves
 WATER=$(ls ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf 2>/dev/null | head -1)
-OSMCONF=${CONF}/osmconf.ini
 
-# GDAL's default osmconf.ini ignores ele on every layer, so reading a contour
-# square with it yields an empty DEM and no error. The squares also carry
-# negative ids, which the custom node index cannot handle
-export OSM_CONFIG_FILE=${OSMCONF}
-export OSM_USE_CUSTOM_INDEXING=NO
-# A square whose in-memory database exceeds OSM_MAX_TMPFILE_SIZE (100 MB) spills
-# to disk. Without this GDAL writes the spill relative to the current directory,
-# which under systemd is / and unwritable: the copy fails and the driver returns
-# the square as zero features, silently, with a non-zero exit code nowhere
-export CPL_TMPDIR=${WORK}
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
 # be published alongside every raster
 export GDAL_PAM_ENABLED=NO
@@ -124,12 +65,23 @@ if ! flock -n 9; then
 	exit 1
 fi
 
-RES=$(python3 -c "print(${ARCSEC}/3600)")
+# The shared parameters, from the one file danu.surface.build and the editor
+# also read. Sourced rather than copied: these were ${VAR:-default} constants
+# here and a test held them equal to the file, which is a way of noticing that
+# a duplicate has drifted rather than a reason to keep one. An environment
+# override still wins, which is how the golden reference is built at 3"
+${PYTHON} -m danu.surface.params --shell > ${WORK}/params.sh
+. ${WORK}/params.sh
+ARCSEC=${ARCSEC:-${DANU_ARCSEC}}
+HGT_ARCSEC=${HGT_ARCSEC:-${DANU_HGT_ARCSEC}}
+SMOOTH_CELLS=${SMOOTH_CELLS:-${DANU_SMOOTH_CELLS}}
 HGT_RES=$(python3 -c "print(${HGT_ARCSEC}/3600)")
+
 # Every stage's start second, so where a build's time goes is recorded rather
 # than guessed at. The per-zone elapsed in danu-build-progress.txt says a zone
 # took an hour; this says which part of it did, which is what any work on
-# parallelising the build has to be decided from
+# parallelising the build has to be decided from. danu.surface.build appends
+# its own stages to the same file, from the same clock
 mkdir -p ${BASE}/stats
 TIMINGS=${BASE}/stats/${ZONE}-timings.tsv
 : > ${TIMINGS}
@@ -152,326 +104,43 @@ timings_report() {
 	printf '    %5ds  total\n' "${SECONDS}"
 }
 
-# ---------------------------------------------------------------- extent
-# Which degree squares actually hold constraints, and the grids to build them
-# on - see zone_extent.py for why that is decided by reading the files rather
-# than by taking the extent of the collected geometry
-say extent
-eval "$(${PYTHON} -m danu.core.zone_extent ${SRC} ${ARCSEC})"
-if [ "${SQUARES:-0}" -eq 0 ]; then
-	# Not a failure: templates are laid out before the drawing starts, so a zone
-	# can legitimately have nothing in it yet
-	echo "  ${BLANK:-0} squares, none with contours - nothing to build yet" >&2
+# --------------------------------------------------------------- surface
+# From the squares to the DEM: extent, collect, rasterise, drawn area, water,
+# interpolate, clamp. One implementation, shared with the editor, which is what
+# stops the two disagreeing about what a contour means - this script used to
+# carry a copy of all of it and the golden test held the two to one reference.
+# The measurements those comments recorded are in the module's docstrings.
+#
+# The assignments come back through a file which is then sourced. eval "$(cmd)"
+# takes eval's exit status and not the command's, so under set -e a build that
+# died in there would have been carried on from silently.
+SURFACE=${WORK}/surface.sh
+rm -f ${SURFACE}
+surface_args=(--arcsec "${ARCSEC}" --zone "${ZONE}"
+	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}")
+# Set WATER_CONSTRAINTS=0 to build a zone without the drawn rivers and lakes,
+# which is also what a failure inside the step falls back to: a zone without
+# them is the DEM we published yesterday
+[ "${WATER_CONSTRAINTS:-1}" = 0 ] || surface_args+=(--water-constraints)
+[ -z "${WATER}" ] || surface_args+=(--water-areas "${WATER}")
+# further isofill flags, for trying a change on one zone before it becomes the
+# default. Empty normally
+[ -z "${ISOFILL_EXTRA:-}" ] || surface_args+=(--isofill-extra "${ISOFILL_EXTRA}")
+${PYTHON} -m danu.surface.build "${SRC}" "${WORK}" "${surface_args[@]}"
+. ${SURFACE}
+
+if [ -z "${DEM}" ]; then
+	# Not a failure: templates are laid out before the drawing starts, so a
+	# zone can legitimately have nothing in it yet, and the build said which
 	exit 0
 fi
-echo "  ${SQUARES} squares with contours (${BLANK} blank), ${WEST}..${EAST} by ${SOUTH}..${NORTH}, ${SQ_DEGREES} square degrees"
-
-# fill distance in cells, from a distance in metres, so that changing ARCSEC
-# does not silently change how far the fill reaches
-FILL_CELLS=$(python3 -c "print(max(1, round(${FILL_METRES} / (${ARCSEC} * 30.87))))")
-echo "  fill bounded to ${FILL_METRES} m = ${FILL_CELLS} cells at ${ARCSEC}\""
-
-# ---------------------------------------------------------------- collect
-# Every way carrying a numeric ele is a constraint: contours, and the water
-# edges at ele 0. Ways without one - the frame, stray tagging - are ignored.
-#
-# Read with closed_ways_are_polygons emptied, which is the difference between a
-# coastline being a constraint and not being one. A coastline is drawn closed
-# and tagged natural=coastline, and natural is on GDAL's list, so the driver
-# calls the way an area and files it under multipolygons - a layer this reads
-# nothing from, and which does not carry ele anyway. The contours survive only
-# because they are tagged with nothing but ele.
-#
-# Silently, and the sea then has nothing holding it down: the fill runs 1,850 m
-# out from the lowest contour it can see and the zero line lands there instead
-# of on the shore. On zone-axian that put 99% of the published ele=0 vertices
-# more than 500 m out to sea, a median of 1,693 m.
-#
-# Derived from the one file rather than kept as a second copy, because the
-# water step below wants the opposite - natural=water has to be an area there.
-#
-# The squares are held compressed and GDAL has no VSI handler for xz - there is
-# one for zip, gzip and 7z, but not this - so each is expanded into the working
-# directory, read, and dropped again. One at a time, so the cost is the largest
-# square rather than the whole zone.
-say collect
-sed 's/^closed_ways_are_polygons=.*/closed_ways_are_polygons=/' \
-	${OSMCONF} > ${WORK}/osmconf-lines.ini
-rm -f ${WORK}/contours.gpkg
-first=1
-SQUARE=${WORK}/square.osm
-before=0
-for f in ${SRC}/*.osm.xz; do
-	[ -e "${f}" ] || continue
-	xz -dc "${f}" > ${SQUARE}
-	# GDAL's OSM driver drops any way over 10,000 nodes. It says so once per
-	# node beyond the limit, so one 45,000 node contour buries the message
-	# under 35,000 identical lines and GDAL's own 1,000 error cap hides the
-	# rest - which is how ten contours between 101 m and 171 m went missing
-	# from S37E147_Madison_City, 45% of that square's contour length, and
-	# came back as voids nobody could account for.
-	#
-	# A blank square is better than a quietly wrong one, so this stops. The
-	# warning threshold is the OSM API's own limit, which these files would
-	# have to satisfy to be uploaded. split_long_ways.py fixes both.
-	eval "$(awk '
-		/<way id=/ { n = 0 }
-		/<nd / { ++n }
-		/<tag k=.ele./ { e = 1 }
-		/<\/way>/ { if (n > 2000) ++over; if (n > 10000) ++drop; if (n > max) max = n
-		             if (e) ++ele; e = 0 }
-		END { printf "sq_over=%d sq_drop=%d sq_max=%d sq_ele=%d\n", over+0, drop+0, max+0, ele+0 }' ${SQUARE})"
-	if [ "${sq_drop}" -gt 0 ]; then
-		echo "  ERROR: $(basename ${f}) has ${sq_drop} way(s) over 10,000 nodes" >&2
-		echo "  (longest ${sq_max}). GDAL drops these silently and the ground they" >&2
-		echo "  describe comes out as a void. Run:" >&2
-		echo "    ${PYTHON} -m danu.core.split_long_ways --backup <dir> ${SRC}" >&2
-		exit 1
-	fi
-	if [ "${sq_over}" -gt 0 ]; then
-		echo "  WARNING: $(basename ${f}) has ${sq_over} way(s) over 2,000 nodes" >&2
-		echo "  (longest ${sq_max}), which the OSM API would reject on upload" >&2
-	fi
-	if [ ${first} -eq 1 ]; then
-		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
-			ogr2ogr -f GPKG ${WORK}/contours.gpkg ${SQUARE} lines \
-			-where "ele IS NOT NULL" -nln contour -nlt LINESTRING >/dev/null
-		first=0
-	else
-		OSM_CONFIG_FILE=${WORK}/osmconf-lines.ini \
-			ogr2ogr -f GPKG -append ${WORK}/contours.gpkg ${SQUARE} lines \
-			-where "ele IS NOT NULL" -nln contour >/dev/null
-	fi
-	rm -f ${SQUARE}
-	# A square can convert to nothing and still exit 0: the OSM driver spills to
-	# disk over OSM_MAX_TMPFILE_SIZE, and if that write fails it hands back an
-	# empty layer rather than an error. That cost liberian 16,555 of its 20,472
-	# constraint lines - 81% of the zone - across every build until CPL_TMPDIR
-	# was set above, and nothing in the run said so. The merged-file check at
-	# the end cannot see it, because the other squares carry the count
-	now=$(ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null |
-		sed -n 's/^Feature Count: //p')
-	if [ "${sq_ele}" -gt 0 ] && [ "${now:-0}" -eq "${before:-0}" ]; then
-		echo "  ERROR: $(basename ${f}) has ${sq_ele} contour way(s) but converted" >&2
-		echo "  to none. Check the run for 'Cannot create' - the OSM driver loses" >&2
-		echo "  a square silently when its temporary file cannot be written" >&2
-		exit 1
-	fi
-	before=${now}
-done
-# ele is a string, and not every string is a height. Squares carry ele=TBD on
-# lake outlines nobody has surveyed yet, ele=tbd on peaks, the odd ele=169s
-# typo - and gdal_rasterize -a ele coerces each of them to 0, planting a sea
-# level constraint across whatever the way runs over. Worse than no constraint,
-# since the fill then drags the ground around it down to meet the line.
-#
-# Cleaned here rather than filtered on the way in: the -where above goes to the
-# OSM driver, whose OGR SQL has no pattern test this needs, and the GeoPackage
-# is SQLite and does
-NONNUM="NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') AND ele NOT GLOB '*[^-0-9.]*')"
-DROPPED=$(ogrinfo -q ${WORK}/contours.gpkg -dialect SQLite \
-	-sql "SELECT DISTINCT ele FROM contour WHERE ${NONNUM}" 2>/dev/null |
-	sed -n 's/^  ele (String) = //p' | paste -sd' ')
-if [ -n "${DROPPED}" ]; then
-	echo "  ignoring ways whose ele is not a number: ${DROPPED}"
-	ogrinfo -q ${WORK}/contours.gpkg -dialect SQLite \
-		-sql "DELETE FROM contour WHERE ${NONNUM}" >/dev/null
-fi
-
-FEATURES=$(ogrinfo -so -al ${WORK}/contours.gpkg 2>/dev/null |
-	sed -n 's/^Feature Count: //p')
-if [ ! -f ${WORK}/contours.gpkg ] || [ "${FEATURES:-0}" -eq 0 ]; then
-	# Not a failure. A zone's directory holds the blank templates handed out to
-	# mappers - one frame way, no contours - and a zone which is all templates
-	# has nothing to build yet rather than something wrong with it
-	echo "${ZONE}: no contours in any square, nothing to build yet" >&2
-	exit 0
-fi
-echo "  ${FEATURES} constraint lines"
-
-# Water with nothing holding it at sea level is the largest error this pipeline
-# can produce - 46 m RMS over the water in the one roantra square the water file
-# did not reach - and it is silent, because the result looks like plausible
-# terrain. A zone with no zero constraint anywhere either has no sea, which is
-# fine, or has sea nobody has drawn a coastline for, which is not
-ZEROS=$(ogrinfo -q -al -where "ele = 0" ${WORK}/contours.gpkg 2>/dev/null |
-	grep -c '^OGRFeature' || true)
-echo "  ${ZEROS} of them at ele 0, holding sea level"
-if [ "${ZEROS}" -eq 0 ]; then
-	echo "  WARNING: no ele 0 constraint anywhere in this zone. If it has sea," >&2
-	echo "  its squares need coastline, or the water will interpolate upward" >&2
-fi
-
-# ---------------------------------------------------------------- rasterise
-say "rasterise at ${ARCSEC}\""
-rm -f ${WORK}/cont.tif
-# Int16, not Int32: elevations fit with room to spare and so does the nodata,
-# and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set
-# -at, all touched: a thin line leaves diagonal gaps, and the fill's sight test
-# threads them - a ray reaches the ground behind a coastline without crossing it
-gdal_rasterize -q -at -a ele -a_nodata -9999 -init -9999 -ot Int16 \
-	-tr ${RES} ${RES} -te ${TE} -co TILED=YES -co COMPRESS=DEFLATE \
-	${WORK}/contours.gpkg ${WORK}/cont.tif
-gdalinfo ${WORK}/cont.tif | sed -n 's/^Size is/  size/p'
-
-# ---------------------------------------------------------------- interpolate
-say "interpolate, radius ${FILL_CELLS} cells, barrier ${BARRIER_CELLS}${ISOFILL_EXTRA:+, extra ${ISOFILL_EXTRA}}"
-rm -f ${WORK}/filled.tif ${WORK}/rounded.tif ${WORK}/dem.tif
-# isofill, not gdal_fillnodata: the latter will interpolate from a single
-# sample, which terraces the surface into plateaus with straight edges where the
-# chosen sample switches. A hillshade is a derivative and shows that plainly
-# where a slope histogram averages it away. isofill takes the steepest pair of
-# contours in line of sight and declines to fill at all from one, which is also
-# what keeps water enclosed by a coastline empty.
-#
-# The barrier was tuned by measuring open water, so 1 was tried on the grounds
-# that a thicker wall occludes the second contour a cell needs in order to
-# interpolate at all, pushing cells out of the first pass and into the second,
-# which has to invent them. Measured on zone-ellarca inside the described area,
-# first pass only, at barrier 0, 1, 2 and 3, the ground the first pass resolves
-# is 54.88, 54.71, 49.29 and 46.46%: all of the cost sits between 1 and 2, 5.4
-# points, a ninth of what the pass answers.
-#
-# It was reverted because none of that reaches the map. Five zones were built at
-# 1 and inspected against the same zones at 2, and the hillshade is the same
-# picture - the cells that move are ones the second pass was already filling
-# with the value the first pass would have derived. What does not come back is
-# the cost: 195s against 175s on ellarca, and elevation left over water 0.776%
-# against 0.738%, or on zone-tapira, which is 92% sea, 42 cells against 12.
-#
-# So 2 stands, on runtime and on the sea, and the measurement above is kept
-# because it says where to look if the first pass ever needs widening: the
-# whole of the barrier's effect on coverage is in that one step.
-#
-# Needs isofill 0.4.0 or later, which fills the cells the first pass found
-# nothing for rather than leaving them at zero - the behaviour 0.3.1 had behind
-# --no-reach, and what the original does. Against 0.3.1's default this square
-# was one of 114,309 in zone-tapira reading 1 m between ground at 130 m
-# Masked to the area the contours actually describe. The zone raster is the
-# bounding box of the squares holding them, and a bounding box is not that
-# shape: zone-gobras is five drawn squares in a four by four box, and even
-# within those five only 37% of the area has contours near it.
-#
-# Unmasked, the second pass carries values across the undescribed ground in
-# streaks the length of whatever it is allowed to cross - every row is anchored
-# at zero only beyond its ends, so across an empty region there is nothing in
-# between to stop it. Measured on ellarca, the blocks smeared right across were
-# 100% cells the first pass never reached, against a 0.1% median elsewhere.
-#
-# drawn_mask.py takes the convex hull of the contours in each degree square,
-# clipped to that square. It masks where there is no data, not where the fill is
-# merely far from a contour: inside the described area the fill still reaches
-# everywhere, which is the point of the reach behaviour. Bounding the carry
-# instead, with --pass2-tile, would suppress the streaks by reopening the voids.
-#
-# On gobras that is 5.5% of the raster against 31.2% for the squares that
-# contain the contours, and it takes nothing from makaska's S37E147, whose
-# sparse contours span their square: the hull covers 95.1% of it and masks out
-# none of its terrain.
-#
-# Contours inside the mask still inform cells outside it, so its edge is not a
-# wall to the ground beyond.
-say "drawn area"
-rm -f ${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
-${PYTHON} -m danu.surface.drawn_mask ${WORK}/cont.tif ${WORK}/drawn.geojson
-gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
-	-co TILED=YES -co COMPRESS=DEFLATE \
-	${WORK}/drawn.geojson ${WORK}/drawn-mask.tif
-
-# ------------------------------------------------------------------- water
-# Contours describe the ground every 25 m of height and say nothing between,
-# which is exactly where a river is. The interpolator has no reason to put the
-# valley floor under the drawn water rather than anywhere else in the band, so
-# it does not. Reading the water as a constraint of its own puts it there.
-#
-# After the mask, and not before it, for two reasons which are really the same
-# one. drawn_mask.py derives the envelope from cont.tif, so water written
-# earlier grows the mask along every river and the fill then works ground the
-# contours never described. And the water is held inside that envelope, because
-# a graded river reaching past the last contour has nothing to blend into: it
-# came out as a 4.7 km strip of 449 m ground standing in a void held at zero,
-# which is a wall in the hillshade at the edge of the mapped contours.
-#
-# Set WATER_CONSTRAINTS=0 to build a zone the old way, which is also what
-# happens with no network: the step reports and carries on rather than failing
-# the build, because a zone without it is the DEM we published yesterday.
-if [ "${WATER_CONSTRAINTS:-1}" != "0" ]; then
-	# TE is the gdal extent, minx miny maxx maxy, which is the W,S,E,N the
-	# query wants. Not via set --, which would take the script's own arguments
-	BBOX=$(echo ${TE} | tr -s ' ' ',')
-	say "water constraints from the drawn rivers and lakes"
-	if ! ${PYTHON} -m danu.water.constraints ${WORK}/cont.tif \
-			--bbox "${BBOX}" --mask ${WORK}/drawn-mask.tif \
-			--report ${WORK}/water-report.json; then
-		echo "  WARNING: water constraints failed, continuing without them" >&2
-	fi
-fi
-# The water mask is built before the fill, not after it. It has always been
-# derived from contours.gpkg and cont.tif, both of which exist by now, so the
-# order was free either way - until --pass2 diffuse, which needs the sea as a
-# boundary rather than as something to clean up afterwards. Laplace has no
-# notion of running out of information: bounded by a coastline at zero on one
-# side and whatever the far shore carries on the other, it ramps between them
-# and fills the sea. On zone-ellarca that took the sea from 67.32% of the zone
-# to 59.76%, because land_clamp looks for candidate sea where the DEM reads
-# zero and water carrying a value is no longer recognised as water.
-#
-# The linear pass never needed telling, since it anchors every row and column at
-# zero one step past its ends - a pull towards zero wherever the data is sparse,
-# which was doing this job as a side effect.
-
-# Water areas as a mask, where the zone has a water file. natural=water states
-# that its interior is water; a closed coastline ring does not, being equally
-# able to describe an island
-WATER_MASK=
-if [ -n "${WATER}" ]; then
-	say "water areas from $(basename ${WATER})"
-	rm -f ${WORK}/water-areas.gpkg ${WORK}/water-mask.tif
-	ogr2ogr -f GPKG ${WORK}/water-areas.gpkg "${WATER}" multipolygons \
-		-where "natural='water'" -nln water >/dev/null
-	ogrinfo -so -al ${WORK}/water-areas.gpkg 2>/dev/null |
-		grep -i 'feature count' | sed 's/^/  /'
-	gdal_rasterize -q -burn 1 -init 0 -ot Byte -tr ${RES} ${RES} -te ${TE} \
-		-co TILED=YES -co COMPRESS=DEFLATE \
-		${WORK}/water-areas.gpkg ${WORK}/water-mask.tif
-	WATER_MASK=${WORK}/water-mask.tif
-else
-	# No curated file, so the mask comes from the coastline's own direction -
-	# land on the left, water on the right - which the squares already carry.
-	# Same artefact, same slot, no file to maintain. It exists to stop the fill
-	# leaving elevation offshore: on zone-alved it covers 96.8% of the cells
-	# which had it, and 99.6% of what it marks is genuinely sea
-	say "water from the coastline direction"
-	rm -f ${WORK}/water-mask.tif
-	if ${PYTHON} -m danu.surface.sea_mask ${WORK}/contours.gpkg ${WORK}/cont.tif \
-			${WORK}/water-mask.tif; then
-		WATER_MASK=${WORK}/water-mask.tif
-	else
-		echo "  no coastline in this zone either - enclosed water will read" >&2
-		echo "  1 m rather than 0, which shows in the relief rasters" >&2
-	fi
-fi
-
-isofill --radius ${FILL_CELLS} --barrier ${BARRIER_CELLS} --max-mem ${MAX_MEM} \
-	--mask ${WORK}/drawn-mask.tif ${WATER_MASK:+--water ${WATER_MASK}} \
-	${ISOFILL_EXTRA} \
-	${WORK}/cont.tif ${WORK}/rounded.tif
-# No rounding step: isofill writes Int16, where gdal_fillnodata returned floats
-
-# Land at sea level is not the sea. Flat coastal ground whose nearest constraint
-# is the coastline interpolates to zero, and zero is transparent in the relief
-# ramp, so it would vanish from the map - 64% of the low land in zone-roantra
-# did
-rm -f ${WORK}/dem.tif
-${PYTHON} -m danu.surface.land_clamp ${WORK}/rounded.tif ${WORK}/cont.tif ${WORK}/dem.tif \
-	${WATER_MASK}
 
 # ---------------------------------------------------------------- smooth
 # Box filter through a VRT kernel, which GDAL streams block by block, so this
 # costs no memory whatever the size of the zone. For hillshading only.
 say "smooth ${SMOOTH_CELLS} cells, for hillshade only"
 rm -f ${WORK}/smooth.vrt ${WORK}/smooth.tif
-gdal_translate -q -of VRT ${WORK}/dem.tif ${WORK}/smooth.vrt
+gdal_translate -q -of VRT ${DEM} ${WORK}/smooth.vrt
 python3 - ${WORK}/smooth.vrt ${SMOOTH_CELLS} <<'PY'
 import sys
 path, n = sys.argv[1], int(sys.argv[2])
@@ -506,7 +175,7 @@ say "3\" derivative, for contours and hgt"
 rm -f ${WORK}/dem-hgtres.tif
 gdalwarp -q -overwrite -multi -r average -te ${TE_HGT} -tr ${HGT_RES} ${HGT_RES} \
 	-ot Int16 -co TILED=YES -co COMPRESS=DEFLATE -co PREDICTOR=2 \
-	${WORK}/dem.tif ${WORK}/dem-hgtres.tif
+	${DEM} ${WORK}/dem-hgtres.tif
 gdalinfo ${WORK}/dem-hgtres.tif | sed -n 's/^Size is/  3 arcsec size/p'
 
 # ---------------------------------------------------------------- rasters
@@ -529,7 +198,7 @@ shade() {                           # shade <src> <zfactor> <out>
 say rasters
 FINE=$(python3 -c "print(round(${ARCSEC} * 30.87))")
 warp ${WORK}/smooth.tif ${FINE} ${WORK}/merc-fine.tif
-for m in 500 1000 5000; do warp ${WORK}/dem.tif ${m} ${WORK}/merc-${m}.tif; done
+for m in 500 1000 5000; do warp ${DEM} ${m} ${WORK}/merc-${m}.tif; done
 
 # z factor 2 is what cyclogf reads, 5 what the topo layer reads at z9-17. Same
 # DEM, two strengths - the old process produced both and named neither clearly
@@ -586,7 +255,7 @@ ls ${WORK}/hgt | wc -l | sed 's/^/  hgt files: /'
 
 # ---------------------------------------------------------------- publish
 say publish
-install -m 644 ${WORK}/dem.tif                      ${PUB}/dem-${ZONE}.tif
+install -m 644 ${DEM}                      ${PUB}/dem-${ZONE}.tif
 install -m 644 ${WORK}/hillshade-z2.tif             ${PUB}/
 install -m 644 ${WORK}/hillshade-z5.tif             ${PUB}/
 install -m 644 ${WORK}/hillshade-500.tif            ${PUB}/
@@ -610,10 +279,11 @@ du -sh ${PUB} | sed 's/^/  published /'
 if [ -z "${KEEP_WORK:-}" ]; then
 	WAS=$(du -sm ${WORK} | cut -f1)
 	rm -rf ${WORK}/hgt
-	rm -f ${WORK}/cont.tif ${WORK}/filled.tif ${WORK}/rounded.tif \
+	rm -f ${WORK}/cont.tif ${WORK}/rounded.tif \
 		${WORK}/smooth.tif ${WORK}/smooth.vrt ${WORK}/water-mask.tif \
 		${WORK}/water-areas.gpkg ${WORK}/merc-*.tif ${WORK}/dem-hgtres.tif \
-		${WORK}/drawn.geojson ${WORK}/drawn-mask.tif \
+		${WORK}/drawn.geojson ${WORK}/drawn-mask.tif ${WORK}/water-report.json \
+		${WORK}/osmconf-lines.ini ${WORK}/surface.sh ${WORK}/params.sh \
 		${WORK}/hillshade-*.tif ${WORK}/relief-*.tif ${WORK}/contours-out.gpkg \
 		${WORK}/contours-${ZONE}.gpkg ${WORK}/contours-${ZONE}.gpkg.zip \
 		${WORK}/contours-${ZONE}.osm.pbf ${WORK}/tiff-${ZONE}.zip
@@ -628,7 +298,7 @@ fi
 # visibly wrong - so the shares are what gets watched
 say distribution
 mkdir -p ${BASE}/stats
-${PYTHON} -m danu.report.zone_stats ${WORK}/dem.tif ${BASE}/stats/${ZONE}.json
+${PYTHON} -m danu.report.zone_stats ${DEM} ${BASE}/stats/${ZONE}.json
 
 say done
 timings_report

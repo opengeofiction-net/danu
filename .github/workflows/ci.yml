@@ -158,9 +158,10 @@ jobs:
           submodules: recursive
           lfs: true
       # the same set danu-server declares, plus what building isofill needs.
-      # gdal-bin is the one that matters: the pipeline is shell calling
-      # ogr2ogr, gdal_rasterize, gdalwarp and gdaldem, and python3-gdal
-      # provides none of them
+      # Both halves of GDAL are wanted and neither provides the other:
+      # python3-gdal for the surface, which is the library, and gdal-bin for
+      # the stages after the DEM, which are still gdalwarp, gdaldem and
+      # gdal_contour in the shell
       - run: |
           sudo apt-get update
           sudo apt-get install -y gdal-bin python3-gdal python3-numpy python3-pyosmium \

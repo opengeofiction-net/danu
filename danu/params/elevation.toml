@@ -1,29 +1,63 @@
 # The parameters the elevation build and the editor share.
 #
-# The editor reads this file (danu.surface.params), with no defaults of its
-# own. The shell build does not read it yet: danu-build-zone carries the same
-# values as ${VAR:-default} constants, and tests/test_params.py holds those
-# constants equal to this file, key by key, until the shell reads it too.
+# One file, read by danu.surface.params with no defaults of its own: a key it
+# lacks is an error rather than an assumption. danu.surface.build takes all of
+# it; danu-build-zone sources the three it still needs for the stages after the
+# DEM (`python -m danu.surface.params --shell`).
+#
 # tests/golden/params.lock holds the reference surface to these values, so a
 # change here is a deliberate rebuild of the reference, not a quiet drift.
+#
+# None of these is arbitrary - each was measured by rebuilding zone-roantra and
+# differencing against the DEM the old process published.
 
 [grid]
-arcsec = 1                  # master DEM resolution
-hgt_arcsec = 3              # the .hgt archive stays at 1201 samples
+# 3" loses 80% of the contour geometry to rasterisation, and halves again to
+# 2.44 m RMS at 1". Compressed, every zone's DEM at 1" is half a gigabyte for
+# the whole planet
+arcsec = 1
+# The .hgt archive stays at 1201 samples: the convention only really supports
+# 1201 and 3601, and 3601 for every zone would be 4.6 GB to publish for no
+# consumer. The 3" derivative feeds it and the published contour lines - at 1"
+# the same lines carry three times the vertices, which triples what the render
+# databases hold to draw a line 0.2 to 0.6 px wide
+hgt_arcsec = 3
 
 [fill]
-metres = 1850               # how far a cell may look for a contour pair
-barrier_cells = 2           # how thick a contour is, for the sight test
-grad_min = 0.02             # refuse to extrapolate below this gradient
-pass2 = "diffuse"           # Laplace diffusion; "linear" was removed. A record, not a
-                            # switch: isofill implements this one and the shell passes
-                            # nothing; the editor refuses any other value
+# How far a cell may look for a contour pair. 1850 m is the old process's radius
+# of 20 cells at 3", and holds that distance at 1" as 60 cells. Beyond it a cell
+# has no elevation information of its own and takes what the second pass carries
+# in
+metres = 1850
+# How thick a contour is for the sight test only, not for its value. At 3" a one
+# cell line is a 93 m wall; at 1" the same cell is 31 m, so rays thread gaps
+# which could not exist on the coarser grid. 2 gives 62 m, close to what the
+# coarse grid gave for nothing. 1 was tried and reverted - danu.surface.build's
+# interpolate() carries the measurement
+barrier_cells = 2
+# Refuse to extrapolate below this gradient. Held equal to isofill's own default
+# by a test, since neither caller passes --grad-min
+grad_min = 0.02
+# Laplace diffusion; "linear" was removed. A record, not a switch: isofill
+# implements this one and the build passes nothing, and the surface refuses any
+# other value rather than ignoring it
+pass2 = "diffuse"
 
 [memory]
-max_mem_mb = 18500          # isofill sizes its own arrays against this
+# What isofill may hold, which is a budget and not a peak - it sizes its own
+# arrays against this and GDAL's block cache sits outside it. 18500 clears every
+# zone's second pass, the largest being zone-yuethon at 18104 MB, and puts the
+# measured peak near 19.6 GB: inside util's guaranteed 24 without leaning on the
+# balloon, which the host can reclaim mid-run
+max_mem_mb = 18500
 
 [smooth]
-cells = 5                   # box filter for the hillshade copy only
+# Box filter for the hillshade copy only. Hillshade is a derivative, so it
+# renders the slope discontinuity at every contour as a visible band. No
+# interpolator avoids it - the best of them, r.fillnulls bicubic, has the lowest
+# error of any tested and still bands. Only a low pass removes it, so the
+# hillshade gets a smoothed copy and the DEM does not
+cells = 5
 
 [publish]
 dem_compress = "LERC_ZSTD"

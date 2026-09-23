@@ -1,13 +1,16 @@
-"""The editor's surface path against the same reference the shell is held to.
+"""danu.surface.build against the reference, and the shell held to calling it.
 
-Two ways to a surface exist now, and this is what lets them: the golden
-fixture driven through danu.surface.build - the functions the editor calls -
-must produce, cell for cell, the DEM that danu-build-zone produces from it,
-which tests/golden/test_golden_surface.py holds to expected.tif.
+One implementation of the stages up to the DEM, shared by the editor and the
+nightly build: the golden fixture driven through danu.surface.build must
+produce, cell for cell, the DEM that danu-build-zone publishes from it, which
+tests/golden/test_golden_surface.py holds to expected.tif. Until phase 4 the
+shell had its own copy of every one of those stages and this file's job was to
+pin the two together; its job now is to say the copy has not come back.
 """
 
 import ast
 import pathlib
+import re
 import shutil
 import tomllib
 
@@ -22,23 +25,80 @@ gdal = pytest.importorskip('osgeo.gdal', reason='GDAL not available')
 pytestmark = pytest.mark.skipif(shutil.which('isofill') is None, reason='isofill not on PATH')
 
 
-def test_every_stage_names_the_shell_command_it_stands_for():
-    """The requirement the spec makes of this path: each stage carries a
-    shell: line, so when either side changes the other is findable."""
+SHELL = ROOT / 'server' / 'bin' / 'danu-build-zone'
+
+
+def shell_code() -> list[str]:
+    """danu-build-zone with its comments removed, so that a stage named in
+    prose is not mistaken for one being run."""
+    return [l for l in SHELL.read_text().splitlines() if not l.lstrip().startswith('#')]
+
+
+def test_the_shell_runs_the_surface_build_rather_than_its_own_copy():
+    """Phase 4 left one implementation of the stages up to the DEM. This is
+    what says so: the shell calls the module, and none of the commands its
+    copy was made of are still being run here. A second copy is how the editor
+    and the nightly build come to disagree about what a contour means, which
+    the golden reference can only catch after the fact."""
+    code = '\n'.join(shell_code())
+    assert 'python -m danu.surface.build' in code.replace('${PYTHON}', 'python')
+    retired = ['gdal_rasterize', 'ogr2ogr', 'ogrinfo', 'zone_extent', 'drawn_mask',
+               'sea_mask', 'land_clamp', 'closed_ways_are_polygons', 'xz -dc']
+    still_there = [name for name in retired if name in code]
+    assert still_there == [], f'danu-build-zone still runs its own copy of: {still_there}'
+    # and isofill itself, which needs the word rather than a path fragment
+    assert not re.search(r'(^|\s)isofill\s+--', code, re.M), 'danu-build-zone still calls isofill'
+
+
+def test_the_shell_takes_the_surfaces_answer_by_its_exit_status():
+    """``eval "$(cmd)"`` takes eval's status and not the command's, so under
+    ``set -e`` a surface build that died would be carried on from silently -
+    which is what the old extent step did. The assignments come back in a file
+    that is sourced after the command has been allowed to fail."""
+    code = '\n'.join(shell_code())
+    assert 'eval "$(' not in code
+    assert re.search(r'^\. \$\{SURFACE\}$', code, re.M), 'the surface assignments are not sourced'
+
+
+def test_the_shell_reads_the_shared_parameters_rather_than_copying_them():
+    """The values were ${VAR:-default} constants here and a test held them
+    equal to elevation.toml. The file is read now, so the parameters the
+    surface owns have no spelling in the shell at all."""
+    code = '\n'.join(shell_code())
+    assert 'danu.surface.params --shell' in code
+    for gone in ('FILL_METRES', 'BARRIER_CELLS', 'MAX_MEM', 'FILL_CELLS'):
+        assert gone not in code, f'{gone} is still a constant in danu-build-zone'
+    for name in ('ARCSEC', 'HGT_ARCSEC', 'SMOOTH_CELLS'):
+        assert f'{name}=${{{name}:-${{DANU_{name}}}}}' in code, \
+            f'{name} should come from the file with an environment override'
+
+
+def test_every_stage_is_named_and_documented():
+    """build.py is the only place these stages live now, so the check that
+    used to hold each one to its shell counterpart holds it to a docstring
+    instead - and still catches a stage added or renamed without anyone
+    saying so here."""
     src = (ROOT / 'danu' / 'surface' / 'build.py').read_text()
     tree = ast.parse(src)
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
-    # every stage, by name, so a new one added without a shell: line is caught
-    # by the second assertion and a stage renamed away is caught by the first
     stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
-              'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_mask',
-              'interpolate', 'clamp', 'first_pass_classes', 'first_pass_reading']
+              'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_areas',
+              'water_mask', 'interpolate', 'clamp', 'first_pass_classes', 'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
-    not_stages = set(defs) - set(stages) - {'Result', 'build_dem'}
-    assert not_stages == set(), f'new top-level names need a shell: line or listing here: {not_stages}'
-    missing = [name for name in stages if 'shell:' not in (ast.get_docstring(defs[name]) or '')]
-    assert missing == [], f'stages without a shell: line: {missing}'
+    not_stages = set(defs) - set(stages) - {'Result', 'build_dem', 'main'}
+    assert not_stages == set(), f'new top-level names need listing here: {not_stages}'
+    undocumented = [name for name in stages if not ast.get_docstring(defs[name])]
+    assert undocumented == [], f'stages with no docstring: {undocumented}'
+    # The reasoning the shell's comments carried came across with the code. Each
+    # of these is a measurement that cost a rebuild to get and is not derivable
+    # from the code: why the coastline is read as a line, why the barrier is 2,
+    # why the second pass is masked, why the memory budget is what it is.
+    for measured in ('a median of 1,693 m',          # coastline as an area, on axian
+                     '54.88, 54.71, 49.29 and 46.46%',  # the barrier sweep on ellarca
+                     '100% cells the first pass never reached',  # the unmasked streaks
+                     'zone-yuethon at 18104 MB'):     # the memory budget
+        assert measured in src, f'the reasoning for this was lost: {measured!r}' 
 
 
 @pytest.mark.parametrize('library', [False, True], ids=['binary', 'library'])

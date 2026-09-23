@@ -1066,6 +1066,36 @@ piecemeal here.
 states. Ends when drawing a contour moves the hillshade under the cursor inside
 50 ms.
 
+**F1, the one surface.** Phase 3 shipped two implementations of the stages from
+the squares to the DEM - `danu-build-zone` had its own, the editor had
+`danu.surface.build`, and the golden test held the two to one reference cell for
+cell. That test can only catch a disagreement after it has been written, so the
+shell's copy goes: it calls `python -m danu.surface.build`, gets back the degree
+extent and the DEM, and carries on with the stages only a publisher needs - the
+smoothed copy for the hillshade, the Mercator rasters, the contour extract, the
+`.hgt` archive. The script drops from 634 lines to 304.
+
+Two things had to move with the code rather than be deleted with it. The first
+is the reasoning: two hundred lines of the shell's comments are measurements
+that cost a rebuild each - why the coastline is read as a line and not an area,
+why the barrier is 2, why the second pass is masked, what the memory budget
+actually buys - and they are in the module's docstrings and in
+`elevation.toml`'s comments now, with a test naming four of them so a tidy-up
+cannot quietly drop them. The second is the guards: the check that a square
+which converted to nothing stops the build, which is the one that caught
+liberian losing 81% of its constraint lines, and the refusal of a way over
+10,000 nodes.
+
+The shell reads `elevation.toml` for the three parameters it still needs rather
+than carrying `${VAR:-default}` copies of them, so the test that held the two
+equal is gone - there is nothing left to hold. Verified by building tempeira and
+deodeca on `util` both ways, from the real squares: every published artefact is
+byte for byte identical except the GeoPackage, whose SQLite carries a
+`last_change` timestamp, and whose features hash the same. A misattribution came
+out in the wash - the old script's `say` for the interpolate stage fired before
+the drawn area and water steps, so every build has been recording isofill's time
+under "water from the coastline direction".
+
 ### Phase 5
 
 **Phase 5 - water.** Overpass import and cache, elevations on water, burn and
