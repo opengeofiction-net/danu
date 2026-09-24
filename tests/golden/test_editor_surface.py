@@ -93,9 +93,10 @@ def test_every_stage_is_named_and_documented():
     tree = ast.parse(src)
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
-    stages = ['Grid', 'squares_with_constraints', 'grid_for', 'lines_osmconf', 'check_long_ways',
-              'collect', 'rasterise', 'drawn_area', 'water_constraints', 'water_areas',
-              'water_mask', 'interpolate', 'clamp', 'first_pass_classes', 'first_pass_reading']
+    stages = ['Grid', 'squares_with_constraints', 'grid_for', 'is_staging', 'lines_osmconf',
+              'check_long_ways', 'collect', 'rasterise', 'drawn_area', 'water_constraints',
+              'water_areas', 'water_mask', 'interpolate', 'clamp', 'first_pass_classes',
+              'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
     not_stages = set(defs) - set(stages) - {'Result', 'build_dem', 'main'}
     assert not_stages == set(), f'new top-level names need listing here: {not_stages}'
@@ -141,6 +142,79 @@ def test_the_editors_surface_is_the_shells_surface(tmp_path, library):
     # and the grids are the same grid, not merely the same shape
     ref_gt, new_gt = ref_ds.GetGeoTransform(), new_ds.GetGeoTransform()
     assert all(abs(x - y) < 1e-12 for x, y in zip(ref_gt, new_gt)), (ref_gt, new_gt)
+
+
+def test_a_staged_square_builds_the_same_surface_uncompressed(tmp_path):
+    """The editor stages the square it is holding uncompressed, because the
+    build expands it anyway - xz at the fastest preset was 377 ms of the 549 a
+    staging of the gobras 3x3 took, and the reader paid for it again. What the
+    build makes of it has to be the same surface to the cell, or the saving
+    bought a different map."""
+    import numpy as np
+    from danu.core import save
+    from danu.core.square import SquareName, read_square
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    square = read_square(zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+
+    # staged as the editor stages it: the square it holds, written out bare
+    bare = save.stage_zone([square], [square], tmp_path / 'bare')
+    staged = {f.name for f in bare.iterdir() if not f.name.startswith('.')}
+    assert staged == {'S24E125.osm'}, staged
+    assert build.is_staging(bare) and not build.is_staging(zone)
+
+    # and the same square staged the way it used to be, compressed
+    packed = tmp_path / 'packed'
+    packed.mkdir()
+    (packed / save.STAGE_MARKER).touch()
+    save.write_square(square, packed / 'S24E125.osm.xz', preset=0)
+
+    a = build.build_dem(packed, tmp_path / 'wa', p)
+    b = build.build_dem(bare, tmp_path / 'wb', p)
+    assert a.dem is not None and b.dem is not None
+    ds_a, ds_b = gdal.Open(str(a.dem)), gdal.Open(str(b.dem))     # held
+    A = ds_a.GetRasterBand(1).ReadAsArray()
+    B = ds_b.GetRasterBand(1).ReadAsArray()
+    assert A.shape == B.shape
+    assert int((A != B).sum()) == 0, f'{int((A != B).sum())} of {A.size} cells differ'
+    # and it is the reference surface, not merely the same as itself
+    ref = gdal.Open(str(EXPECTED))
+    assert int((ref.GetRasterBand(1).ReadAsArray() != B).sum()) == 0
+
+
+def test_a_loose_square_is_read_only_where_it_was_meant(tmp_path):
+    """The marker is the whole difference. In a zone directory a bare .osm is
+    a drop somebody never packed, and building from it would put work in the
+    surface that nobody else can see; in a staging directory it is how the
+    editor hands over what it is holding."""
+    import lzma
+
+    from danu.core import save
+    from danu.core.square import SquareName
+    from danu.surface import build
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    loose = zone / 'S24E125_Los_Pizarrales.osm'
+    with lzma.open(SQUARE, 'rb') as src, open(loose, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    (zone / SQUARE.name).unlink()                 # only the loose one is there
+
+    lines = []
+    found = build.squares_with_constraints(zone, log=lines.append)
+    assert found == {}, 'a loose square in a zone directory is not built from'
+    assert any('uncompressed' in l for l in lines) and any('xz these' in l for l in lines)
+
+    (zone / save.STAGE_MARKER).touch()            # now it is a staging directory
+    lines = []
+    found = build.squares_with_constraints(zone, log=lines.append)
+    assert list(found) == [SquareName(125, -24)]
+    assert lines == [], lines
 
 
 def test_the_files_grad_min_is_the_binarys_default_which_both_paths_rely_on():
@@ -202,7 +276,171 @@ def test_the_library_is_the_binary_on_a_raster_the_golden_square_does_not_cover(
     assert (from_library[20, 10:118] == 100).all()                # constraints as themselves
 
 
+def test_the_overlay_reads_the_fill_the_surface_already_did(tmp_path):
+    """The first pass is nearly all of a fill - 0.56 s of a 0.67 s run - so
+    classifying the cells it could not answer used to cost a second fill of
+    the whole raster: 95 s of the 208 s an edit took at 1 arcsecond on a three
+    by three set. build_dem keeps it now. What the overlay gets has to be what
+    the second fill gave, cell for cell, or the saving bought a different
+    overlay."""
+    import json
+
+    import numpy as np
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+
+    kept = build.build_dem(zone, tmp_path / 'kept', p, library=True, keep_pass1=True)
+    assert build._pass1_file(tmp_path / 'kept').exists(), 'nothing was kept'
+    lines = []
+    a = build.first_pass_classes(kept.constraints, kept.drawn_mask, p, tmp_path / 'kept',
+                                 log=lines.append)
+    assert not any('runs again' in l for l in lines), lines
+
+    again = build.build_dem(zone, tmp_path / 'again', p, library=True)
+    assert not build._pass1_file(tmp_path / 'again').exists()
+    lines = []
+    b = build.first_pass_classes(again.constraints, again.drawn_mask, p, tmp_path / 'again',
+                                 log=lines.append)
+    assert any('runs again' in l for l in lines), 'the fallback did not say so'
+
+    da, db = gdal.Open(str(a)), gdal.Open(str(b))            # held
+    A, B = da.GetRasterBand(1).ReadAsArray(), db.GetRasterBand(1).ReadAsArray()
+    assert A.shape == B.shape
+    assert int((A != B).sum()) == 0, f'{int((A != B).sum())} of {A.size} classed differently'
+    assert (json.loads((tmp_path / 'kept' / 'first-pass.json').read_text())
+            == json.loads((tmp_path / 'again' / 'first-pass.json').read_text()))
+    # and it is a real classification, not an empty one either way
+    assert (A == build.UNREACHED).sum() > 0 and (A == build.ANSWERED).sum() > 0
+
+
+def test_a_kept_first_pass_does_not_outlive_the_build_that_made_it(tmp_path):
+    """The kept pass sits in the working directory, which is reused. A build that
+    does not keep one must not leave the last one there for the overlay to
+    read, or the mapper is shown the ground of an edit ago."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+    build.build_dem(zone, work, p, library=True, keep_pass1=True)
+    assert build._pass1_file(work).exists()
+    build.build_dem(zone, work, p, library=True)                 # the same directory, not keeping
+    assert not build._pass1_file(work).exists(), 'the last build\'s first pass was left behind'
+
+
+def test_a_first_pass_from_another_grid_is_refused_rather_than_classified(tmp_path):
+    """The kept pass is checked against the constraints raster - the grid the
+    classes are written on and whose geotransform measures the reading - and
+    not against the mask beside it, which came out of the same build as the
+    pass and so agrees with it whatever build is being classified.
+
+    A shape on its own is not enough: a working set moved one square over has
+    the same pixel dimensions and different ground under them, so the kept pass
+    carries the geotransform it was filled from."""
+    import numpy as np
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+    r = build.build_dem(zone, work, p, library=True, keep_pass1=True)
+
+    kept = build._pass1_file(work)
+    with np.load(kept) as held:
+        surface, gt, fill = held['surface'], held['gt'], held['fill']
+
+    # a pass of the right shape from the wrong ground, which is the case a
+    # shape check cannot see: a working set moved one square over has the same
+    # pixel dimensions and a different origin
+    moved = np.array(gt, dtype=float)
+    moved[0] += 1.0
+    np.savez(kept, surface=surface, gt=moved, fill=fill)
+    with pytest.raises(ValueError, match="not this build's"):
+        build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
+
+    # and the wrong shape, which it can
+    np.savez(kept, surface=surface[: surface.shape[0] // 2], gt=gt, fill=fill)
+    with pytest.raises(ValueError, match="not this build's"):
+        build.first_pass_classes(r.constraints, r.drawn_mask, p, work)
+
+    # and a pass of this grid filled with something else, which is what makes
+    # the params argument mean the same thing on both paths
+    np.savez(kept, surface=surface, gt=gt, fill=fill)
+    other = params.load().with_arcsec(lock['arcsec'] * 2)       # a different radius
+    assert other.fill_cells != p.fill_cells
+    with pytest.raises(ValueError, match='nodata/radius/barrier/grad_min'):
+        build.first_pass_classes(r.constraints, r.drawn_mask, other, work)
+
+    # the pass this build actually kept is accepted
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
+    assert not any('runs again' in l for l in lines), lines
+
+
+def test_the_binary_says_it_cannot_keep_a_first_pass(tmp_path):
+    """Asking for one and getting nothing looks, from the overlay, like a
+    build that never asked - and the second fill it then runs is the cost the
+    flag exists to avoid. So the build that could not says so."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    lines = []
+    r = build.build_dem(zone, tmp_path / 'work', p, library=False, keep_pass1=True,
+                        log=lines.append)
+    assert r.dem is not None
+    assert not build._pass1_file(tmp_path / 'work').exists()
+    assert any('binary cannot keep the first pass' in l for l in lines), lines
+    # and the overlay does fall back, as that line said it would
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, tmp_path / 'work', log=lines.append)
+    assert any('runs again' in l for l in lines), lines
+
+
+def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkeypatch):
+    """The fill writes it, the build clears the last one, and the overlay
+    looks for it. Three places agreeing by convention is a convention that
+    can quietly stop holding, so they derive it from one name - and moving
+    that name has to move all three."""
+    from danu.surface import build, params
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    zone = tmp_path / 'golden'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    p = params.load().with_arcsec(lock['arcsec'])
+    work = tmp_path / 'work'
+
+    monkeypatch.setattr(build, 'PASS1', 'somewhere-else.npz')
+    r = build.build_dem(zone, work, p, library=True, keep_pass1=True)
+    assert (work / 'somewhere-else.npz').exists(), 'the fill did not follow the name'
+    assert not (work / 'pass1.npz').exists(), 'the default name was written as well'
+    lines = []
+    build.first_pass_classes(r.constraints, r.drawn_mask, p, work, log=lines.append)
+    assert not any('runs again' in l for l in lines), 'the overlay did not follow the name'
+    build.build_dem(zone, work, p, library=True)
+    assert not (work / 'somewhere-else.npz').exists(), 'the clearing did not follow the name'
+
+
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
+    """And refuses it by version, before it asks for any symbol the newer
+    library is the only one to have. A library one version behind would
+    otherwise fail with a ctypes AttributeError about isofill_run_ex, which
+    tells whoever is reading the log nothing about what to do."""
     from danu.surface import isofill_lib
     try:
         isofill_lib.Isofill.load()
@@ -210,6 +448,28 @@ def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
         pytest.skip(f'no loadable libisofill here: {str(e).splitlines()[0]}')
     monkeypatch.setattr(isofill_lib, 'EXPECTED_VERSION', '9.9.9')
     with pytest.raises(isofill_lib.IsofillError, match='wants 9.9.9'):
+        isofill_lib.Isofill.load()
+
+    # the ordering itself: a library with no isofill_run_ex at all is still
+    # refused by version, not by the missing symbol
+    class Symbol:
+        def __init__(self, returns=None):
+            self.returns, self.restype, self.argtypes = returns, None, None
+
+        def __call__(self, *a):
+            return self.returns
+
+    class OneVersionBehind:
+        """A library with no isofill_run_ex, which is what 0.7.0 is."""
+
+        def __getattr__(self, name):
+            if name == 'isofill_run_ex':
+                raise AttributeError(name)
+            return Symbol(b'0.7.0' if name == 'isofill_version' else 0)
+
+    monkeypatch.setattr(isofill_lib, 'EXPECTED_VERSION', '0.8.0')
+    monkeypatch.setattr(isofill_lib.ctypes, 'CDLL', lambda _p: OneVersionBehind())
+    with pytest.raises(isofill_lib.IsofillError, match='is isofill 0.7.0'):
         isofill_lib.Isofill.load()
 
 

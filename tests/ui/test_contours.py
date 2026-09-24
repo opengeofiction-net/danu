@@ -159,3 +159,99 @@ def test_main_refuses_half_an_open_request():
     from danu.ui.app import main
     with pytest.raises(SystemExit):
         main(['danu', '/some/zone'])
+
+
+def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
+    """JOSM will save a way whose node was deleted under it, so a ref can have
+    no node. The points come from the refs that are placed, so pairing the
+    way's full ref list with them afterwards put every ref after the gap on
+    the next node's position - and dropped the last one. A click then snapped
+    to one node and dragged another."""
+    from danu.core.square import Node, Square, Way
+
+    sq = Square(name=SquareName(87, 20), present=True)
+    places = {1: (87.1, 20.1), 3: (87.3, 20.3), 4: (87.4, 20.4)}     # no node 2
+    for i, (lon, lat) in places.items():
+        sq.nodes[i] = Node(id=i, lat=lat, lon=lon)
+    sq.ways[10] = Way(id=10, refs=[1, 2, 3, 4], tags={'ele': '100'})
+
+    layer = ContourLayer()
+    layer.set_working_set(WorkingSet(centre=sq.name, size=1, squares={sq.name: sq}))
+
+    geom = layer._geoms[(sq.name, 10)]
+    assert geom.refs == [1, 3, 4] and len(geom.pts) == 3, 'the refs follow the points'
+    assert [ref for _, ref in layer._node_ref] == [1, 3, 4], 'no ref is dropped'
+    for (square, ref), xy in zip(layer._node_ref, layer._node_xy):
+        node = square.nodes[ref]
+        assert tuple(xy) == m.lonlat_to_scene(node.lon, node.lat), f'ref {ref} is at another node'
+
+
+def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
+    """The whole working set is projected at once now - 342,000 points on the
+    gobras 3x3, and a Python call per point was a third of the time that took.
+
+    To a thousandth of a pixel rather than to the last bit: numpy's
+    log, tan and cos are not always the libm math reaches. What has to be exact
+    is the layer agreeing with itself, and it does by construction - a
+    contour's points and the node index's are the same array."""
+    import numpy as np
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    checked = 0
+    for geom in layer._geoms.values():
+        nodes = geom.square.nodes
+        want = np.array([m.lonlat_to_scene(nodes[r].lon, nodes[r].lat) for r in geom.refs])
+        worst = float(np.abs(geom.pts - want).max())
+        assert worst < 1e-3, f'way {geom.way.id} is {worst} scene units from where the scalar puts it'
+        checked += len(want)
+    assert checked > 1000, f'only {checked} points were compared'
+    # and the node index is the contour's own points, not a second projection
+    for geom in layer._geoms.values():
+        start = layer._node_ref.index((geom.square, geom.refs[0]))
+        assert np.array_equal(layer._node_xy[start:start + len(geom.pts)], geom.pts)
+        break
+
+
+def test_the_node_index_cache_is_a_cache_and_not_part_of_the_geometry():
+    """WayGeom's lazily built node index was an annotated attribute in a
+    dataclass body, which makes it a field: a constructor parameter, and part
+    of __repr__ and __eq__. What a WayGeom is should not depend on whether
+    something has asked it for its node index yet."""
+    import dataclasses
+    import inspect
+
+    from danu.ui.contours import WayGeom
+
+    cache = {f.name: f for f in dataclasses.fields(WayGeom)}['_node_ref']
+    assert not cache.init and not cache.repr and not cache.compare
+    assert '_node_ref' not in str(inspect.signature(WayGeom.__init__))
+
+    import numpy as np
+    from danu.core.square import Square, Way
+    sq = Square(name=SquareName(87, 20), present=True)
+    way = Way(id=1, refs=[1, 2], tags={'ele': '100'})
+    geom = WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])
+    before = repr(geom)
+    assert geom.node_ref == [(sq, 1), (sq, 2)]
+    assert geom.node_ref is geom.node_ref, 'built once, not per call'
+    assert repr(geom) == before, 'asking for the index changed what the geometry is'
+
+
+def test_a_geometry_whose_refs_and_points_disagree_is_refused():
+    """The node index puts refs against points one for one, so a WayGeom whose
+    two did not line up would file a node at another node's position - the bug
+    this pairing replaced. _project keeps them aligned; this is what says so
+    for anything else that ever builds one."""
+    import numpy as np
+    import pytest as _pytest
+
+    from danu.core.square import Square, Way
+    from danu.ui.contours import WayGeom
+
+    sq = Square(name=SquareName(87, 20), present=True)
+    way = Way(id=1, refs=[1, 2, 3], tags={'ele': '100'})
+    with _pytest.raises(ValueError, match='3 refs against 2 points'):
+        WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2, 3])
+    WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])          # aligned, accepted
+    WayGeom(sq, way, 100.0, np.zeros((2, 2)))                  # and no refs at all

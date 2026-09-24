@@ -22,6 +22,8 @@ from __future__ import annotations
 import math
 from typing import Iterator
 
+import numpy as np
+
 TILE = 256
 SCENE_ZOOM = 19
 MAX_ZOOM = SCENE_ZOOM
@@ -36,6 +38,35 @@ def lonlat_to_scene(lon: float, lat: float) -> tuple[float, float]:
     r = math.radians(lat)
     y = (1.0 - math.log(math.tan(r) + 1.0 / math.cos(r)) / math.pi) / 2.0 * WORLD
     return x, y
+
+
+def lonlat_to_scene_array(lon, lat):
+    """``lonlat_to_scene`` for whole arrays, as an (n, 2) array of scene points.
+
+    The same arithmetic in the same order. It is not bit for bit the same
+    answer everywhere: ``numpy``'s log, tan and cos are not always the libm
+    ``math`` reaches, and on the CI runner the two part company in the last
+    place - 8.9e-07 scene units, a millionth of a pixel at the zoom the scene
+    is measured in. A test holds them to a hundred-thousandth of one, which is
+    far below anything a mapper can point at and far above the disagreement
+    seen. They are bit for bit identical on this machine, which is why the
+    first version of that test claimed it.
+
+    What matters more than either number is that a contour and the node the
+    mapper snaps to are projected the same way: both come from here, through
+    ``ContourLayer._project``, so they agree with each other exactly whatever
+    libm is underneath.
+
+    Worth having because the editor projects a whole working set at once -
+    342,000 points on the gobras 3x3 - and a Python call per point was a third
+    of the time that took.
+    """
+    lat = np.clip(np.asarray(lat, dtype=float), -MAX_LAT, MAX_LAT)
+    lon = np.asarray(lon, dtype=float)
+    x = (lon + 180.0) / 360.0 * WORLD
+    r = np.radians(lat)
+    y = (1.0 - np.log(np.tan(r) + 1.0 / np.cos(r)) / np.pi) / 2.0 * WORLD
+    return np.column_stack((x, y))
 
 
 def scene_to_lonlat(x: float, y: float) -> tuple[float, float]:

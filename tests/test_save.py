@@ -124,7 +124,13 @@ def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_pat
     files = list_squares(stage)
     assert set(files) == {clean.name, edited.name, blank.name}
     from danu.core.square import has_constraints
-    assert all(p.name.endswith('.osm.xz') and has_constraints(str(p)) for p in files.values())   # what the pipeline reads
+    # every staged square is one the build reads, and each says how it was
+    # staged: a clean one is the link to its own compressed file, an edited or
+    # never-saved one is written out bare, because the build expands it anyway
+    assert all(has_constraints(str(p)) for p in files.values())
+    assert files[clean.name].name.endswith('.osm.xz')
+    assert files[edited.name].name.endswith('.osm') and files[blank.name].name.endswith('.osm')
+    assert (stage / save.STAGE_MARKER).exists(), 'the marker is what lets the build read the bare ones'
     assert files[clean.name].is_symlink() and files[clean.name].resolve() == clean.path.resolve()
     assert not files[edited.name].is_symlink() and read_square(files[edited.name]).elevations() == [200, 250]
     assert read_square(files[blank.name]).elevations() == [101]

@@ -79,3 +79,51 @@ def test_zoom_to_fit_picks_the_largest_zoom_that_fits():
     assert m.zoom_to_fit(1000, 800, x0, y0, x1, y1) == 10
     assert m.zoom_to_fit(10, 10, 0, 0, m.WORLD, m.WORLD) == 0
     assert m.zoom_to_fit(1e9, 1e9, 0, 0, 1, 1) == m.MAX_ZOOM
+
+
+def test_the_array_projection_is_the_scalar_one_to_far_below_a_pixel():
+    """The editor projects a whole working set at once, and the two forms have
+    to agree.
+
+    Not to the last bit: numpy's log, tan and cos are not always the libm math
+    reaches, and on the CI runner they part company in the last place - 8.9e-07
+    scene units, where 1.0 is a pixel at the zoom the scene is measured in.
+    They are identical on some machines and this asserted that, which is a true
+    statement about one libm and not about the code. The bound is a thousandth of
+    a pixel: far below anything a mapper can point at, and three orders above
+    the disagreement seen rather than one. A tighter bound has been disproved
+    once already by a runner this code does not control, and the next libm to
+    differ would be reporting the same non-problem."""
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    lon = rng.uniform(-180, 180, 50_000)
+    lat = rng.uniform(-89.9, 89.9, 50_000)
+    # and the places the formula is delicate: the poles it clamps at, the
+    # equator, the meridian, and coordinates small enough to go exponential
+    lon = np.concatenate([lon, [0.0, -0.0, 180.0, -180.0, 1e-7, -1e-7]])
+    lat = np.concatenate([lat, [0.0, -0.0, 90.0, -90.0, m.MAX_LAT, -m.MAX_LAT]])
+
+    got = m.lonlat_to_scene_array(lon, lat)
+    want = np.array([m.lonlat_to_scene(a, b) for a, b in zip(lon, lat)])
+    assert got.shape == want.shape == (len(lon), 2)
+    worst = float(np.abs(got - want).max())
+    assert worst < 1e-3, f'worst {worst} scene units, which is {worst:.1e} of a pixel at z19'
+
+
+def test_both_projections_clamp_at_the_mercator_cut():
+    """Mercator's y runs to infinity at the poles, so both forms clamp the
+    latitude before projecting - the scalar on its first line, the array with
+    np.clip. Beyond the cut they have to agree exactly rather than to within
+    a fraction of a pixel, because there the disagreement would not be a
+    rounding difference: one clamping and the other not puts the pole at
+    infinity against the edge of the world."""
+    import numpy as np
+
+    beyond = [m.MAX_LAT, -m.MAX_LAT, 85.1, -85.1, 89.9, 90.0, -90.0, 1e6]
+    got = m.lonlat_to_scene_array([10.0] * len(beyond), beyond)
+    want = np.array([m.lonlat_to_scene(10.0, b) for b in beyond])
+    assert np.array_equal(got, want), f'{got} != {want}'
+    # and the clamp really is doing something: past it, y stops moving
+    assert got[beyond.index(90.0)][1] == got[beyond.index(1e6)][1]
+    assert np.isfinite(got).all()

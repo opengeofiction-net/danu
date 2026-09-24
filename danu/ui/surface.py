@@ -59,7 +59,12 @@ class _Job(QRunnable):
         try:
             # here and not at import: building needs GDAL, looking does not
             from ..surface import build
-            result = build.build_dem(self.zone_dir, self.work, self.params, names=self.names)
+            # keep_pass1: the overlay wants what the first pass could not
+            # answer, and the first pass is nearly all of the fill. Asking for
+            # it here is the difference between an edit costing one fill and
+            # two - 95 s of the 208 s at 1 arcsecond on a three by three set
+            result = build.build_dem(self.zone_dir, self.work, self.params, names=self.names,
+                                     keep_pass1=True)
             if result.dem is None:
                 self.signals.failed.emit('nothing to build: no square in the set holds a contour')
                 return

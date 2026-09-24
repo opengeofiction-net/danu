@@ -45,6 +45,7 @@ from typing import Callable, Iterable
 import numpy as np
 from osgeo import gdal, ogr
 
+from ..core.save import STAGE_MARKER
 from ..core.square import SquareName, has_constraints, list_squares, loose_squares
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
@@ -52,6 +53,48 @@ from .params import Params
 gdal.UseExceptions()
 
 NODATA = -9999
+# The first pass, kept beside the surface for the overlay to read, with the
+# geotransform of the raster it was filled from. Named here because three
+# places have to agree about it - the fill writes it, the build clears the last
+# one, and first_pass_classes looks for it - and a convention they each spell
+# out separately is one that can quietly stop holding.
+#
+# What travels with it is what the reader has to agree with to be reading its
+# own fill. The geotransform, because a shape is not a grid - a working set
+# moved one square over has the same pixel dimensions and different ground
+# under them. And the values the first pass was run with, because
+# first_pass_classes is handed params of its own and would otherwise ignore
+# them entirely whenever a kept pass existed.
+#
+# What is not covered is a different mask over the same grid with the same
+# parameters: the mask shapes the fill and is not hashed here. Nothing produces
+# one - the drawn mask is derived from the constraints - and hashing 8.6 million
+# bytes on every edit to catch it is not a trade worth making.
+PASS1 = 'pass1.npz'
+
+
+def _pass1_file(work: Path) -> Path:
+    return Path(work) / PASS1
+
+
+def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
+    """What the first pass was run with, as numbers a kept pass can carry:
+    the nodata that decides which cells are constraints, and the three values
+    that reach it. ``nan`` for no nodata, compared with ``equal_nan``.
+
+    Those three are all of them. ``isofill_lib.run`` sets radius, barrier and
+    pass 2 on the C params and leaves grad_min at the library's default, and of
+    those only radius and barrier shape the first pass - pass 2 is the step
+    after it. grad_min is carried because the file's value is held equal to
+    that default by two tests in tests/golden/test_editor_surface.py - one
+    reading the binary's usage text, one the library's own defaults - and a
+    change to either would change the fill.
+    ``threads`` does not change an answer. So this is the whole of what a kept
+    pass has to have been filled with, not a sample of it; if another Params
+    field ever reaches pass 1, it belongs here."""
+    return np.array([np.nan if nodata is None else float(nodata),
+                     float(params.fill_cells), float(params.barrier_cells),
+                     float(params.grad_min)], dtype=float)
 # the shell's own test for "ele is a number", in the GeoPackage's SQLite
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
@@ -124,16 +167,31 @@ def squares_with_constraints(zone_dir: Path, names: Iterable[SquareName] | None 
 
     ``listing`` is that directory listing, where the caller has already made
     one and would otherwise be walking the directory twice."""
-    found = list_squares(zone_dir, compressed_only=True) if listing is None else dict(listing)
-    if names is None:
+    staged = is_staging(zone_dir)
+    found = (list_squares(zone_dir, compressed_only=not staged) if listing is None
+             else dict(listing))
+    if names is not None:
+        wanted = set(names)
+        found = {n: p for n, p in found.items() if n in wanted}
+    elif not staged:
+        # a bare .osm here is a drop nobody packed, and the zone would be built
+        # without that mapper's work in it. In a staging directory it is meant
         loose = loose_squares(zone_dir)
         if loose:
             log(f'  WARNING: not read, being uncompressed: {" ".join(f.name for f in loose)}')
             log('  the squares are held as .osm.xz - xz these and remove the .osm')
-    else:
-        wanted = set(names)
-        found = {n: p for n, p in found.items() if n in wanted}
     return {n: p for n, p in found.items() if has_constraints(str(p))}
+
+
+def is_staging(zone_dir: Path) -> bool:
+    """Whether this directory is one ``danu.core.save.stage_zone`` made.
+
+    It decides one thing: whether a bare ``.osm`` beside the squares is meant.
+    In a zone directory it is a drop somebody never packed, and reading it
+    would build a zone from a file nobody else can see; in a staging directory
+    it is how the editor hands over the square it has in memory, uncompressed
+    because the build is about to expand it anyway."""
+    return (Path(zone_dir) / STAGE_MARKER).exists()
 
 
 def grid_for(names: Iterable[SquareName], arcsec: float) -> Grid:
@@ -260,10 +318,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     water edges at ele 0. Ways without one - the frame, stray tagging - are
     ignored.
 
-    The squares are held compressed and GDAL has no VSI handler for xz - there
-    is one for zip, gzip and 7z, but not this - so each is expanded into the
-    working directory, read, and dropped again. One at a time, so the cost is
-    the largest square rather than the whole zone."""
+    A zone's squares are held compressed; a staging directory's edited ones are
+    not. Either is read, and an expanded one is read where it lies."""
     gpkg = work / 'contours.gpkg'
     if gpkg.exists():
         gpkg.unlink()
@@ -281,19 +337,35 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                               # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
         for name, path in sorted(squares.items()):
-            with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
+            # GDAL has no VSI handler for xz - there is one for zip, gzip and
+            # 7z, but not this - so a compressed square is expanded into the
+            # working directory, read, and dropped again. One at a time, so the
+            # cost is the largest square rather than the whole zone. A square
+            # that is already expanded, which is how the editor stages the one
+            # it is holding, is read where it lies.
+            #
+            # Whether an expanded square should be here at all was decided by
+            # squares_with_constraints, which reads the staging marker: outside
+            # a staging directory a bare .osm is reported and never reaches
+            # this dict. This step takes the files it is given.
+            expanded = path.suffix != '.xz'
+            source = path
+            if not expanded:
+                with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+                source = square
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
-            ele_ways = check_long_ways(square, log, name=path.name)
+            ele_ways = check_long_ways(source, log, name=path.name)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
             else:
                 opts['accessMode'] = 'append'
-            gdal.VectorTranslate(str(gpkg), str(square), options=gdal.VectorTranslateOptions(**opts))
+            gdal.VectorTranslate(str(gpkg), str(source), options=gdal.VectorTranslateOptions(**opts))
             first = False
-            square.unlink()
+            if not expanded:
+                square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver
             # spills to disk over OSM_MAX_TMPFILE_SIZE, and if that write fails
             # it hands back an empty layer rather than an error. That cost
@@ -519,7 +591,7 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
 
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
                 isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
-                extra: list[str] | None = None) -> Path:
+                extra: list[str] | None = None, keep_pass1: bool = False) -> Path:
     """The surface between the constraints, by isofill.
 
     isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
@@ -568,6 +640,13 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     flags for trying a change on one zone before it becomes the default, and it
     takes the binary, since the library has no flags to give them to.
 
+    ``keep_pass1`` writes the first pass beside the surface, under the one name
+    ``PASS1``, which is what ``first_pass_classes`` looks for: what the first
+    pass left, from this same fill rather than from a second one. Only the
+    library can give it - the binary writes one raster - and where the binary
+    is what runs, for any of the reasons above, that is logged rather than left
+    for the overlay to find out by filling again.
+
     No ``--grad-min``: the file's value is held equal to isofill's own default
     by a test, and neither path passes it. ``pass2`` has one implemented value
     and this refuses any other rather than ignoring it."""
@@ -598,7 +677,15 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                     raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {params.max_mem_mb}; the binary bands it')
                 log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
             else:
-                return _interpolate_library(lib, ds, cont, mask, water, params, out, log)
+                return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
+                                            _pass1_file(work) if keep_pass1 else None)
+    if keep_pass1:
+        # the caller asked for the first pass and is not going to get one: the
+        # binary writes a single raster. Said here rather than left for the
+        # overlay to discover, because from there it looks like a build that
+        # never asked, and the second fill it then runs is the cost this flag
+        # exists to avoid
+        log('  the binary cannot keep the first pass, so the overlay will fill again')
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
 
 
@@ -620,7 +707,7 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
-                         out: Path, log: Log) -> Path:
+                         out: Path, log: Log, pass1: Path | None = None) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -635,8 +722,15 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         w_ds = gdal.Open(str(water))
         _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
-    surface, filled = lib.run(cons, params, mask=m, water=w, nodata=nodata)
+    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None)
+    surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
+    if pass1 is not None:
+        # the first pass is nearly all of the fill, so the alternative is
+        # running the whole thing again to read it
+        np.savez(pass1, surface=result[2],
+                 gt=np.asarray(ds.GetGeoTransform(), dtype=float),
+                 fill=_fill_identity(params, nodata))
     drv = gdal.GetDriverByName('GTiff')
     o = drv.Create(str(out), ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
                    options=['TILED=YES', 'COMPRESS=ZSTD', 'ZSTD_LEVEL=9', 'PREDICTOR=3', 'BIGTIFF=IF_SAFER'])
@@ -722,7 +816,8 @@ class Result:
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
               water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
-              extra: list[str] | None = None, stage: Log = _quiet) -> Result:
+              extra: list[str] | None = None, stage: Log = _quiet,
+              keep_pass1: bool = False) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     constraints (off unless asked), water mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
@@ -731,7 +826,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
-    listing = list_squares(Path(zone_dir), compressed_only=True)
+    listing = list_squares(Path(zone_dir), compressed_only=not is_staging(zone_dir))
     squares = squares_with_constraints(Path(zone_dir), names, log, listing=listing)
     # how many of the zone's squares are templates, which is a zone-wide count
     # and means nothing about a working set - the editor asks for named squares
@@ -768,7 +863,10 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         stage('water from the coastline direction')
         wmask = water_mask(gpkg, cont, work, log)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
-    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra)
+    pass1 = _pass1_file(work)
+    if pass1.exists():
+        pass1.unlink()                       # never a previous build's
+    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask,
@@ -897,15 +995,51 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
 
     The published build never runs this - it is the diagnostic isofill's README
     describes, ``--no-pass2`` - and the editor runs it on every surface, for the
-    overlay."""
-    lib = isofill_lib.Isofill.load()
+    overlay.
+
+    It reads the first pass ``build_dem(keep_pass1=True)`` left rather than
+    filling again where there is one - having checked that the pass is of this
+    grid and was filled with the four values that reach the first pass, since
+    otherwise ``params`` would mean something on one path and nothing on the
+    other -
+    which is the difference between an edit
+    costing one fill and two: the first pass is 0.56 s of a 0.67 s run, so the
+    second fill was 95 s of the 208 s an edit took at 1 arcsecond on a three by
+    three working set. Without one - the binary writes a single raster, and a
+    build that took the binary leaves none - it runs the fill itself, which is
+    what it always did."""
     ds = gdal.Open(str(cont))
     band = ds.GetRasterBand(1)
-    cons = band.ReadAsArray().astype(np.float32)
+    # The constraints raster is the grid: its geotransform measures the reading
+    # below and its size is what the classes are written out on. Everything else
+    # is checked against it rather than against whatever it came with - a kept
+    # first pass and the mask beside it are from the same build, so they agree
+    # with each other and would say nothing about belonging to this one.
+    grid = (ds.RasterYSize, ds.RasterXSize)
     m_ds = gdal.Open(str(mask))          # held: a chained Open().GetRasterBand() frees the dataset under the band
     m = m_ds.GetRasterBand(1).ReadAsArray()
-    surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
-    classes = np.full(cons.shape, ANSWERED, np.uint8)
+    if m.shape != grid:
+        raise ValueError(f'the drawn mask is {m.shape}, the constraints are {grid}')
+    kept = _pass1_file(work)
+    if kept.exists():
+        with np.load(kept) as held:
+            surface, gt, fill = held['surface'], held['gt'], held['fill']
+        want = _fill_identity(params, band.GetNoDataValue())
+        if surface.shape != grid or not np.array_equal(gt, np.asarray(ds.GetGeoTransform())):
+            raise ValueError(
+                f'the kept first pass is {surface.shape} at {(gt[0], gt[3])}, the constraints '
+                f'are {grid} at {(ds.GetGeoTransform()[0], ds.GetGeoTransform()[3])}; '
+                f"it is not this build's")
+        if not np.array_equal(fill, want, equal_nan=True):
+            raise ValueError(
+                f'the kept first pass was filled with nodata/radius/barrier/grad_min {tuple(fill)}, '
+                f'and this asks for {tuple(want)}; it is not this build\'s')
+    else:
+        log('  no first pass was kept, so the fill runs again for the overlay')
+        lib = isofill_lib.Isofill.load()
+        cons = band.ReadAsArray().astype(np.float32)
+        surface, _ = lib.run(cons, params, mask=m, nodata=band.GetNoDataValue(), pass2=False)
+    classes = np.full(grid, ANSWERED, np.uint8)
     classes[surface == OUT_OF_REACH] = UNREACHED
     classes[surface == NO_ELEV] = DECLINED
     classes[surface == ONE_LEVEL] = ONE_ONLY
