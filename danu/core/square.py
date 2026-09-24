@@ -423,18 +423,11 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     attrs['generator'] = generator
     lines = ["<?xml version='1.0' encoding='UTF-8'?>",
              '<osm ' + ' '.join(f'{k}={q(v)}' for k, v in attrs.items()) + '>']
-    # In the order they were read, which for a square read from a file is the
-    # order that file had. Not sorted, which is what this did on the belief that
-    # JOSM writes them sorted: JOSM mostly does, and where it does not - one
-    # block of ids sitting among an older run, which is what an edit in a later
-    # session leaves - sorting reorders the ways.
-    #
-    # That is not cosmetic. gdal_rasterize burns the contours in layer order and
-    # the last one to touch a cell wins it, so where two contours of different
-    # elevations meet the same cell, the order decides the constraint and the
-    # first pass fills from it. Reading N20E087_Artana and writing it back
-    # unchanged moved 4,155 cells of the gobras 3x3, by up to 650 m - a square
-    # merely opened and saved would have published a different surface.
+    # Nodes in the order they were read. Nothing in the build depends on it -
+    # a way names its nodes by ref and the rasteriser never sees the node
+    # layer - so this is fidelity rather than correctness: a square opened and
+    # saved should differ from the one that was opened only where it was
+    # edited, which is what makes a diff of two versions worth reading.
     for nid in square.nodes:
         n = square.nodes[nid]
         if n.tags:
@@ -443,6 +436,19 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
             lines.append('  </node>')
         else:
             lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}' />")
+    # Ways in the order they were read, and here it is correctness. Not sorted,
+    # which is what this did on the belief that JOSM writes them sorted: JOSM
+    # mostly does, and where it does not - one block of ids sitting among an
+    # older run, which is what an edit in a later session leaves - sorting
+    # reorders them.
+    #
+    # gdal_rasterize burns the contours in layer order and the last one to
+    # touch a cell wins it, so where two contours of different elevations meet
+    # the same cell, the order decides the constraint and the first pass fills
+    # from it. Reading N20E087_Artana and writing it back unchanged moved 4,155
+    # cells of the gobras 3x3 by up to 650 m: a square merely opened and saved
+    # would have published a different surface, and 99 of the 806 drawn squares
+    # on the server are ordered so that it would have.
     for wid in square.ways:
         w = square.ways[wid]
         lines.append(f"  <way id='{wid}' action='modify'>")

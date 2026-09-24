@@ -187,6 +187,91 @@ def test_a_staged_square_builds_the_same_surface_uncompressed(tmp_path):
     assert int((ref.GetRasterBand(1).ReadAsArray() != B).sum()) == 0
 
 
+ARCSEC = 3.0
+CELL = ARCSEC / 3600
+# Four contours over one degree square. The last two are a cliff: they run a
+# third of a cell apart, so an all-touched burn puts both in the same cells and
+# whichever is written last wins them. Their ids are chosen so that sorting the
+# ways swaps that pair - -500 sits among an older run, which is the shape JOSM
+# leaves after an edit in a later session.
+CLIFF_SQUARE = {-100: (100.0, -23.30), -101: (200.0, -23.50),
+                -500: (300.0, -23.700), -102: (400.0, -23.700 + CELL / 3)}
+JOSM_ORDER = [-100, -101, -500, -102]
+
+
+def cliff_square_xml(order):
+    nodes, body, nid = [], {}, -1
+    for wid in order:
+        ele, lat = CLIFF_SQUARE[wid]
+        refs = []
+        for k in range(12):
+            nodes.append(f"  <node id='{nid}' action='modify' lat='{lat}' lon='{125.2 + k * 0.05}' />")
+            refs.append(nid)
+            nid -= 1
+        body[wid] = (f"  <way id='{wid}' action='modify'>"
+                     + ''.join(f"<nd ref='{r}' />" for r in refs)
+                     + f"<tag k='ele' v='{ele:g}' /></way>")
+    return ("<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6' upload='never'>\n"
+            + '\n'.join(nodes) + '\n' + '\n'.join(body[w] for w in order) + '\n</osm>\n')
+
+
+def build_surface(xml, work, p):
+    import lzma
+
+    from danu.surface import build
+    zone = work / 'zone'
+    zone.mkdir(parents=True)
+    with lzma.open(zone / 'S24E125.osm.xz', 'wt') as fh:
+        fh.write(xml)
+    r = build.build_dem(zone, work / 'w', p)
+    assert r.dem is not None, 'the fixture built nothing'
+    ds = gdal.Open(str(r.dem))                 # held
+    return ds.GetRasterBand(1).ReadAsArray().astype(float)
+
+
+def test_saving_a_square_does_not_change_the_surface_it_builds(tmp_path):
+    """The reason write_square keeps the order it read.
+
+    gdal_rasterize burns the contours in layer order and the last to touch a
+    cell wins it, so where two contours of different elevations meet the same
+    cell the file's order picks the constraint. Sorting the ways on save
+    therefore changed the published surface: reading gobras' N20E087_Artana and
+    writing it back unchanged moved 4,155 cells by up to 650 m, and 99 of the
+    806 drawn squares on the server are ordered so that it would have.
+
+    The golden fixture cannot show this - its 95 ways are already sorted, so a
+    round trip is a no-op on it and the test that builds a surface from an
+    editor-written copy passed throughout. This builds a square that is not
+    sorted and where a cliff puts two elevations in one cell."""
+    import numpy as np
+    from danu.core.square import read_square, write_square
+    from danu.surface import params
+
+    p = params.load().with_arcsec(ARCSEC)
+    original = tmp_path / 'S24E125_Cliff.osm.xz'
+    import lzma
+    with lzma.open(original, 'wt') as fh:
+        fh.write(cliff_square_xml(JOSM_ORDER))
+
+    # the fixture has to be one this can fail on, or it tests nothing: the
+    # order must not already be sorted, and the surface must depend on it
+    assert JOSM_ORDER != sorted(JOSM_ORDER, reverse=True)
+    as_read = build_surface(cliff_square_xml(JOSM_ORDER), tmp_path / 'read', p)
+    as_sorted = build_surface(cliff_square_xml(sorted(JOSM_ORDER, reverse=True)), tmp_path / 'srt', p)
+    differ = int((as_read != as_sorted).sum())
+    assert differ > 1000, f'the fixture no longer notices way order ({differ} cells)'
+
+    # and now the thing itself: read it and write it back, and the surface the
+    # build makes of what was written is the surface it made of what was read
+    written = write_square(read_square(original), tmp_path / 'S24E125.osm.xz')
+    import lzma as _lzma
+    with _lzma.open(written, 'rt') as fh:
+        round_tripped = build_surface(fh.read(), tmp_path / 'rt', p)
+    moved = int((round_tripped != as_read).sum())
+    assert moved == 0, f'saving the square moved {moved} cells; worst ' \
+                       f'{np.abs(round_tripped - as_read).max():.1f} m'
+
+
 def test_a_loose_square_is_read_only_where_it_was_meant(tmp_path):
     """The marker is the whole difference. In a zone directory a bare .osm is
     a drop somebody never packed, and building from it would put work in the

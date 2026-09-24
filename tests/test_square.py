@@ -306,7 +306,11 @@ def test_writing_a_square_keeps_the_order_its_ways_were_in(tmp_path):
     session sitting among an older run - sorting reordered the ways. Reading
     gobras' N20E087_Artana and writing it back unchanged moved 4,155 cells by
     up to 650 m, and 99 of the 806 drawn squares on the server are ordered so
-    that a save would have done it."""
+    that a save would have done it.
+
+    This asserts the ordering only. That the surface follows from it is
+    asserted in tests/golden/test_editor_surface.py, which needs GDAL and
+    isofill to build one."""
     from danu.core.square import Node, SquareName, Way, read_square, write_square
 
     square = Square(name=SquareName(125, -24), present=True)
@@ -326,10 +330,14 @@ def test_writing_a_square_keeps_the_order_its_ways_were_in(tmp_path):
 
 
 def test_the_golden_square_round_trips_in_its_own_order(tmp_path):
-    """The same property on a real JOSM file rather than a made-up one. This
-    fixture happens to be sorted already, which is why the golden test that
-    builds a surface from an editor-written copy of it passed while the
-    ordering was being changed - it is not a fixture that exercises it."""
+    """The same property on a real JOSM file rather than a made-up one.
+
+    This fixture happens to be sorted already, so a round trip is a no-op on it
+    and it cannot tell the sorted write from the faithful one. That is why the
+    golden test which builds a surface from an editor-written copy of it passed
+    throughout. The surface claim is pinned instead by
+    tests/golden/test_editor_surface.py, on a square that is not sorted and
+    where a cliff puts two elevations in one cell."""
     from danu.core.square import read_square, write_square
 
     golden = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
