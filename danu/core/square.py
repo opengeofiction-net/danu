@@ -383,8 +383,13 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 
     Not byte for byte what JOSM would write - attribute order and precision
     are JOSM's own - but the same square: reading it back gives the same
-    nodes, ways and tags, and the build makes the same surface from it, which
-    is what the golden test asserts.
+    nodes, ways and tags, in the same order, and the build makes the same
+    surface from it.
+
+    "In the same order" is load-bearing and was not always true. The golden
+    test asserts the surface claim, but on a fixture whose ways are already
+    sorted, so it went on passing while a square with JOSM's real ordering
+    came out different - see the loop below.
 
     Written to a temporary beside the target and moved into place, so a
     failure mid-write leaves the old file whole."""
@@ -418,7 +423,12 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     attrs['generator'] = generator
     lines = ["<?xml version='1.0' encoding='UTF-8'?>",
              '<osm ' + ' '.join(f'{k}={q(v)}' for k, v in attrs.items()) + '>']
-    for nid in sorted(square.nodes, reverse=True):           # highest (least negative) first, as JOSM lists them
+    # Nodes in the order they were read. Nothing in the build depends on it -
+    # a way names its nodes by ref and the rasteriser never sees the node
+    # layer - so this is fidelity rather than correctness: a square opened and
+    # saved should differ from the one that was opened only where it was
+    # edited, which is what makes a diff of two versions worth reading.
+    for nid in square.nodes:
         n = square.nodes[nid]
         if n.tags:
             lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}'>")
@@ -426,7 +436,20 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
             lines.append('  </node>')
         else:
             lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}' />")
-    for wid in sorted(square.ways, reverse=True):
+    # Ways in the order they were read, and here it is correctness. Not sorted,
+    # which is what this did on the belief that JOSM writes them sorted: JOSM
+    # mostly does, and where it does not - one block of ids sitting among an
+    # older run, which is what an edit in a later session leaves - sorting
+    # reorders them.
+    #
+    # gdal_rasterize burns the contours in layer order and the last one to
+    # touch a cell wins it, so where two contours of different elevations meet
+    # the same cell, the order decides the constraint and the first pass fills
+    # from it. Reading N20E087_Artana and writing it back unchanged moved 4,155
+    # cells of the gobras 3x3 by up to 650 m: a square merely opened and saved
+    # would have published a different surface, and 99 of the 806 drawn squares
+    # on the server are ordered so that it would have.
+    for wid in square.ways:
         w = square.ways[wid]
         lines.append(f"  <way id='{wid}' action='modify'>")
         lines += [f"    <nd ref='{r}' />" for r in w.refs]
