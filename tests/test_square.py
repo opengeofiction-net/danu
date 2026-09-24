@@ -293,3 +293,47 @@ def test_a_square_is_read_by_what_it_is_not_by_what_it_is_called(tmp_path):
     other.write_bytes(bare.read_bytes())
     assert has_constraints(str(other))
     assert read_square(other).elevations() == [100]
+
+
+def test_writing_a_square_keeps_the_order_its_ways_were_in(tmp_path):
+    """gdal_rasterize burns the contours in layer order and the last one to
+    touch a cell wins it, so where two contours of different elevations meet
+    the same cell the order in the file decides the constraint - and the first
+    pass fills from it.
+
+    write_square used to sort by id, on the belief that JOSM writes them
+    sorted. JOSM mostly does; where it does not - a block of ids from a later
+    session sitting among an older run - sorting reordered the ways. Reading
+    gobras' N20E087_Artana and writing it back unchanged moved 4,155 cells by
+    up to 650 m, and 99 of the 806 drawn squares on the server are ordered so
+    that a save would have done it."""
+    from danu.core.square import Node, SquareName, Way, read_square, write_square
+
+    square = Square(name=SquareName(125, -24), present=True)
+    # the shape JOSM leaves: a descending run with a later block dropped into
+    # the middle of it, which is what an edit in a second session produces
+    order = [-100, -101, -102, -500, -501, -103, -104]
+    for i, wid in enumerate(order):
+        a, b = wid * 10, wid * 10 - 1
+        square.nodes[a] = Node(id=a, lat=-23.5 + i * 0.01, lon=125.5)
+        square.nodes[b] = Node(id=b, lat=-23.5 + i * 0.01, lon=125.6)
+        square.ways[wid] = Way(id=wid, refs=[a, b], tags={'ele': str(100 + i)})
+    assert list(square.ways) != sorted(square.ways, reverse=True), 'the fixture must be unsorted'
+
+    back = read_square(write_square(square, tmp_path / 'S24E125.osm.xz'))
+    assert list(back.ways) == order, 'the ways came back in a different order'
+    assert list(back.nodes) == list(square.nodes), 'the nodes came back in a different order'
+
+
+def test_the_golden_square_round_trips_in_its_own_order(tmp_path):
+    """The same property on a real JOSM file rather than a made-up one. This
+    fixture happens to be sorted already, which is why the golden test that
+    builds a surface from an editor-written copy of it passed while the
+    ordering was being changed - it is not a fixture that exercises it."""
+    from danu.core.square import read_square, write_square
+
+    golden = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
+    original = read_square(golden)
+    back = read_square(write_square(original, tmp_path / 'S24E125.osm.xz'))
+    assert list(back.ways) == list(original.ways)
+    assert list(back.nodes) == list(original.nodes)
