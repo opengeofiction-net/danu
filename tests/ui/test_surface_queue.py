@@ -166,3 +166,67 @@ def test_each_build_reports_its_own_elapsed_time(qtbot, monkeypatch):
     clock[0] = 15.0
     h.finish()                   # the fast one, started at 12, took 3
     assert [round(secs, 3) for _b, _stale, secs in h.results] == [12.0, 3.0], h.results
+
+
+def test_cleanup_waits_for_the_build_before_removing_its_directory(qtbot):
+    """Closing the window while a build runs must not pull the working
+    directory out from under it.
+
+    That cost a traceback ending "rounded.tif: No such file or directory" from
+    inside the clamp: the rmtree had taken the file the build was about to
+    read. It needed closing during a build, which was rare while builds were
+    only ever asked for by hand - and is what closing after drawing does, now
+    that an idle timer asks for them.
+    """
+    h = Harness()
+    h.ask(3.0)
+    work = h.builder.work
+    assert work.exists() and h.builder.busy
+
+    # the job has not run, so the pool has nothing to wait for and cleanup
+    # cannot know that; what it must not do is delete while _running
+    done = h.builder.cleanup(wait_ms=50)
+    assert not done, 'cleanup claimed the build had finished'
+    assert work.exists(), 'the working directory was removed while a build was running'
+
+    h.finish()
+    assert h.builder.cleanup(wait_ms=50) is True
+    assert not work.exists(), 'the working directory was left behind after the build ended'
+
+
+def test_cleanup_stops_the_queue_taking_more_work(qtbot):
+    """A request already waiting must not start a build into a directory that
+    is about to go."""
+    h = Harness()
+    h.ask(3.0)
+    h.ask(1.0)                      # queued behind it
+    h.builder.cleanup(wait_ms=50)
+    h.finish()                      # the running one completes
+    assert not h.jobs, 'a queued build started after cleanup'
+
+
+def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
+    """The second half of the same crash. A job outliving the window emits
+    into a deleted QObject, and *Signal source has been deleted* comes out of
+    QRunnable::run where nobody sees it - while the failure it was reporting
+    was the teardown itself."""
+    from danu.ui.surface import _Job, _Signals
+
+    class Dead:
+        class _S:
+            @staticmethod
+            def emit(*_a):
+                raise RuntimeError('Signal source has been deleted')
+        finished = failed = _S()
+
+    def explode(zone_dir, names, params, work):
+        raise ValueError('while the window was closing')
+
+    for fn in (explode, lambda *a: Built(shaded=object())):
+        job = _Job(fn, h_path(), [], PARAMS, h_path(), Dead())
+        job.run()               # must not raise
+
+
+def h_path():
+    from pathlib import Path
+    return Path('.')

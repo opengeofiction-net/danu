@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -154,20 +155,47 @@ class _Job(QRunnable):
         super().__init__()
         self.fn, self.zone_dir, self.names = fn, zone_dir, names
         self.params, self.work, self.signals = params, work, signals
+        # set when run() returns, however it returns. What makes it safe to
+        # remove the working directory is that the build has stopped writing,
+        # which is this - not the delivery of a signal, which is queued to
+        # another thread and arrives later.
+        self.done = threading.Event()
 
     def run(self):
         try:
+            self._run()
+        finally:
+            self.done.set()
+
+    def _run(self):
+        try:
             built = self.fn(self.zone_dir, self.names, self.params, self.work)
         except Nothing as e:
-            self.signals.failed.emit(str(e))
+            self._say(str(e))
             return
         except ImportError as e:
-            self.signals.failed.emit(f'building a surface needs GDAL, which could not be imported: {e}')
+            self._say(f'building a surface needs GDAL, which could not be imported: {e}')
             return
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
-            self.signals.failed.emit(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
+            self._say(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
-        self.signals.finished.emit(built)
+        try:
+            self.signals.finished.emit(built)
+        except RuntimeError:
+            pass                    # see _say
+
+    def _say(self, text: str):
+        """Report a failure, unless there is no longer anyone to report it to.
+
+        A job outlives the window when the application is closing, and emitting
+        then raises *Signal source has been deleted* out of QRunnable::run -
+        which Qt prints and nobody sees. The failure being reported is usually
+        the teardown itself, so the report is worth less than the crash costs.
+        """
+        try:
+            self.signals.failed.emit(text)
+        except RuntimeError:
+            pass
 
 
 class SurfaceBuilder(QObject):
@@ -264,8 +292,34 @@ class SurfaceBuilder(QObject):
         if self._wanted is not None and not self._running:
             self._start()
 
-    def cleanup(self):
-        shutil.rmtree(self.work, ignore_errors=True)
+    def cleanup(self, wait_ms: int = 15_000) -> bool:
+        """Stop taking work and remove the working directory.
+
+        Waits for the build that is running, because the directory is where it
+        is writing. Removing it underneath cost a traceback ending
+
+            RuntimeError: .../rounded.tif: No such file or directory
+
+        from inside the clamp - the build had got as far as wanting the file
+        the rmtree had just taken. Closing the window during a build used to
+        mean closing during a Ctrl+R and was rare; once an idle timer started
+        asking for builds by itself, it became what closing after drawing
+        does.
+
+        If the wait runs out the directory is left behind rather than pulled
+        out from under a live writer. It is a temporary directory and the
+        system will have it.
+        """
+        self._wanted = None                  # nothing more starts
+        done = True
+        if self._running and self._job is not None:
+            # the job's own flag, not the pool's: waitForDone would wait on
+            # whatever else is using the global pool and would answer for a
+            # job that never reached it
+            done = self._job.done.wait(wait_ms / 1000.0)
+        if done:
+            shutil.rmtree(self.work, ignore_errors=True)
+        return done
 
 
 # ------------------------------------------------------------------- layer

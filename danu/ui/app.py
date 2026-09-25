@@ -286,7 +286,12 @@ class MainWindow(QMainWindow):
                 return
         self.territory.abort()
         self.fetcher.abort()
-        self.builder.cleanup()
+        # before the builder: the idle timer asks for builds by itself, and one
+        # started during teardown would be writing into the directory cleanup
+        # is about to remove
+        self.preview.forget()
+        if not self.builder.cleanup():
+            self.statusBar().showMessage('a build was still running; its working files are left behind')
         super().closeEvent(event)
 
     def _tool_changed(self, name: str):

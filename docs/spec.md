@@ -1369,6 +1369,18 @@ edit, which is what it did before phase 4.
 This is the point at which F3, F5a and F5b stop being library and start being
 what the editor does.
 
+Running it turned up a shutdown crash the idle timer had made ordinary.
+`closeEvent` removed the builder's working directory, and a build still writing
+into it reached the clamp to find its own `rounded.tif` gone; Qt then tore down
+the signal the failure was being reported through, so what reached the console
+was *Signal source has been deleted* out of `QRunnable::run`, with the real
+cause underneath it. Closing during a build used to mean closing during a
+Ctrl+R and was rare. Once something asked for builds by itself it became what
+closing after drawing does. Cleanup waits for the running build now - on the
+job's own flag, since the pool's answers for whatever else is on it - and
+leaves the directory behind rather than pull it from under a live writer if the
+wait runs out.
+
 ### Phase 5
 
 **Phase 5 - the anchors that are not contours.** Overpass import and cache,
