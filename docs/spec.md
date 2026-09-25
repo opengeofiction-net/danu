@@ -132,6 +132,15 @@ the tools for everything else.
   Danu already edits it. Reading roantra's overlay for context is cheap and
   worth doing; editing it is a separate job with no second user.
 
+### Spot heights
+
+Numbered from R36 because the earlier numbers are cited from the code.
+
+- **R36** Nodes with `ele` inside the squares are first-class and editable.
+  A node carrying `ele` is a constraint, the same as a contour way.
+- **R37** A spot height is the only thing which shapes a hilltop. Contours
+  cannot say how high a hill goes.
+
 ### Checks
 
 - **R29** Rivers which climb, per `demRiverCheck.py`, listed and clickable.
@@ -141,6 +150,10 @@ the tools for everything else.
 - **R32** Sea level lines which do not lie on a drawn coastline, per
   `demCheckZeroLine.py`.
 - **R33** A water body spanning more than one contour.
+- **R38** A spot height which contradicts the contours around it: one which
+  does not lie between the elevations of the rings enclosing it.
+- **R39** A closed contour ring with no spot height inside it. A report rather
+  than a warning: plenty of rings are the foot of a slope, not a summit.
 
 ### Platform
 
@@ -560,7 +573,13 @@ Deliberately out of scope, recorded so the shape is not designed against:
 - **Procedural terrain areas** - `ogf:terrain_area` karst, plateau, mountains,
   coastal plain - which the 2014 Perl could generate and nothing has since. No
   way in OGF carries those tags today, so reviving them means re-establishing a
-  tagging convention first.
+  tagging convention first. This is *texture*: inventing plausible roughness
+  where nobody has drawn any, which is a different thing from R36's spot
+  heights - those only say where the ground already is.
+- **Typed elevation features** - `natural=peak`, `saddle`, `sinkhole` read as
+  what they are, and areas carrying `ele` held flat the way R26 holds a water
+  body, which is what a plateau wants and what karst is mostly made of.
+  Deferred until spot heights are carrying their weight.
 - **Editing roantra's `water/` overlay**, which is the only one of its kind.
 
 ## Testing
@@ -1208,9 +1227,13 @@ splicing it in put 115.794 m into the surface.
 
 ### Phase 5
 
-**Phase 5 - water.** Overpass import and cache, elevations on water, burn and
-flatten with accept and roll back, profile tool. Ends when the gobras experiment
-is reproducible by hand in the editor.
+**Phase 5 - the anchors that are not contours.** Overpass import and cache,
+elevations on water, burn and flatten with accept and roll back, profile tool;
+spot heights as constraints. Measure first: `barrier_cells` widens a constraint
+for the sight test, so a one-cell spot height becomes a five-by-five occluder.
+A contour is a line and hardly notices; a point is not. Ends when the gobras
+experiment is reproducible by hand in the editor and a hill with a spot height
+on it comes out pointed.
 
 ### Phase 6
 
