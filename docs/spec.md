@@ -1320,9 +1320,27 @@ invisible on screen and fatal to splicing, since a patch between cells cannot
 be written into an array at all. ``shade_window`` takes the target
 geotransform and is put on exactly that grid.
 
-The preview's cost is now known end to end: 2.3 to 5.2 ms to burn, 10 to 18 to
-solve, the clamp in numpy, 14.4 to 19.8 to shade. Twenty-seven to
-forty-three milliseconds, against fifty.
+**The budget, measured on the real path rather than assembled from parts.**
+The first figures here were 2.3 to 5.2 ms to burn, 10 to 18 to solve and 14.4
+to 19.8 to shade - twenty-seven to forty-three against fifty. The solve's share
+of that was measured at one place on the raster and quoted as the cost, and it
+is not: it is the cheapest of forty. A three-cell edit at forty points on the
+gobras 3x3, solved over the same 201 by 201 each time, runs 23.2 ms at best,
+41.4 median, 64.7 at worst, and exceeds fifty on its own ten times in forty.
+The cost is about the ground, not the box - it tracks how much of the solved
+area the first pass could not answer, though only at +0.38, so that is not the
+whole of it either.
+
+End to end, one node of a real contour moved on the gobras 3x3 at 3 arcseconds
+costs about 62 ms: roughly 1 to mark the box, 2.7 to burn, 45 to solve, 0.5 to
+clamp and 14 to shade. Moving a whole 2,000-node contour costs 237.
+
+**So the phase does not end yet.** Fifty milliseconds is where phase 4 ends and
+the preview is over it, by a quarter on a typical edit. The lever is the solve,
+and the obvious one is the margin: a three-cell edit is solved over 201 by 201
+because cover and slack are two radii each, and F3 chose two radii by measuring
+accuracy alone. What it costs in time was not part of that decision and now has
+to be - which is F6's, with both numbers in front of it rather than one.
 
 **The wiring.** `danu.ui.preview.PreviewDriver` joins them: the editor says
 which ways an edit touched, the driver keeps the contour layer in step, and two

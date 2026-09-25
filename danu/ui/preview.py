@@ -60,6 +60,7 @@ class PreviewDriver(QObject):
         self._params: Params | None = None
         self._projection = ''
         self._pending: list = []        # boxes of ways edited since the last preview
+        self._drawn: dict = {}          # each way's geometry as last burned
         self._said = ''
         self._gesture = QTimer(self)
         self._gesture.setSingleShot(True)
@@ -78,6 +79,7 @@ class PreviewDriver(QObject):
         """Drop the rasters - a new working set, or a build that gave none."""
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
+        self._drawn.clear()
         self._gesture.stop()
         self._idle.stop()
 
@@ -102,6 +104,9 @@ class PreviewDriver(QObject):
                                   nodata=r.nodata, contours=contours, dem=r.dem)
         self._shaded = built.shaded
         self._params = params
+        # the layer is the build's again, so what it holds for each way is the
+        # build's geometry and not the last preview's
+        self._drawn.clear()
         self._projection = r.projection
         self._said = ''
 
@@ -112,28 +117,66 @@ class PreviewDriver(QObject):
 
     # ------------------------------------------------------------- edits
 
-    def edited(self, square, ways):
-        """One editor command's worth of change: the ways it touched, before
-        and after, in the square it touched them in."""
+    def edited(self, square, way_ids):
+        """One editor command's worth of change: the ids of the ways it
+        touched, in the square it touched them in.
+
+        Ids, not ways: ``Command.ways()`` returns ``set[int]``, and it is asked
+        before apply and after undo alike, so a way it names may not be in the
+        square at all. That is how a deletion arrives.
+        """
         self._idle.start()
         if not self.ready:
             return
-        gt = self._kept.geotransform
-        shape = self._kept.constraints.shape
-        for way in ways:
-            points = [(square.nodes[r].lon, square.nodes[r].lat)
-                      for r in way.refs if r in square.nodes]
-            box = self._box(points, gt, shape)
-            if box is not None:
-                self._pending.append(box)
-            if way.id in square.ways and way.ele is not None and len(points) > 1:
-                self._kept.contours.apply(way.id, points, way.ele)
+        for wid in way_ids:
+            way = square.ways.get(wid)
+            points = ([(square.nodes[r].lon, square.nodes[r].lat)
+                       for r in way.refs if r in square.nodes] if way is not None else [])
+            ele = getattr(way, 'ele', None) if way is not None else None
+            if ele is not None and len(points) > 1:
+                self._mark(wid, points)
+                self._kept.contours.apply(wid, points, ele)
+                self._drawn[wid] = points
             else:
                 # gone from the square, or no longer a contour: either way it
-                # stops constraining the surface
-                self._kept.contours.remove(way.id)
+                # stops constraining the surface, and the ground it used to
+                # cover has to be resolved
+                self._mark(wid, self._drawn.pop(wid, points))
+                self._kept.contours.remove(wid)
         if self._pending:
             self._gesture.start()
+
+    def _mark(self, wid, points):
+        """Box the part of a way whose burn actually changed.
+
+        Not the whole way. Moving one node of a five-hundred-node contour
+        changes the surface around that node, and a box around the whole way is
+        the whole contour - which is the difference between a patch that solves
+        in thirty milliseconds and one that solves in a second. So the previous
+        geometry is kept and compared: only the points that moved, with their
+        neighbours, since it is the segments either side of a moved node whose
+        cells are burned differently.
+
+        A way with no previous geometry - newly drawn, or the first edit after
+        a rebuild - is marked whole, because all of it is new.
+        """
+        gt = self._kept.geotransform
+        shape = self._kept.constraints.shape
+        before = self._drawn.get(wid)
+        changed = points
+        if before is not None and points:
+            n = max(len(before), len(points))
+            at = [i for i in range(n)
+                  if i >= len(before) or i >= len(points) or before[i] != points[i]]
+            if not at:
+                return                       # nothing about this way moved
+            near = {i for j in at for i in (j - 1, j, j + 1)}
+            changed = [points[i] for i in sorted(near) if 0 <= i < len(points)]
+            # the cells the way used to cover there have to be resolved too
+            changed += [before[i] for i in sorted(near) if 0 <= i < len(before)]
+        box = self._box(changed, gt, shape)
+        if box is not None:
+            self._pending.append(box)
 
     @staticmethod
     def _box(points, gt, shape) -> local.Box | None:
