@@ -1225,6 +1225,39 @@ And the patch must be cropped before it is handed back - the ring where the
 first pass is truncated by the crop is not a worse answer, it is no answer, and
 splicing it in put 115.794 m into the surface.
 
+**F4, the job queue.** Phase 3's builder ran one build and refused the next:
+a second Ctrl+R, or a change of resolution while a build was running, was
+answered with *a surface is still building* and dropped. Phase 4 has the editor
+asking after every edit, so dropping is not an option - and queueing each
+request is worse, since twenty edits would cost twenty builds to show the
+twentieth.
+
+So requests coalesce. A request made while a build runs replaces whatever was
+waiting rather than joining it, and only the newest is ever started: a run of
+edits costs one more build, not one each. Staging moved with it, from the
+request to the start of a build, because it is 177 ms on the gobras 3x3 and the
+requests that never start should not each pay it.
+
+A build already running cannot be stopped. `isofill` is a C call with no
+cancellation hook, so a superseded build is spent whether or not its answer is
+used - and it is used: what comes back is the surface as things stood a moment
+ago, which beats a blank canvas while the newer one runs. `finished` carries a
+stale flag and R19 is what makes it visible.
+
+The build function and the executor are both injectable, which is what lets the
+queue be tested without GDAL and without threads - coalescing, staleness,
+recovery after a failure, and staging once per build rather than once per
+request, each checked by breaking the implementation and watching the test
+fail.
+
+One thing found on the way, unrelated to the queue but in the way of seeing it:
+the UI suite is written for Qt's offscreen platform and CI sets it in the job's
+environment, but nothing set it for a developer running `pytest`. The tests
+opened real windows, and the window manager took focus back from whichever one
+was mid-keystroke - six failures in `test_elevation`, `test_legend`,
+`test_mapview` and `test_tools` which passed on CI and failed on a desk. The
+conftest sets it now.
+
 ### Phase 5
 
 **Phase 5 - the anchors that are not contours.** Overpass import and cache,

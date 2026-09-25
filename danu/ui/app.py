@@ -98,10 +98,12 @@ class MainWindow(QMainWindow):
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
         self.builder = SurfaceBuilder(self)
+        self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._surface_started = 0.0
+        self._arcsec = 0.0
         self.squares = SquaresItem()
         self.map.scene().addItem(self.squares)
         self.contours = ContourLayer()
@@ -470,22 +472,34 @@ class MainWindow(QMainWindow):
             return False
         if arcsec is not None:
             p = p.with_arcsec(arcsec)
-        if not self.builder.build(self.working_set, p, self.editor.history.dirty_squares()):
-            self.statusBar().showMessage('a surface is still building')
-            return False
-        self._surface_started = time.monotonic()
-        self.surface_panel.building(f'building at {p.arcsec:g}″…')
-        self.statusBar().showMessage(f'building the surface at {p.arcsec:g}″ - the same stages the server runs')
+        queued = self.builder.busy
+        self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
+        self._arcsec = p.arcsec
+        if queued:
+            # the running build is already superseded; it finishes and is shown
+            # as stale while this one runs
+            self.surface_panel.building(f'queued at {p.arcsec:g}″…')
+            self.statusBar().showMessage('queued behind the build already running')
         return True
 
-    def _surface_built(self, built):
+    def _surface_starting(self):
+        self._surface_started = time.monotonic()
+        self.surface_panel.building(f'building at {self._arcsec:g}″…')
+        self.statusBar().showMessage(
+            f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
+
+    def _surface_built(self, built, stale=False):
         seconds = time.monotonic() - self._surface_started
         self.surface.set_shaded(built.shaded)
         self.legend.refresh()
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)
-        self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
+        if stale:
+            self.statusBar().showMessage(
+                f'surface built in {seconds:.0f} s, already out of date - rebuilding')
+        else:
+            self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
 
     def _surface_failed(self, text: str):
         self.surface_panel.failed(text)

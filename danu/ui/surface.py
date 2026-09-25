@@ -50,76 +50,136 @@ class _Signals(QObject):
     failed = Signal(str)
 
 
+def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Built:
+    """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
+    touches no Qt object, so it is also the seam the queue's tests replace."""
+    # here and not at import: building needs GDAL, looking does not
+    from ..surface import build
+    # keep_pass1: the overlay wants what the first pass could not answer, and
+    # the first pass is nearly all of the fill. Asking for it here is the
+    # difference between an edit costing one fill and two - 95 s of the 208 s
+    # at 1 arcsecond on a three by three set
+    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True)
+    if result.dem is None:
+        raise Nothing('nothing to build: no square in the set holds a contour')
+    classes = build.first_pass_classes(result.constraints, result.drawn_mask, params, work)
+    shaded = shade.shade_dem(result.dem, params, work, classes=classes)
+    from .overlays import envelope_rings
+    # the outline is a courtesy; its file missing is not a failed surface
+    rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
+    return Built(shaded, rings)
+
+
+class Nothing(Exception):
+    """There is nothing to build - reported as itself, not as a traceback."""
+
+
 class _Job(QRunnable):
-    def __init__(self, zone_dir: Path, names: list, params: Params, work: Path, signals: _Signals):
+    def __init__(self, fn, zone_dir: Path, names: list, params: Params, work: Path,
+                 signals: _Signals):
         super().__init__()
-        self.zone_dir, self.names, self.params, self.work, self.signals = zone_dir, names, params, work, signals
+        self.fn, self.zone_dir, self.names = fn, zone_dir, names
+        self.params, self.work, self.signals = params, work, signals
 
     def run(self):
         try:
-            # here and not at import: building needs GDAL, looking does not
-            from ..surface import build
-            # keep_pass1: the overlay wants what the first pass could not
-            # answer, and the first pass is nearly all of the fill. Asking for
-            # it here is the difference between an edit costing one fill and
-            # two - 95 s of the 208 s at 1 arcsecond on a three by three set
-            result = build.build_dem(self.zone_dir, self.work, self.params, names=self.names,
-                                     keep_pass1=True)
-            if result.dem is None:
-                self.signals.failed.emit('nothing to build: no square in the set holds a contour')
-                return
-            classes = build.first_pass_classes(result.constraints, result.drawn_mask, self.params, self.work)
-            shaded = shade.shade_dem(result.dem, self.params, self.work, classes=classes)
-            from .overlays import envelope_rings
-            # the outline is a courtesy; its file missing is not a failed surface
-            rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
+            built = self.fn(self.zone_dir, self.names, self.params, self.work)
+        except Nothing as e:
+            self.signals.failed.emit(str(e))
+            return
         except ImportError as e:
             self.signals.failed.emit(f'building a surface needs GDAL, which could not be imported: {e}')
             return
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
             self.signals.failed.emit(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
-        self.signals.finished.emit(Built(shaded, rings))
+        self.signals.finished.emit(built)
 
 
 class SurfaceBuilder(QObject):
-    """One build at a time, on the pool; the result arrives as a signal."""
-    finished = Signal(object)
+    """One build at a time, newest wins.
+
+    A request made while a build is running does not queue behind it and does
+    not bounce: it replaces whatever else was waiting, so a run of edits costs
+    one more build and not one each. Only the newest is ever started, because
+    only the newest is what is drawn.
+
+    A build already running cannot be stopped - `isofill` is a C call with no
+    cancellation hook, and the pass it is in has to finish. So a superseded
+    build is spent either way, and what it hands back is shown rather than
+    thrown away: it is the surface as things stood a moment ago, which beats a
+    blank canvas while the newer one runs. ``finished`` says whether it is
+    stale, and R19's job is to make that visible.
+
+    Staging happens when a build starts, not when it is asked for - it is 177
+    ms on the gobras 3x3, and coalesced requests should not each pay it.
+    """
+    started = Signal()
+    finished = Signal(object, bool)   # Built, stale
     failed = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, build_fn=build_surface, runner=None):
         super().__init__(parent)
-        self.busy = False
+        self._build_fn = build_fn
+        self._runner = runner or QThreadPool.globalInstance().start
+        self._serial = 0          # requests made
+        self._started = 0         # the serial the running build was started for
+        self._wanted = None       # the newest request not yet started
+        self._running = False
         self._signals = None
         self._job = None
         self.work = Path(tempfile.mkdtemp(prefix='danu-surface-'))
 
-    def build(self, ws: WorkingSet, params: Params, dirty=()) -> bool:
-        """Build what is drawn, saved or not: the set is staged from memory
-        on this thread - the worker must not read squares the tools are
-        editing - and the worker reads the staged zone."""
-        if self.busy:
-            return False
+    @property
+    def busy(self) -> bool:
+        return self._running
+
+    def request(self, ws: WorkingSet, params: Params, dirty=()) -> int:
+        """Ask for a surface, and get the serial the request was given.
+
+        Always accepted. If a build is running this displaces any request
+        already waiting behind it; the working set is read when the build
+        starts, so what gets built is the newest state either way.
+        """
+        self._serial += 1
+        self._wanted = (ws, params, tuple(dirty))
+        if not self._running:
+            self._start()
+        return self._serial
+
+    def _start(self):
+        ws, params, dirty = self._wanted
+        self._wanted = None
+        self._started = self._serial
+        # staged from memory on this thread: the worker must not read squares
+        # the tools are editing
         from ..core.save import stage_zone
         zone_dir = stage_zone(ws.squares.values(), dirty, self.work / 'zone')
         names = [sq.name for sq in ws.squares.values() if sq.present or sq.ways]
-        self.busy = True
+        self._running = True
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        job = _Job(zone_dir, names, params, self.work, sig)
+        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig)
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
-        QThreadPool.globalInstance().start(job)
-        return True
+        self.started.emit()
+        self._runner(job)
 
-    def _done(self, shaded):
-        self.busy = False
-        self.finished.emit(shaded)
+    def _done(self, built):
+        self._running = False
+        stale = self._wanted is not None
+        self.finished.emit(built, stale)
+        self._next()
 
     def _fail(self, text):
-        self.busy = False
+        self._running = False
         self.failed.emit(text)
+        self._next()
+
+    def _next(self):
+        if self._wanted is not None and not self._running:
+            self._start()
 
     def cleanup(self):
         shutil.rmtree(self.work, ignore_errors=True)

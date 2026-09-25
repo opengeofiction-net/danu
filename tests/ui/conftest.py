@@ -2,10 +2,21 @@
 
 import gc
 import json
+import os
 import shutil
 from pathlib import Path
 
 import pytest
+
+# Offscreen unless the caller has said otherwise. CI sets this in the job's
+# environment and this suite is written for it - the legend's pan test says so
+# in as many words - but nothing set it for a developer running pytest, so the
+# tests opened real windows: they flash past on screen, and the window manager
+# takes the focus back from whichever one is mid-keystroke, which is why
+# test_elevation, test_legend, test_mapview and test_tools failed locally and
+# passed on CI. Set before PySide6 is imported, because that is when Qt reads
+# it. QT_QPA_PLATFORM=xcb still gets you the windows if you want to watch.
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 pytest.importorskip('PySide6')
 from PySide6.QtCore import QEvent, QPointF, Qt, QThreadPool           # noqa: E402
