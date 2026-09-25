@@ -1140,6 +1140,57 @@ What F2 does not do is reach 50 ms. After it, the whole-raster solve is 85% of
 an edit at 1"; the micro-costs are noise. That is the incremental path's job,
 and F2's was to stop the waste around it.
 
+**F3, the local solve.** The preview's whole premise, and the open question
+below: a cell's first-pass value depends only on contours within `radius`, so a
+box grown by that much is exact inside, but the second pass is Laplace and
+Laplace is global. A box solved against a rim held at the last whole-raster
+answer is an approximation, and if its seam shows the preview is worth little.
+
+It does not show. `danu.surface.local.resolve` solves a box and hands back a
+patch; against a whole-raster solve of the same edit, over eighteen edits the
+editor would accept on the gobras 3x3, the patch is wrong by at most **0.268 m**
+and leaves nothing behind it out of date. At 1 arcsecond the worst of six edits
+is 0.035 m. On the hardest case found - a whole contour level deleted from the
+golden square, which opens new ground the first pass cannot answer rather than
+merely disturbing old - the patch is exact. Rendered as hillshade, local and
+global do not differ by a single grey level.
+
+Two numbers control it and they answer different questions, which is worth
+saying because treating them as one number hid both for a while. **Cover** is
+how far past the edited box the patch reaches, and it decides what goes *stale*:
+an edit moves ground beyond the box it was drawn in, and whatever the patch does
+not cover keeps showing the surface from before. **Slack** is how much clearance
+the solve keeps beyond the patch, on top of the radius, and it decides what the
+patch gets *wrong*, because that is the distance between the ground being
+answered and the rim the answer is held against. Both want two radii:
+
+| | stale outside | wrong inside |
+|---|---|---|
+| the minimal box | 115.794 m | 0.557 m |
+| one radius | 42.392 m | 0.002 m |
+| two radii | none | exact |
+
+What is left at two radii is not the rim at all. It is entirely cells the first
+pass declined, where the second invents a value by diffusing across a region of
+unanswered ground that runs past any box worth solving - so the patch solves a
+truncated version of it and lands a little differently. That is the irreducible
+part of being local, and it is what the exact rebuild on idle exists to remove.
+
+`isofill_diffuse` is what makes a box solvable: the second pass on its own, over
+a surface the first pass has already written. There is no "hold this cell" in
+it, because a cell carrying anything but a sentinel is already fixed - a caller
+writes the rim from the last whole-raster answer and the solve runs up to it. I
+built a held mask first and measured it doing nothing, over 1024 cells, before
+taking it out again.
+
+Two things the measuring caught that reading would not have. The rim must not be
+written where the box runs into the raster's own edge: there is nothing outside
+to hold it at, the whole-raster solve treats that edge as an edge, and pinning
+it at the pre-edit surface left a cell 82.656 m out that no margin could reach.
+And the patch must be cropped before it is handed back - the ring where the
+first pass is truncated by the crop is not a worse answer, it is no answer, and
+splicing it in put 115.794 m into the surface.
+
 ### Phase 5
 
 **Phase 5 - water.** Overpass import and cache, elevations on water, burn and
@@ -1254,9 +1305,13 @@ Nothing about the design. What is left is what building it will answer:
 1. **Can the move keep its history?** `git filter-repo` can lift a path set with
    its commits, and these files carry the reasoning behind most of the elevation
    decisions of the last two months. Worth an hour; not worth a week.
-2. **Is the local second pass good enough?** Phase 4 measures it against a
-   global solve. If the seam shows, the preview loses most of its value and the
-   answer is a coarser but global preview instead.
+2. ~~**Is the local second pass good enough?**~~ **Answered: yes.** Measured
+   against a whole-raster solve in F3, a patch covering the edit by two radii
+   and solved with two radii of clearance is wrong by at most 0.268 m over
+   eighteen edits on the gobras 3x3, 0.035 m at 1 arcsecond, and exact on the
+   hardest case found. Local and global hillshades do not differ by a grey
+   level. The seam does not show, and the coarser global preview the fallback
+   plan called for is not needed. See *F3, the local solve*.
 3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library
    built for it. The phase 0 CI build is there to find out early rather than at
    the end.

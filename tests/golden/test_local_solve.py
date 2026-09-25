@@ -136,31 +136,49 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     moved = int((whole != before['surface'].astype(np.float64)).sum())
     assert moved > 50, f'deleting the level moved only {moved} cells'
 
-    def wrong_by(margin):
-        got, grown = local.resolve(after['constraints'], after['mask'], after['water'],
-                                   before['surface'], box, p, margin=margin,
-                                   nodata=after['nodata'])
-        assert grown.cells > box.cells, 'the box was not grown by the radius'
-        # and outside the box it solved, it left the surface alone
-        untouched = got.copy()
-        untouched[grown.slice] = before['surface'][grown.slice]
-        assert np.array_equal(untouched, before['surface']), \
-            'the local solve wrote outside the box it was given'
-        return float(np.abs(got.astype(np.float64) - whole)[box.slice].max())
+    def solve(cover=None, slack=None):
+        patch, good = local.resolve(after['constraints'], after['mask'], after['water'],
+                                    before['surface'], box, p, cover=cover, slack=slack,
+                                    nodata=after['nodata'])
+        assert patch.shape == good.shape, 'the patch is not the box it says it is good for'
+        # the scaffolding is cropped off: more is solved than is handed back,
+        # and the ring between the two is where the first pass is truncated by
+        # the crop and answers nothing
+        c = 2 * p.fill_cells if cover is None else cover
+        sl = 2 * p.fill_cells if slack is None else slack
+        solved = box.grown(c, after['constraints'].shape).grown(
+            local.reach(p, sl), after['constraints'].shape)
+        assert good.cells < solved.cells, 'the patch is the whole solve, scaffolding and all'
+        got = before['surface'].copy()
+        got[good.slice] = patch
+        err = np.abs(got.astype(np.float64) - whole)
+        stale = err.copy()
+        stale[good.slice] = 0
+        # what the patch gets wrong, and what it leaves out of date around it
+        return float(err[good.slice].max()), float(stale.max())
 
-    # This is what the margin buys, and the reason phase 4 has one to spend.
-    # Deleting a whole level is about the worst an edit can be - it opens new
-    # ground the first pass cannot answer, and the second has to invent it - so
-    # these are an upper bound rather than a typical edit. On the gobras 3x3,
-    # ordinary edits come out at 0.002 m with no margin at all.
-    bare = wrong_by(0)
-    assert bare < 1.0, f'with no margin the local solve is wrong by {bare:.3f} m'
-    assert bare > 0.01, 'no margin and yet exact - this edit is not testing the rim'
-    # a radius of margin takes it to twenty-three micrometres, which is four
-    # orders below the 0.05 m the published DEM is even stored to
-    with_margin = wrong_by(p.fill_cells)
-    assert with_margin < 0.001, \
-        f'a margin of one radius left the local solve {with_margin:.6f} m out'
+    # The smallest thing that could work: the edited box and a radius to see
+    # the contours, nothing more. Both errors are real there, and they are
+    # what cover and slack exist to remove.
+    bare_wrong, bare_stale = solve(cover=0, slack=0)
+    assert bare_wrong > 0.01, 'the minimal box is already exact - this edit is not testing the rim'
+    assert bare_stale > 1.0, 'the minimal box leaves nothing stale - this edit does not travel'
+
+    # and the defaults, two radii of each, measured rather than chosen. On this
+    # edit they make the patch exact
+    wrong, stale = solve()
+    assert wrong == 0.0, f'the patch is {wrong:.6f} m out'
+    assert stale == 0.0, f'the ground outside the patch is {stale:.3f} m out of date'
+
+    # slack is what took it there. It is a small distance on this fixture -
+    # sixty-one micrometres - because cover already holds the rim well away.
+    # The number that chose two radii came from the gobras 3x3, where the worst
+    # of eighteen edits goes from 2.231 m at no slack to 0.424 m at two and no
+    # further; and what is left there is not the rim at all, but the second
+    # pass inventing across a region of unanswered ground that runs past any
+    # box worth solving.
+    assert solve(slack=0)[0] > wrong, 'slack made no difference, so it is not being tested here'
+
 
 
 def test_the_rim_is_what_bounds_it(tmp_path):
@@ -190,10 +208,14 @@ def test_the_rim_is_what_bounds_it(tmp_path):
     y, x = unanswered[len(unanswered) // 2]
     box = local.Box(int(x) - 5, int(y) - 5, int(x) + 5, int(y) + 5)
 
-    honest, grown = local.resolve(built['constraints'], built['mask'], built['water'],
-                                  built['surface'], box, p, nodata=built['nodata'])
+    # with no margin, so the rim is against the ground being solved. At the
+    # default of two radii it is far enough away that lying about it changes
+    # nothing measurable - which is the result, and would make this test pass
+    # whether or not the rim was read at all
+    honest, good = local.resolve(built['constraints'], built['mask'], built['water'],
+                                 built['surface'], box, p, cover=0, slack=0, nodata=built['nodata'])
     nonsense = built['surface'] + np.float32(500.0)
     lied_to, _ = local.resolve(built['constraints'], built['mask'], built['water'],
-                               nonsense, box, p, nodata=built['nodata'])
-    differ = int((honest[grown.slice] != lied_to[grown.slice]).sum())
+                               nonsense, box, p, cover=0, slack=0, nodata=built['nodata'])
+    differ = int((honest != lied_to).sum())
     assert differ > 0, 'the rim changed nothing, so the solve is not reading it'

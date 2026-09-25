@@ -63,28 +63,68 @@ class Box:
         return self.x0 == 0 or self.y0 == 0 or self.x1 == cols - 1 or self.y1 == rows - 1
 
 
-def reach(params: Params, margin: int) -> int:
-    """How far out of the edited box the solve has to go: the fill's radius, so
-    the first pass inside the box sees every contour a whole-raster run would,
-    plus whatever margin is being given to the second."""
-    return params.fill_cells + margin
+def reach(params: Params, slack: int) -> int:
+    """The clearance between the patch and the edge of the solve: the fill's
+    radius, so the first pass inside the patch sees every contour a
+    whole-raster run would, plus whatever slack the second pass is being given
+    on top of it.
+
+    These are two different needs and conflating them is a mistake I made and
+    had to measure my way out of. The first pass wants exactly a radius and no
+    more - beyond that it cannot see. The second is diffusion, which has no
+    radius: what it wants is distance between the ground being answered and the
+    rim the answer is held against."""
+    return params.fill_cells + slack
 
 
 def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
-            previous: np.ndarray, box: Box, params: Params, margin: int = 0,
-            nodata: float | None = None, lib=None) -> tuple[np.ndarray, Box]:
-    """The surface with ``box`` re-solved, and the box that was actually solved.
+            previous: np.ndarray, box: Box, params: Params, cover: int | None = None,
+            slack: int | None = None, nodata: float | None = None,
+            lib=None) -> tuple[np.ndarray, Box]:
+    """The re-solved patch, and the box it is good for.
 
     ``constraints``, ``mask`` and ``water`` are the whole raster as it is after
-    the edit; ``previous`` is the surface before it. The returned array is
-    ``previous`` with the solved box written into it.
+    the edit; ``previous`` is the surface before it. What comes back is a patch
+    and where it goes - a caller wanting a whole raster writes it in itself,
+    which is two lines and its own decision. Returning ``previous`` with the
+    patch written into it would copy the whole surface on every call, 311 MB at
+    1 arcsecond, which is most of what solving a box was meant to avoid.
 
-    The rim of the solved box is written from ``previous`` before the second
-    pass runs, which is the whole of the boundary condition: isofill does not
-    move a cell carrying anything but a sentinel.
+    ``cover`` is how far beyond the edited box the patch reaches, and ``slack``
+    is how much clearance the solve keeps beyond that, on top of the radius.
+    They answer different questions and conflating them was a mistake worth
+    recording, since one number moved both and so never changed the clearance
+    at all.
+
+    ``cover`` is about what goes stale. An edit moves ground beyond the box it
+    was drawn in - the first pass reaches a radius, the second carries further
+    inside whatever region of unanswered cells the edit lands in - and whatever
+    the patch does not cover keeps showing the surface from before. Two radii
+    is what that took: on the golden square a whole contour level deleted left
+    115.794 m behind at no cover, 42.392 m at one radius and nothing at two,
+    and over eighteen edits on the gobras 3x3 nothing moved beyond two radii at
+    all.
+
+    ``slack`` is about what the patch gets wrong, which is the held rim. Two
+    radii again, for a different reason: over the same eighteen edits it takes
+    the worst from 3.278 m to 0.268 m, and no amount beyond that helps.
+
+    What is left at that point is not the rim. It is entirely cells the first
+    pass declined - 224 of them on the worst case looked at, every one classed
+    "one level only" - where the second pass invents a value by diffusing
+    across a region of unanswered ground. That region runs past any box worth
+    solving, so the patch solves a truncated version of it and lands a little
+    differently. It is the irreducible part of being local: a quarter of a
+    metre against a 25 m contour interval, invisible in a hillshade, and the
+    exact rebuild on idle is what removes it.
     """
     lib = lib or isofill_lib.Isofill.load()
-    grown = box.grown(reach(params, margin), constraints.shape)
+    if cover is None:
+        cover = 2 * params.fill_cells
+    if slack is None:
+        slack = 2 * params.fill_cells
+    good = box.grown(cover, constraints.shape)
+    grown = good.grown(reach(params, slack), constraints.shape)
     sl = grown.slice
     cons = np.ascontiguousarray(constraints[sl], dtype=np.float32)
     sub_mask = np.ascontiguousarray(mask[sl], dtype=np.uint8)
@@ -117,6 +157,7 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
         first[:, -1] = prev[:, -1]
 
     solved = lib.diffuse(first, mask=sub_mask, water=sub_water)
-    out = previous.copy()
-    out[sl] = solved
-    return out, grown
+    # crop the scaffolding: only the ground a radius inside the solve is the
+    # answer a whole-raster run would have given
+    return solved[good.y0 - grown.y0:good.y1 - grown.y0 + 1,
+                  good.x0 - grown.x0:good.x1 - grown.x0 + 1], good
