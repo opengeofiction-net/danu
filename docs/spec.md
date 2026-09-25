@@ -136,25 +136,10 @@ the tools for everything else.
 
 Numbered from R36 because the earlier numbers are cited from the code.
 
-- **R36** A node carrying `ele` is a constraint, the same as a contour way.
-  3,010 are already drawn, across 67 of the 834 squares, and every one is
-  discarded today: `collect` reads the `lines` layer only, and `osmconf.ini`
-  has `ele` among the keys which do not make a node worth reporting. Both
-  change, and the first build afterwards is a migration - it moves the
-  published surface in those 67 squares.
+- **R36** Nodes with `ele` inside the squares are first-class and editable.
+  A node carrying `ele` is a constraint, the same as a contour way.
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
-  cannot say how high a hill goes - on the golden square no innermost ring
-  rises more than 15 mm above its own top contour, against a 50 m interval -
-  nor whether nested rings are a hill or a hollow.
-
-`isofill` needs the elevation and nothing else, so no tag beyond `ele` has to
-be understood. Typing them - `natural=peak`, `saddle`, `sinkhole` - buys checks
-and rendering rather than fill, and stays in **Later** with areas held at an
-elevation.
-
-One thing to measure first: `barrier_cells` widens a constraint for the sight
-test, so a one-cell spot height becomes a five-by-five occluder. A contour is a
-line and hardly notices; a point is not.
+  cannot say how high a hill goes.
 
 ### Checks
 
