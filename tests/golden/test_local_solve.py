@@ -10,13 +10,16 @@ So this does both and compares. Both surfaces come from the same constraints,
 the same masks and the same isofill; the only difference is that one solved the
 whole raster and the other solved a box around the edit.
 
-Measured on the gobras 3x3 while this was written, over edits the editor would
-accept: the local surface is wrong by at most 0.002 m over the edited ground,
-and most edits come out bit for bit. What makes it that good is that the second
-pass only moves cells the first pass declined, and every answered cell is fixed
-- diffusion cannot cross a ring of answered ground, so a change is confined to
-the region of unanswered cells it lands in, and 99% of those regions are under
-105 cells.
+Measured on the gobras 3x3 over eighteen edits the editor would accept, with
+the patch covering the edit by two radii and solved with two radii of
+clearance: it is wrong by at most 0.268 m and leaves nothing behind it out of
+date. At 1 arcsecond the worst of six edits is 0.035 m. On the case this file
+builds - a whole contour level deleted from the golden square - it is exact.
+
+What makes it that good is that the second pass only moves cells the first pass
+declined, and every answered cell is fixed: diffusion cannot cross a ring of
+answered ground, so a change is confined to the region of unanswered cells it
+lands in, and 99% of those regions are under 105 cells.
 """
 
 import shutil

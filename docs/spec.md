@@ -332,13 +332,22 @@ anywhere moves everything, by less and less with distance. A local solve holding
 the surrounding surface fixed at the box edge is therefore an approximation, and
 a good one, because the boundary it holds is the answer the last full solve gave.
 
-So:
+F3 measured how good, and the sizes below are its answer rather than a guess.
+Two distances matter and they are not the same one. **Cover** is how far past
+the edited box the patch reaches, and it decides what is left showing the old
+surface; **slack** is the clearance the solve keeps beyond the patch, on top of
+the radius, and it decides what the patch gets wrong. Both want two radii; see
+*F3, the local solve*.
 
-| when | extent | pass 1 | pass 2 | budget |
-|---|---|---|---|---|
-| during a drag | edited box, no margin | exact within | local, approximate | 30 ms |
-| on release | box + radius margin | exact | local, approximate | 200 ms |
-| on idle, 2 s | whole working set | exact | exact | seconds |
+| when | patch covers | solved | pass 1 | pass 2 | budget |
+|---|---|---|---|---|---|
+| during a drag | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 30 ms |
+| on release | box + 2 radii | + 3 radii | exact | local, ~0.27 m | 200 ms |
+| on idle, 2 s | whole working set | all | exact | exact | seconds |
+
+The drag and the release solve the same ground: at 1 arcsecond a small edit is
+about 130,000 cells against the working set's 77.8 million, so there was no
+saving worth having in solving less during the drag and being wrong by more.
 
 The status bar reads `preview` until the idle rebuild lands, then `exact`. Any
 measurement the editor reports - a profile, a check, a difference - is taken from
@@ -1162,13 +1171,19 @@ an edit moves ground beyond the box it was drawn in, and whatever the patch does
 not cover keeps showing the surface from before. **Slack** is how much clearance
 the solve keeps beyond the patch, on top of the radius, and it decides what the
 patch gets *wrong*, because that is the distance between the ground being
-answered and the rim the answer is held against. Both want two radii:
+answered and the rim the answer is held against. Both want two radii. Deleting a whole contour level from the golden square,
+which is the case the tests build:
 
 | | stale outside | wrong inside |
 |---|---|---|
 | the minimal box | 115.794 m | 0.557 m |
 | one radius | 42.392 m | 0.002 m |
 | two radii | none | exact |
+
+Over the eighteen gobras edits, which are ordinary rather than worst, the same
+two radii take the worst patch from 3.278 m to the 0.268 m above. Nothing there
+comes out exact, and the golden square's row does, because one square with one
+level taken out of it is a smaller problem than a three by three working set.
 
 What is left at two radii is not the rim at all. It is entirely cells the first
 pass declined, where the second invents a value by diffusing across a region of
