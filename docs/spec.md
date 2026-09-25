@@ -1265,6 +1265,36 @@ was mid-keystroke - six failures in `test_elevation`, `test_legend`,
 `test_mapview` and `test_tools` which passed on CI and failed on a desk. The
 conftest sets it now.
 
+**F5a, the constraints under an edit.** F3 solves a box around an edit and gets
+the whole raster's answer, but it takes constraints that already carry the
+edit, and producing those by rebuilding is the thing the preview exists to
+avoid. Timed per stage on the gobras 3x3 at 3 arcseconds, a whole build is
+5.57 s and no one stage dominates it - collect 1.63, water 1.26, interpolate
+1.41, clamp 0.86 - so there is nothing to skip. All of it has to go.
+
+The contours are held in memory instead, as a layer loaded once from the
+build's GeoPackage (220 ms for gobras' 7,240) and mutated per edit, and a box
+is burned from that. 2.3 ms for a five-cell edit and 5.2 ms for a
+two-hundred-cell one, against 10 to 18 ms for the solve: twelve to
+twenty-three milliseconds together, against the 50 ms the phase ends on, with
+the clamp and the shading still to come. Deleting a contour level from the
+golden square and previewing it gives the rebuild's answer exactly - 0.000 m,
+and nothing left out of date around it.
+
+The trap is ordering, and the obvious way to get it is wrong. Rasterising with
+`ATTRIBUTE=ele` is last-writer-wins where two contours touch one cell, so a box
+burned in a different order from the whole raster disagrees with it. An OGR
+spatial filter hands features back in *spatial index* order, and burning that
+way put 1,359 of 48,841 cells at the wrong elevation - not at the box edge
+where it would have shown, but scattered through it, median 31 cells in, every
+one holding a value in both and a different value in each. Keeping the build's
+FIDs and burning in FID order matches exactly at every box size tried;
+reversing the order puts 80 cells wrong, which is what the test asserts against.
+
+What is left for F5b: the clamp and the Mercator warp and hillshade for a
+patch, and the wiring - preview on edit, the exact rebuild on idle through F4's
+queue, and the two states told apart at a glance.
+
 ### Phase 5
 
 **Phase 5 - the anchors that are not contours.** Overpass import and cache,
