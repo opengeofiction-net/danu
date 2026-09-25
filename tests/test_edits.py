@@ -316,7 +316,9 @@ def test_one_history_over_two_squares_with_dirt_per_square():
     sq, cmd = hist.undo()
     assert sq is a and hist.dirty(a)                    # undone past the clean mark is dirty again
     assert hist.redo()[0] is a and not hist.dirty(a)
-    assert hist.describe_redo() and hist.alloc(a) is hist.alloc(a) and hist.alloc(a) is not hist.alloc(b)
+    # one allocator over the set, not one per square - see the collision test
+    # below, which is what this used to assert the opposite of
+    assert hist.describe_redo() and hist.alloc(a) is hist.alloc(a) is hist.alloc(b)
     assert hist.undo()[0] is a and hist.undo() is None       # one step was left; then nothing
 
 
@@ -402,3 +404,43 @@ def test_a_ring_is_turned_so_a_stretch_over_its_join_is_one_run():
     assert set(w.refs) == set(ring)                              # the same ring, cut elsewhere
     turn.undo(sq)
     assert edits.snapshot(sq) == before
+
+
+def test_two_squares_of_a_set_never_mint_the_same_id():
+    """A square's lowest id is positive unless something has been drawn in it,
+    so an allocator built per square offers -1 to every one of them. A working
+    set is many squares, and the first contour drawn in each then shares an id
+    with the first drawn in the others.
+
+    Harmless while nothing indexes on it. Not harmless once something does:
+    the preview keys a way's last geometry on the id, so drawing in one square
+    moved the surface in another; and the GeoPackage a build collects writes
+    the id as osm_id, so a saved set already held two features claiming to be
+    the same way.
+    """
+    a, b, c = fresh_square(), fresh_square(), fresh_square()
+    hist = edits.SetUndoStack()
+    minted = set()
+    for sq in (a, b, c, a, b):
+        alloc = hist.alloc(sq)
+        for _ in range(3):
+            i = alloc.take()
+            assert i not in minted, f'id {i} was minted twice across the set'
+            minted.add(i)
+    assert len(minted) == 15
+    assert all(i < 0 for i in minted), minted
+
+
+def test_a_square_joining_later_does_not_invalidate_ids_already_given_out():
+    """The allocator only ever moves down, so a square opened after some
+    drawing has been done cannot be handed an id that is already in use -
+    including one already in that square."""
+    a = fresh_square()
+    hist = edits.SetUndoStack()
+    first = [hist.alloc(a).take() for _ in range(3)]
+
+    b = fresh_square()
+    b.ways[min(first) - 5] = b.ways[max(b.ways)]      # b already holds a lower id
+    after = [hist.alloc(b).take() for _ in range(3)]
+    assert min(first) > max(after), 'the allocator handed back out over ids in use'
+    assert all(i < min(first) - 5 for i in after), (first, after)

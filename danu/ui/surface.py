@@ -46,6 +46,7 @@ class Built:
     shaded: shade.Shaded
     envelope_rings: list = field(default_factory=list)
     rasters: 'Rasters | None' = None      # for the preview; None when it is off
+    params: Params | None = None          # the ones it was actually built with
 
 
 @dataclass
@@ -59,15 +60,15 @@ class Rasters:
     "slow" in the menu and an edit waits for the exact build. PREVIEW_ARCSEC
     is where that line is drawn.
     """
-    constraints: object
-    mask: object
-    water: object
-    surface: object
-    dem: object
+    constraints: np.ndarray
+    mask: np.ndarray
+    water: np.ndarray | None
+    surface: np.ndarray
+    dem: np.ndarray
     geotransform: tuple
     projection: str
     nodata: float
-    gpkg: object
+    gpkg: Path
 
 
 # Above this, the rasters the preview needs are gigabytes and are not kept.
@@ -99,7 +100,7 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     from .overlays import envelope_rings
     # the outline is a courtesy; its file missing is not a failed surface
     rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
-    return Built(shaded, rings, rasters=_rasters(result, work, params))
+    return Built(shaded, rings, rasters=_rasters(result, work, params), params=params)
 
 
 def _rasters(result, work: Path, params: Params):
@@ -122,7 +123,6 @@ def _rasters(result, work: Path, params: Params):
 
 def _read_rasters(result, work: Path):
     from osgeo import gdal
-    import numpy as np
     held = {}
 
     def read(path, dtype=None):
@@ -137,7 +137,7 @@ def _read_rasters(result, work: Path):
     return Rasters(constraints=cons,
                    mask=read(result.drawn_mask),
                    water=read(result.water_mask) if result.water_mask else None,
-                   surface=read(work / 'rounded.tif', np.float32),
+                   surface=read(result.surface, np.float32),
                    dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
                    geotransform=tuple(dem_ds.GetGeoTransform()),
                    projection=dem_ds.GetProjection(),
@@ -309,6 +309,13 @@ class SurfaceBuilder(QObject):
         If the wait runs out the directory is left behind rather than pulled
         out from under a live writer. It is a temporary directory and the
         system will have it.
+
+        What this does *not* wait for is the finished signal, which is queued
+        to the UI thread and arrives after. A handler that goes back to the
+        directory - reopening the GeoPackage, say - finds it gone. That is
+        only safe because the one caller is ``closeEvent``, where a complaint
+        about a vanished temporary path is the last thing that happens; a
+        second caller would want the results drained first.
         """
         self._wanted = None                  # nothing more starts
         done = True
@@ -340,6 +347,8 @@ class SurfaceLayer(QGraphicsItem):
         self.style = Style()
         self._pixmap: QPixmap | None = None
         self._rect = QRectF()
+        self._array = None
+        self._stretch: tuple | None = None
         self._preview = False
 
     def set_shaded(self, shaded: shade.Shaded | None):
@@ -360,14 +369,57 @@ class SurfaceLayer(QGraphicsItem):
             self.update()
 
     def recolour(self):
-        """compose() the kept arrays into the pixmap; cheap, on the UI thread."""
+        """compose() the kept arrays into the pixmap.
+
+        Not cheap, which I had asserted it was without measuring. On the gobras
+        3x3 at 3 arcseconds the composed array is 24.4 M cells and this is
+        1,472 ms in shaded relief, 1,376 in relief and 275 in hillshade - about
+        twenty-four times the solve it follows. A preview that took 62 ms to
+        work out was spending a second and a half being shown, which is what
+        recolour_box is for.
+        """
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
-        rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode, self.style.shade_strength)
+        self._stretch = self.style.scaling.range_for(self.shaded.dem)
+        rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode,
+                             self.style.shade_strength, stretch=self._stretch)
         rows, cols = rgba.shape[:2]
         # QImage over the array, then a copy so the array may go
         self._array = np.ascontiguousarray(rgba)
         img = QImage(self._array.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         self._pixmap = QPixmap.fromImage(img.copy())
+
+    def recolour_box(self, y0: int, x0: int, rows: int, cols: int) -> bool:
+        """Recolour one rectangle of the surface and paint it into the pixmap.
+
+        The colour scale is the one the last whole recolour worked out, not one
+        worked out from the rectangle: in ``auto`` the range comes from the
+        land in the whole array, and a patch that restretched to its own
+        contents would come out a different colour from the ground around it.
+        It also stops the scale jumping on every edit, which is worth having
+        anyway; the next whole recolour brings it up to date.
+        """
+        if self._pixmap is None or self._array is None or self.shaded is None:
+            return False
+        y0, x0 = max(0, y0), max(0, x0)
+        rows = min(rows, self._array.shape[0] - y0)
+        cols = min(cols, self._array.shape[1] - x0)
+        if rows <= 0 or cols <= 0:
+            return False
+        sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
+        ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
+        window = shade.Shaded(dem=self.shaded.dem[sl], shade=self.shaded.shade[sl],
+                              geotransform=self.shaded.geotransform, metres=self.shaded.metres)
+        rgba = np.ascontiguousarray(
+            shade.compose(window, ramp, self.style.scaling, self.style.mode,
+                          self.style.shade_strength, stretch=self._stretch))
+        self._array[sl] = rgba
+        img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
+        painter = QPainter(self._pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawImage(x0, y0, img)
+        painter.end()
+        self.update()
+        return True
 
     def boundingRect(self) -> QRectF:
         return self._rect
@@ -385,8 +437,10 @@ class SurfaceLayer(QGraphicsItem):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
         if self._preview:
-            # A dashed edge around the surface, in scene units so it keeps its
-            # width on screen at any zoom. Around the whole surface and not the
+            # A dashed edge around the surface. Cosmetic, so the width is in
+            # device pixels and stays the same on screen at any zoom - a pen
+            # in scene units would thicken as the view zoomed in. Around the
+            # whole surface and not the
             # patch: what is provisional is the surface, since one preview's
             # rim is the next one's ground, and outlining the last box edited
             # would say the rest had been settled.

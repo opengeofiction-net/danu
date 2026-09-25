@@ -29,6 +29,7 @@ above and by nothing else, and each of those is measured in
 
 from __future__ import annotations
 
+import math
 import time
 
 import numpy as np
@@ -49,7 +50,8 @@ IDLE_MS = 1500
 class PreviewDriver(QObject):
     """Turns edits into patched surface, and silence into an exact rebuild."""
 
-    patched = Signal(object, float)     # the Box repainted, and how long it took
+    patched = Signal(object, float)     # the display rects written, and how long it took
+    classesStale = Signal()             # R20's overlay no longer describes the surface
     exact_wanted = Signal()
     unavailable = Signal(str)           # why there is no preview, once per reason
 
@@ -83,6 +85,17 @@ class PreviewDriver(QObject):
         self._gesture.stop()
         self._idle.stop()
 
+    def follow(self, shaded):
+        """Point at the surface the layer is drawing.
+
+        Called for every build, stale or not, because the layer takes every
+        build. A driver still holding the one before splices into an array
+        nobody draws, and the previews simply stop appearing - which an idle
+        rebuild, an edit landing while it runs, and another edit inside the
+        gesture window is enough to reach."""
+        if self._kept is not None or shaded is not None:
+            self._shaded = shaded
+
     def adopt(self, built, params: Params):
         """Take the exact build's grids as the ground the next preview works
         from. Called on every build, so the approximations do not compound:
@@ -95,9 +108,11 @@ class PreviewDriver(QObject):
         r = built.rasters
         try:
             contours = preview.Contours(r.gpkg)
-        except OSError as e:
+        except Exception as e:      # noqa: BLE001 - see _run
+            # not OSError alone: by now build_surface has put GDAL in
+            # exception mode, so a file it cannot open is a RuntimeError
             self.forget()
-            self._say(str(e))
+            self._say(f'no live preview: {type(e).__name__}: {e}')
             return
         self._kept = preview.Kept(constraints=r.constraints, mask=r.mask, water=r.water,
                                   surface=r.surface, geotransform=r.geotransform,
@@ -137,11 +152,17 @@ class PreviewDriver(QObject):
                 self._mark(wid, points)
                 self._kept.contours.apply(wid, points, ele)
                 self._drawn[wid] = points
+            elif wid in self._drawn:
+                # it was a contour and is not one now - deleted, or retagged.
+                # The ground it used to cover has to be resolved, so its *old*
+                # geometry is what is boxed
+                self._mark(wid, self._drawn.pop(wid))
+                self._kept.contours.remove(wid)
             else:
-                # gone from the square, or no longer a contour: either way it
-                # stops constraining the surface, and the ground it used to
-                # cover has to be resolved
-                self._mark(wid, self._drawn.pop(wid, points))
+                # it was never a contour. Moving a node of a coastline, or of
+                # anything untagged, constrains nothing and there is nothing to
+                # resolve - boxing its geometry would solve ground the edit
+                # cannot have changed, at tens of milliseconds a go
                 self._kept.contours.remove(wid)
         if self._pending:
             self._gesture.start()
@@ -162,6 +183,10 @@ class PreviewDriver(QObject):
         """
         gt = self._kept.geotransform
         shape = self._kept.constraints.shape
+        # the caller's, not the dict's: on the deletion path the entry has
+        # already been popped and what arrives as `points` *is* the old
+        # geometry. Reading self._drawn here would find nothing and work only
+        # by the order the arguments happen to be evaluated in.
         before = self._drawn.get(wid)
         changed = points
         if before is not None and points:
@@ -186,27 +211,87 @@ class PreviewDriver(QObject):
         if not points:
             return None
         rows, cols = shape
-        xs = [int((lon - gt[0]) / gt[1]) for lon, _ in points]
-        ys = [int((lat - gt[3]) / gt[5]) for _, lat in points]
+        # floor, not int: int(-0.5) is 0, so a way half a cell west of the
+        # raster came out at column 0 and was boxed as if it were inside
+        xs = [math.floor((lon - gt[0]) / gt[1]) for lon, _ in points]
+        ys = [math.floor((lat - gt[3]) / gt[5]) for _, lat in points]
         if max(xs) < 0 or min(xs) >= cols or max(ys) < 0 or min(ys) >= rows:
             return None
         return local.Box(max(0, min(xs)), max(0, min(ys)),
                          min(cols - 1, max(xs)), min(rows - 1, max(ys)))
 
     def _run(self):
-        """One preview, over everything edited since the last."""
+        """One preview, over everything edited since the last.
+
+        Everything here is inside the guard below, because this is a slot: an
+        exception leaving it does not land in a caller, it leaves
+        QTimer::timeout, and PySide6 aborts the process rather than printing
+        it. The likeliest one is not exotic - the solve loads `libisofill.so`,
+        and a machine can have the binary without the library, which is the
+        arrangement `interpolate` already handles by falling back. The build
+        succeeds there, so the driver adopts, looks live, and dies on the first
+        edit.
+        """
+        try:
+            self._preview_once()
+        except Exception as e:      # noqa: BLE001
+            # off, said once, and quiet after that. The exact rebuild on idle
+            # still runs, so the editor keeps working - slower, and honest
+            # about it
+            self._gesture.stop()
+            self._pending.clear()
+            self._kept = None
+            self._say(f'no live preview: {type(e).__name__}: {e} - '
+                      f'edits rebuild on idle instead')
+
+    def _preview_once(self):
         if not self.ready or not self._pending:
             return
-        boxes, self._pending = self._pending, []
-        box = local.Box(min(b.x0 for b in boxes), min(b.y0 for b in boxes),
-                        max(b.x1 for b in boxes), max(b.y1 for b in boxes))
+        boxes, self._pending = self._merged(self._pending), []
         started = time.perf_counter()
-        patch, good = preview.patch(self._kept, box, self._params)
-        # the kept surface carries the edit forward, so the next preview holds
-        # its rim at what is on screen rather than at a surface two edits old
-        self._kept.surface[good.slice] = patch
-        self._repaint(good)
-        self.patched.emit(good, time.perf_counter() - started)
+        written: list = []
+        for box in boxes:
+            patch, good = preview.patch(self._kept, box, self._params)
+            # the kept surface carries the edit forward, so the next preview
+            # holds its rim at what is on screen and not at a surface two
+            # edits old
+            self._kept.surface[good.slice] = patch
+            rect = self._repaint(good)
+            if rect is not None:
+                written.append(rect)
+        if boxes:
+            # R20's overlay is the first pass's classes, and a preview reruns
+            # the first pass without bringing them back: shade_window returns
+            # dem and hillshade only. So the overlay now describes the surface
+            # as it was - it will call ground unreached that the contour just
+            # drawn reaches - and saying nothing would leave red over ground
+            # the mapper has just described.
+            self.classesStale.emit()
+        self.patched.emit(written, time.perf_counter() - started)
+
+    def _merged(self, boxes: list) -> list:
+        """The gesture's boxes, joined where joining is cheaper than not.
+
+        Not one box around all of them. Two edits at opposite corners of a
+        three by three have a bounding box of the whole working set - 12.9 M
+        cells at 3 arcseconds - solved in one go inside a timer slot, with the
+        editor frozen for it. The boxes are disjoint by construction, so
+        solving them apart costs no more work and bounds each piece; they are
+        joined only where their union is no bigger than solving them
+        separately would be, which is what a gesture's run of adjacent nodes
+        looks like.
+        """
+        out: list = []
+        for box in sorted(boxes, key=lambda b: (b.y0, b.x0)):
+            for i, have in enumerate(out):
+                union = local.Box(min(have.x0, box.x0), min(have.y0, box.y0),
+                                  max(have.x1, box.x1), max(have.y1, box.y1))
+                if union.cells <= have.cells + box.cells:
+                    out[i] = union
+                    break
+            else:
+                out.append(box)
+        return out
 
     def _repaint(self, good: local.Box):
         """The patch through the clamp and the shading, and into the arrays the
@@ -216,30 +301,58 @@ class PreviewDriver(QObject):
         shape = kept.constraints.shape
         # a halo, because the box filter and the hillshade both read their
         # neighbours and the warp reads whatever bilinear touches
-        win = good.grown(p.smooth_cells + 4, shape)
-        clamped = preview.clamp_patch(kept.surface[win.slice], kept.constraints[win.slice],
-                                      kept.dem[win.slice])
+        halo = p.smooth_cells + 4
+        win = good.grown(halo, shape)
+        # the constraints as they are *after* the edit. patch() puts its burn
+        # back when it returns, so the kept array holds the build's again and
+        # the contour just drawn is not in it - which would leave clamp_patch's
+        # third rule testing for a constraint that is not there and never
+        # putting the new contour's own elevation back over the fill's guess
+        fresh = kept.contours.burn(gt, win, kept.nodata)
+        clamped = preview.clamp_patch(kept.surface[win.slice], fresh, kept.dem[win.slice])
         kept.dem[win.slice] = clamped
         sub_gt = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
         m_dem, m_shade, m_gt, _metres = shade.shade_window(
             clamped, sub_gt, self._projection, p, align_to=self._shaded.geotransform)
-        self._splice(m_dem, m_shade, m_gt)
+        return self._splice(m_dem, m_shade, m_gt, good, halo)
 
-    def _splice(self, m_dem, m_shade, m_gt):
+    def _splice(self, m_dem, m_shade, m_gt, good, halo):
         """Write the patch into the displayed arrays, at the cell it belongs
         to. ``shade_window`` was told the display's grid, so this is whole
-        cells and not a resample."""
+        cells and not a resample.
+
+        The halo is cropped off first, which is what ``shade_window`` says its
+        caller must do: its outermost cells are computed against an edge that
+        is not there - ``np.pad(mode='edge')`` for the box filter,
+        ``computeEdges`` for the hillshade, and whatever bilinear reaches for
+        the warp. Written in, they replace good display values with worse ones,
+        and the next preview holds its rim against the ring they left.
+        """
         whole = self._shaded
         x = int(round((m_gt[0] - whole.geotransform[0]) / whole.geotransform[1]))
         y = int(round((m_gt[3] - whole.geotransform[3]) / whole.geotransform[5]))
         rows, cols = m_shade.shape
+        # the halo in Mercator cells: the warp is from lat/lon, so a cell of
+        # one is not a cell of the other, and the ratio is what converts it.
+        # Rounded up, since cropping a cell too many costs a cell of staleness
+        # and cropping one too few writes the artefact this exists to avoid.
+        if good.cells and halo:
+            scale = rows / max(1, good.grown(halo, (1 << 30, 1 << 30)).shape[0])
+            crop = int(math.ceil(halo * scale))
+            if 2 * crop < rows and 2 * crop < cols:
+                m_dem = m_dem[crop:rows - crop, crop:cols - crop]
+                m_shade = m_shade[crop:rows - crop, crop:cols - crop]
+                x, y = x + crop, y + crop
+                rows, cols = m_shade.shape
         # clipped, because a window at the raster's own edge warps to a
         # Mercator box that can reach past the display's
         sy0, sx0 = max(0, y), max(0, x)
         sy1 = min(whole.shade.shape[0], y + rows)
         sx1 = min(whole.shade.shape[1], x + cols)
         if sy1 <= sy0 or sx1 <= sx0:
-            return
+            return None
         dy0, dx0 = sy0 - y, sx0 - x
         whole.dem[sy0:sy1, sx0:sx1] = m_dem[dy0:dy0 + sy1 - sy0, dx0:dx0 + sx1 - sx0]
         whole.shade[sy0:sy1, sx0:sx1] = m_shade[dy0:dy0 + sy1 - sy0, dx0:dx0 + sx1 - sx0]
+        # where it landed, so the layer can recolour that and nothing else
+        return sy0, sx0, sy1 - sy0, sx1 - sx0

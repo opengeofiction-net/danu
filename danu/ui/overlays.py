@@ -86,9 +86,24 @@ class UnreachedLayer(QGraphicsItem):
         self._rect = QRectF()
         self.reading: dict | None = None
         self.one_level = False
+        self.stale = False
         self._shaded: shade.Shaded | None = None
 
+    def set_stale(self, stale: bool = True):
+        """The surface has moved under this overlay without the classes being
+        recomputed - which is what a preview does: it reruns the first pass for
+        a box and brings back the DEM and the hillshade, not the classes. Left
+        alone the overlay goes on calling ground unreached that the contour
+        just drawn reaches, in red, over the surface that shows it does.
+
+        Faded rather than hidden, because what it says is still true of most of
+        the raster and hiding it would be a bigger lie than dimming it."""
+        if stale != self.stale:
+            self.stale = stale
+            self.update()
+
     def set_shaded(self, shaded: shade.Shaded | None):
+        self.stale = False
         self.prepareGeometryChange()
         self._shaded = shaded
         if shaded is None or shaded.classes is None:
@@ -133,4 +148,10 @@ class UnreachedLayer(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
+        # faded while the surface under it has moved and these classes have
+        # not been recomputed - see set_stale
+        was = painter.opacity()
+        if self.stale:
+            painter.setOpacity(was * 0.35)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        painter.setOpacity(was)

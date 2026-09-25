@@ -24,13 +24,28 @@ Coord = tuple[float, float]            # lon, lat
 # ------------------------------------------------------------------ ids
 
 class IdAllocator:
-    """Fresh negative ids for one square, each below the lowest in use. Nodes
-    and ways are different namespaces in OSM, but one counter over both keeps
-    a file readable by eye and cannot collide with either."""
+    """Fresh negative ids, each below the lowest in use. Nodes and ways are
+    different namespaces in OSM, but one counter over both keeps a file
+    readable by eye and cannot collide with either.
+
+    Below the lowest in every square it has been shown, not just the first.
+    One counter per square mints -1 for each of them - the lowest id in a
+    square drawn from real data is positive, so -1 is what every such square
+    offers first - and a working set is many squares. Two contours drawn in
+    two squares then share an id, which is harmless while nothing indexes on
+    it and is not once something does: the preview keys a way's last geometry
+    on it, and the GeoPackage a build collects writes it as `osm_id`, so a
+    saved set already produced two features claiming to be the same way.
+    """
 
     def __init__(self, square: Square):
+        self._next = 0
+        self.include(square)
+
+    def include(self, square: Square) -> None:
+        """Take this square's ids into account as well."""
         lowest = min([0, *square.nodes.keys(), *square.ways.keys()])
-        self._next = lowest - 1
+        self._next = min(self._next, lowest) - 1 if self._next >= lowest else self._next
 
     def take(self) -> int:
         i = self._next
@@ -505,9 +520,16 @@ class SetUndoStack:
         self._allocs: dict[int, IdAllocator] = {}
 
     def alloc(self, square: Square) -> IdAllocator:
-        a = self._allocs.get(id(square))
+        """The working set's allocator, widened to clear this square too.
+
+        One allocator, not one per square: see IdAllocator. A square joining
+        later only lowers the counter, so ids already handed out stay valid.
+        """
+        a = self._allocs.get('set')
         if a is None:
-            a = self._allocs[id(square)] = IdAllocator(square)
+            a = self._allocs['set'] = IdAllocator(square)
+        else:
+            a.include(square)
         return a
 
     def do(self, square: Square, cmd: Command) -> None:

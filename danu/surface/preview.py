@@ -225,8 +225,12 @@ class Kept:
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
-    dem: np.ndarray | None = None   # the clamped surface, for clamp_patch's
-                                    # sea decision; None where nothing clamps
+    dem: np.ndarray | None = None   # the clamped surface, which clamp_patch
+                                    # reads the sea decision off. Optional
+                                    # only because a caller solving without
+                                    # clamping has no use for it; anything
+                                    # reaching clamp_patch must pass one, and
+                                    # None there is a TypeError in a slot
 
 
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,

@@ -89,18 +89,46 @@ def test_a_gesture_of_edits_becomes_one_preview(qtbot, monkeypatch):
     assert len(d.solved) == 1, f'ten edits in one gesture became {len(d.solved)} previews'
 
 
-def test_the_boxes_of_a_gesture_are_covered_together(qtbot, monkeypatch):
+def test_the_boxes_of_a_gesture_are_all_covered(qtbot, monkeypatch):
     """The one preview has to cover everything the gesture touched, not just
     the last edit - otherwise the earlier nodes keep the old surface."""
     d = driver_over(monkeypatch)
     d.edited(a_square(0.10, 0.5, wid=1), {1})
     d.edited(a_square(0.80, 0.5, wid=2), {2})
     assert len(d._pending) == 2
-    xs = [b.x0 for b in d._pending] + [b.x1 for b in d._pending]
+    want = [(b.x0, b.x1) for b in d._pending]
     d._run()
-    assert len(d.solved) == 1
-    assert d.solved[0].x0 == min(xs) and d.solved[0].x1 == max(xs), \
-        f'the preview covered {d.solved[0]}, not both edits'
+    covered = [(b.x0, b.x1) for b in d.solved]
+    for lo, hi in want:
+        assert any(b0 <= lo and hi <= b1 for b0, b1 in covered), \
+            "an edit in the gesture was not covered: %r in %r" % ((lo, hi), covered)
+
+
+def test_distant_edits_are_not_merged_into_one_huge_box(qtbot, monkeypatch):
+    """Two edits at opposite corners have a bounding box of the whole working
+    set - 12.9 M cells on a 3x3 at 3 arcseconds - and it would be solved in one
+    go inside a timer slot, with the editor frozen for all of it.
+
+    They are disjoint, so solving them apart is no more work and bounds each
+    piece."""
+    d = driver_over(monkeypatch)
+    d.edited(a_square(0.02, 0.05, wid=1), {1})
+    d.edited(a_square(0.95, 0.95, wid=2), {2})
+    d._run()
+    assert len(d.solved) == 2, "the two corners were solved as one box"
+    whole = 100 * 100
+    for b in d.solved:
+        assert b.cells < whole / 4, "a box of %d cells of a %d-cell raster" % (b.cells, whole)
+
+
+def test_edits_along_one_stroke_are_solved_together(qtbot, monkeypatch):
+    """The other side of it: a run of adjacent nodes is one piece of ground and
+    splitting it would solve the overlap twice."""
+    d = driver_over(monkeypatch)
+    for i in range(6):
+        d.edited(a_square(0.40 + 0.005 * i, 0.5, wid=1), {1})
+    d._run()
+    assert len(d.solved) == 1, "one stroke became %d solves" % len(d.solved)
 
 
 def test_the_contour_layer_follows_the_editor(qtbot, monkeypatch):
@@ -231,3 +259,139 @@ def test_a_way_that_did_not_move_is_not_previewed(qtbot, monkeypatch):
     d._pending.clear()
     d.edited(square, {3})                    # same geometry, again
     assert d._pending == [], 'a way whose geometry did not move was boxed anyway'
+
+def test_a_solve_that_cannot_run_turns_the_preview_off_instead_of_the_process(qtbot, monkeypatch):
+    """_run is a slot. An exception leaving it does not land in a caller, it
+    leaves QTimer::timeout, and PySide6 aborts the process.
+
+    The likeliest one is not exotic: the solve loads libisofill.so, and a
+    machine can have the binary without the library - which is the arrangement
+    interpolate already handles by falling back, so the build succeeds there,
+    the driver adopts, and the editor looks correct right up to the first edit.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    said = []
+    d.unavailable.connect(said.append)
+
+    def no_library(*a, **kw):
+        raise RuntimeError("no isofill library: tried libisofill.so")
+
+    monkeypatch.setattr(surface_preview, "patch", no_library)
+    d.edited(a_square(), {1})
+    d._run()                                  # must not raise
+
+    assert said and "no live preview" in said[0], said
+    assert not d.ready, "the preview stayed armed after it could not run"
+    assert not d._gesture.isActive()
+    # and the editor keeps working: edits still ask for the exact rebuild
+    asked = []
+    d.exact_wanted.connect(lambda: asked.append(True))
+    d.edited(a_square(), {1})
+    assert d._pending == []
+
+
+def test_adopt_survives_gdal_raising_rather_than_returning_none(qtbot, monkeypatch):
+    """By the time adopt runs, build_surface has put GDAL in exception mode, so
+    a file it cannot open is a RuntimeError and not the OSError Contours raises
+    for a missing one. adopt is called from a slot too."""
+    from danu.surface import preview as surface_preview
+    import numpy as np
+
+    def gdal_says_no(gpkg):
+        raise RuntimeError("not recognised as a supported file format")
+
+    monkeypatch.setattr(surface_preview, "Contours", gdal_says_no)
+    d = PreviewDriver(gesture_ms=1, idle_ms=10_000)
+    said = []
+    d.unavailable.connect(said.append)
+    zeros = np.zeros((4, 4), np.float32)
+    rasters = type("R", (), dict(
+        constraints=zeros, mask=np.ones((4, 4), np.uint8), water=None, surface=zeros,
+        dem=zeros, geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), projection="",
+        nodata=-9999.0, gpkg="x.gpkg"))()
+    d.adopt(Built(shaded=object(), rasters=rasters), PARAMS)   # must not raise
+    assert not d.ready
+    assert said and "RuntimeError" in said[0], said
+
+
+def test_the_driver_follows_the_surface_the_layer_is_drawing(qtbot, monkeypatch):
+    """The layer takes every build; the grids to work from come only from the
+    exact ones. A driver that skipped the stale builds went on splicing into
+    the array of the build before, which nobody draws, and previews stopped
+    appearing until the next exact one."""
+    d = driver_over(monkeypatch)
+    newer = object()
+    d.follow(newer)
+    assert d._shaded is newer, "the driver is still pointing at the old surface"
+    assert d.ready, "following a new surface threw away the grids as well"
+
+
+def test_a_way_that_was_never_a_contour_costs_nothing(qtbot, monkeypatch):
+    """Moving a node of a coastline, or of anything untagged, constrains
+    nothing. Boxing its geometry would solve ground the edit cannot have
+    changed, at tens of milliseconds a go."""
+    d = driver_over(monkeypatch)
+    sq = Square([Way(9, [1, 2], ele=None)], {1: Node(0.2, 0.5), 2: Node(0.7, 0.5)})
+    d.edited(sq, {9})
+    assert d._pending == [], "a way that was never a contour was boxed"
+    assert d._kept.contours.removed == [9]
+
+
+def test_a_contour_deleted_still_resolves_the_ground_it_covered(qtbot, monkeypatch):
+    """The other half of it: a way that *was* a contour leaves ground behind
+    that has to be filled in again."""
+    d = driver_over(monkeypatch)
+    sq = Square([Way(9, [1, 2], ele=75.0)], {1: Node(0.2, 0.5), 2: Node(0.7, 0.5)})
+    d.edited(sq, {9})
+    d._pending.clear()
+    d.edited(Square([], {1: Node(0.2, 0.5), 2: Node(0.7, 0.5)}), {9})
+    assert d._pending, "deleting a contour resolved nothing"
+
+
+def test_a_way_just_off_the_raster_is_not_boxed_at_its_corner(qtbot, monkeypatch):
+    """int() truncates toward zero, so a way half a cell west of the raster
+    came out at column 0 and was boxed as though it were inside."""
+    d = driver_over(monkeypatch)
+    gt = d._kept.geotransform                 # 0.01 deg cells from lon 0
+    just_west = Square([Way(1, [1, 2])],
+                       {1: Node(-0.005, 0.5), 2: Node(-0.004, 0.5)})
+    d.edited(just_west, {1})
+    assert d._pending == [], "a way west of the raster was boxed inside it"
+
+
+def test_a_preview_says_the_unreached_overlay_has_gone_stale(qtbot, monkeypatch):
+    """R20's overlay is the first pass's classes, and a preview reruns the
+    first pass without bringing them back. Left alone, the overlay goes on
+    calling ground unreached that the contour just drawn reaches."""
+    d = driver_over(monkeypatch)
+    stale = []
+    d.classesStale.connect(lambda: stale.append(True))
+    d.edited(a_square(), {1})
+    d._run()
+    assert stale == [True], "nothing said the overlay no longer describes the surface"
+
+
+def test_the_unreached_overlay_fades_when_the_surface_has_moved_under_it(qtbot):
+    """R20's overlay draws the first pass's classes. A preview reruns the first
+    pass for a box and brings back the DEM and the hillshade, not the classes -
+    so after an edit the overlay is describing the surface as it was, in red,
+    over a surface that shows otherwise.
+
+    Faded, not hidden: what it says is still true of most of the raster.
+    """
+    import numpy as np
+    from danu.surface import shade
+    from danu.ui.overlays import UnreachedLayer
+
+    layer = UnreachedLayer()
+    assert not layer.stale
+    layer.set_stale()
+    assert layer.stale
+    # and a real build clears it again
+    dem = np.zeros((4, 4), np.float32)
+    layer.set_shaded(shade.Shaded(dem=dem, shade=np.zeros((4, 4), np.uint8),
+                                  geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), metres=1.0,
+                                  classes=np.zeros((4, 4), np.uint8)))
+    assert not layer.stale, 'an exact build left the overlay marked stale'

@@ -221,3 +221,106 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     assert got.args[1] is False, 'a build nothing superseded came back stale'
     assert not b.busy
     b.cleanup()
+
+
+def _pixels(layer):
+    """The layer's pixmap as an array - what is actually drawn, rather than
+    the array it was composed from."""
+    import numpy as np
+    from PySide6.QtGui import QImage
+    img = layer._pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+    ptr = img.constBits()
+    return np.frombuffer(ptr, np.uint8, img.height() * img.bytesPerLine()).reshape(
+        img.height(), img.bytesPerLine() // 4, 4)[:, :img.width()].copy()
+
+
+def test_recolouring_one_box_is_what_recolouring_all_of_it_would_give(qtbot):
+    """A preview recolours the rectangle it changed, not the surface.
+
+    A whole recolour is 1,472 ms on the gobras 3x3 at 3 arcseconds - 24.4 M
+    cells - against 62 ms for the solve it follows. I had written that
+    compose() was "the UI thread's cheap end" and asserted, without measuring,
+    that splitting it to a rectangle would buy "a few milliseconds"; it buys
+    the difference between an edit costing 62 ms and one costing a second and
+    a half.
+
+    What this holds is that the shortcut is not a different picture - and it
+    compares the pixmaps, not the composed arrays. The arrays agree even when
+    the patch is painted at the wrong offset, because writing the array and
+    painting the pixmap are two steps and only the second one places it.
+    """
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    # a fixed colour scale, so this asks only whether composing a rectangle
+    # gives the same pixels as composing the whole. Whether the scale itself
+    # is held is the next test, and a different question.
+    def fixed():
+        st = Style()
+        st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=600.0)
+        return st
+
+    s = synthetic(rows=40, cols=60)
+    whole, part = SurfaceLayer(), SurfaceLayer()
+    for layer in (whole, part):
+        layer.set_style(fixed())
+        layer.set_shaded(synthetic(rows=40, cols=60))
+    untouched = _pixels(part)
+
+    box = (8, 15, 12, 20)              # y0, x0, rows, cols
+    y0, x0, rows, cols = box
+    sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
+    for layer in (whole, part):
+        layer.shaded.dem[sl] += np.float32(120.0)
+        layer.shaded.shade[sl] = 40
+
+    whole.recolour()                   # the answer
+    assert part.recolour_box(*box)     # the shortcut
+
+    got, want = _pixels(part), _pixels(whole)
+    assert np.array_equal(got, want), (
+        "%d of %d bytes of the pixmap differ" % (int((got != want).sum()), want.size))
+    assert not np.array_equal(got, untouched), "the edit changed no pixel at all"
+
+
+def test_a_box_recolour_keeps_the_whole_surfaces_colour_scale(qtbot):
+    """In 'auto' the ramp is stretched over the land in the whole array. A
+    rectangle that worked the range out from its own contents would come out a
+    different colour from the ground it sits in, and the patch would show as a
+    rectangle.
+
+    Asserting that layer._stretch is unchanged would not catch it - the
+    attribute stays put whether or not compose is given it. So this compares
+    the pixels against both stretches and requires the global one.
+    """
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import RAMPS, SurfaceLayer
+
+    layer = SurfaceLayer()
+    layer.set_shaded(synthetic(rows=40, cols=60))     # auto by default
+    whole_range = layer._stretch
+    assert whole_range is not None and whole_range[1] > 300
+
+    # a patch of uniformly low ground: its own range is nothing like the
+    # surface's, so the two stretches give visibly different colours
+    box = (5, 5, 6, 6)
+    y0, x0, rows, cols = box
+    sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
+    layer.shaded.dem[sl] = np.float32(3.0)
+    layer.shaded.shade[sl] = 200
+    assert layer.recolour_box(*box)
+
+    window = shade_mod.Shaded(dem=layer.shaded.dem[sl], shade=layer.shaded.shade[sl],
+                              geotransform=layer.shaded.geotransform, metres=layer.shaded.metres)
+    ramp = RAMPS[layer.style.ramp]()
+    with_global = shade_mod.compose(window, ramp, layer.style.scaling, layer.style.mode,
+                                    layer.style.shade_strength, stretch=whole_range)
+    on_its_own = shade_mod.compose(window, ramp, layer.style.scaling, layer.style.mode,
+                                   layer.style.shade_strength)
+    assert not np.array_equal(with_global, on_its_own), (
+        "the two stretches give the same colours here, so this cannot tell them apart")
+
+    got = _pixels(layer)[sl]
+    assert np.array_equal(got, with_global), "the patch restretched to its own contents"

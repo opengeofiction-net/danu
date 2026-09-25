@@ -21,6 +21,11 @@ from danu.ui.surface import Built, Nothing, SurfaceBuilder  # noqa: E402
 PARAMS = surface_params.load()
 
 
+def h_path():
+    from pathlib import Path
+    return Path('.')
+
+
 class FakeSet:
     """Just enough WorkingSet for stage_zone to be given nothing to do."""
     def __init__(self):
@@ -227,9 +232,6 @@ def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
         job.run()               # must not raise
 
 
-def h_path():
-    from pathlib import Path
-    return Path('.')
 
 
 def test_the_status_line_names_the_resolution_being_built(qtbot, window):

@@ -901,6 +901,7 @@ class Result:
     constraints: Path | None
     drawn_mask: Path | None
     water_mask: Path | None
+    surface: Path | None = None         # rounded.tif: the fill before the clamp
     envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
     blank: int = 0                      # squares with a file but no contours
 
@@ -961,7 +962,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
-    return Result(dem, grid, squares, gpkg, cont, mask, wmask,
+    return Result(dem, grid, squares, gpkg, cont, mask, wmask, surface=rounded,
                   envelopes=work / 'drawn.geojson', blank=blank)
 
 

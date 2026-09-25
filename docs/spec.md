@@ -1332,8 +1332,19 @@ area the first pass could not answer, though only at +0.38, so that is not the
 whole of it either.
 
 End to end, one node of a real contour moved on the gobras 3x3 at 3 arcseconds
-costs about 62 ms: roughly 1 to mark the box, 2.7 to burn, 45 to solve, 0.5 to
-clamp and 14 to shade. Moving a whole 2,000-node contour costs 237.
+costs 63 to 73 ms: roughly 1 to mark the box, 2.7 to burn, 45 to solve, 0.5 to
+clamp, 14 to shade and half a millisecond to recolour.
+
+That last figure was 1,472 ms until a review asked what the other numbers left
+out. The surface is recoloured to be shown, and the whole of it was being
+recomposed for every patch: 24.4 M cells, twenty-four times the solve it
+followed, so an edit measured at 62 ms took a second and a half to appear. The
+comment in the way said `compose` was "the UI thread's cheap end" and that
+composing a rectangle instead "would buy a few milliseconds of the fifty" -
+both asserted without measuring either. `SurfaceLayer.recolour_box` composes
+the rectangle that moved and paints it into the pixmap, which is what the half
+millisecond is, and it keeps the surface's own colour scale rather than
+restretching to the patch's contents.
 
 **So the phase does not end yet.** Fifty milliseconds is where phase 4 ends and
 the preview is over it, by a quarter on a typical edit. The lever is the solve,

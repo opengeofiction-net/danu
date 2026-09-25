@@ -246,6 +246,11 @@ def shade_window(dem: np.ndarray, geotransform: tuple, projection: str,
     metres = fine_metres(params)
     warp = dict(format='MEM', dstSRS=MERC, resampleAlg='bilinear', xRes=metres, yRes=metres)
     if align_to is not None:
+        # the size and extent replace the resolution rather than joining it:
+        # gdalwarp's own -tr and -outsize are mutually exclusive, and asking
+        # for both leaves it unclear which the binding acts on - and so
+        # whether the alignment happened at all
+        warp.pop('xRes'), warp.pop('yRes')
         warp.update(_snapped(gdal, raster(a), align_to))
     merc_fine = gdal.Warp('', raster(smoothed), options=gdal.WarpOptions(**warp))
     hs = gdal.DEMProcessing('', merc_fine, 'hillshade', options=gdal.DEMProcessingOptions(
@@ -303,12 +308,18 @@ def ramp_rgba(ramp: Ramp, values: np.ndarray, scaling: Scaling, dem: np.ndarray)
 
 
 def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'shaded relief',
-            shade_strength: float = 1.0) -> np.ndarray:
+            shade_strength: float = 1.0, stretch: tuple | None = None) -> np.ndarray:
     """RGBA uint8 for the layer. ``mode`` is 'hillshade' (grey only),
     'relief' (colour only) or 'shaded relief' (colour lit by the hillshade).
     A ramp named 'relief.ramp' is the tiles' hypsometric one and is applied in
     absolute metres, alpha and all, so sea stays transparent; any other ramp
-    is stretched over ``scaling``'s range and is opaque where there is land."""
+    is stretched over ``scaling``'s range and is opaque where there is land.
+
+    ``stretch`` overrides the range ``scaling`` would work out. It exists for
+    composing one rectangle of a surface: in ``auto`` the range comes from the
+    land in the whole array, so a rectangle asked to work it out for itself
+    gets a different one and comes out a different colour from the ground it
+    sits in. The caller passes the whole surface's range instead."""
     rows, cols = shaded.dem.shape
     out = np.zeros((rows, cols, 4), np.uint8)
     lit = shaded.shade.astype(np.float32) / 255.0
@@ -325,7 +336,7 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     if ramp.name == 'relief.ramp':
         rgba = ramp.rgba(shaded.dem)
     else:
-        lo, hi = scaling.range_for(shaded.dem)
+        lo, hi = stretch if stretch is not None else scaling.range_for(shaded.dem)
         rgba = ramp.rescaled(lo, hi).rgba(shaded.dem)
         rgba[..., 3] = np.where(shaded.dem > 0, 255, 0).astype(np.uint8)
     colour = rgba[..., :3].astype(np.float32)
