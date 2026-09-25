@@ -36,7 +36,8 @@ class Harness:
         self.builder = SurfaceBuilder(build_fn=build_fn or self._build, runner=self.jobs.append)
         self.results, self.failures, self.starts = [], [], []
         self.builder.started.connect(lambda: self.starts.append(True))
-        self.builder.finished.connect(lambda b, stale: self.results.append((b, stale)))
+        self.builder.finished.connect(
+            lambda b, stale, secs: self.results.append((b, stale, secs)))
         self.builder.failed.connect(self.failures.append)
 
     def _build(self, zone_dir, names, params, work):
@@ -93,7 +94,7 @@ def test_a_lone_build_is_never_stale(qtbot):
     h = Harness()
     h.ask(3.0)
     h.finish()
-    assert [stale for _, stale in h.results] == [False]
+    assert [stale for _, stale, _s in h.results] == [False]
     assert not h.builder.busy
 
 
@@ -142,3 +143,26 @@ def test_staging_happens_once_per_build_not_once_per_request(qtbot):
     finally:
         save.stage_zone = real
     assert len(staged) == 2, f'staged {len(staged)} times for 4 requests and 2 builds'
+
+
+def test_each_build_reports_its_own_elapsed_time(qtbot, monkeypatch):
+    """How long a build took travels with its result.
+
+    A single attribute on the window cannot hold it once builds overlap: the
+    superseded build is delivered while its successor is already queued, so one
+    slot is one build's worth of a quantity there are two of. Today `_done`
+    emits before starting the next and a single slot would happen to be right -
+    which is the trap, because nothing at the window end can see that ordering.
+    This pins the number to the build rather than to the order.
+    """
+    clock = [0.0]
+    monkeypatch.setattr('danu.ui.surface.time.monotonic', lambda: clock[0])
+    h = Harness()
+    h.ask(3.0)                   # the slow one starts at 0
+    clock[0] = 10.0
+    h.ask(1.0)                   # superseded while it runs
+    clock[0] = 12.0
+    h.finish()                   # the slow one lands, having taken 12 s
+    clock[0] = 15.0
+    h.finish()                   # the fast one, started at 12, took 3
+    assert [round(secs, 3) for _b, _stale, secs in h.results] == [12.0, 3.0], h.results

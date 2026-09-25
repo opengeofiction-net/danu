@@ -102,7 +102,6 @@ class MainWindow(QMainWindow):
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
-        self._surface_started = 0.0
         self._arcsec = 0.0
         self.squares = SquaresItem()
         self.map.scene().addItem(self.squares)
@@ -483,13 +482,13 @@ class MainWindow(QMainWindow):
         return True
 
     def _surface_starting(self):
-        self._surface_started = time.monotonic()
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
 
-    def _surface_built(self, built, stale=False):
-        seconds = time.monotonic() - self._surface_started
+    def _surface_built(self, built, stale=False, seconds=0.0):
+        # seconds comes from the builder: once builds overlap, how long one
+        # took is not something a single attribute here can hold
         self.surface.set_shaded(built.shaded)
         self.legend.refresh()
         self.unreached.set_shaded(built.shaded)

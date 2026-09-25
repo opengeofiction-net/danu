@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -113,9 +114,16 @@ class SurfaceBuilder(QObject):
 
     Staging happens when a build starts, not when it is asked for - it is 177
     ms on the gobras 3x3, and coalesced requests should not each pay it.
+
+    How long a build took travels with its result. A single attribute on the
+    window cannot hold it once builds overlap: a superseded build is delivered
+    while its successor is already queued, and one slot is one build's worth of
+    a quantity there are now two of. It happens to be safe today - ``_done``
+    emits before it starts the next - but that is an ordering nobody can see
+    from the window, so the number goes in the signal instead.
     """
     started = Signal()
-    finished = Signal(object, bool)   # Built, stale
+    finished = Signal(object, bool, float)   # Built, stale, seconds
     failed = Signal(str)
 
     def __init__(self, parent=None, build_fn=build_surface, runner=None):
@@ -124,6 +132,7 @@ class SurfaceBuilder(QObject):
         self._runner = runner or QThreadPool.globalInstance().start
         self._serial = 0          # requests made
         self._started = 0         # the serial the running build was started for
+        self._started_at = 0.0    # and when, so its own elapsed time goes back with it
         self._wanted = None       # the newest request not yet started
         self._running = False
         self._signals = None
@@ -151,6 +160,7 @@ class SurfaceBuilder(QObject):
         ws, params, dirty = self._wanted
         self._wanted = None
         self._started = self._serial
+        self._started_at = time.monotonic()
         # staged from memory on this thread: the worker must not read squares
         # the tools are editing
         from ..core.save import stage_zone
@@ -169,7 +179,7 @@ class SurfaceBuilder(QObject):
     def _done(self, built):
         self._running = False
         stale = self._wanted is not None
-        self.finished.emit(built, stale)
+        self.finished.emit(built, stale, time.monotonic() - self._started_at)
         self._next()
 
     def _fail(self, text):

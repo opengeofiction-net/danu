@@ -1244,6 +1244,13 @@ used - and it is used: what comes back is the surface as things stood a moment
 ago, which beats a blank canvas while the newer one runs. `finished` carries a
 stale flag and R19 is what makes it visible.
 
+How long a build took travels with its result. A single attribute on the window
+cannot hold it once builds overlap - the superseded build is delivered while
+its successor is queued, and one slot is one build's worth of a quantity there
+are now two of. It was in fact safe, because the queue emits before it starts
+the next, and that was measured rather than argued; but it was safe by an
+ordering nothing at the window end can see, so the number goes in the signal.
+
 The build function and the executor are both injectable, which is what lets the
 queue be tested without GDAL and without threads - coalescing, staleness,
 recovery after a failure, and staging once per build rather than once per
