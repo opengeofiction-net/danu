@@ -176,10 +176,11 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     # slack is what took it there. It is a small distance on this fixture -
     # sixty-one micrometres - because cover already holds the rim well away.
     # The number that chose two radii came from the gobras 3x3, where the worst
-    # of eighteen edits goes from 2.231 m at no slack to 0.424 m at two and no
+    # of eighteen edits goes from 3.278 m at no slack to 0.268 m at two and no
     # further; and what is left there is not the rim at all, but the second
-    # pass inventing across a region of unanswered ground that runs past any
-    # box worth solving.
+    # pass answering a different domain - it diffuses across a region of
+    # unanswered ground that runs past any box worth solving, and it runs a
+    # fixed number of cycles rather than to convergence.
     assert solve(slack=0)[0] > wrong, 'slack made no difference, so it is not being tested here'
 
 

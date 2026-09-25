@@ -114,7 +114,9 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     "one level only" - where the second pass invents a value by diffusing
     across a region of unanswered ground. That region runs past any box worth
     solving, so the patch solves a truncated version of it and lands a little
-    differently. It is the irreducible part of being local: a quarter of a
+    differently - and the second pass runs a fixed number of cycles rather than
+    to convergence, so two domains do not have to agree even where the ground
+    is the same. It is the irreducible part of being local: a quarter of a
     metre against a 25 m contour interval, invisible in a hillshade, and the
     exact rebuild on idle is what removes it.
     """
@@ -145,6 +147,14 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     # run to the western edge, holding all four sides put a cell 82.656 m out
     # and no amount of margin moved it, because the margin never reaches an
     # edge that is already there.
+    # The ring held is the solve's own outermost row and column, at the value
+    # the last whole-raster answer gave *those* cells. A review read it as an
+    # off-by-one and asked for the row beyond the solve instead, written into
+    # that position. Measured both against a whole-raster solve: they are the
+    # same answer to six decimal places with any slack at all, and differ only
+    # at cover 0 and slack 0, where taking the row beyond shifts the boundary
+    # outward by a cell and is nearer by accident rather than by meaning. This
+    # one says what the comment says - the rim is those cells, as they were.
     rows, cols = constraints.shape
     prev = previous[sl]
     if grown.y0 > 0:
