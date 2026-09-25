@@ -170,6 +170,101 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
                   geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls, reading=reading)
 
 
+def _snapped(gdal, src, align_to: tuple) -> dict:
+    """Output bounds and size that put a warp on ``align_to``'s own grid.
+
+    GDAL is asked where this window lands in Mercator, and the answer is grown
+    outward to whole cells of the target. The warp is then told exactly that,
+    rather than a resolution and a free hand."""
+    vrt = gdal.AutoCreateWarpedVRT(src, None, MERC)
+    gt = vrt.GetGeoTransform()
+    west, north = gt[0], gt[3]
+    east, south = west + vrt.RasterXSize * gt[1], north + vrt.RasterYSize * gt[5]
+    x0, res, y0 = align_to[0], align_to[1], align_to[3]
+    c0 = math.floor((west - x0) / res)
+    c1 = math.ceil((east - x0) / res)
+    r0 = math.floor((north - y0) / align_to[5])
+    r1 = math.ceil((south - y0) / align_to[5])
+    return dict(outputBounds=(x0 + c0 * res, y0 + r1 * align_to[5],
+                              x0 + c1 * res, y0 + r0 * align_to[5]),
+                width=c1 - c0, height=r1 - r0)
+
+
+def shade_window(dem: np.ndarray, geotransform: tuple, projection: str,
+                 params: Params, zfactor: float = 2.0, align_to: tuple | None = None) -> tuple:
+    """``shade_dem``'s stages for one window of a DEM held as an array, in
+    memory: the box filter, the Mercator warp, the hillshade, and the second
+    warp of the unsmoothed DEM the relief colours.
+
+    Returns (merc_dem, hillshade, geotransform, metres) on the Mercator grid,
+    which is what ``Shaded`` holds.
+
+    ``align_to`` is the geotransform of the Mercator raster the result will be
+    spliced into - the one the last whole build produced. Given it, the warp is
+    put on exactly that grid, so the patch lands on whole cells of the array it
+    replaces and the two can be compared cell for cell. Without it GDAL snaps
+    the output to the window's own extent, which lands up to half a cell off
+    the display's grid: enough to put the interior three grey levels out
+    against the whole raster's shading, which is invisible on screen and wrong
+    in a test that is meant to be exact.
+
+    The caller passes a window grown by a halo and crops what comes back. Every
+    stage here reads its neighbours - the box filter over ``smooth_cells``, the
+    hillshade over its three by three, the warp over whatever bilinear touches -
+    so the outermost cells of the window are computed against an edge that is
+    not really there. Inside the halo they are computed against real ground and
+    are the whole raster's own answer.
+
+    The box filter is numpy here and a VRT ``KernelFilteredSource`` in
+    ``shade_dem``, because a VRT wants a file and this is meant to run between
+    two keystrokes. Same kernel, same normalisation; they differ only in how
+    they treat the raster's own edge, which is what the halo covers.
+
+    14.4 ms for a 215 by 215 window and 19.8 for 411 by 411, against 2804 ms
+    for the whole of the gobras 3x3 at 3 arcseconds.
+    """
+    gdal = _gdal()
+    rows, cols = dem.shape
+    a = dem.astype(np.float32)
+
+    def raster(values):
+        ds = gdal.GetDriverByName('MEM').Create('', cols, rows, 1, gdal.GDT_Float32)
+        ds.SetGeoTransform(geotransform)
+        ds.SetProjection(projection)
+        ds.GetRasterBand(1).WriteArray(values)
+        return ds
+
+    n = params.smooth_cells
+    pad = n // 2
+    padded = np.pad(a, pad, mode='edge')
+    acc = np.zeros_like(a)
+    for dy in range(n):
+        for dx in range(n):
+            acc += padded[dy:dy + rows, dx:dx + cols]
+    smoothed = acc / np.float32(n * n)
+
+    metres = fine_metres(params)
+    warp = dict(format='MEM', dstSRS=MERC, resampleAlg='bilinear', xRes=metres, yRes=metres)
+    if align_to is not None:
+        warp.update(_snapped(gdal, raster(a), align_to))
+    merc_fine = gdal.Warp('', raster(smoothed), options=gdal.WarpOptions(**warp))
+    hs = gdal.DEMProcessing('', merc_fine, 'hillshade', options=gdal.DEMProcessingOptions(
+        format='MEM', zFactor=zfactor, computeEdges=True))
+    # the relief colours the unsmoothed DEM on the same grid, as shade_dem
+    # does: the smoothing is for the derivative, and a coloured plateau should
+    # not bleed. Forced onto the hillshade's own grid rather than warped to a
+    # size of its own, so the two arrays pair cell for cell
+    gt = hs.GetGeoTransform()
+    merc_dem = gdal.Warp('', raster(a), options=gdal.WarpOptions(
+        format='MEM', dstSRS=MERC, resampleAlg='bilinear',
+        width=hs.RasterXSize, height=hs.RasterYSize,
+        outputBounds=(gt[0], gt[3] + hs.RasterYSize * gt[5],
+                      gt[0] + hs.RasterXSize * gt[1], gt[3])))
+    return (merc_dem.GetRasterBand(1).ReadAsArray().astype(np.float32),
+            hs.GetRasterBand(1).ReadAsArray().astype(np.uint8),
+            tuple(gt), metres)
+
+
 # ------------------------------------------------------------------ display
 
 @dataclass(frozen=True)

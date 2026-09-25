@@ -177,6 +177,37 @@ class Contours:
         return band.ReadAsArray()
 
 
+def clamp_patch(surface: np.ndarray, constraints: np.ndarray,
+                kept_dem: np.ndarray) -> np.ndarray:
+    """``land_clamp.clamp``'s arithmetic for one box: sea to exactly zero, land
+    never zero, the burned constraints back untouched.
+
+    The clamp has two halves and only one of them is local. Deciding *which*
+    cells are sea is global - it polygonizes the candidates and keeps the
+    regions that reach open water - and a box cannot do it, because whether a
+    zero-cell is sea depends on what it joins up with a thousand cells away.
+    The arithmetic that follows is four lines of numpy.
+
+    So the decision is not recomputed; it is read off the last exact build,
+    where a cell reading exactly zero is one the clamp called sea. That is an
+    approximation and it was measured before it was relied on: deleting a
+    contour level from the golden square moves 507 cells of the fill and
+    changes the sea/land decision for 11 of 1,442,401 - 0.0008%. Those eleven
+    are wrong in the preview until the rebuild on idle, which is the same
+    bargain as the held rim.
+
+    Burned cells are handled last and so need no care here: a coastline drawn
+    at zero reads zero in ``kept_dem``, is called sea, and is then overwritten
+    with its own burned value, which is zero.
+    """
+    from .build import NODATA
+    d = np.maximum(surface.astype(np.float32), np.float32(1))
+    d[kept_dem == 0] = 0
+    burned = constraints != NODATA
+    d[burned] = constraints[burned]
+    return d
+
+
 @dataclass
 class Kept:
     """What the last exact build left, which a preview reads and updates.
@@ -194,6 +225,8 @@ class Kept:
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
+    dem: np.ndarray | None = None   # the clamped surface, for clamp_patch's
+                                    # sea decision; None where nothing clamps
 
 
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,

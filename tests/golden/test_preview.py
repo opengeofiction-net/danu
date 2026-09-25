@@ -300,3 +300,163 @@ def test_burning_in_the_wrong_order_is_a_different_raster(tmp_path):
                        'not what makes the burn match and Contours is keeping '
                        'FIDs for no reason')
     assert wrong == 80, f'the fixture moved {wrong} cells, not the 80 the spec quotes'
+
+
+def test_a_clamped_patch_is_the_clamps_own_answer(tmp_path):
+    """clamp_patch against land_clamp over the same ground.
+
+    The clamp has two halves and only one is local: deciding which cells are
+    sea polygonizes the whole raster, and the arithmetic that follows is four
+    lines. This reuses the decision from the build and redoes the arithmetic,
+    so over unedited ground it must agree cell for cell.
+    """
+    import numpy as np
+    from danu.surface import preview
+
+    p = lock_params()
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    work = tmp_path / 'work'
+    b = built(zone, work, p)
+    dem_ds = gdal.Open(str(b['result'].dem))          # held
+    dem = dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+
+    got = preview.clamp_patch(b['surface'], b['constraints'], dem)
+
+    # The sea/land decision, which is the part that is reused rather than
+    # recomputed, and so the part that could be wrong: exact.
+    assert np.array_equal(got == 0, dem == 0), \
+        f'{int(((got == 0) != (dem == 0)).sum())} cells fall on the other side of the coast'
+
+    # The elevations, to the precision the published DEM is written at. dem.tif
+    # is LERC at MAX_Z_ERROR, which is lossy on purpose - 0.05 m, a twentieth
+    # of the whole-metre quantisation the DEM went to Float32 to escape - so
+    # the patch is not merely equal to it, it is finer than it. Asserting
+    # equality here failed on 12,880 cells reading 3.2000 against 3.2301, which
+    # is the compression, not the clamp.
+    # The tolerance is MAX_Z_ERROR plus one float32 step at the elevation
+    # concerned. The worst cell here is 0.0500030517578125 out, which is 0.05
+    # plus an ulp of a value around fifty metres - LERC's guarantee is met and
+    # the excess is the type the DEM is stored in, not the clamp.
+    err = float(np.abs(got.astype(np.float64) - dem.astype(np.float64)).max())
+    ulp = float(np.spacing(np.float32(np.abs(dem).max())))
+    assert err <= p.dem_max_z_error + ulp, \
+        f'the patch is {err:.7f} m from the clamp, past {p.dem_max_z_error:g} + {ulp:.2g}'
+
+    # and it has to be doing something: the three rules each have to bite on
+    # this fixture, or the test would pass on a function that returned its
+    # input unchanged
+    assert int((dem == 0).sum()) > 0, 'no sea, so the sea rule is untested'
+    assert int((b['surface'] < 1).sum()) > 0, 'nothing below 1 m, so the floor is untested'
+    from danu.surface.build import NODATA
+    assert int((b['constraints'] != NODATA).sum()) > 0, 'nothing burned'
+    assert not np.array_equal(b['surface'], dem), 'the clamp changed nothing at all here'
+
+
+def test_a_shaded_window_is_the_whole_rasters_shading(tmp_path):
+    """shade_window against shade_dem over the same ground.
+
+    Every stage reads its neighbours - the box filter, the hillshade's three by
+    three, whatever bilinear touches - so the window is grown by a halo and
+    only the inside is the whole raster's answer. This measures how far in that
+    becomes true rather than asserting a margin someone chose.
+    """
+    import numpy as np
+    from danu.surface import local, shade
+
+    p = lock_params()
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    work = tmp_path / 'work'
+    b = built(zone, work, p)
+    whole = shade.shade_dem(b['result'].dem, p, work)
+
+    dem_ds = gdal.Open(str(b['result'].dem))          # held
+    dem = dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
+    gt = dem_ds.GetGeoTransform()
+    rows, cols = dem.shape
+
+    # a window over drawn ground, well away from the raster's own edge
+    # Well inside the raster, because every stage here reads its neighbours
+    # and a window at the edge has nothing outside it to be computed against.
+    # Not centred on a contour: this fixture's drawn cells all sit within 43
+    # cells of an edge, and the shading does not need one - it needs relief.
+    halo = 2 * p.fill_cells
+    half = 60
+    edge = halo + half + 1
+    best, win = -1.0, None
+    for cy in range(edge, rows - edge, 40):
+        for cx in range(edge, cols - edge, 40):
+            cand = local.Box(cx - half, cy - half, cx + half, cy + half).grown(halo, (rows, cols))
+            relief = float(np.ptp(dem[cand.slice]))
+            if relief > best:
+                best, win = relief, cand
+    assert win is not None and not win.touches_edge((rows, cols))
+    # the middle of this fixture is flat sea, and a flat window's hillshade is
+    # a constant that would match anything
+    assert best > 1.0, f'the most relief any window inside the raster has is {best:.2f} m'
+
+    sub_gt = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
+    m_dem, m_shade, m_gt, metres = shade.shade_window(
+        dem[win.slice], sub_gt, dem_ds.GetProjection(), p,
+        align_to=whole.geotransform)
+    assert metres == whole.metres, 'the window shaded at a different cell size'
+
+    # where the window's Mercator grid sits inside the whole one
+    # aligned, so these are whole cells and the rounding is a formality - a
+    # patch that landed between cells could not be spliced in at all
+    fx = (m_gt[0] - whole.geotransform[0]) / whole.geotransform[1]
+    fy = (m_gt[3] - whole.geotransform[3]) / whole.geotransform[5]
+    assert abs(fx - round(fx)) < 1e-6 and abs(fy - round(fy)) < 1e-6, \
+        f'the window landed {fx - round(fx):+.3f}, {fy - round(fy):+.3f} cells off the grid'
+    ox, oy = int(round(fx)), int(round(fy))
+    wr, wc = m_shade.shape
+    theirs = whole.shade[oy:oy + wr, ox:ox + wc].astype(np.int16)
+    assert theirs.shape == m_shade.shape, 'the window did not land inside the whole raster'
+    diff = np.abs(m_shade.astype(np.int16) - theirs)
+
+    # cropping the halo is what makes it the whole raster's answer, and the
+    # difference at the rim is what says the halo is needed at all
+    inset = max(4, p.smooth_cells)
+    inner = diff[inset:-inset, inset:-inset]
+    assert inner.max() <= 1, f'the inside of the window is {inner.max()} grey levels out'
+    assert diff.max() > inner.max(), \
+        'the window edge is as good as its middle, so the halo is doing nothing'
+
+
+def test_the_clamp_puts_the_burned_constraints_back():
+    """The third of clamp_patch's rules, on ground built to need it.
+
+    The golden fixture cannot test this: the fill reproduces its constraints at
+    the cells they were burned into, so putting them back changes nothing there
+    and deleting the line leaves every other assertion green. It is the rule
+    that keeps a coastline drawn at zero at zero, and a contour authoritative
+    over whatever the fill made of it, so it is worth more than an untestable
+    line. Synthetic arrays, then, built to make each rule bite on its own.
+    """
+    import numpy as np
+    from danu.surface import preview
+    from danu.surface.build import NODATA
+
+    surface = np.array([[0.2, 50.0, 0.2, 7.0]], dtype=np.float32)
+    cons = np.array([[NODATA, NODATA, 0.0, 9.0]], dtype=np.float32)
+    # the last exact build's answer: only the first cell was called sea
+    kept = np.array([[0.0, 50.0, 0.0, 9.0]], dtype=np.float32)
+
+    got = preview.clamp_patch(surface, cons, kept)
+
+    assert got[0, 0] == 0.0, 'sea did not go to zero'
+    assert got[0, 1] == 50.0, 'land was not left alone'
+    # burned at zero, and the clamp called it sea - it must still read zero,
+    # which is the rule and the sea rule agreeing
+    assert got[0, 2] == 0.0, 'a coastline burned at zero did not stay at zero'
+    # burned at 9 where the fill said 7: the burn wins
+    assert got[0, 3] == 9.0, 'a burned contour did not override the fill'
+
+    # and the floor, which needs a cell that is neither sea nor burned
+    low = preview.clamp_patch(np.array([[0.2]], np.float32),
+                              np.array([[NODATA]], np.float32),
+                              np.array([[1.0]], np.float32))
+    assert low[0, 0] == 1.0, 'land below a metre was not lifted to one'

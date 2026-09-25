@@ -1294,9 +1294,38 @@ reversing the order puts 80 cells wrong, which
 show - without it, every other assertion here would pass just as well if the
 order made no difference at all.
 
-What is left for F5b: the clamp and the Mercator warp and hillshade for a
-patch, and the wiring - preview on edit, the exact rebuild on idle through F4's
-queue, and the two states told apart at a glance.
+**F5b, the clamp and the shading for a patch.** The rest of what stands between
+a solved box and a pixel, measured the same way.
+
+The clamp has two halves and only one is local. Deciding *which* cells are sea
+polygonizes the whole raster and keeps the regions reaching open water - a box
+cannot do it, because whether a zero-cell is sea depends on what it joins up
+with a thousand cells away. The arithmetic that follows is four lines of numpy.
+So the decision is read off the last exact build, where a cell reading exactly
+zero is one the clamp called sea, and only the arithmetic is redone. Measured
+before it was relied on: deleting a contour level from the golden square moves
+507 cells of the fill and changes the sea/land decision for 11 of 1,442,401 -
+0.0008%. Those eleven are wrong until the rebuild, which is the held rim's
+bargain again.
+
+The shading is the box filter, the Mercator warp and the hillshade, on an
+in-memory window: 14.4 ms for 215 by 215 and 19.8 for 411 by 411, against 2804
+ms for the whole of the gobras 3x3. Each stage reads its neighbours, so the
+window carries a halo and only the inside is the whole raster's answer.
+
+One thing the measuring caught. A warp told a resolution and left to choose its
+own bounds snaps to the window's extent, which lands up to half a cell off the
+display's grid - three grey levels out against the whole raster's shading,
+invisible on screen and fatal to splicing, since a patch between cells cannot
+be written into an array at all. ``shade_window`` takes the target
+geotransform and is put on exactly that grid.
+
+The preview's cost is now known end to end: 2.3 to 5.2 ms to burn, 10 to 18 to
+solve, the clamp in numpy, 14.4 to 19.8 to shade. Twenty-seven to
+forty-three milliseconds, against fifty.
+
+What is left is the wiring: preview on edit, the exact rebuild on idle through
+F4's queue, and the two states told apart at a glance.
 
 ### Phase 5
 
