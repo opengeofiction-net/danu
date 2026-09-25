@@ -1231,7 +1231,7 @@ splicing it in put 115.794 m into the surface.
 elevations on water, burn and flatten with accept and roll back, profile tool;
 spot heights as constraints. Measure first: `barrier_cells` widens a constraint
 for the sight test, so a one-cell spot height becomes a five-by-five occluder.
-A contour is a line and hardly notices; a point is not Ends when the gobras
+A contour is a line and hardly notices; a point is not. Ends when the gobras
 experiment is reproducible by hand in the editor and a hill with a spot height
 on it comes out pointed.
 
