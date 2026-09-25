@@ -122,7 +122,7 @@ def test_the_panel_enables_what_the_choice_needs_and_drives_the_layer(qtbot):
     assert fired == [3.0]                                          # the default resolution
 
 
-def test_the_builder_refuses_a_set_with_nothing_to_build_and_recovers(qtbot, tmp_path):
+def test_the_builder_reports_a_set_with_nothing_to_build_and_recovers(qtbot, tmp_path):
     from danu.core.make_square import write_square
     from danu.core.square import SquareName, WorkingSet
     from danu.surface import params
@@ -131,8 +131,7 @@ def test_the_builder_refuses_a_set_with_nothing_to_build_and_recovers(qtbot, tmp
     ws = WorkingSet.open(tmp_path, SquareName(10, 10), 1)
     b = SurfaceBuilder()
     with qtbot.waitSignal(b.failed, timeout=30000) as got:
-        assert b.build(ws, params.load().with_arcsec(3))
-        assert b.busy and not b.build(ws, params.load())
+        assert b.request(ws, params.load().with_arcsec(3)) == 1
     assert 'nothing to build' in got.args[0] or 'GDAL' in got.args[0]
     assert not b.busy
     b.cleanup()
@@ -210,7 +209,7 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     trouble = []
     b.failed.connect(trouble.append)
     with qtbot.waitSignal(b.finished, timeout=30000) as got:
-        assert b.build(ws, params.load().with_arcsec(3))
+        assert b.request(ws, params.load().with_arcsec(3)) == 1
     assert not trouble, trouble
     assert asked['keep_pass1'] is True, asked
     # the classes were asked for from this build's own rasters, and are what
@@ -219,5 +218,6 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     assert asked['classified'] == (Result.constraints, Result.drawn_mask), asked
     assert shading == {'dem': Result.dem, 'classes': classes}, shading
     assert got.args[0].shaded is shaded
+    assert got.args[1] is False, 'a build nothing superseded came back stale'
     assert not b.busy
     b.cleanup()
