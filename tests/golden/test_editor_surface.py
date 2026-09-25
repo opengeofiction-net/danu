@@ -98,7 +98,10 @@ def test_every_stage_is_named_and_documented():
               'water_areas', 'water_mask', 'interpolate', 'clamp', 'first_pass_classes',
               'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
-    not_stages = set(defs) - set(stages) - {'Result', 'build_dem', 'main'}
+    # not stages: the result, the entry points, and what the fill is allowed
+    # to hold on the machine it is running on
+    not_stages = set(defs) - set(stages) - {'Result', 'build_dem', 'main',
+                                            'machine_mb', 'memory_budget'}
     assert not_stages == set(), f'new top-level names need listing here: {not_stages}'
     undocumented = [name for name in stages if not ast.get_docstring(defs[name])]
     assert undocumented == [], f'stages with no docstring: {undocumented}'
@@ -519,6 +522,81 @@ def test_the_kept_first_pass_has_one_name_and_three_users_of_it(tmp_path, monkey
     assert not any('runs again' in l for l in lines), 'the overlay did not follow the name'
     build.build_dem(zone, work, p, library=True)
     assert not (work / 'somewhere-else.npz').exists(), 'the clearing did not follow the name'
+
+
+def test_the_fill_is_held_to_what_the_machine_has_not_what_the_server_has(monkeypatch, tmp_path):
+    """max_mem_mb is 18500 because that is what fits inside util's guaranteed
+    24 GB. The editor was using the same number: on a 15 GB laptop isofill was
+    asked whether a 10801x7201 raster fitted in core, answered yes against a
+    budget the machine did not have, and took the machine down with it - which
+    is how this was found, by doing exactly that.
+
+    The file's number is a ceiling now, not a target."""
+    from danu.surface import build, params
+
+    p = params.load()
+    assert p.max_mem_mb == 18500, 'the file no longer carries the server budget'
+
+    # the machine's size, not its free memory: a budget taken from what happens
+    # to be free would band a raster on Tuesday that it held whole on Monday,
+    # and the same mapper would get two surfaces from the same contours. Read
+    # before anything is monkeypatched over it
+    with open('/proc/meminfo', encoding='utf-8') as fh:
+        meminfo = dict(line.split(':', 1) for line in fh)
+    total = float(meminfo['MemTotal'].split()[0]) / 1024
+    assert abs(build.machine_mb() - total) < 1.0, 'machine_mb is not the machine total'
+
+    monkeypatch.setattr(build, 'machine_mb', lambda: None)
+    assert build.memory_budget(p) == p.max_mem_mb, 'a machine that cannot say gets the file'
+
+    monkeypatch.setattr(build, 'machine_mb', lambda: 64_000.0)
+    assert build.memory_budget(p) == p.max_mem_mb, 'a big machine is still capped by the file'
+
+    lines = []
+    monkeypatch.setattr(build, 'machine_mb', lambda: 4_000.0)
+    small = build.memory_budget(p, lines.append)
+    assert small == int(4_000.0 * build.MEM_SHARE) < p.max_mem_mb
+    assert any('share of itself' in line for line in lines), lines
+
+
+    # and the decision that matters: a raster the file would allow in core is
+    # sent to the binary instead, which bands what it cannot hold
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    with (HERE / 'params.lock').open('rb') as fh:
+        lock = tomllib.load(fh)
+    q = params.load().with_arcsec(lock['arcsec'])
+    monkeypatch.setattr(build, 'machine_mb', lambda: 1.0)
+    lines = []
+    result = build.build_dem(zone, tmp_path / 'work', q, log=lines.append)
+    assert result.dem is not None
+    assert any('the binary bands it' in line for line in lines), lines
+    assert not any('as a library' in line for line in lines), lines
+
+    # and the binary is told the same budget, or it would decide for itself
+    # whether to band using the number the machine does not have
+    seen = {}
+    real_run = build.subprocess.run
+
+    def watch(cmd, **kw):
+        if cmd and str(cmd[0]).endswith('isofill'):
+            seen['max_mem'] = int(cmd[cmd.index('--max-mem') + 1])
+        return real_run(cmd, **kw)
+
+    monkeypatch.setattr(build.subprocess, 'run', watch)
+    build.build_dem(zone, tmp_path / 'work2', q, log=lambda _: None)
+    assert seen.get('max_mem') == build.memory_budget(q), \
+        f"the binary was given --max-mem {seen.get('max_mem')}, not the machine's budget"
+
+    # and there is no way to forget it. A default of the file's number would
+    # let a caller reintroduce exactly this; a default of 0 would be no safer,
+    # since isofill holds a raster in core when whole_mb <= max_mem and so a
+    # budget of zero silently bands everything
+    import inspect
+    budget_param = inspect.signature(build._interpolate_binary).parameters['budget']
+    assert budget_param.default is inspect.Parameter.empty, 'budget has a default again'
+    assert budget_param.kind is inspect.Parameter.KEYWORD_ONLY, 'budget can be given by position'
 
 
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
