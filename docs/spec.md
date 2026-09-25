@@ -132,6 +132,43 @@ the tools for everything else.
   Danu already edits it. Reading roantra's overlay for context is cheap and
   worth doing; editing it is a separate job with no second user.
 
+### Spot heights
+
+Contours are not the only thing mappers draw which says where the ground is,
+and they are not always able to say it. These requirements take numbers after
+R35 because the earlier ones are referenced from the code.
+
+- **R36** A node carrying `ele` is a constraint, the same as a contour way.
+  Mappers are already drawing them: 3,010 spot heights sit in 67 of the 834
+  drawn squares, every one of them standalone - a node with `ele` and nothing
+  else - and every one discarded today, twice over. `collect` reads the `lines`
+  layer only, so no point ever reaches the build; and the packaged
+  `osmconf.ini` lists `ele` among the keys which do not make a node worth
+  reporting, so GDAL would not emit these as points even if it were asked.
+  Both change. The first build afterwards moves the published surface in those
+  67 squares, which is a migration to be run deliberately and not a side
+  effect of a release.
+- **R37** A spot height is what shapes a hilltop, and nothing else does.
+  Contours cannot say how high a hill goes, and the fill does not invent it: on
+  the golden square, of the twelve innermost rings with any ground inside, the
+  most any one rises above its own top contour is 15 mm against a 50 m
+  interval, and two come out a whole interval below it. The summit comes out
+  flat, by exactly the amount the last ring was drawn short. Nested rings also
+  cannot say whether they are a hill or a hollow - `collect` takes `ele` off a
+  way and nothing else, so the drawing is identical either way - and a spot
+  height inside the ring answers both questions at once.
+
+The elevation is all the fill needs; a spot height constrains the surface
+whatever it is a spot height *of*, so no tag beyond `ele` has to be understood
+for this to work. Typing them - `natural=peak`, `natural=saddle`,
+`natural=sinkhole` - is what the checks and the rendering would want, and stays
+in **Later** with areas held at an elevation.
+
+Before this is turned on, one thing has to be measured rather than assumed:
+`barrier_cells` widens a constraint for the sight test, so a one-cell spot
+height becomes a five-by-five occluder and may shadow the ground behind it. A
+contour is a line and being thickened costs it little; a point is not.
+
 ### Checks
 
 - **R29** Rivers which climb, per `demRiverCheck.py`, listed and clickable.
@@ -141,6 +178,12 @@ the tools for everything else.
 - **R32** Sea level lines which do not lie on a drawn coastline, per
   `demCheckZeroLine.py`.
 - **R33** A water body spanning more than one contour.
+- **R38** A spot height which contradicts the contours around it: one which
+  does not lie between the elevations of the rings enclosing it.
+- **R39** A closed contour ring with no spot height inside it, so that nothing
+  shapes the ground it encloses. A report rather than a warning - plenty of
+  rings are the foot of a slope rather than a summit - but it is the list a
+  mapper wants when the hilltops come out flat.
 
 ### Platform
 
@@ -560,7 +603,16 @@ Deliberately out of scope, recorded so the shape is not designed against:
 - **Procedural terrain areas** - `ogf:terrain_area` karst, plateau, mountains,
   coastal plain - which the 2014 Perl could generate and nothing has since. No
   way in OGF carries those tags today, so reviving them means re-establishing a
-  tagging convention first.
+  tagging convention first. This is *texture*: inventing plausible roughness
+  where nobody has drawn any, which is a different thing from R36's spot
+  heights - those only say where the ground already is.
+- **Typed elevation features** - `natural=peak`, `natural=saddle`,
+  `natural=sinkhole` read as what they are rather than as bare numbers, and
+  areas carrying `ele` held flat the way R26 holds a water body, which is what
+  a plateau wants. R36 takes the elevation off a node and needs none of it;
+  these earn their keep in the checks and the rendering, and karst is then
+  mostly the same tags repeated. Deferred until spot heights are carrying their
+  weight.
 - **Editing roantra's `water/` overlay**, which is the only one of its kind.
 
 ## Testing
@@ -1208,9 +1260,10 @@ splicing it in put 115.794 m into the surface.
 
 ### Phase 5
 
-**Phase 5 - water.** Overpass import and cache, elevations on water, burn and
-flatten with accept and roll back, profile tool. Ends when the gobras experiment
-is reproducible by hand in the editor.
+**Phase 5 - the anchors that are not contours.** Overpass import and cache,
+elevations on water, burn and flatten with accept and roll back, profile tool;
+spot heights as constraints. Ends when the gobras experiment is reproducible by
+hand in the editor and a hill with a spot height on it comes out pointed.
 
 ### Phase 6
 
