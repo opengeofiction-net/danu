@@ -32,7 +32,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.8.0'
+EXPECTED_VERSION = '0.9.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -93,6 +93,10 @@ class Isofill:
             lib.isofill_run_ex.restype = ctypes.c_longlong
             lib.isofill_run_ex.argtypes = lib.isofill_run.argtypes + [
                 ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_diffuse.restype = ctypes.c_int
+            lib.isofill_diffuse.argtypes = [
+                ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_ubyte),
+                ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
             return cls(lib, cand, version)
         raise IsofillError('no libisofill could be loaded:\n  ' + '\n  '.join(errors))
 
@@ -145,6 +149,36 @@ class Isofill:
             return out, int(filled), pass1
         return out, int(filled)
 
+
+    def diffuse(self, surface: np.ndarray, mask: np.ndarray | None = None,
+                water: np.ndarray | None = None) -> np.ndarray:
+        """The second pass alone, over what the first pass left. Returns the
+        solved surface; the argument is not written.
+
+        The boundary is whatever the surface already carries: the solve does
+        not move a cell holding anything but a sentinel. So a caller re-solving
+        a box out of a larger surface writes the rim from the last whole-raster
+        answer, and the diffusion runs up to it instead of to the raster's
+        edge."""
+        out = np.ascontiguousarray(surface, dtype=np.float32).copy()
+        rows, cols = out.shape
+        m = w = None
+        for name, arr in (('mask', mask), ('water', water)):
+            if arr is None:
+                continue
+            a = np.ascontiguousarray(arr, dtype=np.uint8)
+            if a.shape != out.shape:
+                raise IsofillError(f'{name} is {a.shape}, the surface is {out.shape}')
+            if name == 'mask':
+                m = a
+            else:
+                w = a
+        cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
+        rc = self.lib.isofill_diffuse(out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                      cptr(m), cptr(w), cols, rows)
+        if rc != 0:
+            raise IsofillError('isofill_diffuse: ' + ('out of memory' if rc == -2 else 'bad arguments'))
+        return out
 
     def whole_mb(self, cols: int, rows: int) -> float:
         """What the in-core fill holds, as the binary reckons it before
