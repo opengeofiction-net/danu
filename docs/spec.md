@@ -1289,7 +1289,10 @@ way put 1,359 of 48,841 cells at the wrong elevation - not at the box edge
 where it would have shown, but scattered through it, median 31 cells in, every
 one holding a value in both and a different value in each. Keeping the build's
 FIDs and burning in FID order matches exactly at every box size tried;
-reversing the order puts 80 cells wrong, which is what the test asserts against.
+reversing the order puts 80 cells wrong, which
+`test_burning_in_the_wrong_order_is_a_different_raster` renumbers the FIDs to
+show - without it, every other assertion here would pass just as well if the
+order made no difference at all.
 
 What is left for F5b: the clamp and the Mercator warp and hillshade for a
 patch, and the wiring - preview on edit, the exact rebuild on idle through F4's

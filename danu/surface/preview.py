@@ -46,7 +46,10 @@ LAYER = 'contour'
 
 
 def box_extent(gt: tuple, box: Box) -> tuple[float, float, float, float]:
-    """(x0, y1, x1, y0) of a box, in the grid's own coordinates."""
+    """The box's corners in the grid's own coordinates, as
+    (west, north, east, south) on a north-up geotransform - which is the order
+    the numbers come out in, x then y, and not the order a bounding box is
+    usually written in."""
     rows, cols = box.shape
     x0, y1 = gt[0] + box.x0 * gt[1], gt[3] + box.y0 * gt[5]
     return x0, y1, x0 + cols * gt[1], y1 + rows * gt[5]
@@ -71,11 +74,20 @@ class Contours:
 
     def __init__(self, gpkg: Path):
         from osgeo import ogr
+
+        # by whichever name this GDAL calls the in-memory driver: renamed from
+        # Memory to MEM in 3.11, and Trixie - so the servers, and CI - ships
+        # 3.10, where GetDriverByName('MEM') returns None rather than raising.
+        # Asking for the wrong one fails later and elsewhere, as an
+        # AttributeError on None, which is how this was found: the suite passed
+        # on a 3.12 desk and all three tests failed on CI
+        from .land_clamp import ogr_memory_driver
+
         src = ogr.Open(str(gpkg))
         if src is None:
             raise OSError(f'no contours to preview from: {gpkg}')
         lyr = src.GetLayer(LAYER)
-        self._mem = ogr.GetDriverByName('MEM').CreateDataSource('contours')
+        self._mem = ogr_memory_driver().CreateDataSource('contours')
         self.layer = self._mem.CreateLayer(LAYER, srs=lyr.GetSpatialRef(),
                                            geom_type=ogr.wkbLineString)
         self.layer.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
@@ -84,6 +96,13 @@ class Contours:
         self._fid: dict[str, int] = {}
         top = 0
         for f in lyr:
+            # every feature moves the high-water mark, including one this
+            # skips: if the highest FID in the source is a contour without an
+            # ele, a _next taken from the kept features alone collides with an
+            # FID already in use, and CreateFeature at an existing FID either
+            # fails or overwrites depending on the driver - on the one layer
+            # the whole ordering argument rests on
+            top = max(top, f.GetFID())
             ele = f.GetField('ele')
             if ele is None:
                 continue
@@ -96,7 +115,6 @@ class Contours:
             self.layer.CreateFeature(g)
             if osm_id is not None:
                 self._fid[str(osm_id)] = f.GetFID()
-            top = max(top, f.GetFID())
         self._next = top + 1
 
     def __len__(self) -> int:
@@ -174,7 +192,7 @@ class Kept:
     water: np.ndarray | None
     surface: np.ndarray
     geotransform: tuple
-    nodata: float | None
+    nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
 
 
@@ -193,6 +211,11 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     constraints drift from the build that produced them, one box at a time. The
     edits are not lost by restoring, because they live in ``contours`` and
     every preview re-burns its own box from there.
+
+    ``mask`` and ``water`` need no such care and get none: ``isofill`` takes
+    both as ``const``, and a test asserts they come back untouched. The
+    asymmetry with ``constraints`` is the point - that one is written on
+    purpose, and put back.
     """
     cover = 2 * params.fill_cells if cover is None else cover
     slack = 2 * params.fill_cells if slack is None else slack

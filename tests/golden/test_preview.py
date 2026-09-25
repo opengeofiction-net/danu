@@ -148,9 +148,17 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
                         water=before['water'], surface=before['surface'],
                         geotransform=gt, nodata=before['nodata'], contours=layer)
     keep_a_copy = before['constraints'].copy()
+    mask_copy = before['mask'].copy()
+    water_copy = before['water'].copy() if before['water'] is not None else None
     patch, good = preview.patch(kept, box, p)
     assert np.array_equal(kept.constraints, keep_a_copy), \
         'the preview left its burn behind in the kept constraints'
+    # constraints are written on purpose and put back; these two are not
+    # written at all - isofill takes both as const - and the asymmetry is
+    # worth pinning rather than leaving to a reading of the header
+    assert np.array_equal(kept.mask, mask_copy), 'the preview moved the drawn mask'
+    assert water_copy is None or np.array_equal(kept.water, water_copy), \
+        'the preview moved the water mask'
 
     # the exact build of the same edit
     history = edits.SetUndoStack()
@@ -205,3 +213,90 @@ def test_a_contour_the_build_never_saw_burns_last(tmp_path):
     got = layer.burn(gt, box, b['nodata'])
     assert 4321 in set(np.unique(got).tolist()), 'the new contour did not burn at all'
     assert got[3, 3] == 4321, 'the new contour did not win the cell it crosses'
+
+
+def test_the_layer_is_made_on_the_gdal_the_servers_have(tmp_path, monkeypatch):
+    """OGR's in-memory driver was renamed from Memory to MEM in GDAL 3.11.
+    Trixie ships 3.10, and so does CI; a desk on 3.12 has both. Asking for
+    'MEM' alone returns None there rather than raising, and the failure
+    surfaces as an AttributeError on None two lines later - which is exactly
+    how this was found, with the suite green locally and three tests red on CI.
+
+    So: hide 'MEM' the way 3.10 does, and build the layer anyway.
+    """
+    from osgeo import ogr
+
+    from danu.surface import preview
+
+    p = lock_params()
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    b = built(zone, tmp_path / 'work', p)
+
+    real = ogr.GetDriverByName
+
+    def only_the_old_name(name):
+        return None if name == 'MEM' else real(name)
+
+    monkeypatch.setattr(ogr, 'GetDriverByName', only_the_old_name)
+    assert ogr.GetDriverByName('MEM') is None, 'the older GDAL is not being simulated'
+    layer = preview.Contours(b['result'].contours_gpkg)
+    assert len(layer) > 50, 'the layer came back empty on the older name'
+
+
+def test_burning_in_the_wrong_order_is_a_different_raster(tmp_path):
+    """The claim the ordering rests on, made falsifiable.
+
+    Everything else here asserts the burn *matches* the whole raster, which
+    would also pass if order made no difference at all - if the contours never
+    overlapped, or if the rasteriser broke ties some order-independent way.
+    Then the FID bookkeeping in Contours would be ceremony, and nothing would
+    say so.
+
+    So: the same geometry and the same elevations, FIDs renumbered back to
+    front, and the tie broken the other way. On this fixture that moves 80
+    cells, which is the figure docs/spec.md quotes.
+    """
+    import numpy as np
+    from osgeo import ogr
+
+    from danu.surface import local, preview
+
+    p = lock_params()
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    shutil.copy(SQUARE, zone / SQUARE.name)
+    b = built(zone, tmp_path / 'work', p)
+
+    forward = preview.Contours(b['result'].contours_gpkg)
+    backward = preview.Contours(b['result'].contours_gpkg)
+    feats = [(f.GetFID(), f.GetGeometryRef().Clone(), f.GetField('ele'), f.GetField('osm_id'))
+             for f in backward.layer]
+    top = max(fid for fid, *_ in feats)
+    for fid, *_ in feats:
+        backward.layer.DeleteFeature(fid)
+    defn = backward.layer.GetLayerDefn()
+    for fid, geom, ele, osm in feats:
+        g = ogr.Feature(defn)
+        g.SetFID(top - fid + 1)
+        g.SetGeometry(geom)
+        g.SetField('ele', ele)
+        g.SetField('osm_id', osm)
+        backward.layer.CreateFeature(g)
+    assert len(backward) == len(forward), 'the reversal lost features'
+
+    cons = b['constraints']
+    drawn = np.argwhere(cons != b['nodata'])
+    y, x = (int(v) for v in drawn[len(drawn) // 2])
+    box = local.Box(x - 10, y - 10, x + 10, y + 10)
+    grown = box.grown(2 * p.fill_cells, cons.shape).grown(
+        local.reach(p, 2 * p.fill_cells), cons.shape)
+    want = cons[grown.slice]
+
+    assert int((forward.burn(b['gt'], grown, b['nodata']) != want).sum()) == 0
+    wrong = int((backward.burn(b['gt'], grown, b['nodata']) != want).sum())
+    assert wrong > 0, ('burning back to front changed nothing, so FID order is '
+                       'not what makes the burn match and Contours is keeping '
+                       'FIDs for no reason')
+    assert wrong == 80, f'the fixture moved {wrong} cells, not the 80 the spec quotes'
