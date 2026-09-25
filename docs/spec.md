@@ -1229,8 +1229,11 @@ splicing it in put 115.794 m into the surface.
 
 **Phase 5 - the anchors that are not contours.** Overpass import and cache,
 elevations on water, burn and flatten with accept and roll back, profile tool;
-spot heights as constraints. Ends when the gobras experiment is reproducible by
-hand in the editor and a hill with a spot height on it comes out pointed.
+spot heights as constraints. Measure first: `barrier_cells` widens a constraint
+for the sight test, so a one-cell spot height becomes a five-by-five occluder.
+A contour is a line and hardly notices; a point is not Ends when the gobras
+experiment is reproducible by hand in the editor and a hill with a spot height
+on it comes out pointed.
 
 ### Phase 6
 
