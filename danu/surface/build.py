@@ -77,6 +77,83 @@ def _pass1_file(work: Path) -> Path:
     return Path(work) / PASS1
 
 
+# How much of what a machine has spare the fill may take. isofill's measured
+# peak is 1.06 times the budget it is given, and GDAL's block cache and the
+# rasterisation sit outside that, so two thirds leaves room for both and for
+# whatever else the mapper has open.
+NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
+          "AND ele NOT GLOB '*[^-0-9.]*')")
+CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
+Log = Callable[[str], None]
+
+
+def _quiet(_: str) -> None:
+    pass
+
+
+MEM_SHARE = 0.66
+
+
+def machine_mb() -> float | None:
+    """What this machine could spare right now, in megabytes, or None where it
+    cannot be told.
+
+    ``max_mem_mb`` in elevation.toml is 18500 because that is what fits inside
+    util's guaranteed 24 GB. It is the server's number, and the editor was
+    using it too: on a 15 GB laptop isofill was asked whether a 10801x7201
+    raster fitted in core, answered yes against a budget the machine did not
+    have, and took the machine down with it. A mapper's computer is not the
+    server and has to be asked."""
+    try:                                      # Linux, and the honest number
+        with open('/proc/meminfo', encoding='utf-8') as fh:
+            for line in fh:
+                if line.startswith('MemAvailable:'):
+                    return float(line.split()[1]) / 1024
+    except OSError:
+        pass
+    try:                                      # other POSIX
+        return (os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_AVPHYS_PAGES')) / (1024 * 1024)
+    except (AttributeError, ValueError, OSError):
+        pass
+    if sys.platform == 'win32':
+        import ctypes
+
+        class _Status(ctypes.Structure):
+            _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                        ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong),
+                        ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong),
+                        ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+
+        status = _Status()
+        status.dwLength = ctypes.sizeof(_Status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return status.ullAvailPhys / (1024 * 1024)
+    return None
+
+
+def memory_budget(params: Params, log: Log = _quiet) -> int:
+    """What the fill may hold: the file's budget, or this machine's share of
+    what it has spare, whichever is less.
+
+    The file's number is a ceiling rather than a target. Lowering it does not
+    change the surface - it changes which path computes it, since the binary
+    bands a raster it cannot hold whole, and a banded second pass is an
+    approximation. Dying is worse."""
+    budget = int(params.max_mem_mb)
+    spare = machine_mb()
+    if spare is None:
+        return budget
+    here = int(spare * MEM_SHARE)
+    if here < budget:
+        log(f'  {here} MB is this machine\'s share of what it has spare, below the '
+            f'{budget} MB the parameters allow: taking the lower')
+        return here
+    return budget
+
+
 def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
     """What the first pass was run with, as numbers a kept pass can carry:
     the nodata that decides which cells are constraints, and the three values
@@ -96,14 +173,6 @@ def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
                      float(params.fill_cells), float(params.barrier_cells),
                      float(params.grad_min)], dtype=float)
 # the shell's own test for "ele is a number", in the GeoPackage's SQLite
-NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
-          "AND ele NOT GLOB '*[^-0-9.]*')")
-CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
-Log = Callable[[str], None]
-
-
-def _quiet(_: str) -> None:
-    pass
 
 
 # ------------------------------------------------------------------ grid
@@ -655,6 +724,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     out = work / 'rounded.tif'
     if out.exists():
         out.unlink()
+    budget = memory_budget(params, log)
     if extra:
         log(f'  extra isofill flags, so the binary: {" ".join(extra)}')
         if library is True:
@@ -672,10 +742,10 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
             ds = gdal.Open(str(cont))
             cols, rows = ds.RasterXSize, ds.RasterYSize
             mb = lib.whole_mb(cols, rows)
-            if mb > params.max_mem_mb:
+            if mb > budget:
                 if library is True:
-                    raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {params.max_mem_mb}; the binary bands it')
-                log(f'  {mb:.0f} MB in core is above {params.max_mem_mb}: the binary bands it')
+                    raise isofill_lib.IsofillError(f'{cols}x{rows} needs {mb:.0f} MB in core, above {budget}; the binary bands it')
+                log(f'  {mb:.0f} MB in core is above {budget}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
                                             _pass1_file(work) if keep_pass1 else None)
@@ -686,7 +756,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         # never asked, and the second fill it then runs is the cost this flag
         # exists to avoid
         log('  the binary cannot keep the first pass, so the overlay will fill again')
-    return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log)
+    return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log, budget)
 
 
 def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
@@ -743,7 +813,8 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
-                        isofill: str, extra: list[str] | None = None, log: Log = _quiet) -> Path:
+                        isofill: str, extra: list[str] | None = None, log: Log = _quiet,
+                        budget: int | None = None) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -766,7 +837,8 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     out-of-core path, which is an approximation - at 15000, zone-axian took it
     and came out with a different sea."""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
-           '--max-mem', str(params.max_mem_mb), '--mask', str(mask)]
+           '--max-mem', str(budget if budget is not None else params.max_mem_mb),
+           '--mask', str(mask)]
     if water is not None:
         cmd += ['--water', str(water)]
     cmd += list(extra or [])
