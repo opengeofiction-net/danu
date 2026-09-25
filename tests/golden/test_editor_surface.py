@@ -589,6 +589,15 @@ def test_the_fill_is_held_to_what_the_machine_has_not_what_the_server_has(monkey
     assert seen.get('max_mem') == build.memory_budget(q), \
         f"the binary was given --max-mem {seen.get('max_mem')}, not the machine's budget"
 
+    # and there is no way to forget it. A default of the file's number would
+    # let a caller reintroduce exactly this; a default of 0 would be no safer,
+    # since isofill holds a raster in core when whole_mb <= max_mem and so a
+    # budget of zero silently bands everything
+    import inspect
+    budget_param = inspect.signature(build._interpolate_binary).parameters['budget']
+    assert budget_param.default is inspect.Parameter.empty, 'budget has a default again'
+    assert budget_param.kind is inspect.Parameter.KEYWORD_ONLY, 'budget can be given by position'
+
 
 def test_the_library_refuses_a_version_it_was_not_written_for(monkeypatch):
     """And refuses it by version, before it asks for any symbol the newer

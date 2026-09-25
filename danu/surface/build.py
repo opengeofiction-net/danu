@@ -77,6 +77,7 @@ def _pass1_file(work: Path) -> Path:
     return Path(work) / PASS1
 
 
+# the shell's own test for "ele is a number", in the GeoPackage's SQLite
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
@@ -185,7 +186,6 @@ def _fill_identity(params: Params, nodata: float | None) -> np.ndarray:
     return np.array([np.nan if nodata is None else float(nodata),
                      float(params.fill_cells), float(params.barrier_cells),
                      float(params.grad_min)], dtype=float)
-# the shell's own test for "ele is a number", in the GeoPackage's SQLite
 
 
 # ------------------------------------------------------------------ grid
@@ -769,7 +769,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         # never asked, and the second fill it then runs is the cost this flag
         # exists to avoid
         log('  the binary cannot keep the first pass, so the overlay will fill again')
-    return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log, budget)
+    return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log,
+                               budget=budget)
 
 
 def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
@@ -827,7 +828,7 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
                         isofill: str, extra: list[str] | None = None, log: Log = _quiet,
-                        budget: int = 0) -> Path:
+                        *, budget: int) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -850,8 +851,12 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     out-of-core path, which is an approximation - at 15000, zone-axian took it
     and came out with a different sea."""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
-           # no default: a caller that forgot would hand the binary the file's
-           # number, which is the thing this is here to stop
+           # Keyword and required, both deliberately. Defaulting it to the
+           # file's number would let a caller quietly reintroduce the thing
+           # this exists to stop, and defaulting it to 0 is no safer: isofill
+           # takes the whole raster in core when whole_mb <= max_mem, so a
+           # budget of zero silently bands everything and approximates where it
+           # need not. There is no value that means "not decided".
            '--max-mem', str(budget),
            '--mask', str(mask)]
     if water is not None:
