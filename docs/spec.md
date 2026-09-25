@@ -1324,8 +1324,32 @@ The preview's cost is now known end to end: 2.3 to 5.2 ms to burn, 10 to 18 to
 solve, the clamp in numpy, 14.4 to 19.8 to shade. Twenty-seven to
 forty-three milliseconds, against fifty.
 
-What is left is the wiring: preview on edit, the exact rebuild on idle through
-F4's queue, and the two states told apart at a glance.
+**The wiring.** `danu.ui.preview.PreviewDriver` joins them: the editor says
+which ways an edit touched, the driver keeps the contour layer in step, and two
+timers decide when anything happens. A short one coalesces a gesture - drawing
+a contour is one edit per node, and previewing each would spend the budget many
+times over on frames nobody sees. A long one asks for the exact rebuild through
+F4's queue once the drawing stops, which is where the preview's approximations
+are settled rather than compounded: every build re-adopts the exact grids, so a
+preview always starts from an answer.
+
+R19's third clause, the two states told apart at a glance: the surface draws a
+dashed amber edge while it is provisional, and the panel says *preview, N ms -
+exact on idle*. Around the whole surface and not the patch, because what is
+provisional is the surface - one preview's rim is the next one's ground, and
+outlining only the last box edited would say the rest had been settled.
+
+What bounds it is memory. The preview holds the build's grids - 308 MB for the
+gobras 3x3 at 3 arcseconds, 1.5 to 2.8 GB at 1 - so they are kept at the
+drawing resolution and not at the publishing one, where the menu already says
+*slow* and an edit waits for the exact build. The driver says so rather than
+looking broken. And the grids are read on the worker inside a `try`: a build
+that produced a DEM has produced what was asked for, and if its intermediates
+cannot be read back the editor loses the live preview and rebuilds on every
+edit, which is what it did before phase 4.
+
+This is the point at which F3, F5a and F5b stop being library and start being
+what the editor does.
 
 ### Phase 5
 

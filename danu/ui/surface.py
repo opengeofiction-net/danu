@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, QThreadPool, Qt, Signal
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout,
                                QGraphicsItem, QLabel, QPushButton, QSlider, QWidget)
 
@@ -44,6 +44,36 @@ class Built:
     """What the worker hands back: the surface, and what it cannot say."""
     shaded: shade.Shaded
     envelope_rings: list = field(default_factory=list)
+    rasters: 'Rasters | None' = None      # for the preview; None when it is off
+
+
+@dataclass
+class Rasters:
+    """The build's own grids, kept so an edit can be previewed against them
+    rather than rebuilt.
+
+    Held in memory, which is what bounds this: 308 MB for the gobras 3x3 at 3
+    arcseconds, and 1.5 to 2.8 GB at 1. So they are kept at the drawing
+    resolution and not at the publishing one, where the editor already says
+    "slow" in the menu and an edit waits for the exact build. PREVIEW_ARCSEC
+    is where that line is drawn.
+    """
+    constraints: object
+    mask: object
+    water: object
+    surface: object
+    dem: object
+    geotransform: tuple
+    projection: str
+    nodata: float
+    gpkg: object
+
+
+# Above this, the rasters the preview needs are gigabytes and are not kept.
+# 3 arcseconds is 308 MB for a three by three and is the resolution drawing
+# happens at; 1 arcsecond is the published DEM's, is labelled slow where it is
+# chosen, and rebuilds exactly instead.
+PREVIEW_ARCSEC = 3.0
 
 
 class _Signals(QObject):
@@ -68,7 +98,50 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     from .overlays import envelope_rings
     # the outline is a courtesy; its file missing is not a failed surface
     rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
-    return Built(shaded, rings)
+    return Built(shaded, rings, rasters=_rasters(result, work, params))
+
+
+def _rasters(result, work: Path, params: Params):
+    """The build's grids as arrays, or None where the preview is off.
+
+    Read here, on the worker, because reading them is I/O and the UI thread is
+    where the frames are."""
+    if params.arcsec > PREVIEW_ARCSEC:
+        return None
+    try:
+        return _read_rasters(result, work)
+    except Exception:      # noqa: BLE001
+        # The preview is a bonus and must not be able to fail a surface. A
+        # build that produced a DEM has produced the thing the user asked for;
+        # if its intermediate grids cannot be read back, the editor loses the
+        # live preview and rebuilds on every edit instead, which is what it did
+        # before phase 4.
+        return None
+
+
+def _read_rasters(result, work: Path):
+    from osgeo import gdal
+    import numpy as np
+    held = {}
+
+    def read(path, dtype=None):
+        ds = gdal.Open(str(path))        # held: the band dies with the dataset
+        held[str(path)] = ds
+        a = ds.GetRasterBand(1).ReadAsArray()
+        return a.astype(dtype) if dtype is not None else a
+
+    cons = read(result.constraints, np.float32)
+    band = held[str(result.constraints)].GetRasterBand(1)
+    dem_ds = gdal.Open(str(result.dem))
+    return Rasters(constraints=cons,
+                   mask=read(result.drawn_mask),
+                   water=read(result.water_mask) if result.water_mask else None,
+                   surface=read(work / 'rounded.tif', np.float32),
+                   dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
+                   geotransform=tuple(dem_ds.GetGeoTransform()),
+                   projection=dem_ds.GetProjection(),
+                   nodata=band.GetNoDataValue(),
+                   gpkg=result.contours_gpkg)
 
 
 class Nothing(Exception):
@@ -213,6 +286,7 @@ class SurfaceLayer(QGraphicsItem):
         self.style = Style()
         self._pixmap: QPixmap | None = None
         self._rect = QRectF()
+        self._preview = False
 
     def set_shaded(self, shaded: shade.Shaded | None):
         self.prepareGeometryChange()
@@ -244,11 +318,30 @@ class SurfaceLayer(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         return self._rect
 
+    def set_preview(self, previewing: bool):
+        """Whether what is drawn is a preview or the exact build - R19's "the
+        two states are distinguishable at a glance"."""
+        if previewing != self._preview:
+            self._preview = previewing
+            self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        if self._preview:
+            # A dashed edge around the surface, in scene units so it keeps its
+            # width on screen at any zoom. Around the whole surface and not the
+            # patch: what is provisional is the surface, since one preview's
+            # rim is the next one's ground, and outlining the last box edited
+            # would say the rest had been settled.
+            pen = QPen(QColor(255, 170, 0), 0, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self._rect)
 
 
 # ------------------------------------------------------------------- panel
@@ -361,6 +454,11 @@ class SurfacePanel(QDockWidget):
         self.status.setText(f'{cols}×{rows} at {shaded.metres:g} m, {rng}, {seconds:.0f} s')
         if self.unreached is not None:
             self.reading.setText(self.unreached.summary())
+
+    def previewed(self, seconds: float):
+        """A patch went in without a rebuild. Says so, and says it is not the
+        exact answer - which the dashed edge on the canvas also says."""
+        self.status.setText(f'preview, {seconds * 1000:.0f} ms - exact on idle')
 
     def failed(self, text: str):
         self.button.setEnabled(True)

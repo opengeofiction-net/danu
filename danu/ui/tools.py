@@ -54,6 +54,7 @@ class EditController(QObject):
     """The tools, the history and the selection, over one working set."""
 
     edited = Signal()                # after any command, undo or redo
+    editedWays = Signal(object, object)   # and which ways, in which square, for the preview
     message = Signal(str)            # for the status line
     toolChanged = Signal(str)
 
@@ -110,26 +111,32 @@ class EditController(QObject):
     # ---------------------------------------------------------- history
     def do(self, square: Square, cmd: edits.Command):
         self.history.do(square, cmd)
-        self.layer.refresh(square, cmd.ways(square))
+        ways = cmd.ways(square)
+        self.layer.refresh(square, ways)
+        self.editedWays.emit(square, ways)
         self.edited.emit()
 
     def undo(self):
         step = self.history.undo()
         if step:
             square, cmd = step
-            self.layer.refresh(square, cmd.ways(square))
-            self._after_history_move(square)
+            ways = cmd.ways(square)
+            self.layer.refresh(square, ways)
+            self._after_history_move(square, ways)
             self.message.emit(f'undid {cmd.describe()}')
 
     def redo(self):
         step = self.history.redo()
         if step:
             square, cmd = step
-            self.layer.refresh(square, cmd.ways(square))
-            self._after_history_move(square)
+            ways = cmd.ways(square)
+            self.layer.refresh(square, ways)
+            self._after_history_move(square, ways)
             self.message.emit(f'redid {cmd.describe()}')
 
-    def _after_history_move(self, square: Square):
+    def _after_history_move(self, square: Square, ways=()):
+        if ways:
+            self.editedWays.emit(square, ways)
         if self.drawing and (self.drawing[0] is square) and self.drawing[1] not in square.ways:
             self.drawing = None                      # the way being drawn was undone away
         if self.selection and self.selection.way.id not in self.selection.square.ways:

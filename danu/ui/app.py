@@ -98,6 +98,11 @@ class MainWindow(QMainWindow):
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
         self.builder = SurfaceBuilder(self)
+        from .preview import PreviewDriver
+        self.preview = PreviewDriver(self)
+        self.preview.patched.connect(self._surface_previewed)
+        self.preview.exact_wanted.connect(self._rebuild_after_idle)
+        self.preview.unavailable.connect(lambda why: self.surface_panel.status.setText(why))
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
@@ -120,6 +125,7 @@ class MainWindow(QMainWindow):
         # cursor had been, so opening a square named a neighbour
         self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
+        self.editor.editedWays.connect(self.preview.edited)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
@@ -486,6 +492,25 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
 
+    def _surface_previewed(self, box, seconds):
+        """A patch went into the arrays the layer draws; repaint from them.
+
+        The colours are recomposed from the whole arrays rather than the box -
+        compose() is the UI thread's cheap end and works on what it is given,
+        and splitting it to a rectangle would buy a few milliseconds of the
+        fifty at the cost of the one path that is currently simple."""
+        self.surface.set_shaded(self.surface.shaded)
+        self.unreached.set_shaded(self.surface.shaded)
+        self.surface.set_preview(True)
+        self.surface_panel.previewed(seconds)
+        self.statusBar().showMessage(
+            f'preview: {box.cells:,} cells in {seconds * 1000:.0f} ms - exact on idle')
+
+    def _rebuild_after_idle(self):
+        """The drawing stopped, so settle the preview's approximations."""
+        if self.working_set is not None and not self.editor.history.dirty_squares() == {}:
+            self.rebuild_surface(float(self.surface_panel.resolution.currentData()))
+
     def _surface_built(self, built, stale=False, seconds=0.0):
         # seconds comes from the builder: once builds overlap, how long one
         # took is not something a single attribute here can hold
@@ -494,6 +519,12 @@ class MainWindow(QMainWindow):
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)
+        self.surface.set_preview(stale)     # a superseded build is provisional too
+        # the preview works from the exact answer, so its approximations start
+        # again from nothing rather than compounding
+        if not stale:
+            from ..surface import params as surface_params
+            self.preview.adopt(built, surface_params.load().with_arcsec(self._arcsec))
         if stale:
             self.statusBar().showMessage(
                 f'surface built in {seconds:.0f} s, already out of date - rebuilding')
