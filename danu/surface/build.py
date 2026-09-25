@@ -77,10 +77,6 @@ def _pass1_file(work: Path) -> Path:
     return Path(work) / PASS1
 
 
-# How much of what a machine has spare the fill may take. isofill's measured
-# peak is 1.06 times the budget it is given, and GDAL's block cache and the
-# rasterisation sit outside that, so two thirds leaves room for both and for
-# whatever else the mapper has open.
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
@@ -91,28 +87,36 @@ def _quiet(_: str) -> None:
     pass
 
 
-MEM_SHARE = 0.66
+# How much of a machine the fill may take. isofill's measured peak is 1.06
+# times the budget it is given, and GDAL's block cache and the rasterisation
+# sit outside that, so half the machine leaves room for both and for everything
+# else the mapper has open.
+MEM_SHARE = 0.5
 
 
 def machine_mb() -> float | None:
-    """What this machine could spare right now, in megabytes, or None where it
-    cannot be told.
+    """How much memory this machine has, in megabytes, or None where it cannot
+    be told.
 
     ``max_mem_mb`` in elevation.toml is 18500 because that is what fits inside
     util's guaranteed 24 GB. It is the server's number, and the editor was
-    using it too: on a 15 GB laptop isofill was asked whether a 10801x7201
-    raster fitted in core, answered yes against a budget the machine did not
-    have, and took the machine down with it. A mapper's computer is not the
-    server and has to be asked."""
-    try:                                      # Linux, and the honest number
+    using it too, on whatever a mapper happens to have.
+
+    What this asks for is the machine's *total*, not what is free at the
+    moment. Free memory moves while the editor is open, and a budget taken from
+    it would decide to band a raster on Tuesday that it held whole on Monday -
+    so the same mapper would get two different surfaces from the same contours
+    depending on what else they had running. A machine's size does not change,
+    so this decides the same way twice."""
+    try:                                      # Linux
         with open('/proc/meminfo', encoding='utf-8') as fh:
             for line in fh:
-                if line.startswith('MemAvailable:'):
+                if line.startswith('MemTotal:'):
                     return float(line.split()[1]) / 1024
     except OSError:
         pass
     try:                                      # other POSIX
-        return (os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_AVPHYS_PAGES')) / (1024 * 1024)
+        return (os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')) / (1024 * 1024)
     except (AttributeError, ValueError, OSError):
         pass
     if sys.platform == 'win32':
@@ -130,26 +134,35 @@ def machine_mb() -> float | None:
         status = _Status()
         status.dwLength = ctypes.sizeof(_Status)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return status.ullAvailPhys / (1024 * 1024)
+            return status.ullTotalPhys / (1024 * 1024)
     return None
 
 
 def memory_budget(params: Params, log: Log = _quiet) -> int:
     """What the fill may hold: the file's budget, or this machine's share of
-    what it has spare, whichever is less.
+    itself, whichever is less.
 
     The file's number is a ceiling rather than a target. Lowering it does not
-    change the surface - it changes which path computes it, since the binary
-    bands a raster it cannot hold whole, and a banded second pass is an
-    approximation. Dying is worse."""
+    change what the surface should be - it changes which path computes it,
+    since the binary bands a raster it cannot hold whole and a banded second
+    pass is an approximation.
+
+    That is a real cost and worth naming: a machine too small to hold the
+    raster gets a surface the server would not have produced. There is no
+    alternative on that machine - the whole raster does not fit - so the choice
+    is between an approximation and a failure, and it is taken deliberately.
+    What is avoided by asking for the machine's size rather than its free
+    memory is the worse version, where the same machine answers differently
+    from one day to the next."""
     budget = int(params.max_mem_mb)
-    spare = machine_mb()
-    if spare is None:
+    here_total = machine_mb()
+    if here_total is None:
         return budget
-    here = int(spare * MEM_SHARE)
+    here = int(here_total * MEM_SHARE)
     if here < budget:
-        log(f'  {here} MB is this machine\'s share of what it has spare, below the '
-            f'{budget} MB the parameters allow: taking the lower')
+        log(f'  {here} MB is this machine\'s share of itself, below the {budget} MB the '
+            f'parameters allow: taking the lower, so a raster above it is banded '
+            f'rather than held')
         return here
     return budget
 
@@ -814,7 +827,7 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
                         isofill: str, extra: list[str] | None = None, log: Log = _quiet,
-                        budget: int | None = None) -> Path:
+                        budget: int = 0) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -837,7 +850,9 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     out-of-core path, which is an approximation - at 15000, zone-axian took it
     and came out with a different sea."""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
-           '--max-mem', str(budget if budget is not None else params.max_mem_mb),
+           # no default: a caller that forgot would hand the binary the file's
+           # number, which is the thing this is here to stop
+           '--max-mem', str(budget),
            '--mask', str(mask)]
     if water is not None:
         cmd += ['--water', str(water)]

@@ -537,6 +537,15 @@ def test_the_fill_is_held_to_what_the_machine_has_not_what_the_server_has(monkey
     p = params.load()
     assert p.max_mem_mb == 18500, 'the file no longer carries the server budget'
 
+    # the machine's size, not its free memory: a budget taken from what happens
+    # to be free would band a raster on Tuesday that it held whole on Monday,
+    # and the same mapper would get two surfaces from the same contours. Read
+    # before anything is monkeypatched over it
+    with open('/proc/meminfo', encoding='utf-8') as fh:
+        meminfo = dict(line.split(':', 1) for line in fh)
+    total = float(meminfo['MemTotal'].split()[0]) / 1024
+    assert abs(build.machine_mb() - total) < 1.0, 'machine_mb is not the machine total'
+
     monkeypatch.setattr(build, 'machine_mb', lambda: None)
     assert build.memory_budget(p) == p.max_mem_mb, 'a machine that cannot say gets the file'
 
@@ -547,7 +556,8 @@ def test_the_fill_is_held_to_what_the_machine_has_not_what_the_server_has(monkey
     monkeypatch.setattr(build, 'machine_mb', lambda: 4_000.0)
     small = build.memory_budget(p, lines.append)
     assert small == int(4_000.0 * build.MEM_SHARE) < p.max_mem_mb
-    assert any('spare' in line for line in lines), lines
+    assert any('share of itself' in line for line in lines), lines
+
 
     # and the decision that matters: a raster the file would allow in core is
     # sent to the binary instead, which bands what it cannot hold
