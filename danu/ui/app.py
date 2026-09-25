@@ -482,9 +482,15 @@ class MainWindow(QMainWindow):
             return False
         if arcsec is not None:
             p = p.with_arcsec(arcsec)
+        # before the request, not after: request() starts the build there and
+        # then when nothing is running, and the build's own started signal
+        # reads this. Setting it afterwards had the status line report the
+        # previous build's resolution, which on the first build of a session
+        # is the 0 it was initialised to - "building at 0″".
+        self._arcsec = p.arcsec
+        self.surface_panel.show_resolution(p.arcsec)
         queued = self.builder.busy
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
-        self._arcsec = p.arcsec
         if queued:
             # the running build is already superseded; it finishes and is shown
             # as stale while this one runs
@@ -513,8 +519,11 @@ class MainWindow(QMainWindow):
 
     def _rebuild_after_idle(self):
         """The drawing stopped, so settle the preview's approximations."""
-        if self.working_set is not None and not self.editor.history.dirty_squares() == {}:
-            self.rebuild_surface(float(self.surface_panel.resolution.currentData()))
+        if self.working_set is not None and self.editor.history.dirty_squares():
+            # the resolution this surface is at, not whatever the combo says:
+            # they are the same now that a build moves the combo, and an idle
+            # rebuild is the wrong moment to discover they are not
+            self.rebuild_surface(self._arcsec or None)
 
     def _surface_built(self, built, stale=False, seconds=0.0):
         # seconds comes from the builder: once builds overlap, how long one

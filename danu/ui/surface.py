@@ -496,6 +496,22 @@ class SurfacePanel(QDockWidget):
         self.layer.set_style(self.current_style())
         self.styleChanged.emit(self.layer.style)
 
+    def show_resolution(self, arcsec: float) -> bool:
+        """Put the combo on the resolution being built.
+
+        The panel is where a reader looks to see what the surface is; a build
+        started from anywhere else - the command line's --surface, or a
+        rebuild that names its own - has to move it, or the panel says one
+        thing while the build does another. Signals stay blocked because this
+        is reporting a build, not asking for one."""
+        for i in range(self.resolution.count()):
+            if abs(float(self.resolution.itemData(i)) - arcsec) < 1e-9:
+                was = self.resolution.blockSignals(True)
+                self.resolution.setCurrentIndex(i)
+                self.resolution.blockSignals(was)
+                return True
+        return False
+
     def building(self, text: str):
         self.button.setEnabled(False)
         self.status.setText(text)

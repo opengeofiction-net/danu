@@ -230,3 +230,70 @@ def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
 def h_path():
     from pathlib import Path
     return Path('.')
+
+
+def test_the_status_line_names_the_resolution_being_built(qtbot, window):
+    """It said "building at 0″" on the first build of a session.
+
+    The window kept the resolution in an attribute and set it after asking for
+    the build - but request() starts the build there and then when nothing is
+    running, and the build's own started signal reads that attribute. So it
+    reported the previous build's resolution, which on the first build is the
+    zero it was initialised to.
+    """
+    said = []
+    window.statusBar().messageChanged.connect(said.append)
+    window.builder._runner = lambda job: None            # start it, do not run it
+    assert window.rebuild_surface(1.0)
+    building = [t for t in said if 'building the surface' in t]
+    assert building, said
+    assert '1″' in building[-1], building[-1]
+    assert '0″' not in building[-1]
+
+
+def test_a_build_moves_the_panel_to_the_resolution_it_is_using(qtbot, window):
+    """--surface 1 built at 1 arcsecond while the panel said 3. The panel is
+    where a reader looks to see what the surface is."""
+    window.builder._runner = lambda job: None
+    assert window.rebuild_surface(1.0)
+    assert float(window.surface_panel.resolution.currentData()) == 1.0, \
+        'the panel still names a resolution the build is not using'
+    assert window.rebuild_surface(3.0)
+    assert float(window.surface_panel.resolution.currentData()) == 3.0
+
+
+def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
+    """The consequence of the two above, and the one that would have been
+    found last: an idle rebuild read the combo, so after --surface 1 the first
+    edit would quietly rebuild at 3 and the surface would change resolution
+    under the mapper.
+
+    The two agree once a build moves the combo, so to have this say anything
+    they are pulled apart: the combo is moved by hand, as a mapper choosing
+    what to build *next*, while the surface on screen is still at 1. Settling a
+    preview is not the moment to act on that choice - it belongs to the Rebuild
+    button - and an idle rebuild at a resolution nobody asked for yet is 77
+    seconds nobody asked for either.
+    """
+    window.builder._runner = lambda job: None
+    assert window.rebuild_surface(1.0)
+    window.surface_panel.show_resolution(3.0)        # chosen, not yet built
+    assert float(window.surface_panel.resolution.currentData()) == 3.0
+
+    asked = []
+    window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
+    window.editor.history.dirty_squares = lambda: {"S": object()}
+    window._rebuild_after_idle()
+    assert asked == [1.0], (
+        "the idle rebuild asked for %r, not the 1 arcsecond the surface is at" % (asked,))
+
+
+def test_an_idle_rebuild_does_nothing_with_nothing_edited(qtbot, window):
+    """The timer runs on any edit, including one undone again. Rebuilding a set
+    with no unsaved change is seconds of CPU for the same answer."""
+    window.builder._runner = lambda job: None
+    asked = []
+    window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
+    window.editor.history.dirty_squares = lambda: {}
+    window._rebuild_after_idle()
+    assert asked == [], "an idle rebuild ran with nothing edited"
