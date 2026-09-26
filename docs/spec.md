@@ -1494,14 +1494,22 @@ same way, which the preview detects and refuses rather than repairs. And the
 overlay's second checkbox, *and cells seeing one level*, stays live when the
 first one is off, where it does nothing.
 
-**What is not F5c.** Changing the resolution does nothing until *Rebuild* is
-pressed, and an idle rebuild settles the surface on screen rather than the
-resolution named in the panel. That is deliberate - it is what stops an
-automatic rebuild spending 77 seconds at a resolution nobody asked for - and a
-mapper reasonably reads it as the control not working. Which of the two it
-should be is a decision and not a defect, so it waits for one. Persisting the
-display settings, and the contour tools a mapper wants next - split, merge,
-join - are phase 5 and 6 work that using the editor surfaced early.
+**Decided, and done.** Changing the resolution used to do nothing until
+*Rebuild* was pressed: the panel named one resolution while the surface stayed
+at another, and an edit redrew at the old one. That was deliberate - it is what
+stops an automatic rebuild spending 77 seconds at a resolution nobody asked for
+- and it reads as the control not working, because that is what it looks like.
+Choosing now builds. The Rebuild button stays, for rebuilding at the resolution
+already chosen.
+
+The idle rebuild still settles the surface on screen rather than the resolution
+named in the panel, which is now a distinction only visible while a build is
+running - but it is the right one either way, since what a preview needs
+settling at is the ground it was drawn over.
+
+**What is not F5c.** Persisting the display settings, and the contour tools a
+mapper wants next - split, merge, join - are phase 5 and 6 work that using the
+editor surfaced early.
 
 ### Phase 5
 
