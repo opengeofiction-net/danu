@@ -115,8 +115,23 @@ class UnreachedLayer(QGraphicsItem):
         not know where.
         """
         before = self.stale
-        self.stale = rects if rects is not True else True
-        if bool(before) != bool(self.stale) or before != self.stale:
+        if rects is True or self.stale is True:
+            self.stale = True
+        elif not rects:
+            pass                     # nothing new to add
+        elif isinstance(self.stale, list):
+            # added to, not replaced. The classes are out of date over
+            # everything previewed since the last build, not over the last
+            # preview: a contour drawn node by node is one preview per gesture,
+            # so replacing left the dim region chasing the cursor while the
+            # nodes behind it - equally out of date - sat at full strength.
+            # A build clears it, which is the right bound, because a build is
+            # what makes the classes true again.
+            have = set(map(tuple, self.stale))
+            self.stale = self.stale + [r for r in map(tuple, rects) if r not in have]
+        else:
+            self.stale = [tuple(r) for r in rects]
+        if before != self.stale:
             self.update()
 
     def set_shaded(self, shaded: shade.Shaded | None):
@@ -165,22 +180,46 @@ class UnreachedLayer(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
-        painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        whole = QRectF(self._pixmap.rect())
         if not self.stale:
+            painter.drawPixmap(self._rect, self._pixmap, whole)
             return
-        # Dimmed where the surface under it has moved and these classes have
-        # not been recomputed - see set_stale. Drawn over the top rather than
-        # instead: the pixmap is already down, and a second pass with a
-        # background-coloured wash at the same rectangles fades those and
-        # leaves the rest at full strength.
-        rows, cols = (self._pixmap.height(), self._pixmap.width())
+        # Drawn twice, clipped: full strength where these classes still
+        # describe the surface, faded where a preview has moved the ground
+        # under them - see set_stale.
+        #
+        # The overlay's own pixmap both times, never a wash over the top. A
+        # translucent rectangle drawn over this layer does not dim the overlay,
+        # it paints over whatever is beneath it: unreached_rgba is transparent
+        # wherever the first pass had an answer, which is most of any box, so a
+        # white wash at alpha 165 turned a mostly-answered patch into a pale
+        # grey rectangle over the hillshade, 73% brighter than the ground
+        # around it and with no red in it at all - and where the surface itself
+        # is transparent, over the map tiles.
+        rows, cols = self._pixmap.height(), self._pixmap.width()
         if rows <= 0 or cols <= 0:
             return
-        rects = self.stale if isinstance(self.stale, list) else [(0, 0, rows, cols)]
-        sx = self._rect.width() / cols
-        sy = self._rect.height() / rows
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 165))
-        for y, x, h, w in rects:
-            painter.drawRect(QRectF(self._rect.left() + x * sx, self._rect.top() + y * sy,
-                                    w * sx, h * sy))
+        sx, sy = self._rect.width() / cols, self._rect.height() / rows
+        faded = QPainterPath()
+        if isinstance(self.stale, list):
+            for y, x, h, w in self.stale:
+                faded.addRect(QRectF(self._rect.left() + x * sx, self._rect.top() + y * sy,
+                                     w * sx, h * sy))
+        else:
+            faded.addRect(self._rect)
+        crisp = QPainterPath()
+        crisp.addRect(self._rect)
+        crisp = crisp.subtracted(faded)
+
+        was_clip, had_clip = painter.clipPath(), painter.hasClipping()
+        painter.setClipPath(crisp)
+        painter.drawPixmap(self._rect, self._pixmap, whole)
+        painter.setClipPath(faded)
+        was_opacity = painter.opacity()
+        painter.setOpacity(was_opacity * 0.35)
+        painter.drawPixmap(self._rect, self._pixmap, whole)
+        painter.setOpacity(was_opacity)
+        if had_clip:
+            painter.setClipPath(was_clip)
+        else:
+            painter.setClipping(False)

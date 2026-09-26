@@ -49,6 +49,14 @@ IDLE_MS = 1500
 # Pieces one gesture may be solved as. Each costs a whole solve on the UI
 # thread, so past a handful the preview is worse than not previewing: the
 # gesture is skipped and the idle rebuild settles it.
+#
+# Eight is a "not absurdly many" bound and not a latency one, and the
+# difference matters to anyone reading it as a budget: at the measured worst
+# case of 64.7 ms a solve, eight of them is 518 ms of frozen editor against a
+# 50 ms target. A latency bound would be two or three. It is set here for the
+# case that does not arise today - a command names a handful of ways - and the
+# latency itself is F5c's, where the margin that makes a solve cost 40 ms is
+# the thing being changed.
 MAX_PIECES = 8
 
 
@@ -57,6 +65,7 @@ class PreviewDriver(QObject):
 
     patched = Signal(object, float)     # the display rects written, and how long it took
     classesStale = Signal(object)       # where R20's overlay stopped describing the surface
+    skipped = Signal(int)               # a gesture too broken up to preview; idle will settle it
     exact_wanted = Signal()
     unavailable = Signal(str)           # why there is no preview, once per reason
 
@@ -262,7 +271,14 @@ class PreviewDriver(QObject):
     def _preview_once(self):
         if not self.ready or not self._pending:
             return
-        boxes, self._pending = self._merged(self._pending), []
+        pending, self._pending = self._pending, []
+        boxes = self._merged(pending)
+        if boxes is None:
+            # too many pieces to solve between two keystrokes. Nothing is
+            # drawn and nothing is claimed: the surface on screen is still the
+            # exact one, so it must not be marked provisional.
+            self.skipped.emit(len(pending))
+            return
         started = time.perf_counter()
         written: list = []
         for box in boxes:
@@ -297,7 +313,7 @@ class PreviewDriver(QObject):
         looks like.
         """
         shape = self._kept.constraints.shape
-        grow = self._params.fill_cells * 2 + local.reach(self._params, self._params.fill_cells * 2)
+        grow = preview.grown_by(self._params)
 
         def solved(b):
             # what a piece actually costs: patch() grows a box by the cover and
@@ -317,12 +333,21 @@ class PreviewDriver(QObject):
             else:
                 out.append(box)
         if len(out) > MAX_PIECES:
-            # nothing reaches this today - a command names a handful of ways -
-            # but there is no cap anywhere else on this path, and N solves on
-            # the UI thread is the editor frozen for N times a whole solve.
-            # The idle rebuild settles it; R19's guarantee is about the idle
-            # state, not about the gesture.
-            return []
+            # None, not []: a caller has to tell "there was nothing to do" from
+            # "there was too much". Returning an empty list for both had the
+            # window report a preview of zero cells and draw the provisional
+            # rim around a surface that was still exact - announcing a skipped
+            # preview as a preview, which is the opposite of what skipping is
+            # for.
+            #
+            # Nothing reaches this today - a command names a handful of ways -
+            # but the cap exists to be the backstop for when something does,
+            # and a backstop that reports the wrong thing is not one. Each
+            # piece is a whole solve on the UI thread: at the measured 64.7 ms
+            # worst case, eight of them is 518 ms frozen. Eight is a "not
+            # absurdly many" bound, not a latency one; F5c is where the
+            # latency itself is addressed.
+            return None
         return out
 
     def _repaint(self, good: local.Box):

@@ -494,7 +494,7 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     import numpy as np
     # NODATA from the package, not from build: this job has Qt and no GDAL,
     # and build imports osgeo at module scope
-    from danu.surface import NODATA
+    from danu.surface import NODATA, local
     from danu.surface import preview as surface_preview, shade as surface_shade
 
     d = driver_over(monkeypatch)
@@ -531,32 +531,32 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     # the real one: driver_over stubs _repaint, and that stub is what the
     # wiring tests want. This is the one test about what _repaint does.
     from danu.ui.preview import PreviewDriver as Driver
-    Driver._repaint(d, local_box(20, 20, 24, 24))
+    Driver._repaint(d, local.Box(20, 20, 24, 24))
 
     assert NEW_ELE in set(np.unique(kept.dem).tolist()), (
         'the clamp never saw the contour just drawn, so its elevation did not '
         'reach the surface')
 
 
-def local_box(x0, y0, x1, y1):
-    from danu.surface import local
-    return local.Box(x0, y0, x1, y1)
 
-def _splice_marker(d, monkeypatch, good, source_rows, mercator_rows):
+def _splice_marker(d, source_rows, mercator_rows, halo=1):
     """Run _splice with a marked patch and say where the marker landed.
 
-    The patch is all 7s with a 1-cell border of 9s - the halo's outermost ring.
-    If the crop works, no 9 reaches the display.
+    The patch is all 7s with a border of 9s ``halo`` thick, scaled into
+    Mercator - the ring the crop is supposed to remove. If the crop works, no 9
+    reaches the display.
     """
     import numpy as np
     from danu.ui.preview import PreviewDriver as Driver
 
+    ring = max(1, round(halo * mercator_rows / max(1, source_rows)))
     m_shade = np.full((mercator_rows, mercator_rows), 7, np.uint8)
-    m_shade[0, :] = m_shade[-1, :] = m_shade[:, 0] = m_shade[:, -1] = 9
+    m_shade[:ring, :] = m_shade[-ring:, :] = 9
+    m_shade[:, :ring] = m_shade[:, -ring:] = 9
     m_dem = m_shade.astype(np.float32)
     gt = d._shaded.geotransform
     # a window sitting at the display's origin
-    return Driver._splice(d, m_dem, m_shade, gt, source_rows, 1)
+    return Driver._splice(d, m_dem, m_shade, gt, source_rows, halo)
 
 
 def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
@@ -573,8 +573,7 @@ def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0
-    good = local.Box(10, 10, 29, 29)              # 20 source rows
-    rect = _splice_marker(d, monkeypatch, good, source_rows=22, mercator_rows=22)
+    rect = _splice_marker(d, source_rows=22, mercator_rows=22)
     assert rect is not None
     written = d._shaded.shade[d._shaded.shade != 0]
     assert written.size, "nothing was written at all"
@@ -600,14 +599,25 @@ def test_the_crop_holds_when_the_window_was_clipped_by_the_raster(qtbot, monkeyp
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0
-    good = local.Box(0, 0, 19, 19)                # against the raster's top edge
-    rect = _splice_marker(d, monkeypatch, good, source_rows=11, mercator_rows=22)
+    # A halo of 2, and a Mercator window twice the source's height, so the ring
+    # is 4 Mercator cells. Measured against the source's real 11 rows the crop
+    # is ceil(2 * 22/11) = 4 and the ring goes; measured against the 21 rows an
+    # unclipped window would have had, it is ceil(2 * 22/21) = 3 and a cell of
+    # the ring survives on every side.
+    #
+    # The first version of this used a halo of 1, where ceil lifts both
+    # spellings to the same 2 - so the case it was named for was not the case
+    # it exercised. It also sat at the *top* edge, which the commit's own
+    # reasoning says cannot show the fault at all, because Box.grown clamps
+    # with max(0, y0 - by) whatever shape it is given.
+    rect = _splice_marker(d, source_rows=11, mercator_rows=22, halo=2)
     assert rect is not None
-    written = d._shaded.shade[d._shaded.shade != 0]
-    assert written.size, "nothing was written at all"
-    assert 9 not in set(written.tolist()), (
+    written = set(d._shaded.shade[d._shaded.shade != 0].tolist())
+    assert written, "nothing was written at all"
+    assert 9 not in written, (
         "the halo ring reached the display: the crop was computed from a "
         "window height the source did not have")
+    assert 7 in written, "the patch itself did not reach the display"
 
 def test_repaint_measures_the_halo_against_the_window_it_actually_solved(qtbot, monkeypatch):
     """The denominator, pinned at the place that chooses it.
@@ -694,17 +704,51 @@ def test_a_gesture_split_into_too_many_pieces_is_skipped(qtbot, monkeypatch):
     monkeypatch.setattr(mod, 'MAX_PIECES', 1)
     assert two_corners() == [], 'the gesture was solved piece by piece past the cap'
 
+
+def test_a_skipped_gesture_is_not_announced_as_a_preview(qtbot, monkeypatch):
+    """Skipping is right; announcing a skipped preview as a preview is not.
+
+    _merged used to return [] for "too many pieces" and for "nothing pending"
+    alike, so the window reported *preview: 0 cells in 0 ms* and drew the
+    dashed provisional rim around a surface that was still exact - the R19
+    at-a-glance distinction saying the opposite of the truth, for as long as
+    the idle timer runs.
+    """
+    import danu.ui.preview as mod
+
+    monkeypatch.setattr(mod, 'MAX_PIECES', 1)
+    d = driver_over(monkeypatch)
+    previewed, skipped = [], []
+    d.patched.connect(lambda rects, secs: previewed.append(rects))
+    d.skipped.connect(skipped.append)
+
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
+    d._run()
+
+    assert previewed == [], 'a preview was announced for a gesture that was skipped'
+    assert skipped == [2], f'the skip was not reported: {skipped}'
+    assert d.solved == [], 'the gesture was solved anyway'
+
+
 def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtbot):
     """R20's overlay draws the first pass's classes. A preview reruns the first
     pass for a box and brings back the DEM and the hillshade, not the classes -
     so after an edit the overlay describes the surface as it was, in red, over
     a surface that shows otherwise.
 
-    The first version dimmed the whole raster to say that about a box of a few
-    hundred cells in twenty-four million - and a uniformly dim overlay reads as
-    "faint", not "out of date here". This renders the layer and requires the
-    two regions to differ: dimmed inside the rectangle, untouched outside it.
-    An attribute assertion would pass on either.
+    Three properties, and the fixture has to be able to tell them apart:
+
+    - the previewed ground is dimmed,
+    - ground the preview never touched is not,
+    - and ground with no overlay on it is left alone entirely.
+
+    The third is why the classes are not uniform here. Filling the raster with
+    class 1 makes every cell dim the same way, and "dim inside, not outside"
+    and "do not touch what has no overlay" then produce identical pixels. With
+    a transparent quarter *inside* the previewed box, a wash drawn over the top
+    instead of the overlay being drawn faded shows up as a pale rectangle over
+    the surface - which is what the first version did.
     """
     import numpy as np
     from PySide6.QtGui import QColor, QImage, QPainter
@@ -715,14 +759,13 @@ def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtb
     from danu.ui.overlays import UnreachedLayer
 
     rows = cols = 64
-    classes = np.full((rows, cols), 1, np.uint8)         # all "nothing in reach"
+    classes = np.full((rows, cols), 1, np.uint8)          # "nothing in reach"
+    classes[:16, :16] = 0                                 # answered: no overlay here
     s = shade.Shaded(dem=np.full((rows, cols), 100.0, np.float32),
                      shade=np.full((rows, cols), 180, np.uint8),
                      geotransform=(0.0, 1000.0, 0.0, 2_000_000.0, 0.0, -1000.0),
                      metres=1000.0, classes=classes)
 
-    # one view, rendered repeatedly: a scene owns the items added to it, so a
-    # second view would delete the layer the first one took
     layer = UnreachedLayer()
     layer.set_shaded(s)
     v = MapView(); v.resize(400, 400); qtbot.addWidget(v); v.show(); qtbot.waitExposed(v)
@@ -730,25 +773,52 @@ def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtb
     l, t, r, b = s.scene_rect
     v.fit_bounds(*m.scene_to_lonlat(l, b), *m.scene_to_lonlat(r, t))
 
-    def rendered(_layer=None):
+    def at(fx, fy):
         img = QImage(v.viewport().size(), QImage.Format.Format_ARGB32)
         img.fill(QColor("white"))
         p = QPainter(img); v.render(p); p.end()
-        inside = v.mapFromScene(l + (r - l) * 0.15, t + (b - t) * 0.15)
-        outside = v.mapFromScene(l + (r - l) * 0.85, t + (b - t) * 0.85)
-        return img.pixelColor(inside), img.pixelColor(outside)
-    fresh_in, fresh_out = rendered(layer)
-    assert fresh_in == fresh_out, "the overlay is not uniform to begin with"
+        return img.pixelColor(v.mapFromScene(l + (r - l) * fx, t + (b - t) * fy))
 
-    # the top-left quarter has been previewed: its classes no longer describe it
-    layer.set_stale([(0, 0, rows // 2, cols // 2)])
-    dim_in, dim_out = rendered(layer)
+    # a tenth in is inside the transparent quarter; a third in is overlaid and
+    # still inside the previewed half; five sixths is outside it entirely
+    clear_before, dim_before, keep_before = at(0.1, 0.1), at(0.33, 0.33), at(0.85, 0.85)
+    assert dim_before != clear_before, "the fixture has no overlay to dim"
 
-    assert dim_in != fresh_in, "the previewed ground was not dimmed"
-    assert dim_out == fresh_out, "ground the preview never touched was dimmed too"
+    layer.set_stale([(0, 0, rows // 2, cols // 2)])       # the top-left quarter previewed
+    clear_after, dim_after, keep_after = at(0.1, 0.1), at(0.33, 0.33), at(0.85, 0.85)
 
-    # and a build puts it back
+    assert dim_after != dim_before, "the previewed ground was not dimmed"
+    assert keep_after == keep_before, "ground the preview never touched was dimmed too"
+    assert clear_after == clear_before, (
+        "ground with no overlay on it changed: the fade is being painted over the "
+        "surface rather than applied to the overlay")
+
+    # a build puts it all back
     layer.set_shaded(s)
     assert not layer.stale
-    back_in, _ = rendered(layer)
-    assert back_in == fresh_in, "a rebuild did not restore the overlay"
+    assert at(0.33, 0.33) == dim_before, "a rebuild did not restore the overlay"
+
+
+def test_the_stale_region_covers_everything_previewed_since_the_last_build(qtbot):
+    """A contour drawn node by node is one preview per gesture, each carrying
+    that node's box. Replacing left the dimmed region chasing the cursor while
+    the nodes behind it - whose classes are equally out of date - sat at full
+    strength, and going back to an earlier stroke made it bright again."""
+    import numpy as np
+
+    from danu.surface import shade
+    from danu.ui.overlays import UnreachedLayer
+
+    layer = UnreachedLayer()
+    layer.set_shaded(shade.Shaded(dem=np.zeros((32, 32), np.float32),
+                                  shade=np.zeros((32, 32), np.uint8),
+                                  geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
+                                  metres=1.0, classes=np.ones((32, 32), np.uint8)))
+    layer.set_stale([(0, 0, 8, 8)])
+    layer.set_stale([(20, 20, 8, 8)])
+    assert (0, 0, 8, 8) in layer.stale, "the first stroke stopped being stale"
+    assert (20, 20, 8, 8) in layer.stale
+    layer.set_stale([(20, 20, 8, 8)])
+    assert len(layer.stale) == 2, "the same rectangle was counted twice"
+    layer.set_shaded(None)
+    assert not layer.stale, "a build did not clear it"

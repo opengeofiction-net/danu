@@ -243,6 +243,19 @@ class Kept:
                                     # Kept built without one
 
 
+def grown_by(params: Params, cover: int | None = None, slack: int | None = None) -> int:
+    """How far ``patch`` grows a box before solving it.
+
+    Here because two callers need it and one of them is the driver deciding
+    whether to merge two boxes: comparing the boxes themselves rather than what
+    they cost to solve keeps near-identical solves apart. The driver spelled
+    the sum out by hand, which is a copy of these defaults that nothing would
+    notice going stale."""
+    cover = 2 * params.fill_cells if cover is None else cover
+    slack = 2 * params.fill_cells if slack is None else slack
+    return cover + local.reach(params, slack)
+
+
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
           slack: int | None = None, lib=None) -> tuple[np.ndarray, Box]:
     """The surface around an edit, and the box it is good for.

@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
         self.preview.exact_wanted.connect(self._rebuild_after_idle)
         self.preview.unavailable.connect(self._preview_unavailable)
         self.preview.classesStale.connect(self.unreached.set_stale)
+        self.preview.skipped.connect(self._preview_skipped)
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
@@ -524,6 +525,18 @@ class MainWindow(QMainWindow):
         status label is its only build feedback - so writing there replaced
         "surface built in N s" with the preview note on every 1″ build."""
         self.statusBar().showMessage(why)
+
+    def _preview_skipped(self, pieces: int):
+        """A gesture too broken up to preview between keystrokes.
+
+        Nothing was drawn, so nothing is claimed: the surface on screen is
+        still the exact one and the provisional rim stays off. Saying "preview:
+        0 cells" and drawing the rim anyway would have the at-a-glance
+        distinction R19 asks for saying the opposite of the truth.
+        """
+        self.statusBar().showMessage(
+            f'{pieces} separate edits - too many to preview together; '
+            f'rebuilding exactly on idle')
 
     def _surface_previewed(self, rects, seconds):
         """A patch went into the arrays the layer draws; recolour what moved.

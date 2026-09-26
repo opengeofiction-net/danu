@@ -1371,7 +1371,14 @@ preview always starts from an answer.
 
 R19's third clause, the two states told apart at a glance: the surface draws a
 dashed amber edge while it is provisional, and the panel says *preview, N ms -
-exact on idle*. Around the whole surface and not the patch, because what is
+exact on idle*. R20's overlay is the first pass's classes, which a preview does
+not recompute, so it is drawn faded over the ground previewed since the last
+build and at full strength everywhere else - the overlay's own pixmap drawn
+twice through a clip, never a wash over the top of it, since a translucent
+rectangle over this layer does not dim the overlay but paints over the
+hillshade beneath it: `unreached_rgba` is transparent wherever the first pass
+had an answer, which is most of any box, so a wash turned a mostly-answered
+patch into a pale grey rectangle with no red in it. Around the whole surface and not the patch, because what is
 provisional is the surface - one preview's rim is the next one's ground, and
 outlining only the last box edited would say the rest had been settled.
 
