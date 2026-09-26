@@ -358,7 +358,11 @@ class ContourLayer(QGraphicsItem):
         return self._bounds
 
     def paint(self, painter: QPainter, option, widget=None):
-        self.drawn_levels = self.drawn_labels = 0
+        # all three together, before the early returns: drawn_ways was reset
+        # further down and kept last paint's count whenever this returned
+        # early, so below ZOOM_INDEX it reported ways drawn while
+        # drawn_levels correctly reported none
+        self.drawn_levels = self.drawn_labels = self.drawn_ways = 0
         if not self.paths:
             return
         scale = painter.worldTransform().m11()
@@ -369,7 +373,6 @@ class ContourLayer(QGraphicsItem):
         if rect.isEmpty():
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self.drawn_ways = 0
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:

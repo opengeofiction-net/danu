@@ -98,7 +98,7 @@ def test_level_of_detail_follows_the_zoom(view, ws):
     view.fit_bounds(*ws.squares[SquareName(125, -24)].bounds)
     view.set_zoom(ZOOM_INDEX - 1)
     render(view)
-    assert layer.drawn_levels == 0 and layer.drawn_labels == 0
+    assert layer.drawn_levels == 0 and layer.drawn_labels == 0 and layer.drawn_ways == 0
     view.set_zoom(ZOOM_INDEX)
     render(view)
     assert layer.drawn_levels == len(layer.index_levels) == 5      # index only
@@ -114,6 +114,14 @@ def test_level_of_detail_follows_the_zoom(view, ws):
     view.set_zoom(ZOOM_LABELS)
     render(view)
     assert layer.drawn_labels > 0
+    # and back out, after something has been drawn. Zooming out from nothing
+    # cannot catch a counter that is not reset, because it is still zero from
+    # __init__ - the count has to be made stale first
+    assert layer.drawn_ways > 0
+    view.set_zoom(ZOOM_INDEX - 1)
+    render(view)
+    assert layer.drawn_levels == 0 and layer.drawn_labels == 0, 'a counter survived zooming out'
+    assert layer.drawn_ways == 0, 'drawn_ways kept the last paint\'s count'
 
 
 def test_a_contour_is_drawn_where_its_nodes_are_in_its_colour(view, ws):
@@ -310,7 +318,7 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
     way = max(sq.contours(), key=lambda w: len(w.refs))
     lon, lat = sq.coords(way)[len(way.refs) // 2]
 
-    def shot(no_cull):
+    def shot(no_cull, zoom):
         layer = ContourLayer()
         layer.set_working_set(ws)
         if no_cull:
@@ -319,7 +327,7 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
                 for piece in pieces:
                     piece.rect = everywhere
         view.scene().addItem(layer)
-        view.set_zoom(ZOOM_ALL + 1)
+        view.set_zoom(zoom)
         view.center_on_lonlat(lon, lat)
         img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
         img.fill(QColor("white"))
@@ -328,12 +336,21 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
         view.scene().removeItem(layer)
         return img, drawn
 
-    culled, n_culled = shot(False)
-    whole, n_whole = shot(True)
-    assert n_whole > n_culled, (
-        f'the uncalled layer drew {n_whole} and the culled one {n_culled} - '
-        f'nothing was culled, so this compares two identical renders')
-    assert culled == whole, 'culling changed the picture'
+    # at several zooms, not one. The rectangles are in scene units and the cull
+    # is the only thing between them and the window, so a fault that depended
+    # on scale - the growth swamped at one end, a rounding at the other - would
+    # sit outside a single sample. ZOOM_ALL is where every level starts being
+    # drawn, so this brackets it.
+    checked = 0
+    for zoom in (ZOOM_ALL, ZOOM_ALL + 1, ZOOM_ALL + 3, ZOOM_ALL + 6):
+        culled, n_culled = shot(False, zoom)
+        whole, n_whole = shot(True, zoom)
+        assert n_whole > n_culled, (
+            f'at zoom {zoom} the unculled layer drew {n_whole} and the culled one '
+            f'{n_culled} - nothing was culled, so this compares two identical renders')
+        assert culled == whole, f'culling changed the picture at zoom {zoom}'
+        checked += 1
+    assert checked == 4
 
 
 def test_a_contour_running_due_east_is_not_culled(view, ws):
@@ -365,7 +382,9 @@ def test_a_contour_running_due_east_is_not_culled(view, ws):
 
     pieces = layer.paths[7.0]
     assert len(pieces) == 1
-    assert pieces[0].rect.height() > 0, 'a due-east contour has a rectangle of no height'
+    assert pieces[0].rect.height() > 0, (
+        'the rectangle was not grown, so this contour has no height and '
+        'QRectF.intersects would cull it from every window')
 
     view.set_zoom(ZOOM_ALL)
     view.center_on_lonlat((lon0 + lon1) / 2, lat)

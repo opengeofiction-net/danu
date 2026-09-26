@@ -1475,21 +1475,23 @@ ever culled and a third of a million points were redrawn antialiased on every
 paint - on every pan, and on every edit.
 
 **Done.** One path per way, each with its own rectangle. The whole map's
-repaint, on the gobras 3x3 at a 687 by 954 viewport:
+repaint, on the gobras 3x3 at a 687 by 954 viewport, over 6,305 ways:
 
-| zoom | before | after | ways drawn |
-|---|---|---|---|
-| 9 | 187.6 ms | 47.6 ms | 1,088 of 6,305 |
-| 11 | 170.0 ms | 37.0 ms | 1,062 |
-| 12 | 51.0 ms | 22.9 ms | 235 |
-| 13 | 36.2 ms | 10.7 ms | 32 |
-| 16 | 28.4 ms | 5.7 ms | 5 |
+| zoom | | before | after | ways drawn |
+|---|---|---|---|---|
+| 9 | index levels only | 187.6 ms | 47.6 ms | 1,088 of 6,305 |
+| 11 | every level | 170.0 ms | 37.0 ms | 1,062 of 6,305 |
+| 12 | every level | 51.0 ms | 22.9 ms | 235 of 6,305 |
+| 13 | every level | 36.2 ms | 10.7 ms | 32 of 6,305 |
+| 16 | every level | 28.4 ms | 5.7 ms | 5 of 6,305 |
 
-Faster at every zoom, including the one where most of the set is on screen: a
-rectangle test per way costs nothing against the points it saves drawing, and
-below `ZOOM_ALL` only the index levels are drawn anyway. The floor - the same
-repaint with the layer hidden - is 0.2 ms, so at zoom 13 and in the contours
-are no longer what a repaint is.
+`ZOOM_ALL` is 11, so the first row draws a fifth of the levels and the rest
+draw all of them; each row compares like with like, since the same filter
+applied before. Faster at every one, including zoom 11, where every level is
+drawn and a sixth of the ways still are: a rectangle test per way costs
+nothing against the points it saves. The floor - the same repaint with the
+layer hidden - is 0.2 ms, so from zoom 13 in the contours are no longer what a
+repaint is.
 
 **Correcting F5b's own account.** It said "what F5c does not need to account
 for is the drawing", on the strength of the overlay fade measuring 2 to 6 ms.
