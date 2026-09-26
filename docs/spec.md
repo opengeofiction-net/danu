@@ -364,6 +364,12 @@ nothing watches for the pointer coming up, and the coalescing timer covers what
 it was for. The costs above are measured; see *F5b*, which is also where the
 50 ms this phase ends on is still missed.
 
+They are the cost of *working out* the new surface, and not of seeing it. The
+same edit takes 378 ms from the command to the frame, because the contour layer
+redraws a third of a million points on every paint; see *F5c*. A reader taking
+63 ms from this table as what an edit feels like would be wrong by a factor of
+six, which is the sort of thing a table of measured costs invites.
+
 The drag and the release solve the same ground: at 1 arcsecond a small edit is
 about 130,000 cells against the working set's 77.8 million, so there was no
 saving worth having in solving less during the drag and being wrong by more.
@@ -1098,7 +1104,8 @@ piecemeal here.
 
 **Phase 4 - live.** The incremental path, the job queue, preview and exact
 states. Ends when drawing a contour moves the hillshade under the cursor inside
-50 ms.
+50 ms - which is a statement about the frame and not about the fill, and F5c is
+where that distinction stopped being academic.
 
 **F1, the one surface.** Phase 3 shipped two implementations of the stages from
 the squares to the DEM - `danu-build-zone` had its own, the editor had
@@ -1420,26 +1427,81 @@ job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
 
-**F5c, the margin against the clock.** Not started. `cover` and `slack` are two
-radii each because F3 measured what they were worth in accuracy: two radii take
-the worst of eighteen edits from 3.278 m to 0.268 m, and no further. What they
-cost in time was never measured, and it is most of the 63 to 73 ms an edit takes
-- a three-cell edit is solved over 201 by 201 cells almost entirely because of
-them. The same eighteen edits, timed as well as measured, would say whether one
-radius of slack is worth the accuracy it gives back, and that is the only
-candidate for the 50 ms this phase ends on.
+**F5c, what is actually slow.** Not started. Named for the margin, and then
+the app was used for an afternoon and the margin turned out not to be the
+binding constraint. What follows is measured on the gobras 3x3 at 3
+arcseconds, in the real window rather than in a harness.
 
-Two smaller things wait there too: `local.resolve` loads `libisofill.so` and has
-no fallback to the binary, which `interpolate` has had all along, so a machine
-with one and not the other builds but cannot preview; and the squares saved
-before ids were unique across a working set still hold two contours claiming to
-be the same way, which the preview now detects and refuses rather than repairs.
+Timing one node moved, through the editor, from the command to the frame:
 
-What F5c does *not* need to account for is the drawing. The overlay's fade was
-measured after it was built rather than assumed: 2 ms of a viewport repaint
-with nothing stale, 5 to 6 with fifty rectangles accumulated, and a repaint is
-bounded by the window rather than by the 24.4 M cells behind it. The 63 to 73
-ms is the solve and the shading, and the margin is most of the solve.
+| | |
+|---|---|
+| `editor.do`, including the contour layer's refresh | 16.6 ms |
+| the preview driver's own span | 62.8 ms |
+| the patch recoloured and the panel updated | 0.6 ms |
+| **Qt repainting the scene** | **~300 ms** |
+| end to end | 377.9 ms |
+
+The preview does what F5b says it does. Everything else is the drawing, and
+the drawing is one layer:
+
+| repaint of the map | |
+|---|---|
+| all layers | 150.8 ms |
+| without the surface | 151.2 ms |
+| without the unreached overlay | 149.5 ms |
+| **without the contours** | **2.7 ms** |
+| the tiles alone | 0.6 ms |
+
+`ContourLayer.paint` builds one `QPainterPath` per elevation and culls by each
+path's `controlPointRect`. On a working set that is 72 elevations over 6,401
+ways and 341,694 points, every path spans nearly the whole set, so nothing is
+ever culled and a third of a million points are redrawn antialiased on every
+paint - on every pan, and on every edit. Culling per way rather than per level,
+or caching what does not change, is the first thing F5c does, because until it
+is done nothing else is visible.
+
+**Correcting F5b's own account.** It said "what F5c does not need to account
+for is the drawing", on the strength of the overlay fade measuring 2 to 6 ms.
+That measurement was right and the conclusion drawn from it was not: the layer
+measured was the one just changed, not the one that dominates. The fade is
+still 2 to 6 ms. The contour layer was never measured until it was looked for.
+
+**One arcsecond is the second thing, and it is two problems.** The preview is
+off above `PREVIEW_ARCSEC` because its grids would be gigabytes, so every edit
+falls to the idle rebuild - two minutes of it. But the window stops responding
+in the *recolour*, not the build: the display grid at 1 arcsecond is 15,291 by
+14,367, which is 219.7 M cells and 0.82 GB of RGBA, and `recolour` measures a
+flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds on
+the UI thread, after every rebuild. `recolour_box` already exists and a whole
+recolour is what a build does; a build knows which ground it changed no less
+than a preview does.
+
+**Then the margin.** `cover` and `slack` are two radii each because F3 measured
+what they were worth in accuracy: two radii take the worst of eighteen edits
+from 3.278 m to 0.268 m, and no further. What they cost in time was never part
+of that decision, and it is most of the 63 to 73 ms. The same eighteen edits,
+timed as well as measured, would say whether one radius of slack is worth the
+accuracy it gives back. It is still the only candidate for the 50 ms this phase
+ends on - but a preview at 35 ms behind a 300 ms repaint is not something a
+mapper can tell from one at 60.
+
+**And the small things.** `local.resolve` loads `libisofill.so` and has no
+fallback to the binary, which `interpolate` has had all along, so a machine
+with one and not the other builds but cannot preview. The squares saved before
+ids were unique across a working set still hold two contours claiming to be the
+same way, which the preview detects and refuses rather than repairs. And the
+overlay's second checkbox, *and cells seeing one level*, stays live when the
+first one is off, where it does nothing.
+
+**What is not F5c.** Changing the resolution does nothing until *Rebuild* is
+pressed, and an idle rebuild settles the surface on screen rather than the
+resolution named in the panel. That is deliberate - it is what stops an
+automatic rebuild spending 77 seconds at a resolution nobody asked for - and a
+mapper reasonably reads it as the control not working. Which of the two it
+should be is a decision and not a defect, so it waits for one. Persisting the
+display settings, and the contour tools a mapper wants next - split, merge,
+join - are phase 5 and 6 work that using the editor surfaced early.
 
 ### Phase 5
 
