@@ -352,6 +352,16 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
         checked += 1
     assert checked == 4
 
+    # and that the comparison can tell two pictures apart. QImage's == is a
+    # content comparison - identical images compare equal, a single differing
+    # pixel does not - but an assertion of sameness that could not detect a
+    # difference would pass on any implementation at all, and a review reading
+    # it as an identity test is reason enough to have it say so here.
+    elsewhere, _ = shot(False, ZOOM_ALL + 2)
+    assert elsewhere != culled, (
+        'two renders at different zooms compare equal, so comparing images '
+        'proves nothing about the cull')
+
 
 def test_a_contour_running_due_east_is_not_culled(view, ws):
     """Its rectangle has no height, and QRectF.intersects is false for an empty
