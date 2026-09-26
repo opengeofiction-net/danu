@@ -98,6 +98,13 @@ class MainWindow(QMainWindow):
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
         self.builder = SurfaceBuilder(self)
+        from .preview import PreviewDriver
+        self.preview = PreviewDriver(self)
+        self.preview.patched.connect(self._surface_previewed)
+        self.preview.exact_wanted.connect(self._rebuild_after_idle)
+        self.preview.unavailable.connect(self._preview_unavailable)
+        self.preview.classesStale.connect(self.unreached.set_stale)
+        self.preview.skipped.connect(self._preview_skipped)
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
@@ -120,6 +127,7 @@ class MainWindow(QMainWindow):
         # cursor had been, so opening a square named a neighbour
         self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
+        self.editor.editedWays.connect(self.preview.edited)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
@@ -280,7 +288,12 @@ class MainWindow(QMainWindow):
                 return
         self.territory.abort()
         self.fetcher.abort()
-        self.builder.cleanup()
+        # before the builder: the idle timer asks for builds by itself, and one
+        # started during teardown would be writing into the directory cleanup
+        # is about to remove
+        self.preview.forget()
+        if not self.builder.cleanup():
+            self.statusBar().showMessage('a build was still running; its working files are left behind')
         super().closeEvent(event)
 
     def _tool_changed(self, name: str):
@@ -463,17 +476,27 @@ class MainWindow(QMainWindow):
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
-        from ..surface import params as surface_params
         try:
-            p = surface_params.load()
+            p = self._loaded_params()
         except (KeyError, OSError) as e:
             self._surface_failed(str(e))
             return False
         if arcsec is not None:
             p = p.with_arcsec(arcsec)
+        # before the request, not after: request() starts the build there and
+        # then when nothing is running, and the build's own started signal
+        # reads this. Setting it afterwards had the status line report the
+        # previous build's resolution, which on the first build of a session
+        # is the 0 it was initialised to - "building at 0″".
+        self._arcsec = p.arcsec
+        if not self.surface_panel.show_resolution(p.arcsec):
+            # --surface 0.5 builds at 0.5 and the combo has no such entry, so
+            # it would go on naming one the build is not using - the very
+            # disagreement show_resolution exists to end
+            self.statusBar().showMessage(
+                f'building at {p.arcsec:g}″, which the resolution list does not offer')
         queued = self.builder.busy
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
-        self._arcsec = p.arcsec
         if queued:
             # the running build is already superseded; it finishes and is shown
             # as stale while this one runs
@@ -481,10 +504,77 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('queued behind the build already running')
         return True
 
+    @staticmethod
+    def _loaded_params(fallback: float | None = None):
+        from ..surface import params as surface_params
+        p = surface_params.load()
+        # `is not None`, not truthiness: 0.0 is falsy and would silently take
+        # elevation.toml's own arcsec, which is 1 - the 77-second build L1 was
+        # about, reached by conflating unset with zero all over again
+        return p.with_arcsec(fallback) if fallback is not None else p
+
     def _surface_starting(self):
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
+
+    def _preview_unavailable(self, why: str):
+        """Said in the status bar, not over the panel's own line.
+
+        adopt() runs after the panel has reported the build, and the panel's
+        status label is its only build feedback - so writing there replaced
+        "surface built in N s" with the preview note on every 1″ build."""
+        self.statusBar().showMessage(why)
+
+    def _preview_skipped(self, pieces: int):
+        """A gesture too broken up to preview between keystrokes.
+
+        Nothing was drawn, so nothing is claimed: the surface on screen is
+        still the exact one and the provisional rim stays off. Saying "preview:
+        0 cells" and drawing the rim anyway would have the at-a-glance
+        distinction R19 asks for saying the opposite of the truth.
+        """
+        self.statusBar().showMessage(
+            f'{pieces} separate edits - too many to preview together; '
+            f'rebuilding exactly on idle')
+
+    def _surface_previewed(self, rects, seconds):
+        """A patch went into the arrays the layer draws; recolour what moved.
+
+        The rectangles, not the whole surface. I had written that compose() was
+        "the UI thread's cheap end" and that splitting it to a rectangle "would
+        buy a few milliseconds of the fifty", and asserted both without
+        measuring either. On the gobras 3x3 at 3 arcseconds a whole recolour is
+        1,472 ms in shaded relief - twenty-four times the solve it follows. A
+        preview worth 62 ms was spending a second and a half being shown.
+        """
+        painted = 0
+        for y0, x0, rows, cols in rects:
+            if self.surface.recolour_box(y0, x0, rows, cols):
+                painted += rows * cols
+        # not unreached: its classes are the build's and a preview does not
+        # bring them back, so recomposing it would only redraw the same stale
+        # overlay. It is told it is stale instead - see classesStale
+        self.surface.set_preview(True)
+        self.surface_panel.previewed(seconds)
+        self.statusBar().showMessage(
+            f'preview: {painted:,} cells in {seconds * 1000:.0f} ms - exact on idle')
+
+    def _rebuild_after_idle(self):
+        """The drawing stopped, so settle the preview's approximations."""
+        if self.working_set is None or not self.editor.history.dirty_squares():
+            return
+        if not self._arcsec:
+            # nothing has been built, so there is no surface to settle. Passing
+            # None here took elevation.toml's default, which is 1 arcsecond:
+            # open a square, draw a contour, wait, and a 77-second build nobody
+            # asked for starts - the surprise c478fa8 exists to prevent,
+            # through a different door.
+            return
+        # the resolution this surface is at, not whatever the combo says: they
+        # are the same now that a build moves the combo, and an idle rebuild is
+        # the wrong moment to discover they are not
+        self.rebuild_surface(self._arcsec)
 
     def _surface_built(self, built, stale=False, seconds=0.0):
         # seconds comes from the builder: once builds overlap, how long one
@@ -494,6 +584,17 @@ class MainWindow(QMainWindow):
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)
+        self.surface.set_preview(stale)     # a superseded build is provisional too
+        # The driver must point at the Shaded the layer is drawing, always:
+        # the layer takes every build, so a driver that skipped the stale ones
+        # went on splicing into the array of the build before, which nobody
+        # draws, and previews quietly stopped appearing. Only the grids a
+        # preview *works from* are conditional - those come from the exact
+        # answer, so the approximations restart rather than compound.
+        self.preview.follow(built.shaded)
+        if not stale:
+            self.preview.adopt(built, built.params or
+                               self._loaded_params(fallback=self._arcsec))
         if stale:
             self.statusBar().showMessage(
                 f'surface built in {seconds:.0f} s, already out of date - rebuilding')

@@ -352,11 +352,17 @@ surface; **slack** is the clearance the solve keeps beyond the patch, on top of
 the radius, and it decides what the patch gets wrong. Both want two radii; see
 *F3, the local solve*.
 
-| when | patch covers | solved | pass 1 | pass 2 | budget |
+| when | patch covers | solved | pass 1 | pass 2 | cost |
 |---|---|---|---|---|---|
-| during a drag | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 30 ms |
-| on release | box + 2 radii | + 3 radii | exact | local, ~0.27 m | 200 ms |
-| on idle, 2 s | whole working set | all | exact | exact | seconds |
+| while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 63-73 ms |
+| on idle, 1.5 s | whole working set | all | exact | exact | 5.6 s at 3", 114 at 1" |
+
+The budgets this table used to carry - 30 ms while dragging, 200 on release,
+two seconds to idle - were guesses made before any of it existed, and three of
+the four have since been measured or settled. There is no *on release* state:
+nothing watches for the pointer coming up, and the coalescing timer covers what
+it was for. The costs above are measured; see *F5b*, which is also where the
+50 ms this phase ends on is still missed.
 
 The drag and the release solve the same ground: at 1 arcsecond a small edit is
 about 130,000 cells against the working set's 77.8 million, so there was no
@@ -1294,9 +1300,126 @@ reversing the order puts 80 cells wrong, which
 show - without it, every other assertion here would pass just as well if the
 order made no difference at all.
 
-What is left for F5b: the clamp and the Mercator warp and hillshade for a
-patch, and the wiring - preview on edit, the exact rebuild on idle through F4's
-queue, and the two states told apart at a glance.
+**F5b, the clamp and the shading for a patch.** The rest of what stands between
+a solved box and a pixel, measured the same way.
+
+The clamp has two halves and only one is local. Deciding *which* cells are sea
+polygonizes the whole raster and keeps the regions reaching open water - a box
+cannot do it, because whether a zero-cell is sea depends on what it joins up
+with a thousand cells away. The arithmetic that follows is four lines of numpy.
+So the decision is read off the last exact build, where a cell reading exactly
+zero is one the clamp called sea, and only the arithmetic is redone. Measured
+before it was relied on: deleting a contour level from the golden square moves
+507 cells of the fill and changes the sea/land decision for 11 of 1,442,401 -
+0.0008%. Those eleven are wrong until the rebuild, which is the held rim's
+bargain again.
+
+The shading is the box filter, the Mercator warp and the hillshade, on an
+in-memory window: 14.4 ms for 215 by 215 and 19.8 for 411 by 411, against 2804
+ms for the whole of the gobras 3x3. Each stage reads its neighbours, so the
+window carries a halo and only the inside is the whole raster's answer.
+
+One thing the measuring caught. A warp told a resolution and left to choose its
+own bounds snaps to the window's extent, which lands up to half a cell off the
+display's grid - three grey levels out against the whole raster's shading,
+invisible on screen and fatal to splicing, since a patch between cells cannot
+be written into an array at all. ``shade_window`` takes the target
+geotransform and is put on exactly that grid.
+
+**The budget, measured on the real path rather than assembled from parts.**
+The first figures here were 2.3 to 5.2 ms to burn, 10 to 18 to solve and 14.4
+to 19.8 to shade - twenty-seven to forty-three against fifty. The solve's share
+of that was measured at one place on the raster and quoted as the cost, and it
+is not: it is the cheapest of forty. A three-cell edit at forty points on the
+gobras 3x3, solved over the same 201 by 201 each time, runs 23.2 ms at best,
+41.4 median, 64.7 at worst, and exceeds fifty on its own ten times in forty.
+The cost is about the ground, not the box - it tracks how much of the solved
+area the first pass could not answer, though only at +0.38, so that is not the
+whole of it either.
+
+End to end, one node of a real contour moved on the gobras 3x3 at 3 arcseconds
+costs 63 to 73 ms: roughly 1 to mark the box, 2.7 to burn, 45 to solve, 0.5 to
+clamp, 14 to shade and half a millisecond to recolour.
+
+That last figure was 1,472 ms until a review asked what the other numbers left
+out. The surface is recoloured to be shown, and the whole of it was being
+recomposed for every patch: 24.4 M cells, twenty-four times the solve it
+followed, so an edit measured at 62 ms took a second and a half to appear. The
+comment in the way said `compose` was "the UI thread's cheap end" and that
+composing a rectangle instead "would buy a few milliseconds of the fifty" -
+both asserted without measuring either. `SurfaceLayer.recolour_box` composes
+the rectangle that moved and paints it into the pixmap, which is what the half
+millisecond is, and it keeps the surface's own colour scale rather than
+restretching to the patch's contents.
+
+**So the phase does not end yet.** Fifty milliseconds is where phase 4 ends and
+the preview is over it, by a quarter on a typical edit. The lever is the solve,
+and the obvious one is the margin: a three-cell edit is solved over 201 by 201
+because cover and slack are two radii each, and F3 chose two radii by measuring
+accuracy alone. What it costs in time was not part of that decision and now has
+to be. That is **F5c**, below, and not some later phase: fifty milliseconds is
+this phase's own exit criterion.
+
+**The wiring.** `danu.ui.preview.PreviewDriver` joins them: the editor says
+which ways an edit touched, the driver keeps the contour layer in step, and two
+timers decide when anything happens. A short one coalesces a gesture - drawing
+a contour is one edit per node, and previewing each would spend the budget many
+times over on frames nobody sees. A long one asks for the exact rebuild through
+F4's queue once the drawing stops, which is where the preview's approximations
+are settled rather than compounded: every build re-adopts the exact grids, so a
+preview always starts from an answer.
+
+R19's third clause, the two states told apart at a glance: the surface draws a
+dashed amber edge while it is provisional, and the panel says *preview, N ms -
+exact on idle*. R20's overlay is the first pass's classes, which a preview does
+not recompute, so it is drawn faded over the ground previewed since the last
+build and at full strength everywhere else - the overlay's own pixmap drawn
+twice through a clip, never a wash over the top of it, since a translucent
+rectangle over this layer does not dim the overlay but paints over the
+hillshade beneath it: `unreached_rgba` is transparent wherever the first pass
+had an answer, which is most of any box, so a wash turned a mostly-answered
+patch into a pale grey rectangle with no red in it. Around the whole surface and not the patch, because what is
+provisional is the surface - one preview's rim is the next one's ground, and
+outlining only the last box edited would say the rest had been settled.
+
+What bounds it is memory. The preview holds the build's grids - 308 MB for the
+gobras 3x3 at 3 arcseconds, 1.5 to 2.8 GB at 1 - so they are kept at the
+drawing resolution and not at the publishing one, where the menu already says
+*slow* and an edit waits for the exact build. The driver says so rather than
+looking broken. And the grids are read on the worker inside a `try`: a build
+that produced a DEM has produced what was asked for, and if its intermediates
+cannot be read back the editor loses the live preview and rebuilds on every
+edit, which is what it did before phase 4.
+
+This is the point at which F3, F5a and F5b stop being library and start being
+what the editor does.
+
+Running it turned up a shutdown crash the idle timer had made ordinary.
+`closeEvent` removed the builder's working directory, and a build still writing
+into it reached the clamp to find its own `rounded.tif` gone; Qt then tore down
+the signal the failure was being reported through, so what reached the console
+was *Signal source has been deleted* out of `QRunnable::run`, with the real
+cause underneath it. Closing during a build used to mean closing during a
+Ctrl+R and was rare. Once something asked for builds by itself it became what
+closing after drawing does. Cleanup waits for the running build now - on the
+job's own flag, since the pool's answers for whatever else is on it - and
+leaves the directory behind rather than pull it from under a live writer if the
+wait runs out.
+
+**F5c, the margin against the clock.** Not started. `cover` and `slack` are two
+radii each because F3 measured what they were worth in accuracy: two radii take
+the worst of eighteen edits from 3.278 m to 0.268 m, and no further. What they
+cost in time was never measured, and it is most of the 63 to 73 ms an edit takes
+- a three-cell edit is solved over 201 by 201 cells almost entirely because of
+them. The same eighteen edits, timed as well as measured, would say whether one
+radius of slack is worth the accuracy it gives back, and that is the only
+candidate for the 50 ms this phase ends on.
+
+Two smaller things wait there too: `local.resolve` loads `libisofill.so` and has
+no fallback to the binary, which `interpolate` has had all along, so a machine
+with one and not the other builds but cannot preview; and the squares saved
+before ids were unique across a working set still hold two contours claiming to
+be the same way, which the preview now detects and refuses rather than repairs.
 
 ### Phase 5
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, QThreadPool, Qt, Signal
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout,
                                QGraphicsItem, QLabel, QPushButton, QSlider, QWidget)
 
@@ -44,6 +45,37 @@ class Built:
     """What the worker hands back: the surface, and what it cannot say."""
     shaded: shade.Shaded
     envelope_rings: list = field(default_factory=list)
+    rasters: 'Rasters | None' = None      # for the preview; None when it is off
+    params: Params | None = None          # the ones it was actually built with
+
+
+@dataclass
+class Rasters:
+    """The build's own grids, kept so an edit can be previewed against them
+    rather than rebuilt.
+
+    Held in memory, which is what bounds this: 308 MB for the gobras 3x3 at 3
+    arcseconds, and 1.5 to 2.8 GB at 1. So they are kept at the drawing
+    resolution and not at the publishing one, where the editor already says
+    "slow" in the menu and an edit waits for the exact build. PREVIEW_ARCSEC
+    is where that line is drawn.
+    """
+    constraints: np.ndarray
+    mask: np.ndarray
+    water: np.ndarray | None
+    surface: np.ndarray
+    dem: np.ndarray
+    geotransform: tuple
+    projection: str
+    nodata: float
+    gpkg: Path
+
+
+# Above this, the rasters the preview needs are gigabytes and are not kept.
+# 3 arcseconds is 308 MB for a three by three and is the resolution drawing
+# happens at; 1 arcsecond is the published DEM's, is labelled slow where it is
+# chosen, and rebuilds exactly instead.
+PREVIEW_ARCSEC = 3.0
 
 
 class _Signals(QObject):
@@ -68,7 +100,49 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     from .overlays import envelope_rings
     # the outline is a courtesy; its file missing is not a failed surface
     rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
-    return Built(shaded, rings)
+    return Built(shaded, rings, rasters=_rasters(result, work, params), params=params)
+
+
+def _rasters(result, work: Path, params: Params):
+    """The build's grids as arrays, or None where the preview is off.
+
+    Read here, on the worker, because reading them is I/O and the UI thread is
+    where the frames are."""
+    if params.arcsec > PREVIEW_ARCSEC:
+        return None
+    try:
+        return _read_rasters(result, work)
+    except Exception:      # noqa: BLE001
+        # The preview is a bonus and must not be able to fail a surface. A
+        # build that produced a DEM has produced the thing the user asked for;
+        # if its intermediate grids cannot be read back, the editor loses the
+        # live preview and rebuilds on every edit instead, which is what it did
+        # before phase 4.
+        return None
+
+
+def _read_rasters(result, work: Path):
+    from osgeo import gdal
+    held = {}
+
+    def read(path, dtype=None):
+        ds = gdal.Open(str(path))        # held: the band dies with the dataset
+        held[str(path)] = ds
+        a = ds.GetRasterBand(1).ReadAsArray()
+        return a.astype(dtype) if dtype is not None else a
+
+    cons = read(result.constraints, np.float32)
+    band = held[str(result.constraints)].GetRasterBand(1)
+    dem_ds = gdal.Open(str(result.dem))
+    return Rasters(constraints=cons,
+                   mask=read(result.drawn_mask),
+                   water=read(result.water_mask) if result.water_mask else None,
+                   surface=read(result.surface, np.float32),
+                   dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
+                   geotransform=tuple(dem_ds.GetGeoTransform()),
+                   projection=dem_ds.GetProjection(),
+                   nodata=band.GetNoDataValue(),
+                   gpkg=result.contours_gpkg)
 
 
 class Nothing(Exception):
@@ -81,20 +155,47 @@ class _Job(QRunnable):
         super().__init__()
         self.fn, self.zone_dir, self.names = fn, zone_dir, names
         self.params, self.work, self.signals = params, work, signals
+        # set when run() returns, however it returns. What makes it safe to
+        # remove the working directory is that the build has stopped writing,
+        # which is this - not the delivery of a signal, which is queued to
+        # another thread and arrives later.
+        self.done = threading.Event()
 
     def run(self):
         try:
+            self._run()
+        finally:
+            self.done.set()
+
+    def _run(self):
+        try:
             built = self.fn(self.zone_dir, self.names, self.params, self.work)
         except Nothing as e:
-            self.signals.failed.emit(str(e))
+            self._say(str(e))
             return
         except ImportError as e:
-            self.signals.failed.emit(f'building a surface needs GDAL, which could not be imported: {e}')
+            self._say(f'building a surface needs GDAL, which could not be imported: {e}')
             return
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
-            self.signals.failed.emit(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
+            self._say(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
-        self.signals.finished.emit(built)
+        try:
+            self.signals.finished.emit(built)
+        except RuntimeError:
+            pass                    # see _say
+
+    def _say(self, text: str):
+        """Report a failure, unless there is no longer anyone to report it to.
+
+        A job outlives the window when the application is closing, and emitting
+        then raises *Signal source has been deleted* out of QRunnable::run -
+        which Qt prints and nobody sees. The failure being reported is usually
+        the teardown itself, so the report is worth less than the crash costs.
+        """
+        try:
+            self.signals.failed.emit(text)
+        except RuntimeError:
+            pass
 
 
 class SurfaceBuilder(QObject):
@@ -191,8 +292,41 @@ class SurfaceBuilder(QObject):
         if self._wanted is not None and not self._running:
             self._start()
 
-    def cleanup(self):
-        shutil.rmtree(self.work, ignore_errors=True)
+    def cleanup(self, wait_ms: int = 15_000) -> bool:
+        """Stop taking work and remove the working directory.
+
+        Waits for the build that is running, because the directory is where it
+        is writing. Removing it underneath cost a traceback ending
+
+            RuntimeError: .../rounded.tif: No such file or directory
+
+        from inside the clamp - the build had got as far as wanting the file
+        the rmtree had just taken. Closing the window during a build used to
+        mean closing during a Ctrl+R and was rare; once an idle timer started
+        asking for builds by itself, it became what closing after drawing
+        does.
+
+        If the wait runs out the directory is left behind rather than pulled
+        out from under a live writer. It is a temporary directory and the
+        system will have it.
+
+        What this does *not* wait for is the finished signal, which is queued
+        to the UI thread and arrives after. A handler that goes back to the
+        directory - reopening the GeoPackage, say - finds it gone. That is
+        only safe because the one caller is ``closeEvent``, where a complaint
+        about a vanished temporary path is the last thing that happens; a
+        second caller would want the results drained first.
+        """
+        self._wanted = None                  # nothing more starts
+        done = True
+        if self._running and self._job is not None:
+            # the job's own flag, not the pool's: waitForDone would wait on
+            # whatever else is using the global pool and would answer for a
+            # job that never reached it
+            done = self._job.done.wait(wait_ms / 1000.0)
+        if done:
+            shutil.rmtree(self.work, ignore_errors=True)
+        return done
 
 
 # ------------------------------------------------------------------- layer
@@ -213,6 +347,9 @@ class SurfaceLayer(QGraphicsItem):
         self.style = Style()
         self._pixmap: QPixmap | None = None
         self._rect = QRectF()
+        self._array = None
+        self._stretch: tuple | None = None
+        self._preview = False
 
     def set_shaded(self, shaded: shade.Shaded | None):
         self.prepareGeometryChange()
@@ -232,23 +369,93 @@ class SurfaceLayer(QGraphicsItem):
             self.update()
 
     def recolour(self):
-        """compose() the kept arrays into the pixmap; cheap, on the UI thread."""
+        """compose() the kept arrays into the pixmap.
+
+        Not cheap, which I had asserted it was without measuring. On the gobras
+        3x3 at 3 arcseconds the composed array is 24.4 M cells and this is
+        1,472 ms in shaded relief, 1,376 in relief and 275 in hillshade - about
+        twenty-four times the solve it follows. A preview that took 62 ms to
+        work out was spending a second and a half being shown, which is what
+        recolour_box is for.
+        """
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
-        rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode, self.style.shade_strength)
+        # only where a ramp will use it: in 'auto', range_for is dem[dem > 0]
+        # and a min and a max over the whole array, and compose returns before
+        # it touches a range at all in hillshade
+        self._stretch = self.style.scaling.range_for(self.shaded.dem) if ramp else None
+        rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode,
+                             self.style.shade_strength, stretch=self._stretch)
         rows, cols = rgba.shape[:2]
         # QImage over the array, then a copy so the array may go
         self._array = np.ascontiguousarray(rgba)
         img = QImage(self._array.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         self._pixmap = QPixmap.fromImage(img.copy())
 
+    def recolour_box(self, y0: int, x0: int, rows: int, cols: int) -> bool:
+        """Recolour one rectangle of the surface and paint it into the pixmap.
+
+        The colour scale is the one the last whole recolour worked out, not one
+        worked out from the rectangle: in ``auto`` the range comes from the
+        land in the whole array, and a patch that restretched to its own
+        contents would come out a different colour from the ground around it.
+        It also stops the scale jumping on every edit, which is worth having
+        anyway; the next whole recolour brings it up to date.
+        """
+        if self._pixmap is None or self.shaded is None:
+            return False
+        y0, x0 = max(0, y0), max(0, x0)
+        # the pixmap's bounds, because the pixmap is what is drawn. The
+        # composed array was kept only to be measured here, and a full copy of
+        # every patch into 98 MB that nothing then reads is not worth a bounds
+        # check that is already available.
+        rows = min(rows, self._pixmap.height() - y0)
+        cols = min(cols, self._pixmap.width() - x0)
+        if rows <= 0 or cols <= 0:
+            return False
+        sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
+        ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
+        window = shade.Shaded(dem=self.shaded.dem[sl], shade=self.shaded.shade[sl],
+                              geotransform=self.shaded.geotransform, metres=self.shaded.metres)
+        rgba = np.ascontiguousarray(
+            shade.compose(window, ramp, self.style.scaling, self.style.mode,
+                          self.style.shade_strength, stretch=self._stretch))
+        img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
+        painter = QPainter(self._pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawImage(x0, y0, img)
+        painter.end()
+        self.update()
+        return True
+
     def boundingRect(self) -> QRectF:
         return self._rect
+
+    def set_preview(self, previewing: bool):
+        """Whether what is drawn is a preview or the exact build - R19's "the
+        two states are distinguishable at a glance"."""
+        if previewing != self._preview:
+            self._preview = previewing
+            self.update()
 
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        if self._preview:
+            # A dashed edge around the surface. Cosmetic, so the width is in
+            # device pixels and stays the same on screen at any zoom - a pen
+            # in scene units would thicken as the view zoomed in. Around the
+            # whole surface and not the
+            # patch: what is provisional is the surface, since one preview's
+            # rim is the next one's ground, and outlining the last box edited
+            # would say the rest had been settled.
+            pen = QPen(QColor(255, 170, 0), 0, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self._rect)
 
 
 # ------------------------------------------------------------------- panel
@@ -349,6 +556,22 @@ class SurfacePanel(QDockWidget):
         self.layer.set_style(self.current_style())
         self.styleChanged.emit(self.layer.style)
 
+    def show_resolution(self, arcsec: float) -> bool:
+        """Put the combo on the resolution being built.
+
+        The panel is where a reader looks to see what the surface is; a build
+        started from anywhere else - the command line's --surface, or a
+        rebuild that names its own - has to move it, or the panel says one
+        thing while the build does another. Signals stay blocked because this
+        is reporting a build, not asking for one."""
+        for i in range(self.resolution.count()):
+            if abs(float(self.resolution.itemData(i)) - arcsec) < 1e-9:
+                was = self.resolution.blockSignals(True)
+                self.resolution.setCurrentIndex(i)
+                self.resolution.blockSignals(was)
+                return True
+        return False
+
     def building(self, text: str):
         self.button.setEnabled(False)
         self.status.setText(text)
@@ -361,6 +584,11 @@ class SurfacePanel(QDockWidget):
         self.status.setText(f'{cols}×{rows} at {shaded.metres:g} m, {rng}, {seconds:.0f} s')
         if self.unreached is not None:
             self.reading.setText(self.unreached.summary())
+
+    def previewed(self, seconds: float):
+        """A patch went in without a rebuild. Says so, and says it is not the
+        exact answer - which the dashed edge on the canvas also says."""
+        self.status.setText(f'preview, {seconds * 1000:.0f} ms - exact on idle')
 
     def failed(self, text: str):
         self.button.setEnabled(True)

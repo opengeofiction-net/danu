@@ -48,11 +48,10 @@ from osgeo import gdal, ogr
 from ..core.save import STAGE_MARKER
 from ..core.square import SquareName, has_constraints, list_squares, loose_squares
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
+from . import NODATA
 from .params import Params
 
 gdal.UseExceptions()
-
-NODATA = -9999
 # The first pass, kept beside the surface for the overlay to read, with the
 # geotransform of the raster it was filled from. Named here because three
 # places have to agree about it - the fill writes it, the build clears the last
@@ -901,6 +900,7 @@ class Result:
     constraints: Path | None
     drawn_mask: Path | None
     water_mask: Path | None
+    surface: Path | None = None         # rounded.tif: the fill before the clamp
     envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
     blank: int = 0                      # squares with a file but no contours
 
@@ -961,7 +961,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
-    return Result(dem, grid, squares, gpkg, cont, mask, wmask,
+    return Result(dem, grid, squares, gpkg, cont, mask, wmask, surface=rounded,
                   envelopes=work / 'drawn.geojson', blank=blank)
 
 

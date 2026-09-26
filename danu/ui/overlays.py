@@ -86,9 +86,56 @@ class UnreachedLayer(QGraphicsItem):
         self._rect = QRectF()
         self.reading: dict | None = None
         self.one_level = False
+        self.stale = False
         self._shaded: shade.Shaded | None = None
 
+    def set_stale(self, rects=True):
+        """Where the surface has moved under this overlay without the classes
+        being recomputed - which is what a preview does: it reruns the first
+        pass for a box and brings back the DEM and the hillshade, not the
+        classes. Left alone the overlay goes on calling ground unreached that
+        the contour just drawn reaches, in red, over a surface that shows it
+        does.
+
+        ``rects`` is a list of (y, x, rows, cols) in this pixmap's own grid,
+        which is the grid the preview splices into. Those are dimmed and
+        nothing else is.
+
+        Faded there rather than hidden: the classes are a *first pass* result,
+        and most of what they say about the patched ground is still true - the
+        contour just drawn changes the answer near itself, not everywhere in
+        the box. Faded *only there* rather than everywhere, because the first
+        version of this dimmed the whole raster to say something about a
+        215-cell box of 24.4 M - about 0.2% of it - and a uniformly dim overlay
+        reads as "faint", not as "out of date here". Dimming with an edge says
+        which ground has stopped being described, which is what the dashed
+        amber rim says for the surface.
+
+        True dims all of it, which is the honest answer when the caller does
+        not know where.
+        """
+        before = self.stale
+        if rects is True or self.stale is True:
+            self.stale = True
+        elif not rects:
+            pass                     # nothing new to add
+        elif isinstance(self.stale, list):
+            # added to, not replaced. The classes are out of date over
+            # everything previewed since the last build, not over the last
+            # preview: a contour drawn node by node is one preview per gesture,
+            # so replacing left the dim region chasing the cursor while the
+            # nodes behind it - equally out of date - sat at full strength.
+            # A build clears it, which is the right bound, because a build is
+            # what makes the classes true again.
+            have = set(map(tuple, self.stale))
+            self.stale = self.stale + [r for r in map(tuple, rects) if r not in have]
+        else:
+            self.stale = [tuple(r) for r in rects]
+        if before != self.stale:
+            self.update()
+
     def set_shaded(self, shaded: shade.Shaded | None):
+        self.stale = False
         self.prepareGeometryChange()
         self._shaded = shaded
         if shaded is None or shaded.classes is None:
@@ -133,4 +180,46 @@ class UnreachedLayer(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
-        painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        whole = QRectF(self._pixmap.rect())
+        if not self.stale:
+            painter.drawPixmap(self._rect, self._pixmap, whole)
+            return
+        # Drawn twice, clipped: full strength where these classes still
+        # describe the surface, faded where a preview has moved the ground
+        # under them - see set_stale.
+        #
+        # The overlay's own pixmap both times, never a wash over the top. A
+        # translucent rectangle drawn over this layer does not dim the overlay,
+        # it paints over whatever is beneath it: unreached_rgba is transparent
+        # wherever the first pass had an answer, which is most of any box, so a
+        # white wash at alpha 165 turned a mostly-answered patch into a pale
+        # grey rectangle over the hillshade, 73% brighter than the ground
+        # around it and with no red in it at all - and where the surface itself
+        # is transparent, over the map tiles.
+        rows, cols = self._pixmap.height(), self._pixmap.width()
+        if rows <= 0 or cols <= 0:
+            return
+        sx, sy = self._rect.width() / cols, self._rect.height() / rows
+        faded = QPainterPath()
+        if isinstance(self.stale, list):
+            for y, x, h, w in self.stale:
+                faded.addRect(QRectF(self._rect.left() + x * sx, self._rect.top() + y * sy,
+                                     w * sx, h * sy))
+        else:
+            faded.addRect(self._rect)
+        crisp = QPainterPath()
+        crisp.addRect(self._rect)
+        crisp = crisp.subtracted(faded)
+
+        was_clip, had_clip = painter.clipPath(), painter.hasClipping()
+        painter.setClipPath(crisp)
+        painter.drawPixmap(self._rect, self._pixmap, whole)
+        painter.setClipPath(faded)
+        was_opacity = painter.opacity()
+        painter.setOpacity(was_opacity * 0.35)
+        painter.drawPixmap(self._rect, self._pixmap, whole)
+        painter.setOpacity(was_opacity)
+        if had_clip:
+            painter.setClipPath(was_clip)
+        else:
+            painter.setClipping(False)

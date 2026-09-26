@@ -32,8 +32,14 @@ def test_every_shade_stage_names_the_shell_command_it_stands_for():
             and not n.name.startswith('_')}
     stages = ['smooth', 'fine_metres', 'warp_mercator', 'hillshade', 'shade_dem']
     display = {'Shaded', 'Scaling', 'compose', 'unreached_rgba', 'ramp_rgba'}   # the canvas's, not the shell's
+    # The editor's incremental path, which has no shell counterpart because the
+    # shell never shades a window - it shades a zone, once a night. shade_window
+    # is held to shade_dem instead, by tests/golden/test_preview.py, which is
+    # the same kind of pinning one step removed.
+    incremental = {'shade_window'}
     assert set(stages) <= set(defs), set(stages) - set(defs)
-    assert set(defs) - set(stages) - display == set(), set(defs) - set(stages) - display
+    assert set(defs) - set(stages) - display - incremental == set(), \
+        set(defs) - set(stages) - display - incremental
     missing = [n for n in stages if 'shell:' not in (ast.get_docstring(defs[n]) or '')]
     assert missing == []
 

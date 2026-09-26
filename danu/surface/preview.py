@@ -38,7 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import local
+from . import NODATA, local
 from .local import Box
 from .params import Params
 
@@ -94,6 +94,14 @@ class Contours:
         self.layer.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
         defn = self.layer.GetLayerDefn()
         self._fid: dict[str, int] = {}
+        # ways whose id is claimed by more than one feature. Until the
+        # allocator was made set-wide, every square minted -1 for its first new
+        # way, so a working set drawn in two squares and saved holds two
+        # contours calling themselves the same way - and those files exist.
+        # Keyed by id here, one entry wins, and a later apply() or remove()
+        # then edits whichever registered last, in the wrong square. Collected
+        # rather than guessed at, so the caller can say which id and stop.
+        self.collided: list[str] = []
         top = 0
         for f in lyr:
             # every feature moves the high-water mark, including one this
@@ -114,6 +122,8 @@ class Contours:
             g.SetField('osm_id', osm_id)
             self.layer.CreateFeature(g)
             if osm_id is not None:
+                if str(osm_id) in self._fid:
+                    self.collided.append(str(osm_id))
                 self._fid[str(osm_id)] = f.GetFID()
         self._next = top + 1
 
@@ -177,6 +187,36 @@ class Contours:
         return band.ReadAsArray()
 
 
+def clamp_patch(surface: np.ndarray, constraints: np.ndarray,
+                kept_dem: np.ndarray) -> np.ndarray:
+    """``land_clamp.clamp``'s arithmetic for one box: sea to exactly zero, land
+    never zero, the burned constraints back untouched.
+
+    The clamp has two halves and only one of them is local. Deciding *which*
+    cells are sea is global - it polygonizes the candidates and keeps the
+    regions that reach open water - and a box cannot do it, because whether a
+    zero-cell is sea depends on what it joins up with a thousand cells away.
+    The arithmetic that follows is four lines of numpy.
+
+    So the decision is not recomputed; it is read off the last exact build,
+    where a cell reading exactly zero is one the clamp called sea. That is an
+    approximation and it was measured before it was relied on: deleting a
+    contour level from the golden square moves 507 cells of the fill and
+    changes the sea/land decision for 11 of 1,442,401 - 0.0008%. Those eleven
+    are wrong in the preview until the rebuild on idle, which is the same
+    bargain as the held rim.
+
+    Burned cells are handled last and so need no care here: a coastline drawn
+    at zero reads zero in ``kept_dem``, is called sea, and is then overwritten
+    with its own burned value, which is zero.
+    """
+    d = np.maximum(surface.astype(np.float32), np.float32(1))
+    d[kept_dem == 0] = 0
+    burned = constraints != NODATA
+    d[burned] = constraints[burned]
+    return d
+
+
 @dataclass
 class Kept:
     """What the last exact build left, which a preview reads and updates.
@@ -194,6 +234,26 @@ class Kept:
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
+    dem: np.ndarray                 # the clamped surface, which clamp_patch
+                                    # reads the sea decision off. Not optional:
+                                    # the default was documented as being for
+                                    # a caller that solves without clamping,
+                                    # and there is no such caller - what it
+                                    # bought was a TypeError in a slot, from a
+                                    # Kept built without one
+
+
+def grown_by(params: Params, cover: int | None = None, slack: int | None = None) -> int:
+    """How far ``patch`` grows a box before solving it.
+
+    Here because two callers need it and one of them is the driver deciding
+    whether to merge two boxes: comparing the boxes themselves rather than what
+    they cost to solve keeps near-identical solves apart. The driver spelled
+    the sum out by hand, which is a copy of these defaults that nothing would
+    notice going stale."""
+    cover = 2 * params.fill_cells if cover is None else cover
+    slack = 2 * params.fill_cells if slack is None else slack
+    return cover + local.reach(params, slack)
 
 
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,

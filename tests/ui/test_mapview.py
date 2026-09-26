@@ -161,12 +161,31 @@ def test_the_editor_imports_without_gdal(monkeypatch):
             raise ModuleNotFoundError(f"No module named '{name}'")
         return real(name, *args, **kwargs)
 
+    mods = ('danu.ui.app', 'danu.ui.contours', 'danu.ui.tiles', 'danu.ui.squares',
+            'danu.ui.open_dialog', 'danu.ui.loader', 'danu.ui.settings', 'danu.ui.surface',
+            'danu.surface.ramp', 'danu.surface.shade')
+    # Re-importing a module makes a *second* module object and rebinds it on
+    # the parent package. monkeypatch puts sys.modules back and knows nothing
+    # about the parent's attribute, so `danu.surface.shade` was left as the
+    # second copy while everything imported earlier went on holding the first.
+    # `from danu.surface import shade` then returned a different object than
+    # danu.ui.preview calls, so patching one did nothing to the other - two
+    # tests in another file passed alone and failed in the suite, with the
+    # traceback showing the real function running and the stub sitting
+    # unreferenced beside it.
+    was = {m: sys.modules.get(m) for m in mods}
     monkeypatch.setattr(builtins, '__import__', blocked)
-    for mod in ('danu.ui.app', 'danu.ui.contours', 'danu.ui.tiles', 'danu.ui.squares',
-                'danu.ui.open_dialog', 'danu.ui.loader', 'danu.ui.settings', 'danu.ui.surface',
-                'danu.surface.ramp', 'danu.surface.shade'):
-        monkeypatch.delitem(sys.modules, mod, raising=False)
-        importlib.import_module(mod)
+    try:
+        for mod in mods:
+            monkeypatch.delitem(sys.modules, mod, raising=False)
+            importlib.import_module(mod)
+    finally:
+        for mod, original in was.items():
+            if original is None:
+                continue
+            sys.modules[mod] = original
+            parent, _, leaf = mod.rpartition('.')
+            setattr(sys.modules[parent], leaf, original)
 
 
 def test_ctrl_and_alt_take_the_wheel_off_the_zoom(view, qtbot):
@@ -249,3 +268,28 @@ def test_a_right_click_that_does_not_move_is_left_to_the_tool(view, qtbot):
     view.mouseReleaseEvent(right(view, pos + QPointF(30, 10), QEvent.Type.MouseButtonRelease,
                                  buttons=Qt.MouseButton.NoButton))
     assert tool.clicks == 1                                # a drag, so it was the map's
+
+
+def test_the_import_check_leaves_the_modules_it_borrowed_as_it_found_them():
+    """The guard for the fix above, which is invisible from anywhere else.
+
+    Re-importing a module makes a second module object and rebinds it on the
+    parent package; monkeypatch restores sys.modules and not the attribute. So
+    `from danu.surface import shade` returned a different object than
+    `danu.ui.preview` calls, patching one did nothing to the other, and two
+    tests in another file passed alone and failed in the suite - the traceback
+    showing the real function running with the stub sitting unreferenced
+    beside it.
+    """
+    import sys
+
+    import danu.surface
+    import danu.ui
+    import danu.ui.preview
+
+    for pkg, leaf in ((danu.ui, 'surface'), (danu.surface, 'shade'), (danu.surface, 'ramp')):
+        name = f'{pkg.__name__}.{leaf}'
+        assert getattr(pkg, leaf) is sys.modules[name], (
+            f'{name} on the package is not the one in sys.modules - something '
+            f're-imported it and did not put the attribute back')
+    assert danu.ui.preview.shade is sys.modules['danu.surface.shade']

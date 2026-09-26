@@ -48,7 +48,7 @@ from osgeo import gdal, ogr, osr
 gdal.UseExceptions()
 ogr.UseExceptions()
 
-NODATA = -9999
+from . import NODATA        # one definition; see danu/surface/__init__.py
 
 
 

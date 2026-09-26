@@ -24,13 +24,31 @@ Coord = tuple[float, float]            # lon, lat
 # ------------------------------------------------------------------ ids
 
 class IdAllocator:
-    """Fresh negative ids for one square, each below the lowest in use. Nodes
-    and ways are different namespaces in OSM, but one counter over both keeps
-    a file readable by eye and cannot collide with either."""
+    """Fresh negative ids, each below the lowest in use. Nodes and ways are
+    different namespaces in OSM, but one counter over both keeps a file
+    readable by eye and cannot collide with either.
+
+    Below the lowest in every square it has been shown, not just the first.
+    One counter per square mints -1 for each of them - the lowest id in a
+    square drawn from real data is positive, so -1 is what every such square
+    offers first - and a working set is many squares. Two contours drawn in
+    two squares then share an id, which is harmless while nothing indexes on
+    it and is not once something does: the preview keys a way's last geometry
+    on it, and the GeoPackage a build collects writes it as `osm_id`, so a
+    saved set already produced two features claiming to be the same way.
+    """
 
     def __init__(self, square: Square):
+        self._next = 0
+        self.include(square)
+
+    def include(self, square: Square) -> None:
+        """Take this square's ids into account as well."""
         lowest = min([0, *square.nodes.keys(), *square.ways.keys()])
-        self._next = lowest - 1
+        # lowest is at most 0, so this is the whole of it: the counter only
+        # ever moves down, and a square whose ids are all above it changes
+        # nothing
+        self._next = min(self._next, lowest - 1)
 
     def take(self) -> int:
         i = self._next
@@ -502,13 +520,19 @@ class SetUndoStack:
         self._undone: list[tuple[Square, Command]] = []
         self._squares: dict[int, Square] = {}      # every square touched, by identity
         self._clean: dict[int, int] = {}           # id(square) -> steps done at the last save
-        self._allocs: dict[int, IdAllocator] = {}
+        self._alloc: IdAllocator | None = None
 
     def alloc(self, square: Square) -> IdAllocator:
-        a = self._allocs.get(id(square))
-        if a is None:
-            a = self._allocs[id(square)] = IdAllocator(square)
-        return a
+        """The working set's allocator, widened to clear this square too.
+
+        One allocator, not one per square: see IdAllocator. A square joining
+        later only lowers the counter, so ids already handed out stay valid.
+        """
+        if self._alloc is None:
+            self._alloc = IdAllocator(square)
+        else:
+            self._alloc.include(square)
+        return self._alloc
 
     def do(self, square: Square, cmd: Command) -> None:
         cmd.apply(square)
