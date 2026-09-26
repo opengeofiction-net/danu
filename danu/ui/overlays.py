@@ -98,8 +98,14 @@ class UnreachedLayer(QGraphicsItem):
         does.
 
         ``rects`` is a list of (y, x, rows, cols) in this pixmap's own grid,
-        which is the grid the preview splices into. Those are dimmed and
-        nothing else is.
+        which is the grid the preview splices into. They are **added to** what
+        is already stale, not substituted for it: the classes are out of date
+        over everything previewed since the last build, and only a build makes
+        them true again. ``set_shaded`` is what clears it.
+
+        So ``False`` and ``[]`` mean *nothing new to add*, not *nothing is
+        stale* - the one direction of this that is surprising, and the reason
+        it is written here rather than only in a comment inside the function.
 
         Faded there rather than hidden: the classes are a *first pass* result,
         and most of what they say about the patched ground is still true - the
@@ -113,6 +119,12 @@ class UnreachedLayer(QGraphicsItem):
 
         True dims all of it, which is the honest answer when the caller does
         not know where.
+
+        A failed build leaves this alone, which looks like an oversight and is
+        not: a build that failed did not make the classes true, so the ground
+        it would have covered really is still out of date and the fade is
+        reporting accurately. The provisional rim behaves the same way for the
+        same reason.
         """
         before = self.stale
         if rects is True or self.stale is True:
@@ -201,6 +213,16 @@ class UnreachedLayer(QGraphicsItem):
             return
         sx, sy = self._rect.width() / cols, self._rect.height() / rows
         faded = QPainterPath()
+        # Winding, and QPainterPath's default is *odd-even*. These rectangles
+        # overlap as a matter of course - a contour drawn node by node is one
+        # preview per gesture and each rect is grown by a hundred cells, so
+        # consecutive ones cover almost the same ground - and under odd-even
+        # an overlap cancels: it falls out of `faded`, back into `crisp`, and
+        # is drawn at full strength. Measured before this line existed, the
+        # middle of a stroke came out the plain overlay colour while its ends
+        # were faded, which reads as a rendering quirk rather than as the
+        # overlap of two stale regions.
+        faded.setFillRule(Qt.FillRule.WindingFill)
         if isinstance(self.stale, list):
             for y, x, h, w in self.stale:
                 faded.addRect(QRectF(self._rect.left() + x * sx, self._rect.top() + y * sy,

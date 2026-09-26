@@ -1371,16 +1371,30 @@ preview always starts from an answer.
 
 R19's third clause, the two states told apart at a glance: the surface draws a
 dashed amber edge while it is provisional, and the panel says *preview, N ms -
-exact on idle*. R20's overlay is the first pass's classes, which a preview does
-not recompute, so it is drawn faded over the ground previewed since the last
-build and at full strength everywhere else - the overlay's own pixmap drawn
-twice through a clip, never a wash over the top of it, since a translucent
-rectangle over this layer does not dim the overlay but paints over the
-hillshade beneath it: `unreached_rgba` is transparent wherever the first pass
-had an answer, which is most of any box, so a wash turned a mostly-answered
-patch into a pale grey rectangle with no red in it. Around the whole surface and not the patch, because what is
+exact on idle*. Around the whole surface and not the patch, because what is
 provisional is the surface - one preview's rim is the next one's ground, and
 outlining only the last box edited would say the rest had been settled.
+
+R20's overlay is the first pass's classes, which a preview does not recompute,
+so it is faded over the ground previewed since the last build and left at full
+strength everywhere else. Two things about that were wrong before they were
+right, and both are the kind that come back. It is the overlay's own pixmap
+drawn twice through a clip, never a wash over the top: a translucent rectangle
+over this layer does not dim the overlay, it paints over the hillshade beneath
+it, and `unreached_rgba` is transparent wherever the first pass had an answer -
+which is most of any box - so a wash turned a mostly-answered patch into a pale
+grey rectangle with no red in it. And the clip path is set to winding fill,
+against `QPainterPath`'s odd-even default: the rectangles overlap as a matter
+of course, since a contour drawn node by node is one preview per gesture, and
+under odd-even an overlap cancels out of the faded path, falls back into the
+crisp one and is drawn at full strength - the middle of a stroke coming out
+brighter than its ends. Both are pinned by rendering tests rather than by
+attributes.
+
+The fade costs about 2 ms of a viewport repaint with nothing stale and 5 to 6
+with fifty rectangles accumulated, which is the most a gesture reaches between
+rebuilds. It is outside the 63 to 73 ms below, which is the driver's own span
+from edit to spliced arrays.
 
 What bounds it is memory. The preview holds the build's grids - 308 MB for the
 gobras 3x3 at 3 arcseconds, 1.5 to 2.8 GB at 1 - so they are kept at the
@@ -1420,6 +1434,12 @@ no fallback to the binary, which `interpolate` has had all along, so a machine
 with one and not the other builds but cannot preview; and the squares saved
 before ids were unique across a working set still hold two contours claiming to
 be the same way, which the preview now detects and refuses rather than repairs.
+
+What F5c does *not* need to account for is the drawing. The overlay's fade was
+measured after it was built rather than assumed: 2 ms of a viewport repaint
+with nothing stale, 5 to 6 with fifty rectangles accumulated, and a repaint is
+bounded by the window rather than by the 24.4 M cells behind it. The 63 to 73
+ms is the solve and the shading, and the margin is most of the solve.
 
 ### Phase 5
 

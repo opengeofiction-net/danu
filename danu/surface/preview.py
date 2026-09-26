@@ -243,16 +243,28 @@ class Kept:
                                     # Kept built without one
 
 
+def radii(params: Params, cover: int | None = None,
+          slack: int | None = None) -> tuple[int, int]:
+    """The cover and the slack, defaulted.
+
+    The pair, not the sum: ``patch`` needs them apart, because they answer
+    different questions and either may be overridden on its own, while the
+    driver only wants to know how far a box grows. A function returning the sum
+    cannot be the one place the defaults are written - which is what the first
+    version of ``grown_by`` was, spelling them out a second time thirty lines
+    from ``patch``'s copy, in the same file, under a docstring about a copy
+    that nothing would notice going stale."""
+    return (2 * params.fill_cells if cover is None else cover,
+            2 * params.fill_cells if slack is None else slack)
+
+
 def grown_by(params: Params, cover: int | None = None, slack: int | None = None) -> int:
     """How far ``patch`` grows a box before solving it.
 
-    Here because two callers need it and one of them is the driver deciding
-    whether to merge two boxes: comparing the boxes themselves rather than what
-    they cost to solve keeps near-identical solves apart. The driver spelled
-    the sum out by hand, which is a copy of these defaults that nothing would
-    notice going stale."""
-    cover = 2 * params.fill_cells if cover is None else cover
-    slack = 2 * params.fill_cells if slack is None else slack
+    The driver needs this to decide whether merging two boxes is free: comparing
+    the boxes themselves rather than what they cost to solve keeps
+    near-identical solves apart."""
+    cover, slack = radii(params, cover, slack)
     return cover + local.reach(params, slack)
 
 
@@ -277,8 +289,7 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     asymmetry with ``constraints`` is the point - that one is written on
     purpose, and put back.
     """
-    cover = 2 * params.fill_cells if cover is None else cover
-    slack = 2 * params.fill_cells if slack is None else slack
+    cover, slack = radii(params, cover, slack)
     shape = kept.constraints.shape
     good = box.grown(cover, shape)
     grown = good.grown(local.reach(params, slack), shape)
