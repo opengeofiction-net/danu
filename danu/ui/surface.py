@@ -379,7 +379,10 @@ class SurfaceLayer(QGraphicsItem):
         recolour_box is for.
         """
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
-        self._stretch = self.style.scaling.range_for(self.shaded.dem)
+        # only where a ramp will use it: in 'auto', range_for is dem[dem > 0]
+        # and a min and a max over the whole array, and compose returns before
+        # it touches a range at all in hillshade
+        self._stretch = self.style.scaling.range_for(self.shaded.dem) if ramp else None
         rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode,
                              self.style.shade_strength, stretch=self._stretch)
         rows, cols = rgba.shape[:2]
@@ -398,11 +401,15 @@ class SurfaceLayer(QGraphicsItem):
         It also stops the scale jumping on every edit, which is worth having
         anyway; the next whole recolour brings it up to date.
         """
-        if self._pixmap is None or self._array is None or self.shaded is None:
+        if self._pixmap is None or self.shaded is None:
             return False
         y0, x0 = max(0, y0), max(0, x0)
-        rows = min(rows, self._array.shape[0] - y0)
-        cols = min(cols, self._array.shape[1] - x0)
+        # the pixmap's bounds, because the pixmap is what is drawn. The
+        # composed array was kept only to be measured here, and a full copy of
+        # every patch into 98 MB that nothing then reads is not worth a bounds
+        # check that is already available.
+        rows = min(rows, self._pixmap.height() - y0)
+        cols = min(cols, self._pixmap.width() - x0)
         if rows <= 0 or cols <= 0:
             return False
         sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
@@ -412,7 +419,6 @@ class SurfaceLayer(QGraphicsItem):
         rgba = np.ascontiguousarray(
             shade.compose(window, ramp, self.style.scaling, self.style.mode,
                           self.style.shade_strength, stretch=self._stretch))
-        self._array[sl] = rgba
         img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         painter = QPainter(self._pixmap)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)

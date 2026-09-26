@@ -46,12 +46,17 @@ GESTURE_MS = 30
 # How long the drawing has to stop before the exact rebuild is asked for.
 IDLE_MS = 1500
 
+# Pieces one gesture may be solved as. Each costs a whole solve on the UI
+# thread, so past a handful the preview is worse than not previewing: the
+# gesture is skipped and the idle rebuild settles it.
+MAX_PIECES = 8
+
 
 class PreviewDriver(QObject):
     """Turns edits into patched surface, and silence into an exact rebuild."""
 
     patched = Signal(object, float)     # the display rects written, and how long it took
-    classesStale = Signal()             # R20's overlay no longer describes the surface
+    classesStale = Signal(object)       # where R20's overlay stopped describing the surface
     exact_wanted = Signal()
     unavailable = Signal(str)           # why there is no preview, once per reason
 
@@ -93,8 +98,7 @@ class PreviewDriver(QObject):
         nobody draws, and the previews simply stop appearing - which an idle
         rebuild, an edit landing while it runs, and another edit inside the
         gesture window is enough to reach."""
-        if self._kept is not None or shaded is not None:
-            self._shaded = shaded
+        self._shaded = shaded
 
     def adopt(self, built, params: Params):
         """Take the exact build's grids as the ground the next preview works
@@ -113,6 +117,17 @@ class PreviewDriver(QObject):
             # exception mode, so a file it cannot open is a RuntimeError
             self.forget()
             self._say(f'no live preview: {type(e).__name__}: {e}')
+            return
+        if contours.collided:
+            # not a preview we can trust: apply() and remove() on a colliding
+            # id reach whichever feature registered last, which is in another
+            # square. The build is unaffected and the rebuild on idle is
+            # right; only the live patching would be wrong.
+            self.forget()
+            ids = ', '.join(sorted(set(contours.collided))[:4])
+            self._say(f'no live preview: {len(contours.collided)} contours share a way id '
+                      f'({ids}) - squares saved before ids were made unique across the set; '
+                      f'edits rebuild on idle instead')
             return
         self._kept = preview.Kept(constraints=r.constraints, mask=r.mask, water=r.water,
                                   surface=r.surface, geotransform=r.geotransform,
@@ -259,14 +274,14 @@ class PreviewDriver(QObject):
             rect = self._repaint(good)
             if rect is not None:
                 written.append(rect)
-        if boxes:
+        if written:
             # R20's overlay is the first pass's classes, and a preview reruns
             # the first pass without bringing them back: shade_window returns
             # dem and hillshade only. So the overlay now describes the surface
             # as it was - it will call ground unreached that the contour just
             # drawn reaches - and saying nothing would leave red over ground
             # the mapper has just described.
-            self.classesStale.emit()
+            self.classesStale.emit(written)
         self.patched.emit(written, time.perf_counter() - started)
 
     def _merged(self, boxes: list) -> list:
@@ -281,16 +296,33 @@ class PreviewDriver(QObject):
         separately would be, which is what a gesture's run of adjacent nodes
         looks like.
         """
+        shape = self._kept.constraints.shape
+        grow = self._params.fill_cells * 2 + local.reach(self._params, self._params.fill_cells * 2)
+
+        def solved(b):
+            # what a piece actually costs: patch() grows a box by the cover and
+            # the reach before solving it, so two small boxes a few cells apart
+            # are two nearly-identical large solves. Comparing the boxes
+            # themselves would keep them apart and do the work twice.
+            return b.grown(grow, shape).cells
+
         out: list = []
         for box in sorted(boxes, key=lambda b: (b.y0, b.x0)):
             for i, have in enumerate(out):
                 union = local.Box(min(have.x0, box.x0), min(have.y0, box.y0),
                                   max(have.x1, box.x1), max(have.y1, box.y1))
-                if union.cells <= have.cells + box.cells:
+                if solved(union) <= solved(have) + solved(box):
                     out[i] = union
                     break
             else:
                 out.append(box)
+        if len(out) > MAX_PIECES:
+            # nothing reaches this today - a command names a handful of ways -
+            # but there is no cap anywhere else on this path, and N solves on
+            # the UI thread is the editor frozen for N times a whole solve.
+            # The idle rebuild settles it; R19's guarantee is about the idle
+            # state, not about the gesture.
+            return []
         return out
 
     def _repaint(self, good: local.Box):
@@ -314,9 +346,9 @@ class PreviewDriver(QObject):
         sub_gt = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
         m_dem, m_shade, m_gt, _metres = shade.shade_window(
             clamped, sub_gt, self._projection, p, align_to=self._shaded.geotransform)
-        return self._splice(m_dem, m_shade, m_gt, good, halo)
+        return self._splice(m_dem, m_shade, m_gt, win.shape[0], halo)
 
-    def _splice(self, m_dem, m_shade, m_gt, good, halo):
+    def _splice(self, m_dem, m_shade, m_gt, source_rows, halo):
         """Write the patch into the displayed arrays, at the cell it belongs
         to. ``shade_window`` was told the display's grid, so this is whole
         cells and not a resample.
@@ -336,8 +368,14 @@ class PreviewDriver(QObject):
         # one is not a cell of the other, and the ratio is what converts it.
         # Rounded up, since cropping a cell too many costs a cell of staleness
         # and cropping one too few writes the artefact this exists to avoid.
-        if good.cells and halo:
-            scale = rows / max(1, good.grown(halo, (1 << 30, 1 << 30)).shape[0])
+        if source_rows and halo:
+            # the source window's own height, clipped as it actually was. Taking
+            # the unclipped height instead made `scale` too small wherever the
+            # window ran into the top or bottom of the raster, so `crop` came
+            # out short - and since it is rounded up, short enough to trip the
+            # guard below and skip the crop altogether, writing the whole ring
+            # this exists to keep out.
+            scale = rows / max(1, source_rows)
             crop = int(math.ceil(halo * scale))
             if 2 * crop < rows and 2 * crop < cols:
                 m_dem = m_dem[crop:rows - crop, crop:cols - crop]

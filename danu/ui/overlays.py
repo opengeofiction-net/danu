@@ -89,17 +89,34 @@ class UnreachedLayer(QGraphicsItem):
         self.stale = False
         self._shaded: shade.Shaded | None = None
 
-    def set_stale(self, stale: bool = True):
-        """The surface has moved under this overlay without the classes being
-        recomputed - which is what a preview does: it reruns the first pass for
-        a box and brings back the DEM and the hillshade, not the classes. Left
-        alone the overlay goes on calling ground unreached that the contour
-        just drawn reaches, in red, over the surface that shows it does.
+    def set_stale(self, rects=True):
+        """Where the surface has moved under this overlay without the classes
+        being recomputed - which is what a preview does: it reruns the first
+        pass for a box and brings back the DEM and the hillshade, not the
+        classes. Left alone the overlay goes on calling ground unreached that
+        the contour just drawn reaches, in red, over a surface that shows it
+        does.
 
-        Faded rather than hidden, because what it says is still true of most of
-        the raster and hiding it would be a bigger lie than dimming it."""
-        if stale != self.stale:
-            self.stale = stale
+        ``rects`` is a list of (y, x, rows, cols) in this pixmap's own grid,
+        which is the grid the preview splices into. Those are dimmed and
+        nothing else is.
+
+        Faded there rather than hidden: the classes are a *first pass* result,
+        and most of what they say about the patched ground is still true - the
+        contour just drawn changes the answer near itself, not everywhere in
+        the box. Faded *only there* rather than everywhere, because the first
+        version of this dimmed the whole raster to say something about a
+        215-cell box of 24.4 M - about 0.2% of it - and a uniformly dim overlay
+        reads as "faint", not as "out of date here". Dimming with an edge says
+        which ground has stopped being described, which is what the dashed
+        amber rim says for the surface.
+
+        True dims all of it, which is the honest answer when the caller does
+        not know where.
+        """
+        before = self.stale
+        self.stale = rects if rects is not True else True
+        if bool(before) != bool(self.stale) or before != self.stale:
             self.update()
 
     def set_shaded(self, shaded: shade.Shaded | None):
@@ -148,10 +165,22 @@ class UnreachedLayer(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
-        # faded while the surface under it has moved and these classes have
-        # not been recomputed - see set_stale
-        was = painter.opacity()
-        if self.stale:
-            painter.setOpacity(was * 0.35)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
-        painter.setOpacity(was)
+        if not self.stale:
+            return
+        # Dimmed where the surface under it has moved and these classes have
+        # not been recomputed - see set_stale. Drawn over the top rather than
+        # instead: the pixmap is already down, and a second pass with a
+        # background-coloured wash at the same rectangles fades those and
+        # leaves the rest at full strength.
+        rows, cols = (self._pixmap.height(), self._pixmap.width())
+        if rows <= 0 or cols <= 0:
+            return
+        rects = self.stale if isinstance(self.stale, list) else [(0, 0, rows, cols)]
+        sx = self._rect.width() / cols
+        sy = self._rect.height() / rows
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 165))
+        for y, x, h, w in rects:
+            painter.drawRect(QRectF(self._rect.left() + x * sx, self._rect.top() + y * sy,
+                                    w * sx, h * sy))

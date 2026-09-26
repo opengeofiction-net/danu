@@ -94,6 +94,14 @@ class Contours:
         self.layer.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
         defn = self.layer.GetLayerDefn()
         self._fid: dict[str, int] = {}
+        # ways whose id is claimed by more than one feature. Until the
+        # allocator was made set-wide, every square minted -1 for its first new
+        # way, so a working set drawn in two squares and saved holds two
+        # contours calling themselves the same way - and those files exist.
+        # Keyed by id here, one entry wins, and a later apply() or remove()
+        # then edits whichever registered last, in the wrong square. Collected
+        # rather than guessed at, so the caller can say which id and stop.
+        self.collided: list[str] = []
         top = 0
         for f in lyr:
             # every feature moves the high-water mark, including one this
@@ -114,6 +122,8 @@ class Contours:
             g.SetField('osm_id', osm_id)
             self.layer.CreateFeature(g)
             if osm_id is not None:
+                if str(osm_id) in self._fid:
+                    self.collided.append(str(osm_id))
                 self._fid[str(osm_id)] = f.GetFID()
         self._next = top + 1
 
@@ -225,12 +235,13 @@ class Kept:
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
-    dem: np.ndarray | None = None   # the clamped surface, which clamp_patch
-                                    # reads the sea decision off. Optional
-                                    # only because a caller solving without
-                                    # clamping has no use for it; anything
-                                    # reaching clamp_patch must pass one, and
-                                    # None there is a TypeError in a slot
+    dem: np.ndarray                 # the clamped surface, which clamp_patch
+                                    # reads the sea decision off. Not optional:
+                                    # the default was documented as being for
+                                    # a caller that solves without clamping,
+                                    # and there is no such caller - what it
+                                    # bought was a TypeError in a slot, from a
+                                    # Kept built without one
 
 
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,

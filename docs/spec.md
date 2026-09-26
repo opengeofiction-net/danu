@@ -352,11 +352,17 @@ surface; **slack** is the clearance the solve keeps beyond the patch, on top of
 the radius, and it decides what the patch gets wrong. Both want two radii; see
 *F3, the local solve*.
 
-| when | patch covers | solved | pass 1 | pass 2 | budget |
+| when | patch covers | solved | pass 1 | pass 2 | cost |
 |---|---|---|---|---|---|
-| during a drag | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 30 ms |
-| on release | box + 2 radii | + 3 radii | exact | local, ~0.27 m | 200 ms |
-| on idle, 2 s | whole working set | all | exact | exact | seconds |
+| while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 63-73 ms |
+| on idle, 1.5 s | whole working set | all | exact | exact | 5.6 s at 3", 114 at 1" |
+
+The budgets this table used to carry - 30 ms while dragging, 200 on release,
+two seconds to idle - were guesses made before any of it existed, and three of
+the four have since been measured or settled. There is no *on release* state:
+nothing watches for the pointer coming up, and the coalescing timer covers what
+it was for. The costs above are measured; see *F5b*, which is also where the
+50 ms this phase ends on is still missed.
 
 The drag and the release solve the same ground: at 1 arcsecond a small edit is
 about 130,000 cells against the working set's 77.8 million, so there was no
@@ -1351,7 +1357,8 @@ the preview is over it, by a quarter on a typical edit. The lever is the solve,
 and the obvious one is the margin: a three-cell edit is solved over 201 by 201
 because cover and slack are two radii each, and F3 chose two radii by measuring
 accuracy alone. What it costs in time was not part of that decision and now has
-to be - which is F6's, with both numbers in front of it rather than one.
+to be. That is **F5c**, below, and not some later phase: fifty milliseconds is
+this phase's own exit criterion.
 
 **The wiring.** `danu.ui.preview.PreviewDriver` joins them: the editor says
 which ways an edit touched, the driver keeps the contour layer in step, and two
@@ -1391,6 +1398,21 @@ closing after drawing does. Cleanup waits for the running build now - on the
 job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
+
+**F5c, the margin against the clock.** Not started. `cover` and `slack` are two
+radii each because F3 measured what they were worth in accuracy: two radii take
+the worst of eighteen edits from 3.278 m to 0.268 m, and no further. What they
+cost in time was never measured, and it is most of the 63 to 73 ms an edit takes
+- a three-cell edit is solved over 201 by 201 cells almost entirely because of
+them. The same eighteen edits, timed as well as measured, would say whether one
+radius of slack is worth the accuracy it gives back, and that is the only
+candidate for the 50 ms this phase ends on.
+
+Two smaller things wait there too: `local.resolve` loads `libisofill.so` and has
+no fallback to the binary, which `interpolate` has had all along, so a machine
+with one and not the other builds but cannot preview; and the squares saved
+before ids were unique across a working set still hold two contours claiming to
+be the same way, which the preview now detects and refuses rather than repairs.
 
 ### Phase 5
 

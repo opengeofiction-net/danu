@@ -17,6 +17,9 @@ from danu.ui.surface import Built                      # noqa: E402
 
 PARAMS = surface_params.load().with_arcsec(3.0)
 
+# cells each way in the fake raster these tests run on
+GRID = 600
+
 
 class Way:
     def __init__(self, wid, refs, ele=100.0):
@@ -35,8 +38,13 @@ class Square:
 
 
 class FakeContours:
-    def __init__(self):
+    def __init__(self, collided=()):
         self.applied, self.removed = [], []
+        self.collided = list(collided)
+
+    def burn(self, gt, box, nodata):
+        import numpy as np
+        return np.full(box.shape, nodata, np.float32)
 
     def apply(self, way_id, points, ele):
         self.applied.append((way_id, len(points), ele))
@@ -60,18 +68,39 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
                         lambda kept, box, p, **kw: (calls.append(box),
                                                     (kept.surface[box.slice], box))[1])
     d = PreviewDriver(gesture_ms=gesture_ms, idle_ms=idle_ms)
-    monkeypatch.setattr(d, '_repaint', lambda good: None)
+    # as the real one does: where in the display it landed. Returning None
+    # means nothing reached the screen, which is a different case and has
+    # its own test.
+    monkeypatch.setattr(d, '_repaint', lambda good: (good.y0, good.x0, 4, 4))
     d.solved = calls
-    zeros = np.zeros((100, 100), np.float32)
+    # GRID cells each way, not a hundred: patch() grows a box by cover + reach
+    # before solving it, which is 100 cells at these parameters. On a
+    # hundred-cell raster every box grows to the whole of it, every union is
+    # free, and the merging tests would pass whatever the rule was.
+    zeros = np.zeros((GRID, GRID), np.float32)
     rasters = type('R', (), dict(
-        constraints=zeros.copy(), mask=np.ones((100, 100), np.uint8), water=None,
+        constraints=zeros.copy(), mask=np.ones((GRID, GRID), np.uint8), water=None,
         surface=zeros.copy(), dem=zeros.copy(),
         geotransform=(0.0, 0.01, 0.0, 1.0, 0.0, -0.01),
         projection='', nodata=-9999.0, gpkg='none.gpkg'))()
     shaded = type('S', (), dict(geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
-                                dem=zeros.copy(), shade=np.zeros((100, 100), np.uint8)))()
+                                dem=zeros.copy(), shade=np.zeros((GRID, GRID), np.uint8)))()
     d.adopt(Built(shaded=shaded, rasters=rasters), PARAMS)
     return d
+
+
+def at_cell(col, row, wid=1, length=2):
+    """A one-way square positioned at a given cell of the fake raster.
+
+    In cells, not degrees: the geotransform runs lat *downward* from 1.0, so a
+    latitude written to look like a position two-thirds down the raster is
+    actually off the top of it, and the way is silently not boxed at all. Three
+    tests were written that way and passed by not testing anything."""
+    gt = (0.0, 0.01, 0.0, 1.0, 0.0, -0.01)
+    lon = gt[0] + (col + 0.5) * gt[1]
+    lat = gt[3] + (row + 0.5) * gt[5]
+    return Square([Way(wid, [1, 2])],
+                  {1: Node(lon, lat), 2: Node(lon + length * gt[1], lat)})
 
 
 def a_square(lon=0.5, lat=0.5, wid=1):
@@ -112,11 +141,11 @@ def test_distant_edits_are_not_merged_into_one_huge_box(qtbot, monkeypatch):
     They are disjoint, so solving them apart is no more work and bounds each
     piece."""
     d = driver_over(monkeypatch)
-    d.edited(a_square(0.02, 0.05, wid=1), {1})
-    d.edited(a_square(0.95, 0.95, wid=2), {2})
+    d.edited(at_cell(20, 20, wid=1), {1})
+    d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
     d._run()
     assert len(d.solved) == 2, "the two corners were solved as one box"
-    whole = 100 * 100
+    whole = GRID * GRID
     for b in d.solved:
         assert b.cells < whole / 4, "a box of %d cells of a %d-cell raster" % (b.cells, whole)
 
@@ -361,16 +390,66 @@ def test_a_way_just_off_the_raster_is_not_boxed_at_its_corner(qtbot, monkeypatch
     assert d._pending == [], "a way west of the raster was boxed inside it"
 
 
-def test_a_preview_says_the_unreached_overlay_has_gone_stale(qtbot, monkeypatch):
+def test_a_preview_says_where_the_unreached_overlay_has_gone_stale(qtbot, monkeypatch):
     """R20's overlay is the first pass's classes, and a preview reruns the
     first pass without bringing them back. Left alone, the overlay goes on
-    calling ground unreached that the contour just drawn reaches."""
+    calling ground unreached that the contour just drawn reaches.
+
+    Where, not just that. The rectangles are in the display's own grid, which
+    is the grid the overlay's pixmap is in, so it can dim the ground it has
+    stopped describing and leave the rest alone."""
     d = driver_over(monkeypatch)
     stale = []
-    d.classesStale.connect(lambda: stale.append(True))
+    d.classesStale.connect(stale.append)
     d.edited(a_square(), {1})
     d._run()
-    assert stale == [True], "nothing said the overlay no longer describes the surface"
+    assert len(stale) == 1, "nothing said the overlay had stopped describing the surface"
+    assert stale[0], "the signal named no ground at all"
+    for y, x, rows, cols in stale[0]:
+        assert rows > 0 and cols > 0
+
+
+def test_nothing_reaching_the_display_leaves_the_overlay_alone(qtbot, monkeypatch):
+    """If no patch reached the screen the displayed surface has not moved, so
+    the classes still describe it and the overlay must not be dimmed. The
+    condition is what was painted, not that a preview ran."""
+    d = driver_over(monkeypatch)
+    monkeypatch.setattr(d, "_repaint", lambda good: None)     # clipped away entirely
+    stale = []
+    d.classesStale.connect(stale.append)
+    d.edited(a_square(), {1})
+    d._run()
+    assert stale == [], "the overlay was dimmed although nothing on screen changed"
+
+
+def test_a_working_set_whose_ways_share_an_id_gets_no_preview(qtbot, monkeypatch):
+    """Until the allocator was made set-wide, every square minted -1 for its
+    first new way, so a set drawn in two squares and saved holds two contours
+    calling themselves the same way. Those files exist.
+
+    Keyed by id, one wins: a later apply() or remove() edits whichever
+    registered last, in the wrong square. The build is unaffected and the idle
+    rebuild is right; only the live patching would be wrong, so it is the live
+    patching that stops."""
+    import numpy as np
+    from danu.surface import preview as surface_preview
+
+    monkeypatch.setattr(surface_preview, "Contours",
+                        lambda gpkg: FakeContours(collided=["-1", "-1", "-2"]))
+    d = PreviewDriver(gesture_ms=1, idle_ms=10_000)
+    said = []
+    d.unavailable.connect(said.append)
+    zeros = np.zeros((8, 8), np.float32)
+    rasters = type("R", (), dict(
+        constraints=zeros, mask=np.ones((8, 8), np.uint8), water=None, surface=zeros,
+        dem=zeros, geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), projection="",
+        nodata=-9999.0, gpkg="x.gpkg"))()
+    d.adopt(Built(shaded=object(), rasters=rasters), PARAMS)
+
+    assert not d.ready, "the preview armed itself against colliding ids"
+    assert said and "share a way id" in said[0], said
+    assert "-1" in said[0], "the message does not say which id to look for"
+
 
 
 def test_the_unreached_overlay_fades_when_the_surface_has_moved_under_it(qtbot):
@@ -395,3 +474,279 @@ def test_the_unreached_overlay_fades_when_the_surface_has_moved_under_it(qtbot):
                                   geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), metres=1.0,
                                   classes=np.zeros((4, 4), np.uint8)))
     assert not layer.stale, 'an exact build left the overlay marked stale'
+
+
+def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
+    """M2, pinned where the wiring is.
+
+    preview.patch puts its burn back before it returns, so by the time the
+    repaint runs, kept.constraints holds the *build's* constraints and the
+    contour just drawn is not in them. Clamping against those leaves
+    clamp_patch's third rule - burned constraints back, untouched - testing for
+    something that is not there, so a new contour never overrides the value the
+    fill guessed at the cells the fill declined. That is the largest error
+    class F3 names.
+
+    So _repaint burns the window itself. No GDAL here: a fake layer returns a
+    burn holding the new contour, and what is asserted is that the contour's
+    own elevation reaches kept.dem.
+    """
+    import numpy as np
+    from danu.surface import build as surface_build
+    from danu.surface import preview as surface_preview, shade as surface_shade
+
+    d = driver_over(monkeypatch)
+    kept = d._kept
+    NEW_ELE = 321.0
+
+    class BurnsTheNewContour:
+        applied, removed, collided = [], [], []
+
+        def apply(self, *a):
+            pass
+
+        def remove(self, *a):
+            return True
+
+        def burn(self, gt, box, nodata):
+            a = np.full(box.shape, surface_build.NODATA, np.float32)
+            a[box.shape[0] // 2, :] = NEW_ELE        # a contour across the window
+            return a
+
+    kept.contours = BurnsTheNewContour()
+    # the fill guessed something else entirely for that ground
+    kept.surface[:] = 40.0
+    kept.dem[:] = 40.0
+    kept.constraints[:] = surface_build.NODATA       # the build never saw it
+
+    monkeypatch.setattr(surface_preview, 'patch',
+                        lambda k, box, p, **kw: (k.surface[box.grown(0, k.constraints.shape).slice],
+                                                 box))
+    monkeypatch.setattr(surface_shade, 'shade_window',
+                        lambda *a, **kw: (np.zeros((2, 2), np.float32),
+                                          np.zeros((2, 2), np.uint8),
+                                          d._shaded.geotransform, 1.0))
+    # the real one: driver_over stubs _repaint, and that stub is what the
+    # wiring tests want. This is the one test about what _repaint does.
+    from danu.ui.preview import PreviewDriver as Driver
+    Driver._repaint(d, local_box(20, 20, 24, 24))
+
+    assert NEW_ELE in set(np.unique(kept.dem).tolist()), (
+        'the clamp never saw the contour just drawn, so its elevation did not '
+        'reach the surface')
+
+
+def local_box(x0, y0, x1, y1):
+    from danu.surface import local
+    return local.Box(x0, y0, x1, y1)
+
+def _splice_marker(d, monkeypatch, good, source_rows, mercator_rows):
+    """Run _splice with a marked patch and say where the marker landed.
+
+    The patch is all 7s with a 1-cell border of 9s - the halo's outermost ring.
+    If the crop works, no 9 reaches the display.
+    """
+    import numpy as np
+    from danu.ui.preview import PreviewDriver as Driver
+
+    m_shade = np.full((mercator_rows, mercator_rows), 7, np.uint8)
+    m_shade[0, :] = m_shade[-1, :] = m_shade[:, 0] = m_shade[:, -1] = 9
+    m_dem = m_shade.astype(np.float32)
+    gt = d._shaded.geotransform
+    # a window sitting at the display's origin
+    return Driver._splice(d, m_dem, m_shade, gt, source_rows, 1)
+
+
+def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
+    """shade_window's contract: the caller passes a window grown by a halo and
+    crops what comes back. Its outermost cells are computed against an edge
+    that is not there - np.pad(mode='edge'), computeEdges, and whatever
+    bilinear reaches - so written in, they replace good display values with
+    worse ones, and the next preview holds its rim against the ring they left.
+
+    This was the fix for that and had no test.
+    """
+    import numpy as np
+    from danu.surface import local
+
+    d = driver_over(monkeypatch)
+    d._shaded.shade[:] = 0
+    good = local.Box(10, 10, 29, 29)              # 20 source rows
+    rect = _splice_marker(d, monkeypatch, good, source_rows=22, mercator_rows=22)
+    assert rect is not None
+    written = d._shaded.shade[d._shaded.shade != 0]
+    assert written.size, "nothing was written at all"
+    assert 9 not in set(written.tolist()), "the halo ring reached the display"
+    assert 7 in set(written.tolist()), "the patch itself did not reach the display"
+
+
+def test_the_crop_holds_when_the_window_was_clipped_by_the_raster(qtbot, monkeypatch):
+    """The case that defeated the first version, and the one nobody would think
+    to write.
+
+    The crop converts a halo in source cells into Mercator cells by the ratio
+    between the two heights. Taking the *unclipped* source height made that
+    ratio too small wherever the window ran into the top or bottom of the
+    raster - and since the crop is rounded up, short enough to trip the guard
+    that skips it, writing the whole ring.
+
+    Here the source window is clipped to half its asked-for height while the
+    Mercator output keeps its own, which is the shape of that disagreement.
+    """
+    import numpy as np
+    from danu.surface import local
+
+    d = driver_over(monkeypatch)
+    d._shaded.shade[:] = 0
+    good = local.Box(0, 0, 19, 19)                # against the raster's top edge
+    rect = _splice_marker(d, monkeypatch, good, source_rows=11, mercator_rows=22)
+    assert rect is not None
+    written = d._shaded.shade[d._shaded.shade != 0]
+    assert written.size, "nothing was written at all"
+    assert 9 not in set(written.tolist()), (
+        "the halo ring reached the display: the crop was computed from a "
+        "window height the source did not have")
+
+def test_repaint_measures_the_halo_against_the_window_it_actually_solved(qtbot, monkeypatch):
+    """The denominator, pinned at the place that chooses it.
+
+    The crop converts a halo in source cells into Mercator cells by the ratio
+    between the two heights. The window is clipped to the raster before it is
+    solved, so the source height is the clipped one - and measuring against the
+    height it *asked* for makes the ratio too small wherever the window runs
+    into the top or bottom of the raster. Rounded up, short enough to trip the
+    guard that skips the crop, writing the whole halo ring.
+
+    Handing _splice the number directly cannot catch this: the fault is in what
+    _repaint passes, not in what _splice does with it. So this spies on the
+    call.
+    """
+    import numpy as np
+    from danu.surface import local, shade as surface_shade
+    from danu.ui.preview import PreviewDriver as Driver
+
+    d = driver_over(monkeypatch)
+    kept = d._kept
+    rows, cols = kept.constraints.shape
+    monkeypatch.setattr(surface_shade, "shade_window",
+                        lambda *a, **kw: (np.zeros((6, 6), np.float32),
+                                          np.zeros((6, 6), np.uint8),
+                                          d._shaded.geotransform, 1.0))
+    seen = []
+    monkeypatch.setattr(d, "_splice",
+                        lambda m_dem, m_shade, m_gt, source_rows, halo:
+                        seen.append((source_rows, halo)))
+
+    # against the *bottom*, not the top. Box.grown clamps with max(0, y0 - by)
+    # whatever shape it is given, so at the top edge the clipped and unclipped
+    # heights are the same number and the fault is invisible. Only the far
+    # edge, where the clamp is min(rows - 1, ...), can tell them apart.
+    good = local.Box(5, rows - 11, 25, rows - 1)
+    Driver._repaint(d, good)
+    assert seen, "_repaint did not reach _splice"
+    source_rows, halo = seen[0]
+    clipped = good.grown(halo, (rows, cols)).shape[0]
+    asked_for = good.shape[0] + 2 * halo
+    assert clipped < asked_for, "this box is not clipped, so the test proves nothing"
+    assert source_rows == clipped, (
+        "the halo was measured against %d rows, but only %d were solved"
+        % (source_rows, clipped))
+
+
+def test_merging_counts_what_a_piece_costs_to_solve_not_its_own_size(qtbot, monkeypatch):
+    """patch() grows a box by the cover and the reach before solving it, so two
+    small boxes a few cells apart are two nearly identical large solves.
+    Comparing the boxes themselves keeps them apart and does the work twice."""
+    d = driver_over(monkeypatch)
+    d.edited(at_cell(240, 250, wid=1), {1})
+    d.edited(at_cell(248, 250, wid=2), {2})
+    assert len(d._pending) == 2
+    assert len(d._merged(d._pending)) == 1, \
+        'two edits a few cells apart were solved as two nearly identical boxes'
+
+
+def test_a_gesture_split_into_too_many_pieces_is_skipped(qtbot, monkeypatch):
+    """Each piece is a whole solve on the UI thread. Past a handful the preview
+    costs more than not previewing, and the idle rebuild settles it anyway -
+    R19's guarantee is about the idle state, not the gesture."""
+    import danu.ui.preview as mod
+
+    # The cap is lowered rather than the raster stretched. A dozen edits spread
+    # over a real working set merge down to two or three pieces - the merging
+    # above is aggressive on purpose - so reaching the cap honestly would need
+    # a raster far larger than anything else here, and the test would be about
+    # the fixture. One piece is the cap, two pieces trip it.
+    def two_corners():
+        d = driver_over(monkeypatch)
+        d.edited(at_cell(30, 30, wid=1), {1})
+        d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
+        d._run()
+        return d.solved
+
+    # the same gesture either side of the cap, because the capped answer is an
+    # empty list and asserting on it alone would pass if the boxes had simply
+    # merged
+    monkeypatch.setattr(mod, 'MAX_PIECES', 8)
+    assert len(two_corners()) == 2, 'these two merged, so there is no cap to test'
+
+    monkeypatch.setattr(mod, 'MAX_PIECES', 1)
+    assert two_corners() == [], 'the gesture was solved piece by piece past the cap'
+
+def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtbot):
+    """R20's overlay draws the first pass's classes. A preview reruns the first
+    pass for a box and brings back the DEM and the hillshade, not the classes -
+    so after an edit the overlay describes the surface as it was, in red, over
+    a surface that shows otherwise.
+
+    The first version dimmed the whole raster to say that about a box of a few
+    hundred cells in twenty-four million - and a uniformly dim overlay reads as
+    "faint", not "out of date here". This renders the layer and requires the
+    two regions to differ: dimmed inside the rectangle, untouched outside it.
+    An attribute assertion would pass on either.
+    """
+    import numpy as np
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from danu.surface import shade
+    from danu.ui.mapview import MapView
+    from danu.ui import mercator as m
+    from danu.ui.overlays import UnreachedLayer
+
+    rows = cols = 64
+    classes = np.full((rows, cols), 1, np.uint8)         # all "nothing in reach"
+    s = shade.Shaded(dem=np.full((rows, cols), 100.0, np.float32),
+                     shade=np.full((rows, cols), 180, np.uint8),
+                     geotransform=(0.0, 1000.0, 0.0, 2_000_000.0, 0.0, -1000.0),
+                     metres=1000.0, classes=classes)
+
+    # one view, rendered repeatedly: a scene owns the items added to it, so a
+    # second view would delete the layer the first one took
+    layer = UnreachedLayer()
+    layer.set_shaded(s)
+    v = MapView(); v.resize(400, 400); qtbot.addWidget(v); v.show(); qtbot.waitExposed(v)
+    v.scene().addItem(layer)
+    l, t, r, b = s.scene_rect
+    v.fit_bounds(*m.scene_to_lonlat(l, b), *m.scene_to_lonlat(r, t))
+
+    def rendered(_layer=None):
+        img = QImage(v.viewport().size(), QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img); v.render(p); p.end()
+        inside = v.mapFromScene(l + (r - l) * 0.15, t + (b - t) * 0.15)
+        outside = v.mapFromScene(l + (r - l) * 0.85, t + (b - t) * 0.85)
+        return img.pixelColor(inside), img.pixelColor(outside)
+    fresh_in, fresh_out = rendered(layer)
+    assert fresh_in == fresh_out, "the overlay is not uniform to begin with"
+
+    # the top-left quarter has been previewed: its classes no longer describe it
+    layer.set_stale([(0, 0, rows // 2, cols // 2)])
+    dim_in, dim_out = rendered(layer)
+
+    assert dim_in != fresh_in, "the previewed ground was not dimmed"
+    assert dim_out == fresh_out, "ground the preview never touched was dimmed too"
+
+    # and a build puts it back
+    layer.set_shaded(s)
+    assert not layer.stale
+    back_in, _ = rendered(layer)
+    assert back_in == fresh_in, "a rebuild did not restore the overlay"

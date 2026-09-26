@@ -507,7 +507,10 @@ class MainWindow(QMainWindow):
     def _loaded_params(fallback: float | None = None):
         from ..surface import params as surface_params
         p = surface_params.load()
-        return p.with_arcsec(fallback) if fallback else p
+        # `is not None`, not truthiness: 0.0 is falsy and would silently take
+        # elevation.toml's own arcsec, which is 1 - the 77-second build L1 was
+        # about, reached by conflating unset with zero all over again
+        return p.with_arcsec(fallback) if fallback is not None else p
 
     def _surface_starting(self):
         self.surface_panel.building(f'building at {self._arcsec:g}″…')

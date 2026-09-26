@@ -45,7 +45,10 @@ class IdAllocator:
     def include(self, square: Square) -> None:
         """Take this square's ids into account as well."""
         lowest = min([0, *square.nodes.keys(), *square.ways.keys()])
-        self._next = min(self._next, lowest) - 1 if self._next >= lowest else self._next
+        # lowest is at most 0, so this is the whole of it: the counter only
+        # ever moves down, and a square whose ids are all above it changes
+        # nothing
+        self._next = min(self._next, lowest - 1)
 
     def take(self) -> int:
         i = self._next
@@ -517,7 +520,7 @@ class SetUndoStack:
         self._undone: list[tuple[Square, Command]] = []
         self._squares: dict[int, Square] = {}      # every square touched, by identity
         self._clean: dict[int, int] = {}           # id(square) -> steps done at the last save
-        self._allocs: dict[int, IdAllocator] = {}
+        self._alloc: IdAllocator | None = None
 
     def alloc(self, square: Square) -> IdAllocator:
         """The working set's allocator, widened to clear this square too.
@@ -525,12 +528,11 @@ class SetUndoStack:
         One allocator, not one per square: see IdAllocator. A square joining
         later only lowers the counter, so ids already handed out stay valid.
         """
-        a = self._allocs.get('set')
-        if a is None:
-            a = self._allocs['set'] = IdAllocator(square)
+        if self._alloc is None:
+            self._alloc = IdAllocator(square)
         else:
-            a.include(square)
-        return a
+            self._alloc.include(square)
+        return self._alloc
 
     def do(self, square: Square, cmd: Command) -> None:
         cmd.apply(square)

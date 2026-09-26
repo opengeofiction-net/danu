@@ -144,9 +144,11 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     xs = [int((lon - gt[0]) / gt[1]) for lon, _ in coords]
     box = local.Box.around(ys, xs)
 
+    dem_ds = gdal.Open(str(before['result'].dem))        # held
     kept = preview.Kept(constraints=before['constraints'], mask=before['mask'],
                         water=before['water'], surface=before['surface'],
-                        geotransform=gt, nodata=before['nodata'], contours=layer)
+                        geotransform=gt, nodata=before['nodata'], contours=layer,
+                        dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32))
     keep_a_copy = before['constraints'].copy()
     mask_copy = before['mask'].copy()
     water_copy = before['water'].copy() if before['water'] is not None else None
@@ -409,6 +411,11 @@ def test_a_shaded_window_is_the_whole_rasters_shading(tmp_path):
     # patch that landed between cells could not be spliced in at all
     fx = (m_gt[0] - whole.geotransform[0]) / whole.geotransform[1]
     fy = (m_gt[3] - whole.geotransform[3]) / whole.geotransform[5]
+    # This is also what pins shade_window dropping xRes/yRes on the aligned
+    # path: asking a warp for a resolution *and* a size leaves it unclear which
+    # the binding acts on, and if the alignment stopped taking effect these two
+    # assertions are what would say so. Do not restore those options as
+    # redundant.
     assert abs(fx - round(fx)) < 1e-6 and abs(fy - round(fy)) < 1e-6, \
         f'the window landed {fx - round(fx):+.3f}, {fy - round(fy):+.3f} cells off the grid'
     ox, oy = int(round(fx)), int(round(fy))
