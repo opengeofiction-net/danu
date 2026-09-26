@@ -103,8 +103,7 @@ the tools for everything else.
   screen is what the build will produce.
 - **R19** While drawing, the surface updates locally and immediately. It is
   rebuilt exactly on demand, and of its own accord when the preview cannot
-  stand in for it - which is not the same as *on idle*, and F5c says why. The
-  two states are distinguishable at a glance.
+  stand in for it. The two states are distinguishable at a glance.
 - **R20** Where the first pass found no answer - `OUT_OF_REACH`, `NO_ELEV`,
   `ONE_LEVEL` - the editor says so, as an overlay. This is the single most
   useful thing it can tell a mapper: *here is ground your contours do not
