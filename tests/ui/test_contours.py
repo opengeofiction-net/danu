@@ -255,3 +255,119 @@ def test_a_geometry_whose_refs_and_points_disagree_is_refused():
         WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2, 3])
     WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])          # aligned, accepted
     WayGeom(sq, way, 100.0, np.zeros((2, 2)))                  # and no refs at all
+
+def test_the_cull_follows_the_viewport(view, ws):
+    """A level's ways joined into one path have a rectangle that spans the
+    working set, so culling by it culls nothing: the gobras 3x3 redrew 341,694
+    points on every paint, 150.8 ms of a 153 ms repaint, on every pan and every
+    edit. Per way the rectangle is the way's own.
+
+    What is asserted is that the number drawn follows the window, not a
+    fraction. This fixture is one dense square where a long sinuous contour's
+    rectangle overlaps most of the others - 76 of 94 ways at two zooms in - so a
+    threshold here would be a fact about the fixture. On the gobras 3x3 the same
+    code draws 235 ways of 6,305 at zoom 12 and 5 at zoom 16.
+    """
+    from danu.ui.contours import ContourLayer, ZOOM_ALL
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    total = sum(len(pieces) for pieces in layer.paths.values())
+    assert total > 50, f'the fixture has only {total} ways to cull'
+
+    # the same centre at two zooms, so only the window differs
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    view.set_zoom(ZOOM_ALL)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    wide = layer.drawn_ways
+    assert wide > 0, 'nothing was drawn over a contour with the square in view'
+
+    view.set_zoom(ZOOM_ALL + 6)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    close = layer.drawn_ways
+
+    assert 0 < close < wide, (
+        f'{close} ways drawn zoomed in against {wide} zoomed out - '
+        f'the cull does not follow the window')
+
+
+def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
+    """The picture has to be the same picture. Rendered against a layer whose
+    pieces all carry a rectangle covering everything - so nothing is culled -
+    the two must agree pixel for pixel."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from danu.ui.contours import ContourLayer, ZOOM_ALL
+
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    def shot(no_cull):
+        layer = ContourLayer()
+        layer.set_working_set(ws)
+        if no_cull:
+            everywhere = QRectF(-1e12, -1e12, 2e12, 2e12)
+            for pieces in layer.paths.values():
+                for piece in pieces:
+                    piece.rect = everywhere
+        view.scene().addItem(layer)
+        view.set_zoom(ZOOM_ALL + 1)
+        view.center_on_lonlat(lon, lat)
+        img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img); view.render(p); p.end()
+        drawn = layer.drawn_ways
+        view.scene().removeItem(layer)
+        return img, drawn
+
+    culled, n_culled = shot(False)
+    whole, n_whole = shot(True)
+    assert n_whole > n_culled, (
+        f'the uncalled layer drew {n_whole} and the culled one {n_culled} - '
+        f'nothing was culled, so this compares two identical renders')
+    assert culled == whole, 'culling changed the picture'
+
+
+def test_a_contour_running_due_east_is_not_culled(view, ws):
+    """Its rectangle has no height, and QRectF.intersects is false for an empty
+    rectangle - so an east-west contour would be culled wherever the window
+    was, and vanish. The rectangles are grown by a unit for that reason; this
+    is what says so.
+
+    The way is drawn here rather than taken from a fixture, because the
+    geometry *is* the test: every point at one latitude, which no fixture in
+    this file happens to contain.
+    """
+    from danu.core import edits
+    from danu.ui.contours import ContourLayer, ZOOM_ALL
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+
+    sq = ws.squares[SquareName(125, -24)]
+    alloc = edits.IdAllocator(sq)
+    lat = -23.5
+    lon0, lon1 = 125.2, 125.8
+    wid = alloc.take()
+    cmd = edits.AddWay(wid, [alloc.take(), alloc.take()],
+                       [(lon0, lat), (lon1, lat)], {'ele': '7'})
+    cmd.apply(sq)
+    layer.refresh(sq, {wid})
+
+    pieces = layer.paths[7.0]
+    assert len(pieces) == 1
+    assert pieces[0].rect.height() > 0, 'a due-east contour has a rectangle of no height'
+
+    view.set_zoom(ZOOM_ALL)
+    view.center_on_lonlat((lon0 + lon1) / 2, lat)
+    render(view)
+    assert layer.drawn_ways > 0, 'a contour running due east was culled away'

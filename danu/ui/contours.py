@@ -51,6 +51,25 @@ FONT_PT = 9
 
 
 @dataclass
+class _Piece:
+    """One way's contour, and the rectangle it occupies.
+
+    One path per *way*, where this used to keep one per elevation. A level's
+    path is every way at that elevation joined together, so on a working set
+    it spans nearly the whole of it, and culling by its rectangle culls
+    nothing: the gobras 3x3 redrew 341,694 points on every paint, which was
+    150.8 ms of a 153 ms repaint - every pan, and every edit. Per way the
+    rectangle is the way's own and the cull is worth doing.
+
+    What it costs is a drawPath and a rectangle test per way rather than per
+    level. The test is nothing; the call has some overhead, and at a zoom
+    where everything is visible it is paid for no saving - which is why it is
+    measured at both ends in tests/ui/test_contours.py rather than assumed."""
+    path: QPainterPath
+    rect: QRectF
+
+
+@dataclass
 class Label:
     ele: float
     x: float          # scene
@@ -113,7 +132,8 @@ class ContourLayer(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
         self.setZValue(100)
         self.working_set: WorkingSet | None = None
-        self.paths: dict[float, QPainterPath] = {}
+        # per way, not per level: see _Piece and paint()
+        self.paths: dict[float, list[_Piece]] = {}
         self.labels: list[Label] = []
         self.ramp: Ramp = spectral()
         self.index_levels: set[float] = set()
@@ -130,6 +150,7 @@ class ContourLayer(QGraphicsItem):
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
+        self.drawn_ways = 0        # how many the cull let through, for tests
         self.drawn_labels = 0
 
     # ------------------------------------------------------------ data
@@ -204,10 +225,16 @@ class ContourLayer(QGraphicsItem):
             # 342,000 of them in the gobras 3x3. The same path building over
             # plain floats is 66 ms against 400 ms, measured on that set
             pts = g.pts.tolist()
-            path = self.paths.setdefault(g.ele, QPainterPath())
+            path = QPainterPath()
             path.moveTo(pts[0][0], pts[0][1])
             for x, y in pts[1:]:
                 path.lineTo(x, y)
+            xs, ys = g.pts[:, 0], g.pts[:, 1]
+            # grown by a unit, so a straight east-west contour - whose rect has
+            # no height - still intersects anything
+            rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
+                          float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
+            self.paths.setdefault(g.ele, []).append(_Piece(path, rect))
             self.labels.append(self._label(g.ele, pts))
         all_levels = sorted(self.paths)
         self.index_levels = set(all_levels[::INDEX_EVERY_N])
@@ -342,29 +369,34 @@ class ContourLayer(QGraphicsItem):
         if rect.isEmpty():
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self.drawn_ways = 0
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
                 continue
-            path = self.paths[ele]
-            # grown by a unit: a straight east-west contour has a rect of no
-            # height, and QRectF.intersects is false for an empty rect
-            if not path.controlPointRect().adjusted(-1, -1, 1, 1).intersects(rect):
+            # the rectangle is each way's own. A level's ways joined into one
+            # path have a rectangle that spans the working set, and culling by
+            # it culls nothing - see _Piece
+            visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
+            if not visible:
                 continue
             pen = QPen(self.colour(ele), 1.8 if index else 1.0)
             pen.setCosmetic(True)
             painter.setPen(pen)
-            painter.drawPath(path)
+            for piece in visible:
+                painter.drawPath(piece.path)
+            self.drawn_ways += len(visible)
             self.drawn_levels += 1
         if self.active is not None and self.active in self.paths and zoom >= ZOOM_INDEX:
             # the level being drawn at, over everything: the mapper needs to
             # see where it already runs
-            path = self.paths[self.active]
-            if path.controlPointRect().adjusted(-1, -1, 1, 1).intersects(rect):
+            active = [piece for piece in self.paths[self.active] if piece.rect.intersects(rect)]
+            if active:
                 pen = QPen(self.colour(self.active).darker(120), 3.2)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
-                painter.drawPath(path)
+                for piece in active:
+                    painter.drawPath(piece.path)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
 
