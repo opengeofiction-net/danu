@@ -492,7 +492,9 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     own elevation reaches kept.dem.
     """
     import numpy as np
-    from danu.surface import build as surface_build
+    # NODATA from the package, not from build: this job has Qt and no GDAL,
+    # and build imports osgeo at module scope
+    from danu.surface import NODATA
     from danu.surface import preview as surface_preview, shade as surface_shade
 
     d = driver_over(monkeypatch)
@@ -509,7 +511,7 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
             return True
 
         def burn(self, gt, box, nodata):
-            a = np.full(box.shape, surface_build.NODATA, np.float32)
+            a = np.full(box.shape, NODATA, np.float32)
             a[box.shape[0] // 2, :] = NEW_ELE        # a contour across the window
             return a
 
@@ -517,7 +519,7 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     # the fill guessed something else entirely for that ground
     kept.surface[:] = 40.0
     kept.dem[:] = 40.0
-    kept.constraints[:] = surface_build.NODATA       # the build never saw it
+    kept.constraints[:] = NODATA                     # the build never saw it
 
     monkeypatch.setattr(surface_preview, 'patch',
                         lambda k, box, p, **kw: (k.surface[box.grown(0, k.constraints.shape).slice],

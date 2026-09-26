@@ -48,11 +48,10 @@ from osgeo import gdal, ogr
 from ..core.save import STAGE_MARKER
 from ..core.square import SquareName, has_constraints, list_squares, loose_squares
 from . import drawn_mask, isofill_lib, land_clamp, sea_mask
+from . import NODATA
 from .params import Params
 
 gdal.UseExceptions()
-
-NODATA = -9999
 # The first pass, kept beside the surface for the overlay to read, with the
 # geotransform of the raster it was filled from. Named here because three
 # places have to agree about it - the fill writes it, the build clears the last

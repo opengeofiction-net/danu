@@ -38,7 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import local
+from . import NODATA, local
 from .local import Box
 from .params import Params
 
@@ -210,7 +210,6 @@ def clamp_patch(surface: np.ndarray, constraints: np.ndarray,
     at zero reads zero in ``kept_dem``, is called sea, and is then overwritten
     with its own burned value, which is zero.
     """
-    from .build import NODATA
     d = np.maximum(surface.astype(np.float32), np.float32(1))
     d[kept_dem == 0] = 0
     burned = constraints != NODATA
