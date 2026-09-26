@@ -270,12 +270,16 @@ def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
     edit would quietly rebuild at 3 and the surface would change resolution
     under the mapper.
 
-    The two agree once a build moves the combo, so to have this say anything
-    they are pulled apart: the combo is moved by hand, as a mapper choosing
-    what to build *next*, while the surface on screen is still at 1. Settling a
-    preview is not the moment to act on that choice - it belongs to the Rebuild
-    button - and an idle rebuild at a resolution nobody asked for yet is 77
-    seconds nobody asked for either.
+    The two agree in normal use, so to have this say anything they are pulled
+    apart with show_resolution, which moves the combo without asking for a
+    build.
+
+    Choosing a resolution now starts one, so a mapper can no longer reach this
+    state by hand - but the window is between the two for as long as a build
+    takes, and the guard is about what settles a preview rather than about how
+    the combo came to disagree. An idle rebuild reading the combo would settle
+    the ground at whatever the panel last said, which need not be the ground on
+    screen.
     """
     window.builder._runner = lambda job: None
     assert window.rebuild_surface(1.0)
@@ -299,3 +303,47 @@ def test_an_idle_rebuild_does_nothing_with_nothing_edited(qtbot, window):
     window.editor.history.dirty_squares = lambda: {}
     window._rebuild_after_idle()
     assert asked == [], "an idle rebuild ran with nothing edited"
+
+def test_choosing_a_resolution_builds_at_it(qtbot, window):
+    """It used to only arm the Rebuild button, so the panel named one
+    resolution while the surface stayed at another and an edit redrew at the
+    old one - which reads as the control not working, because that is what it
+    looks like."""
+    window.builder._runner = lambda job: None            # start it, do not run it
+    assert window.rebuild_surface(3.0)
+    assert float(window.surface_panel.resolution.currentData()) == 3.0
+
+    asked = []
+    window.surface_panel.rebuild.connect(asked.append)
+    other = next(i for i in range(window.surface_panel.resolution.count())
+                 if float(window.surface_panel.resolution.itemData(i)) != 3.0)
+    window.surface_panel.resolution.setCurrentIndex(other)
+
+    want = float(window.surface_panel.resolution.itemData(other))
+    assert asked == [want], f'choosing {want}" asked for {asked}'
+    assert window._arcsec == want, 'the build did not follow the choice'
+
+
+def test_a_build_moving_the_combo_does_not_ask_for_another(qtbot, window):
+    """show_resolution exists so the panel says what is being built. If that
+    counted as choosing, every build would ask for another one and the queue
+    would never empty - it coalesces, so it would not spin, but it would
+    rebuild for ever after a single Ctrl+R."""
+    window.builder._runner = lambda job: None
+    asked = []
+    window.surface_panel.rebuild.connect(asked.append)
+    assert window.surface_panel.show_resolution(1.0)
+    assert asked == [], f'the panel reporting a build asked for one: {asked}'
+
+
+def test_populating_the_combo_does_not_ask_for_a_build(qtbot):
+    """The items go in at construction, before there is a working set to build
+    - so the signal is connected after them, and this is what says so."""
+    from danu.ui.surface import SurfaceLayer, SurfacePanel
+
+    asked = []
+    panel = SurfacePanel(SurfaceLayer())
+    panel.rebuild.connect(asked.append)
+    qtbot.addWidget(panel)
+    assert asked == [], 'building the panel asked for a surface'
+    assert panel.resolution.count() >= 2

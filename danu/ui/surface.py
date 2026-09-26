@@ -478,6 +478,16 @@ class SurfacePanel(QDockWidget):
         self.resolution = QComboBox()
         for arcsec, label in RESOLUTIONS:
             self.resolution.addItem(label, arcsec)
+        # Choosing a resolution builds at it. It used to only arm the Rebuild
+        # button, so the panel named one resolution while the surface was at
+        # another and an edit redrew at the old one - which reads as the
+        # control not working, because that is what it looks like.
+        #
+        # Connected after the items are in, so populating the combo does not
+        # ask for a build before there is a working set; and show_resolution
+        # blocks signals, so a build moving the combo to say what it is doing
+        # cannot ask for another.
+        self.resolution.currentIndexChanged.connect(self._resolution_chosen)
         self.button = QPushButton('Rebuild surface')
         self.button.clicked.connect(lambda: self.rebuild.emit(float(self.resolution.currentData())))
         form.addRow('Resolution', self.resolution)
@@ -555,6 +565,11 @@ class SurfacePanel(QDockWidget):
         self.scaling.setEnabled(self.mode.currentText() != 'hillshade' and self.ramp.currentText() != 'traditional')
         self.layer.set_style(self.current_style())
         self.styleChanged.emit(self.layer.style)
+
+    def _resolution_chosen(self, _index: int):
+        data = self.resolution.currentData()
+        if data is not None:
+            self.rebuild.emit(float(data))
 
     def show_resolution(self, arcsec: float) -> bool:
         """Put the combo on the resolution being built.
