@@ -101,8 +101,10 @@ the tools for everything else.
 - **R18** The surface is produced by the same code as the server: `isofill` with
   the same parameters, the same two passes, the same water mask. What is on
   screen is what the build will produce.
-- **R19** While drawing, the surface updates locally and immediately. On idle it
-  is rebuilt exactly. The two states are distinguishable at a glance.
+- **R19** While drawing, the surface updates locally and immediately. It is
+  rebuilt exactly on demand, and of its own accord when the preview cannot
+  stand in for it - which is not the same as *on idle*, and F5c says why. The
+  two states are distinguishable at a glance.
 - **R20** Where the first pass found no answer - `OUT_OF_REACH`, `NO_ELEV`,
   `ONE_LEVEL` - the editor says so, as an overlay. This is the single most
   useful thing it can tell a mapper: *here is ground your contours do not
@@ -1403,11 +1405,15 @@ with fifty rectangles accumulated, which is the most a gesture reaches between
 rebuilds. It is outside the 63 to 73 ms below, which is the driver's own span
 from edit to spliced arrays.
 
-What bounds it is memory. The preview holds the build's grids - 308 MB for the
-gobras 3x3 at 3 arcseconds, 1.5 to 2.8 GB at 1 - so they are kept at the
-drawing resolution and not at the publishing one, where the menu already says
-*slow* and an edit waits for the exact build. The driver says so rather than
-looking broken. And the grids are read on the worker inside a `try`: a build
+What bounds it is memory, and the bound is one this design chose rather than
+one it was given - see *F5c*. The preview holds the build's grids as whole
+arrays: 308 MB for the gobras 3x3 at 3 arcseconds, 1.5 to 2.8 GB at 1. So they
+are kept at the drawing resolution and not at the publishing one, where the
+menu already says *slow* and an edit waits for the exact build, and the driver
+says which side of that line it is on rather than looking broken. The rasters
+are tiled GeoTIFFs and a solve reads one grown box of them, so holding them
+open and reading windows would have cost neither; that was not seen until the
+editor was used at 1 arcsecond. And the grids are read on the worker inside a `try`: a build
 that produced a DEM has produced what was asked for, and if its intermediates
 cannot be read back the editor loses the live preview and rebuilds on every
 edit, which is what it did before phase 4.
@@ -1429,8 +1435,18 @@ wait runs out.
 
 **F5c, what is actually slow.** Not started. Named for the margin, and then
 the app was used for an afternoon and the margin turned out not to be the
-binding constraint. What follows is measured on the gobras 3x3 at 3
-arcseconds, in the real window rather than in a harness.
+binding constraint - nor the second, nor the third. What follows is measured on
+the gobras 3x3, in the real window rather than in a harness.
+
+In the order a mapper would feel them:
+
+1. the contour layer, which owns 150 ms of a 153 ms repaint;
+2. the recolour after a build, which redraws 24 M cells to move 30 of them;
+3. `Kept` holding whole rasters, which is why there is no preview at 1
+   arcsecond;
+4. the rebuild trigger, which fires on a timer rather than on the two things
+   that need it;
+5. the margin, which by then may not be worth changing.
 
 Timing one node moved, through the editor, from the command to the frame:
 
@@ -1467,24 +1483,94 @@ That measurement was right and the conclusion drawn from it was not: the layer
 measured was the one just changed, not the one that dominates. The fade is
 still 2 to 6 ms. The contour layer was never measured until it was looked for.
 
-**One arcsecond is the second thing, and it is two problems.** The preview is
-off above `PREVIEW_ARCSEC` because its grids would be gigabytes, so every edit
-falls to the idle rebuild - two minutes of it. But the window stops responding
-in the *recolour*, not the build: the display grid at 1 arcsecond is 15,291 by
-14,367, which is 219.7 M cells and 0.82 GB of RGBA, and `recolour` measures a
-flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds on
-the UI thread, after every rebuild. `recolour_box` already exists and a whole
-recolour is what a build does; a build knows which ground it changed no less
-than a preview does.
+**One arcsecond is the second thing, and it is three problems wearing one
+coat.** The window stops responding, an edit takes two minutes, and there is no
+preview at all. Each has a different cause and only the third is about the
+fill.
 
-**Then the margin.** `cover` and `slack` are two radii each because F3 measured
-what they were worth in accuracy: two radii take the worst of eighteen edits
-from 3.278 m to 0.268 m, and no further. What they cost in time was never part
-of that decision, and it is most of the 63 to 73 ms. The same eighteen edits,
-timed as well as measured, would say whether one radius of slack is worth the
-accuracy it gives back. It is still the only candidate for the 50 ms this phase
-ends on - but a preview at 35 ms behind a 300 ms repaint is not something a
-mapper can tell from one at 60.
+The freeze is the *recolour*, not the build. The display grid at 1 arcsecond is
+15,291 by 14,367 - 219.7 M cells and 0.82 GB of RGBA - and `recolour` measures
+a flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds
+on the UI thread, after every rebuild. And almost all of it is wasted: an exact
+rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
+rows. Comparing the new surface with the one on screen costs 16.4 ms and finds
+them; recolouring the box round them costs 0.4 ms against 1,547 for the whole.
+A build is not a reason to recolour a raster, it is a reason to find out what
+moved.
+
+The comparison bands, and should. `strips()` already yields row ranges sized to
+bounded memory and `land_clamp` and `sea_mask` already walk them; the display
+never learned to. Walking strips to compare old against new and recolour the
+changed sub-boxes is bounded memory, and it is progressive - the surface fills
+in from the top instead of freezing and then appearing at once. On a machine
+short of memory it also means never holding two whole display arrays, because
+the new one can be read from its GeoTIFF a strip at a time.
+
+The same idea retires `PREVIEW_ARCSEC`. The preview is off above 3 arcseconds
+because `Kept` holds the build's grids as whole arrays and they would be
+gigabytes - but a solve reads *one grown box*, and the rasters are tiled
+GeoTIFFs written 256 by 256:
+
+| | cells | time | bytes |
+|---|---|---|---|
+| the whole constraints raster | 23.0 M | 44.2 ms | 44 MB |
+| a 201 by 201 window | 0.040 M | 0.01 ms | 0.08 MB |
+| an 801 by 801 window | 0.642 M | 0.08 ms | 1.22 MB |
+
+A window costs the window. `Kept` holding open datasets and reading boxes on
+demand costs neither the memory nor the time, and the constant that exists to
+dodge the memory goes with it - which is the fix for *no preview at 1
+arcsecond* rather than the workaround of admitting there is none.
+
+What cannot be banded is isofill's second pass, which is a global multigrid
+solve over the whole raster. That is the two minutes. It runs on a worker, so
+it is wall-clock and not a frozen window, and it is what the rebuild trigger
+below exists to ration.
+
+**The rebuild, and when it is really needed.** R19 says the surface is rebuilt
+exactly on idle, and the editor does it after every pause. Measured against a
+rebuild at each of twenty-one successive edits, seventeen of the twenty-one
+previews were already right to 0.013 m - so most of those rebuilds recompute an
+answer that had not changed, at 4.6 seconds a time and two minutes at 1
+arcsecond.
+
+Two things do need it, and a timer is the wrong detector for both.
+
+The first is fresh ground. `drawn area` and the extent belong to the build;
+`preview.patch` passes the build's mask straight through. A contour drawn
+outside the drawn envelope moved **0 of 25 cells** in the preview - extending
+coverage into ground nobody has drawn shows nothing at all until a rebuild, and
+no local solve can change that, because the fill is told not to reach outside
+the mask. An edit whose box meets the mask's edge, or a square gaining its
+first contour, is a rebuild whatever the timer says.
+
+The second is the occasional bad approximation, and it is detectable. Of those
+twenty-one edits, three came out 5.65 m wrong over some 270 cells - and it does
+not accumulate, it resets: edit 19 was back to 0.013 m. **Every one of those
+cells was one the first pass declined**, inside the drawn mask, sixteen cells
+from the raster edge. That is F3's own residual - pass 2 diffusing across a
+region of unanswered ground that runs past the box - and the first pass's
+classes are already computed at build time for R20's overlay. A preview whose
+solved box has unanswered ground touching its own boundary is one to distrust,
+and can say so.
+
+With those two, the idle timer becomes a long backstop rather than the
+mechanism, and the provisional rim says what it already says.
+
+**And last, the margin**, which is what this item was called when it was
+written. `cover` and `slack` are two radii each because F3 measured what they
+were worth in accuracy: two radii take the worst of eighteen edits from 3.278 m
+to 0.268 m, and no further. What they cost in time was never part of that
+decision, and it is most of the 63 to 73 ms. The same eighteen edits, timed as
+well as measured, would say whether one radius of slack is worth the accuracy
+it gives back.
+
+It is still the only candidate for the 50 ms this phase ends on, and it is
+still last. A preview at 35 ms behind a 300 ms repaint is not something a
+mapper can tell from one at 60, and the four items above are each larger than
+the whole of it. Whether 50 ms is even the right criterion is worth asking once
+they are done: it measures the fill, and every one of the four says the fill
+was not what was slow.
 
 **And the small things.** `local.resolve` loads `libisofill.so` and has no
 fallback to the binary, which `interpolate` has had all along, so a machine
