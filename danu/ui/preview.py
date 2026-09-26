@@ -65,7 +65,7 @@ class PreviewDriver(QObject):
 
     patched = Signal(object, float)     # the display rects written, and how long it took
     classesStale = Signal(object)       # where R20's overlay stopped describing the surface
-    skipped = Signal(int)               # a gesture too broken up to preview; idle will settle it
+    skipped = Signal(int)               # edits in a gesture too broken up to preview
     exact_wanted = Signal()
     unavailable = Signal(str)           # why there is no preview, once per reason
 
@@ -277,6 +277,9 @@ class PreviewDriver(QObject):
             # too many pieces to solve between two keystrokes. Nothing is
             # drawn and nothing is claimed: the surface on screen is still the
             # exact one, so it must not be marked provisional.
+            # the pending boxes, which is edits and not pieces: pieces are
+            # what MAX_PIECES counts, post-merge, and "nine pieces" means
+            # nothing to a mapper who made twenty edits
             self.skipped.emit(len(pending))
             return
         started = time.perf_counter()

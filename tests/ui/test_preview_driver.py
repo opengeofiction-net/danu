@@ -601,9 +601,9 @@ def test_the_crop_holds_when_the_window_was_clipped_by_the_raster(qtbot, monkeyp
     d._shaded.shade[:] = 0
     # A halo of 2, and a Mercator window twice the source's height, so the ring
     # is 4 Mercator cells. Measured against the source's real 11 rows the crop
-    # is ceil(2 * 22/11) = 4 and the ring goes; measured against the 21 rows an
-    # unclipped window would have had, it is ceil(2 * 22/21) = 3 and a cell of
-    # the ring survives on every side.
+    # is ceil(2 * 22/11) = 4 and the ring goes; measured against the 15 rows an
+    # unclipped window would have had - a halo of 2 around 11 rows - it is
+    # ceil(2 * 22/15) = 3, and a cell of the ring survives on every side.
     #
     # The first version of this used a halo of 1, where ceil lifts both
     # spellings to the same 2 - so the case it was named for was not the case
@@ -775,7 +775,6 @@ def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtb
 
     def at(fx, fy):
         img = QImage(v.viewport().size(), QImage.Format.Format_ARGB32)
-        img.fill(QColor("white"))
         p = QPainter(img); v.render(p); p.end()
         return img.pixelColor(v.mapFromScene(l + (r - l) * fx, t + (b - t) * fy))
 
@@ -783,6 +782,14 @@ def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtb
     # still inside the previewed half; five sixths is outside it entirely
     clear_before, dim_before, keep_before = at(0.1, 0.1), at(0.33, 0.33), at(0.85, 0.85)
     assert dim_before != clear_before, "the fixture has no overlay to dim"
+    # The third assertion below only catches a wash because the view's
+    # background is grey: 65% white over (235, 235, 235) is (248, 248, 248) and
+    # shows, while over white it would not and the assertion would pass on the
+    # thing it exists to reject. Stated here because it is a property of
+    # MapView, three files away, that this test is silently resting on.
+    assert clear_before == QColor(235, 235, 235), (
+        f'the background is {clear_before.getRgb()}, not the grey this test '
+        f'needs to see a wash against')
 
     layer.set_stale([(0, 0, rows // 2, cols // 2)])       # the top-left quarter previewed
     clear_after, dim_after, keep_after = at(0.1, 0.1), at(0.33, 0.33), at(0.85, 0.85)
@@ -822,3 +829,70 @@ def test_the_stale_region_covers_everything_previewed_since_the_last_build(qtbot
     assert len(layer.stale) == 2, "the same rectangle was counted twice"
     layer.set_shaded(None)
     assert not layer.stale, "a build did not clear it"
+
+def test_overlapping_stale_rects_fade_once_and_not_twice(qtbot):
+    """The clip is QPainterPath boolean algebra, and accumulation made
+    overlapping subpaths the common case rather than an impossible one: a
+    contour drawn node by node is one preview per gesture, each rect grown by
+    a hundred cells, so consecutive nodes overlap almost entirely.
+
+    QPainterPath's default fill rule is WindingFill, under which two
+    same-direction rects are unambiguously inside - so `crisp.subtracted(faded)`
+    should remove the overlap once. Under an odd-even reading the overlap would
+    cancel, fall back into `crisp`, and be drawn *twice*: the middle of a stroke
+    would come out brighter than its ends, which is the opposite of faded and
+    the kind of thing that looks like a rendering quirk rather than a bug.
+
+    So: the same ground, once as two overlapping rects and once as the single
+    rect that covers them, has to render identically.
+    """
+    import numpy as np
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from danu.surface import shade
+    from danu.ui.mapview import MapView
+    from danu.ui import mercator as m
+    from danu.ui.overlays import UnreachedLayer
+
+    n = 64
+    s = shade.Shaded(dem=np.full((n, n), 100.0, np.float32),
+                     shade=np.full((n, n), 180, np.uint8),
+                     geotransform=(0.0, 1000.0, 0.0, 2_000_000.0, 0.0, -1000.0),
+                     metres=1000.0, classes=np.ones((n, n), np.uint8))
+    layer = UnreachedLayer()
+    layer.set_shaded(s)
+    v = MapView(); v.resize(400, 400); qtbot.addWidget(v); v.show(); qtbot.waitExposed(v)
+    v.scene().addItem(layer)
+    l, t, r, b = s.scene_rect
+    v.fit_bounds(*m.scene_to_lonlat(l, b), *m.scene_to_lonlat(r, t))
+
+    def shot():
+        img = QImage(v.viewport().size(), QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img); v.render(p); p.end()
+        return img
+
+    def at(img, fx, fy):
+        return img.pixelColor(v.mapFromScene(l + (r - l) * fx, t + (b - t) * fy))
+
+    fresh = at(shot(), 0.25, 0.25)
+
+    # two rects overlapping over three quarters of their area
+    layer.stale = False
+    layer.set_stale([(0, 0, 32, 32), (8, 8, 32, 32)])
+    overlapped = shot()
+
+    # the single rect covering the same ground
+    layer.stale = False
+    layer.set_stale([(0, 0, 40, 40)])
+    single = shot()
+
+    # in the overlap, in each rect alone, and outside both
+    for fx, fy, where in ((0.25, 0.25, "the overlap"),
+                          (0.06, 0.06, "the first rect alone"),
+                          (0.58, 0.58, "the second rect alone")):
+        assert at(overlapped, fx, fy) == at(single, fx, fy), (
+            f"{where} renders differently when the stale region is two "
+            f"overlapping rects instead of one covering rect")
+    assert at(overlapped, 0.25, 0.25) != fresh, "the overlap was not faded at all"
+    assert at(overlapped, 0.9, 0.9) == fresh, "ground outside both rects was faded"

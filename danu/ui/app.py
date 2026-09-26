@@ -526,7 +526,7 @@ class MainWindow(QMainWindow):
         "surface built in N s" with the preview note on every 1″ build."""
         self.statusBar().showMessage(why)
 
-    def _preview_skipped(self, pieces: int):
+    def _preview_skipped(self, edits: int):
         """A gesture too broken up to preview between keystrokes.
 
         Nothing was drawn, so nothing is claimed: the surface on screen is
@@ -535,7 +535,7 @@ class MainWindow(QMainWindow):
         distinction R19 asks for saying the opposite of the truth.
         """
         self.statusBar().showMessage(
-            f'{pieces} separate edits - too many to preview together; '
+            f'{edits} separate edits - too many to preview together; '
             f'rebuilding exactly on idle')
 
     def _surface_previewed(self, rects, seconds):
