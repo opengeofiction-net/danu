@@ -361,10 +361,15 @@ class SurfaceLayer(QGraphicsItem):
         the whole is 1,500. At 1 arcsecond the whole is 219.7 M cells and about
         sixteen seconds, on the thread that is meant to be drawing.
 
-        Those are one run of the gobras 3x3 at 3 arcseconds, and a whole
-        recolour of it varies by about five per cent between runs - 1,475 to
-        1,547 across the ones taken here. Every figure quoted anywhere for this
-        is from the run above, so they can be compared with each other.
+        Showing the rebuild comes to about 25 ms all told: 14.3 walking the
+        two rasters, 10.2 in the colour-scale guard below, and 0.3 redrawing.
+        The guard is nearly half of it, and a build that goes on to recolour
+        the whole raster pays it twice, since ``recolour`` works the range out
+        again - worth removing when the sum it sits in matters, which against
+        1,500 ms it does not.
+
+        A whole recolour of that set varies by about five per cent between
+        runs, so these are quoted to the nearest sensible figure.
 
         The comparison walks the two rasters in strips, so its own working set
         is bounded whatever the resolution, and it yields one box per strip
