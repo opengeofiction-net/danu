@@ -147,6 +147,8 @@ class ContourLayer(QGraphicsItem):
         self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
+        self._arrays_stale = False
+        self._text: dict[str, QPainterPath] = {}
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
@@ -163,7 +165,7 @@ class ContourLayer(QGraphicsItem):
         self.paths, self.labels, self.index_levels, self._geoms = {}, [], set(), {}
         if ws is None:
             self._bounds = QRectF()
-            self._rebuild_arrays()
+            self._arrays_stale = True
             self.update()
             return
         w, s, e, n = ws.bounds
@@ -178,7 +180,7 @@ class ContourLayer(QGraphicsItem):
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
         self._rebuild_levels({g.ele for g in self._geoms.values() if g.ele is not None})
-        self._rebuild_arrays()
+        self._arrays_stale = True
         self.update()
 
     @staticmethod
@@ -213,7 +215,7 @@ class ContourLayer(QGraphicsItem):
                 if geom.ele is not None:
                     levels.add(geom.ele)
         self._rebuild_levels(levels)
-        self._rebuild_arrays()
+        self._arrays_stale = True
         self.update()
 
     def _rebuild_levels(self, levels: set[float]):
@@ -241,6 +243,19 @@ class ContourLayer(QGraphicsItem):
             self.labels.append(self._label(g.ele, pts))
         all_levels = sorted(self.paths)
         self.index_levels = set(all_levels[::INDEX_EVERY_N])
+
+    def _ensure_arrays(self):
+        """The flat arrays, if an edit has been made since they were last
+        built.
+
+        Nothing in ``paint`` reads them - they are for picking a contour, a
+        node, or the crossings a prospective segment would make - so building
+        them when an edit arrives spends 14.5 ms of every edit on an answer
+        that is usually asked for later, or never. Drawing a contour node by
+        node paid it once per node and used it on none of them."""
+        if self._arrays_stale:
+            self._rebuild_arrays()
+            self._arrays_stale = False
 
     def _rebuild_arrays(self):
         """The flat segment and node arrays, from the per-way geometry.
@@ -300,6 +315,7 @@ class ContourLayer(QGraphicsItem):
         as (square, way, distance, segment index); None when nothing is that
         close. Space picks up its elevation, the tools continue it and
         insert into the segment."""
+        self._ensure_arrays()
         if not len(self._seg_ele):
             return None
         t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a, self._seg_b)
@@ -312,6 +328,7 @@ class ContourLayer(QGraphicsItem):
     def pick_node(self, x: float, y: float, tolerance: float) -> tuple[Square, int, float] | None:
         """The node - of a contour or a coastline, R15's two snap targets -
         nearest a scene point within a tolerance, as (square, id, distance)."""
+        self._ensure_arrays()
         if not len(self._node_xy):
             return None
         dist = np.hypot(*(self._node_xy - (x, y)).T)
@@ -328,6 +345,7 @@ class ContourLayer(QGraphicsItem):
         being drawn is not exempt: the new segment meets its last one at a
         shared node, which is a touch at the same elevation and allowed, and
         anything more is a contour crossing itself."""
+        self._ensure_arrays()
         if not len(self._seg_ele):
             return []
         proper = geometry.crossings(p, q, self._seg_a, self._seg_b)
@@ -406,9 +424,32 @@ class ContourLayer(QGraphicsItem):
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
 
+    def _text_path(self, text: str) -> QPainterPath:
+        """The outline of a label's text, centred on the origin, kept.
+
+        ``addText`` turns a string into glyph outlines, and there are only as
+        many distinct strings as there are elevations - 72 on the gobras 3x3
+        against 86 labels in one window of it, the same ones again on every
+        repaint. The font and the centring depend on nothing else, so the path
+        is built once per string.
+
+        Worth less than it looks: labels went from 9.2 ms of a zoom-13 repaint
+        to 7.3, not to nothing. Building the outline is the smaller half of
+        drawing a label; the larger is stroking a three-wide halo around it and
+        then filling it, and that is per label wherever the path came from.
+        """
+        path = self._text.get(text)
+        if path is None:
+            font = QFont()
+            font.setPointSize(FONT_PT)
+            path = QPainterPath()
+            path.addText(QPointF(0, 0), font, text)
+            box = path.boundingRect()
+            path.translate(-box.width() / 2, box.height() / 2 - 1)
+            self._text[text] = path
+        return path
+
     def _paint_labels(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
-        font = QFont()
-        font.setPointSize(FONT_PT)
         halo = QPen(QColor(255, 255, 255, 220), 3.0)
         halo.setCosmetic(True)
         for lab in self.labels:
@@ -416,14 +457,11 @@ class ContourLayer(QGraphicsItem):
                 continue
             if zoom < ZOOM_ALL and not self.is_index(lab.ele):
                 continue
-            text = f'{lab.ele:g}'
+            tp = self._text_path(f'{lab.ele:g}')
             painter.save()
             painter.translate(lab.x, lab.y)
             painter.rotate(lab.angle)
             painter.scale(1.0 / scale, 1.0 / scale)      # pixels, whatever the zoom
-            tp = QPainterPath()
-            tp.addText(QPointF(0, 0), font, text)
-            tp.translate(-tp.boundingRect().width() / 2, tp.boundingRect().height() / 2 - 1)
             painter.setPen(halo)
             painter.drawPath(tp)
             painter.fillPath(tp, self.colour(lab.ele).darker(130))

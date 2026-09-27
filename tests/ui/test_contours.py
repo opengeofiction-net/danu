@@ -188,6 +188,9 @@ def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
 
     geom = layer._geoms[(sq.name, 10)]
     assert geom.refs == [1, 3, 4] and len(geom.pts) == 3, 'the refs follow the points'
+    # asked for: the flat arrays are built when something picks, not when an
+    # edit lands, so a test that reads them has to say it wants them
+    layer._ensure_arrays()
     assert [ref for _, ref in layer._node_ref] == [1, 3, 4], 'no ref is dropped'
     for (square, ref), xy in zip(layer._node_ref, layer._node_xy):
         node = square.nodes[ref]
@@ -214,7 +217,9 @@ def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
         assert worst < 1e-3, f'way {geom.way.id} is {worst} scene units from where the scalar puts it'
         checked += len(want)
     assert checked > 1000, f'only {checked} points were compared'
-    # and the node index is the contour's own points, not a second projection
+    # and the node index is the contour's own points, not a second projection.
+    # Asked for, as above.
+    layer._ensure_arrays()
     for geom in layer._geoms.values():
         start = layer._node_ref.index((geom.square, geom.refs[0]))
         assert np.array_equal(layer._node_xy[start:start + len(geom.pts)], geom.pts)
@@ -450,3 +455,93 @@ def test_refreshing_a_way_twice_does_not_draw_it_twice(view, ws):
     layer.refresh(sq, {way.id})
     assert len(layer.paths.get(was, [])) == n_old - 1, 'the way stayed at its old level'
     assert len(layer.paths[moved_to]) == 1
+
+
+def test_the_flat_arrays_are_built_when_something_picks_not_when_an_edit_lands(view, ws):
+    """Nothing in paint reads them - they are for picking a contour, picking a
+    node, and the crossing check - so building them on every edit spent 14.5 ms
+    of each one on an answer usually wanted later or never. Drawing a contour
+    node by node paid it once a node and used it on none of them."""
+    from danu.core import edits
+
+    layer = ContourLayer()
+    built = []
+    real = layer._rebuild_arrays
+    layer._rebuild_arrays = lambda: built.append(True) or real()
+
+    layer.set_working_set(ws)
+    assert built == [], 'opening a working set built the arrays before anything asked'
+
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(iter(sq.contours()))
+    for _ in range(3):
+        layer.refresh(sq, {way.id})
+    assert built == [], 'three edits built the arrays three times over'
+
+    # the first pick builds them, and only the first
+    layer.pick(0.0, 0.0, 1.0)
+    assert len(built) == 1, f'picking built them {len(built)} times'
+    layer.pick(0.0, 0.0, 1.0)
+    layer.pick_node(0.0, 0.0, 1.0)
+    layer.crossings((0.0, 0.0), (1.0, 1.0), 100.0)
+    assert len(built) == 1, 'a second pick rebuilt arrays that had not gone stale'
+
+    # and an edit after that makes them stale again
+    layer.refresh(sq, {way.id})
+    layer.pick(0.0, 0.0, 1.0)
+    assert len(built) == 2, 'an edit did not make the arrays stale'
+
+
+def test_picking_finds_a_contour_moved_since_the_last_pick(view, ws):
+    """The point of the laziness is that nothing notices it. A way moved and
+    then picked has to be found where it now is - if the staleness flag were
+    not set, the pick would answer from the geometry before the edit."""
+    import numpy as np
+    from danu.core import edits
+    from danu.ui import mercator as m
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    nid = way.refs[len(way.refs) // 2]
+    node = sq.nodes[nid]
+
+    x, y = m.lonlat_to_scene(node.lon, node.lat)
+    found = layer.pick(x, y, 1e6)
+    assert found is not None and found[1].id == way.id
+
+    # move that node a long way north, then pick where it went
+    edits.MoveNode(nid, way.id, (node.lon, node.lat + 0.4)).apply(sq)
+    layer.refresh(sq, {way.id})
+    nx, ny = m.lonlat_to_scene(node.lon, node.lat)
+    moved = layer.pick(nx, ny, 1.0)
+    assert moved is not None and moved[1].id == way.id, (
+        'the pick did not find the contour where the edit put it - the flat '
+        'arrays were not rebuilt')
+
+
+def test_a_label_outline_is_built_once_per_elevation(view, ws):
+    """There are as many distinct label strings as elevations, and the same
+    ones on every repaint."""
+    from danu.ui.contours import ZOOM_LABELS
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+    view.set_zoom(ZOOM_LABELS)
+    view.center_on_lonlat(lon, lat)
+
+    render(view)
+    assert layer.drawn_labels > 0, 'no labels were drawn, so nothing was cached'
+    after_one = dict(layer._text)
+    assert after_one, 'no outline was kept'
+    assert len(after_one) <= len(layer.paths), 'more outlines than elevations'
+
+    render(view)
+    assert layer._text.keys() == after_one.keys(), 'a repaint built new outlines'
+    for text, path in after_one.items():
+        assert layer._text[text] is path, f'the outline for {text} was rebuilt'
