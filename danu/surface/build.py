@@ -416,7 +416,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                               # returns the square as zero features, silently,
                               # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
-        for _name, path in sorted(squares.items()):   # by name, so the order is the same every run
+        # sorted by name, so a zone build reads its squares in the same order every run
+        for _name, path in sorted(squares.items()):
             # GDAL has no VSI handler for xz - there is one for zip, gzip and
             # 7z, but not this - so a compressed square is expanded into the
             # working directory, read, and dropped again. One at a time, so the

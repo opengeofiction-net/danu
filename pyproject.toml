@@ -86,15 +86,19 @@ line-length = 110
 #
 # Of the other fifteen, thirteen pair two sequences that have to be the same
 # length - node ids against coordinates, a geotransform against a
-# geotransform - and now say so. Two of the thirteen sit inside `assert
-# all(...)` in a golden test, where a length mismatch made the assertion pass
-# over the shorter run and report nothing.
+# geotransform - and now say so, which is the thirteen `strict=True` in the
+# tree. Two of the thirteen sit inside `assert all(...)` in a golden test,
+# where a length mismatch made the assertion pass over the shorter run and
+# report nothing.
 #
-# The last two are the nested `zip(zip(idx, out), zip(idx[1:], out[1:]))` in
-# test_geometry, which is the pairwise idiom spelled over two sequences at
-# once. They are not a length claim and did not take `strict=`; they became
-# `pairwise(zip(idx, out, strict=True))`, where the one length claim in the
-# line - that idx and out agree - is the inner zip, and is now made.
+# The remaining two are one line, test_geometry's
+# `zip(zip(idx, out), zip(idx[1:], out[1:]))`, which carries three findings of
+# its own. It is the pairwise idiom spelled over two sequences at once: the
+# outer zip and the `[1:]` inner one are the pairing, and pair a sequence with
+# itself offset by one, so their lengths differ by one by construction and
+# there is nothing for `strict=` to assert. The third finding on the line,
+# `zip(idx, out)`, is a length claim - that the two agree - and counts among
+# the thirteen. The line now reads `pairwise(zip(idx, out, strict=True))`.
 #
 # The rest of E stays out - it would be a style change nobody has asked for:
 # 140 semicolons that pair two short assignments on purpose, and twenty-five
