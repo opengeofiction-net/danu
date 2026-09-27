@@ -48,7 +48,10 @@ from osgeo import gdal, ogr, osr
 gdal.UseExceptions()
 ogr.UseExceptions()
 
-from . import NODATA        # one definition; see danu/surface/__init__.py
+from . import NODATA, STRIP_BYTES, strips     # noqa: F401
+# one definition of each; see danu/surface/__init__.py. STRIP_BYTES and
+# strips are re-exported because callers have imported them from here since
+# before they moved.
 
 
 
@@ -79,17 +82,6 @@ def ogr_memory_driver():
     raise RuntimeError('no OGR in-memory driver: tried MEM and Memory')
 
 
-# Rows per strip, chosen so one strip of one band is tens of megabytes whatever
-# the width of the zone
-STRIP_BYTES = 64 << 20
-
-
-def strips(rows, cols, itemsize=2, bands=4):
-    """Row ranges covering the raster, sized to a bounded amount of memory."""
-    per_row = cols * itemsize * bands
-    step = max(1, min(rows, STRIP_BYTES // max(per_row, 1)))
-    for y in range(0, rows, step):
-        yield y, min(step, rows - y)
 
 
 def open_band(path):

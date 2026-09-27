@@ -324,3 +324,253 @@ def test_a_box_recolour_keeps_the_whole_surfaces_colour_scale(qtbot):
 
     got = _pixels(layer)[sl]
     assert np.array_equal(got, with_global), "the patch restretched to its own contents"
+
+def _pixmap_of(layer):
+    import numpy as np
+    from PySide6.QtGui import QImage
+    img = layer._pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+    return np.frombuffer(img.constBits(), np.uint8,
+                         img.height() * img.bytesPerLine()).reshape(
+                             img.height(), img.bytesPerLine() // 4, 4)[:, :img.width()].copy()
+
+
+def _changed(base, box, lift=60.0, shade=40):
+    """A copy of `base` with one box of ground moved."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+
+    y0, x0, rows, cols = box
+    dem = base.dem.copy()
+    hs = base.shade.copy()
+    dem[y0:y0 + rows, x0:x0 + cols] += np.float32(lift)
+    hs[y0:y0 + rows, x0:x0 + cols] = shade
+    return shade_mod.Shaded(dem=dem, shade=hs, geotransform=base.geotransform,
+                            metres=base.metres)
+
+
+def test_the_comparison_finds_the_box_that_moved(qtbot):
+    """A build is not a reason to recolour a raster. An exact rebuild after one
+    node moved changes 30 cells of 24.4 million, in eleven rows; finding them
+    costs 14.3 ms and redrawing them 0.3, where recolouring the whole is 1,500.
+
+    Here: the same surface twice, differing in one box, and the second showing
+    has to touch that box and nothing else.
+    """
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    def fixed():
+        st = Style()
+        st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=900.0)
+        return st
+
+    base = synthetic(rows=200, cols=300)
+    box = (40, 60, 12, 15)
+    after = _changed(base, box)
+
+    layer = SurfaceLayer()
+    layer.set_style(fixed())
+    layer.set_shaded(base)
+
+    boxes = layer._moved(base, after)
+    assert boxes is not None, 'the comparison refused a grid it should have taken'
+    assert boxes, 'the comparison found no difference where one was made'
+    y0, x0, rows, cols = boxes[0]
+    assert (y0, x0) == (40, 60) and (rows, cols) == (12, 15), boxes
+    assert rows * cols < base.dem.size / 100, 'the box is most of the raster'
+
+
+def test_recolouring_what_moved_is_the_picture_recolouring_all_of_it_gives(qtbot):
+    """The shortcut must not be a different picture. One layer is shown the
+    first surface and then the second - the partial path; the other is shown
+    the second alone - the whole path. Their pixmaps have to match."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    def fixed():
+        st = Style()
+        st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=900.0)
+        return st
+
+    base = synthetic(rows=200, cols=300)
+    after = _changed(base, (40, 60, 12, 15))
+
+    partial = SurfaceLayer(); partial.set_style(fixed())
+    partial.set_shaded(base)
+    before_pixels = _pixmap_of(partial)
+
+    # and the shortcut has to be the path taken, or this compares a whole
+    # recolour against a whole recolour and holds nothing
+    whole_calls, box_calls = [], []
+    real_recolour, real_box = partial.recolour, partial.recolour_box
+    partial.recolour = lambda: whole_calls.append(True) or real_recolour()
+    partial.recolour_box = lambda *a: box_calls.append(a) or real_box(*a)
+    partial.set_shaded(after)
+    assert whole_calls == [], 'showing the rebuild recoloured the whole raster'
+    assert box_calls, 'showing the rebuild recoloured nothing at all'
+
+    whole = SurfaceLayer(); whole.set_style(fixed())
+    whole.set_shaded(after)
+
+    got, want = _pixmap_of(partial), _pixmap_of(whole)
+    assert np.array_equal(got, want), (
+        f'{int((got != want).sum())} of {want.size} bytes differ between '
+        f'recolouring the box and recolouring the raster')
+    assert not np.array_equal(got, before_pixels), 'the edit changed no pixel at all'
+
+
+def test_a_surface_on_a_new_grid_recolours_whole(qtbot):
+    """A build whose extent grew is a different raster, and a box in one is not
+    a box in the other. There is nothing to compare, so everything is redrawn.
+    """
+    from danu.ui.surface import SurfaceLayer
+
+    layer = SurfaceLayer()
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+
+    assert layer._moved(base, synthetic(rows=220, cols=300)) is None, 'a taller raster was compared'
+    assert layer._moved(base, synthetic(rows=200, cols=320)) is None, 'a wider raster was compared'
+    moved = synthetic(rows=200, cols=300, x0_m=50_000.0)
+    assert layer._moved(base, moved) is None, 'a raster somewhere else was compared'
+    assert layer._moved(None, base) is None, 'there was nothing on screen to compare against'
+
+
+def test_a_build_that_moves_the_colour_scale_recolours_whole(qtbot):
+    """In 'auto' the ramp is stretched over the land in the whole array, so a
+    build that raised the highest ground recolours every cell - including ones
+    whose own elevation did not change. Recolouring only what moved would leave
+    the rest at the old scale, and the patch would show as a rectangle."""
+    import numpy as np
+    from danu.ui.surface import SurfaceLayer
+
+    layer = SurfaceLayer()                       # auto scaling by default
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+    assert layer._stretch is not None
+
+    # the same ground, but one box lifted well above everything else. The lift
+    # has to be big enough to move the range, or this passes for no reason:
+    # synthetic runs 0 to 400 m, so auto stretches over 1..400
+    higher = _changed(base, (40, 60, 12, 15), lift=5000.0)
+    assert layer.style.scaling.range_for(higher.dem) != layer._stretch, (
+        'the lift did not move the colour scale, so there is nothing here to '
+        'refuse a comparison over')
+    assert layer._moved(base, higher) is None, (
+        'a build that moved the colour scale was recoloured box by box')
+
+    # and a change that leaves the range alone is still compared
+    within = _changed(base, (40, 60, 12, 15), lift=5.0)
+    assert layer.style.scaling.range_for(within.dem) == layer._stretch
+    assert layer._moved(base, within) is not None
+
+
+def test_ground_that_only_shades_differently_is_recoloured(qtbot):
+    """The hillshade is a derivative of the smoothed DEM, so a cell can shade
+    differently without its own elevation moving at all - a contour drawn
+    beside it changes the slope over it and nothing else.
+
+    Comparing the DEM alone would find nothing there and leave the old
+    hillshade on screen until something else forced a whole recolour."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import SurfaceLayer
+
+    base = synthetic(rows=200, cols=300)
+    hs = base.shade.copy()
+    hs[40:52, 60:75] = 40                       # lit differently, same ground
+    lit = shade_mod.Shaded(dem=base.dem, shade=hs, geotransform=base.geotransform,
+                           metres=base.metres)
+    assert np.array_equal(base.dem, lit.dem), 'this fixture moved the elevations too'
+
+    layer = SurfaceLayer()
+    layer.set_shaded(base)
+    boxes = layer._moved(base, lit)
+    assert boxes, 'ground that only shades differently was not noticed'
+    y0, x0, rows, cols = boxes[0]
+    assert (y0, x0, rows, cols) == (40, 60, 12, 15), boxes
+
+
+def test_changing_the_style_keeps_the_colour_scale_and_the_pixels_in_step(qtbot):
+    """`_moved` refuses a comparison when the colour scale has moved, and it
+    decides that by comparing against `_stretch`. That only works if `_stretch`
+    describes what is on screen.
+
+    Every whole recolour sets it, and every path that changes the style goes
+    through one - so there should be no ordering in which they disagree. A
+    style change followed by a new surface is the ordering that would show it.
+    """
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    layer = SurfaceLayer()
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+    auto_stretch = layer._stretch
+
+    manual = Style()
+    manual.scaling = shade_mod.Scaling(mode='manual', lo=0.0, hi=900.0)
+    layer.set_style(manual)
+    assert layer._stretch == (0.0, 900.0), (
+        f'the style changed and _stretch stayed at {layer._stretch} - it no '
+        f'longer describes the pixels, and _moved would compare against it')
+    assert layer._stretch != auto_stretch
+
+    # and a comparison made after that is made against the new scale
+    after = _changed(base, (40, 60, 12, 15), lift=5.0)
+    assert layer._moved(base, after) is not None
+
+
+def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qtbot):
+    """The guard in `_moved` asks whether `now`'s range equals `_stretch`. That
+    is the right question only because, *at the moment it runs*, `_stretch` is
+    the range the pixels on screen were drawn at - so the comparison is between
+    the two surfaces even though only one appears in it.
+
+    What this checks is the weaker, observable form: after every showing,
+    `_stretch` is the range of the surface now displayed. The two are the same
+    statement one step apart, since the surface displayed after one call is
+    what `_moved` compares against on the next - but they are not the same
+    sentence, and tightening `_moved` on the strength of the stronger one
+    would be a mistake.
+
+    It holds by induction across three methods: a whole recolour sets it from
+    `self.shaded`, `set_style` recolours, and the box path is only taken when
+    the range did not move. A review proposed checking `range_for(was.dem)`
+    against it at run time instead. That is 33.9 ms over the gobras 3x3's 24.4
+    M cells - more than the 25.4 ms that showing a whole rebuild now costs -
+    so the invariant is worth a test rather than a measurement on every build.
+
+    The sequence includes a range that goes up, stays, and comes back down to a
+    value it held before, which is the ordering the review called unsafe.
+    """
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import SurfaceLayer
+
+    def at(hi):
+        rows, cols = 60, 80
+        dem = np.tile(np.linspace(1, hi, cols, dtype=np.float32), (rows, 1))
+        return shade_mod.Shaded(dem=dem, shade=np.full((rows, cols), 181, np.uint8),
+                                geotransform=(0.0, 1000.0, 0.0, 2e6, 0.0, -1000.0),
+                                metres=1000.0)
+
+    layer = SurfaceLayer()
+    seen = []
+    for hi in (400.0, 900.0, 900.0, 400.0, 900.0, 400.0):
+        layer.set_shaded(at(hi))
+        want = layer.style.scaling.range_for(layer.shaded.dem)
+        assert layer._stretch == want, (
+            f'after showing a surface topping out at {hi} m the recorded scale '
+            f'is {layer._stretch} and the surface wants {want}')
+        seen.append(layer._stretch)
+    assert len(set(seen)) == 2, seen
+
+    # and through a style change, which recolours without set_shaded
+    manual = layer.style
+    manual.scaling = shade_mod.Scaling(mode='manual', lo=0.0, hi=1200.0)
+    layer.set_style(manual)
+    assert layer._stretch == (0.0, 1200.0)
+    layer.set_shaded(at(700.0))
+    assert layer._stretch == layer.style.scaling.range_for(layer.shaded.dem)

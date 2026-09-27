@@ -1432,7 +1432,7 @@ job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
 
-**F5c, what is actually slow.** Item 1 done, the rest not started. Named for
+**F5c, what is actually slow.** Items 1 and 2 done, the rest not started. Named for
 the margin, and then
 the app was used for an afternoon and the margin turned out not to be the
 binding constraint - nor the second, nor the third. What follows is measured on
@@ -1441,7 +1441,8 @@ the gobras 3x3, in the real window rather than in a harness.
 In the order a mapper would feel them:
 
 1. the contour layer, which owned 150 ms of a 153 ms repaint - **done**;
-2. the recolour after a build, which redraws 24 M cells to move 30 of them;
+2. the recolour after a build, which redrew 24 M cells to move 30 of them -
+   **done**;
 3. `Kept` holding whole rasters, which is why there is no preview at 1
    arcsecond;
 4. the rebuild trigger, which fires on a timer rather than on the two things
@@ -1512,20 +1513,49 @@ The freeze is the *recolour*, not the build. The display grid at 1 arcsecond is
 a flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds
 on the UI thread, after every rebuild. And almost all of it is wasted: an exact
 rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
-rows. Comparing the new surface with the one on screen costs 16.4 ms and finds
-them; recolouring the box round them costs 0.4 ms against 1,547 for the whole.
-A build is not a reason to recolour a raster, it is a reason to find out what
-moved.
+rows. A build is not a reason to recolour a raster, it is a reason to find out
+what moved.
 
-The comparison bands, and should. `strips()` already yields row ranges sized to
-bounded memory and `land_clamp` and `sea_mask` already walk them; the display
-never learned to. Walking strips to compare old against new and recolour the
-changed sub-boxes is bounded memory, and it is progressive - the surface fills
-in from the top instead of freezing and then appearing at once. On a machine
-short of memory it also means never holding two whole display arrays, because
-the new one can be read from its GeoTIFF a strip at a time.
+**Done.** `set_shaded` compares the new surface with the one on screen and
+recolours the boxes that differ. On the gobras 3x3 at 3 arcseconds, showing a
+rebuild after one node moved goes from about **1,500 ms to 25 ms**:
 
-The same idea retires `PREVIEW_ARCSEC`. The preview is off above 3 arcseconds
+| | |
+|---|---|
+| walking the two rasters in strips | 14.3 ms |
+| the colour-scale guard, `range_for` over the new surface | 10.2 ms |
+| recolouring the boxes | 0.3 ms |
+| recolouring the whole raster, which is what it did before | ~1,500 ms |
+
+The first surface of a session still costs a whole recolour, because there is
+nothing to compare it against. So does any build that changes the grid or moves
+the colour scale.
+
+Two things about those figures. A whole recolour of that set varies by about
+five per cent between runs - 1,475 to 1,547 across the ones taken here - so
+they are quoted to the nearest sensible figure rather than to the tenth. And
+the colour-scale guard is not free: it is nearly half of what showing a rebuild
+now costs, and a build that goes on to recolour the whole raster pays it twice,
+since `recolour` works it out again. Worth removing when the sum it sits in
+matters; against 1,500 ms it did not.
+
+The comparison walks the two rasters in strips - `strips()`, which was written
+for `land_clamp` and now lives where it does not need GDAL to reach - so its
+working set is bounded whatever the resolution, and it yields one box per strip
+rather than one for the raster, so a change in two places does not drag the
+ground between them into the redraw.
+
+Three things send it back to a whole recolour, and the third is the one that
+is easy to miss: nothing on screen yet; a grid that has changed, since a build
+whose extent grew is a different raster and a box in one is not a box in the
+other; and a colour scale that has moved, because in `auto` the ramp is
+stretched over the land in the whole array, so a build that raised the highest
+ground recolours every cell - including ones whose own elevation did not
+change. Recolouring only what moved there would leave the rest at the old scale
+and the patch would show as a rectangle.
+
+**Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
+off above 3 arcseconds
 because `Kept` holds the build's grids as whole arrays and they would be
 gigabytes - but a solve reads *one grown box*, and the rasters are tiled
 GeoTIFFs written 256 by 256:
