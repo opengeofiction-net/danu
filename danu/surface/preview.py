@@ -255,13 +255,32 @@ class Band:
 
     def at(self, y: int, x: int):
         """One cell. The fresh-ground test asks about a handful of them and
-        would otherwise read a raster to answer."""
-        return self.band.ReadAsArray(int(x), int(y), 1, 1)[0, 0]
+        would otherwise read a raster to answer.
+
+        Cast like ``read``: a band opened as float32 over an Int16 raster
+        would otherwise hand back an int here and a float there, where
+        ``ArrayBand`` casts once in its constructor and always agrees with
+        itself."""
+        a = self.band.ReadAsArray(int(x), int(y), 1, 1)
+        return (a.astype(self.dtype) if self.dtype is not None else a)[0, 0]
 
     def write(self, box: Box, patch: np.ndarray) -> None:
-        """``patch`` into ``box``. Only the surface is written, and only by the
-        caller keeping it current - see ``Kept.surface``."""
-        self.band.WriteArray(np.asarray(patch), box.x0, box.y0)
+        """``patch`` into ``box``. Only the surface and the DEM are written,
+        and only by the caller keeping them current - see ``Kept.surface``.
+
+        The shape is checked rather than trusted. ``WriteArray`` takes the
+        window from the array it is handed and ignores the box, so a patch of
+        the wrong shape lands as a smaller or larger rectangle at the box's
+        corner and says nothing; ``ArrayBand`` assigns through ``box.slice``
+        and raises. Two implementations of one interface disagreeing about a
+        mistake is the drift the pair are tested against, so this one raises
+        too."""
+        patch = np.asarray(patch)
+        if patch.shape != box.shape:
+            raise ValueError(
+                f'patch is {patch.shape}, box is {box.shape}: WriteArray would '
+                f'take the patch and put it at the corner')
+        self.band.WriteArray(patch, box.x0, box.y0)
 
     def read_all(self) -> np.ndarray:
         """The whole band. For a test or a measurement, not for a preview -
