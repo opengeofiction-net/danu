@@ -520,3 +520,50 @@ def test_changing_the_style_keeps_the_colour_scale_and_the_pixels_in_step(qtbot)
     # and a comparison made after that is made against the new scale
     after = _changed(base, (40, 60, 12, 15), lift=5.0)
     assert layer._moved(base, after) is not None
+
+
+def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qtbot):
+    """The guard in `_moved` asks whether `now`'s range equals `_stretch`. That
+    is the right question only because `_stretch` is always `was`'s range - so
+    the comparison is between the two surfaces even though only one appears in
+    it.
+
+    It holds by induction across three methods: a whole recolour sets it from
+    `self.shaded`, `set_style` recolours, and the box path is only taken when
+    the range did not move. A review proposed checking `range_for(was.dem)`
+    against it at run time instead. That is 33.9 ms over the gobras 3x3's 24.4
+    M cells - more than the 25.2 ms that showing a whole rebuild now costs -
+    so the invariant is worth a test rather than a measurement on every build.
+
+    The sequence includes a range that goes up, stays, and comes back down to a
+    value it held before, which is the ordering the review called unsafe.
+    """
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import SurfaceLayer
+
+    def at(hi):
+        rows, cols = 60, 80
+        dem = np.tile(np.linspace(1, hi, cols, dtype=np.float32), (rows, 1))
+        return shade_mod.Shaded(dem=dem, shade=np.full((rows, cols), 181, np.uint8),
+                                geotransform=(0.0, 1000.0, 0.0, 2e6, 0.0, -1000.0),
+                                metres=1000.0)
+
+    layer = SurfaceLayer()
+    seen = []
+    for hi in (400.0, 900.0, 900.0, 400.0, 900.0, 400.0):
+        layer.set_shaded(at(hi))
+        want = layer.style.scaling.range_for(layer.shaded.dem)
+        assert layer._stretch == want, (
+            f'after showing a surface topping out at {hi} m the recorded scale '
+            f'is {layer._stretch} and the surface wants {want}')
+        seen.append(layer._stretch)
+    assert len(set(seen)) == 2, seen
+
+    # and through a style change, which recolours without set_shaded
+    manual = layer.style
+    manual.scaling = shade_mod.Scaling(mode='manual', lo=0.0, hi=1200.0)
+    layer.set_style(manual)
+    assert layer._stretch == (0.0, 1200.0)
+    layer.set_shaded(at(700.0))
+    assert layer._stretch == layer.style.scaling.range_for(layer.shaded.dem)
