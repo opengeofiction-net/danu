@@ -1554,6 +1554,29 @@ ground recolours every cell - including ones whose own elevation did not
 change. Recolouring only what moved there would leave the rest at the old scale
 and the patch would show as a rectangle.
 
+**Also done, and smaller than it looked.** Re-measuring after the two items
+above moved an edit from 378 ms to about 165, and changed what was left: two
+contour repaints at 36 ms each, a 58 ms solve, and 17.8 ms inside `editor.do`.
+That last one was `_rebuild_arrays`, which rebuilds the flat segment and node
+arrays for every way whenever one way changes - and nothing in `paint` reads
+them. They are for picking a contour, picking a node, and the crossing check.
+Built when something asks instead, an edit costs 5.6 ms there rather than 17.8,
+and drawing a contour node by node stops paying for an answer it never uses.
+
+The labels were the other half and gave less. A contour label is text turned
+into glyph outlines, and there are only as many distinct strings as elevations
+- 72 against 86 labels in one window - so the outline is built once per string
+now. That took labels from 9.2 ms of a zoom-13 repaint to 7.3, not to nothing:
+building the outline is the smaller half of drawing a label, and stroking a
+halo round it and filling it is the larger, which is per label however the path
+was made.
+
+An edit measures about 146 ms after both, taken afresh rather than worked out.
+Working it out would have given about 149, and the three milliseconds between
+them are where run-to-run variation sits on a figure like this - which is the
+reason to take the measurement rather than do the arithmetic, and the reason
+both numbers are here instead of only the tidier one.
+
 **Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
 off above 3 arcseconds
 because `Kept` holds the build's grids as whole arrays and they would be
