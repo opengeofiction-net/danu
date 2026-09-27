@@ -1,5 +1,7 @@
 """The drawing tools: draw, continue, snap, refuse a crossing, select, move, insert, delete, undo."""
 
+from itertools import pairwise
+
 import pytest
 
 pytest.importorskip('PySide6')
@@ -656,7 +658,7 @@ def test_a_straight_stroke_onto_a_node_while_already_drawing(w):
     assert 'redrew 2 nodes of the 160 m contour as 1' in w.statusBar().currentMessage()
     assert all(ids[k] not in square.nodes for k in (2, 3))
     refs = square.ways[wid].refs
-    assert all(a != b for a, b in zip(refs, refs[1:]))       # and no node twice over
+    assert all(a != b for a, b in pairwise(refs))       # and no node twice over
     assert w.editor.drawing is None
     w.editor.undo()
     assert square.ways[wid].refs == ids

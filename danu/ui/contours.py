@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from itertools import chain
+from itertools import chain, pairwise
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF
@@ -316,10 +316,10 @@ class ContourLayer(QGraphicsItem):
     @staticmethod
     def _label(ele: float, pts: list[tuple[float, float]]) -> Label:
         """Midpoint by length, and the bearing there, turned upright."""
-        seg = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:])]
+        seg = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in pairwise(pts)]
         total = sum(seg)
         half, run = total / 2.0, 0.0
-        for (a, b), d in zip(zip(pts, pts[1:]), seg):
+        for (a, b), d in zip(pairwise(pts), seg, strict=True):
             if run + d >= half and d > 0:
                 t = (half - run) / d
                 x, y = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])

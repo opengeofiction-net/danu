@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import resources
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -42,7 +43,7 @@ class Ramp:
     def __post_init__(self):
         if len(self.values) != len(self.colours) or len(self.values) < 2:
             raise ValueError(f'ramp {self.name!r}: need at least two stops, one colour each')
-        if any(b <= a for a, b in zip(self.values, self.values[1:])):
+        if any(b <= a for a, b in pairwise(self.values)):
             raise ValueError(f'ramp {self.name!r}: stops must ascend')
 
     @property

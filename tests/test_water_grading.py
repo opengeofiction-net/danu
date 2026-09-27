@@ -1,5 +1,7 @@
 """Grading a waterway between the contours it crosses."""
 
+from itertools import pairwise
+
 import numpy as np
 from hypothesis import given
 from hypothesis import strategies as st
@@ -54,7 +56,7 @@ def test_a_graded_run_never_ascends(levels):
     graded, _ = grade(vals, np.zeros(len(vals)))
     for run in _runs(graded):
         seq = [graded[i] for i in run]
-        assert all(b <= a + 1e-9 for a, b in zip(seq, seq[1:]))
+        assert all(b <= a + 1e-9 for a, b in pairwise(seq))
 
 
 def test_a_rejected_segment_leaves_a_step_between_runs():
@@ -77,7 +79,7 @@ def test_densify_keeps_the_endpoints_and_the_order():
     pts = [(0.0, 0.0), (1.0, 0.0)]
     out = densify(pts, 0.25)
     assert out[0] == pts[0] and out[-1] == pts[-1]
-    assert all(b[0] >= a[0] for a, b in zip(out, out[1:]))
+    assert all(b[0] >= a[0] for a, b in pairwise(out))
 
 
 def test_segment_lengths_are_metres_and_shrink_with_latitude():

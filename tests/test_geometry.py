@@ -1,5 +1,7 @@
 """danu.core.geometry: crossings and touches, over many segments at once."""
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -74,6 +76,6 @@ def test_simplified_points_are_a_subsequence_within_tolerance(pts, tol):
         idx.append(k)
         k += 1
     a = np.array(pts, dtype=float)
-    for (i, s), (j, e) in zip(zip(idx, out), zip(idx[1:], out[1:])):
+    for (i, s), (j, e) in pairwise(zip(idx, out, strict=True)):
         d = np.array([g.nearest_point_on_segments(p, np.array([s]), np.array([e]))[1][0] for p in a[i:j + 1]])
         assert (d <= tol + 1e-9).all()

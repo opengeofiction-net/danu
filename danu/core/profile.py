@@ -15,6 +15,7 @@ and the lengths exactly.
 """
 
 import math
+from itertools import pairwise
 
 import numpy as np
 
@@ -26,7 +27,7 @@ MAX_SEGMENT_M = 5000.0
 def densify(pts, step):
     """Insert points so no gap exceeds `step` degrees, keeping the drawn order."""
     out = [pts[0]]
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+    for (x0, y0), (x1, y1) in pairwise(pts):
         k = max(1, int(math.hypot(x1 - x0, y1 - y0) / step))
         out.extend((x0 + (x1 - x0) * i / k, y0 + (y1 - y0) * i / k)
                    for i in range(1, k + 1))
@@ -85,7 +86,7 @@ def grade(values, seg_m):
     if len(known) < 2:
         return {}, 0
     out, rejected = {}, 0
-    for a, b in zip(known, known[1:]):
+    for a, b in pairwise(known):
         ea, eb = values[a], values[b]
         if eb > ea or sum(seg_m[a:b]) > MAX_SEGMENT_M:
             rejected += 1

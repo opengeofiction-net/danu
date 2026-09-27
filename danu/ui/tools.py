@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
@@ -558,7 +559,7 @@ class EditController(QObject):
     def _crossings_along(self, square: Square, way: Way, refs: list[int]) -> list:
         """What a run of a way's own refs crosses, now that it is in place."""
         found: list = []
-        for a, b in zip(refs, refs[1:]):
+        for a, b in pairwise(refs):
             if a not in square.nodes or b not in square.nodes:
                 continue
             for c in self.layer.crossings(self.layer.node_xy(square, a), self.layer.node_xy(square, b), way.ele):

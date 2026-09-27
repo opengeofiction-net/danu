@@ -192,7 +192,7 @@ def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
     # edit lands, so a test that reads them has to say it wants them
     layer._ensure_arrays()
     assert [ref for _, ref in layer._node_ref] == [1, 3, 4], 'no ref is dropped'
-    for (square, ref), xy in zip(layer._node_ref, layer._node_xy):
+    for (square, ref), xy in zip(layer._node_ref, layer._node_xy, strict=True):
         node = square.nodes[ref]
         assert tuple(xy) == m.lonlat_to_scene(node.lon, node.lat), f'ref {ref} is at another node'
 

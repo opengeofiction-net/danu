@@ -78,6 +78,28 @@ line-length = 110
 # each. The point of both rules is the *next* one, which will have to be
 # argued for in a comment rather than appearing unremarked.
 #
+# B is the first rule here that found defects rather than untidiness. Twenty
+# nine of its thirty three were B905, a `zip` with no `strict=`, which stops
+# at the shorter argument and says nothing. Fourteen of those were written as
+# `zip(x, x[1:])`, where the lengths differ by one on purpose and the answer
+# is itertools.pairwise, not a strictness argument.
+#
+# Of the other fifteen, thirteen pair two sequences that have to be the same
+# length - node ids against coordinates, a geotransform against a
+# geotransform - and now say so, which is the thirteen `strict=True` in the
+# tree. Two of the thirteen sit inside `assert all(...)` in a golden test,
+# where a length mismatch made the assertion pass over the shorter run and
+# report nothing.
+#
+# The remaining two are one line, test_geometry's
+# `zip(zip(idx, out), zip(idx[1:], out[1:]))`, which carries three findings of
+# its own. It is the pairwise idiom spelled over two sequences at once: the
+# outer zip and the `[1:]` inner one are the pairing, and pair a sequence with
+# itself offset by one, so their lengths differ by one by construction and
+# there is nothing for `strict=` to assert. The third finding on the line,
+# `zip(idx, out)`, is a length claim - that the two agree - and counts among
+# the thirteen. The line now reads `pairwise(zip(idx, out, strict=True))`.
+#
 # The rest of E stays out - it would be a style change nobody has asked for:
 # 140 semicolons that pair two short assignments on purpose, and twenty-five
 # `l, t, r, b = scene_rect` unpackings where `l` means left. Both are choices
@@ -87,7 +109,15 @@ line-length = 110
 # every file's header and that is better seen on its own; this is that change.
 # The grouping it enforces - standard library, third party, then the package -
 # is the one the files mostly already used, by hand and not everywhere.
-select = ["F", "E402", "I", "RUF100", "BLE001", "E731"]
+select = ["F", "E402", "I", "RUF100", "BLE001", "E731", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 flags a call in a default argument because the result is built once and
+# shared by every caller. SquareName is a frozen dataclass, so the shared value
+# cannot be mutated and `def square_with(elevations, name=SquareName(10, 10))`
+# is fine; telling ruff it is immutable is more honest than suppressing the
+# rule at the one site.
+extend-immutable-calls = ["danu.core.square.SquareName"]
 
 [tool.ruff.lint.per-file-ignores]
 # The GDAL idiom for closing a dataset is to drop the last reference to it:

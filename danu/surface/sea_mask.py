@@ -36,6 +36,7 @@
 import multiprocessing
 import os
 import sys
+from itertools import pairwise
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -88,7 +89,7 @@ def seed_points(layer, gt):
                  if geom.GetGeometryCount() else [geom])
         for part in parts:
             pts = [part.GetPoint_2D(i) for i in range(part.GetPointCount())]
-            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            for (x0, y0), (x1, y1) in pairwise(pts):
                 c0, r0 = (x0 - gt[0]) / gt[1], (y0 - gt[3]) / gt[5]
                 c1, r1 = (x1 - gt[0]) / gt[1], (y1 - gt[3]) / gt[5]
                 dcol, drow = c1 - c0, r1 - r0
