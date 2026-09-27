@@ -653,6 +653,9 @@ def test_labels_start_exactly_at_their_zoom(view, ws):
     way = max(sq.contours(), key=lambda w: len(w.refs))
     lon, lat = sq.coords(way)[len(way.refs) // 2]
 
+    # drawn_labels is cleared at the top of paint, with drawn_ways and
+    # drawn_levels, so each render answers for itself and the order here is
+    # readability rather than load-bearing
     view.set_zoom(ZOOM_LABELS - 1)
     view.center_on_lonlat(lon, lat)
     render(view)
@@ -665,13 +668,23 @@ def test_labels_start_exactly_at_their_zoom(view, ws):
     assert layer.drawn_labels > 0, 'no label was drawn at ZOOM_LABELS'
 
 
-def test_labels_start_above_where_every_contour_does(view, ws):
-    """Two zooms above ZOOM_ALL, not one. The contours are what a mapper reads
-    at z12 and z13, and the labels were about a third of what it cost to draw
-    them there - so the two thresholds are deliberately not adjacent, and a
-    change that brought them back together would be a third of a repaint."""
-    from danu.ui.contours import ZOOM_ALL as ALL, ZOOM_LABELS as LABELS
+def test_labels_start_at_z14_and_above_where_every_contour_does():
+    """Both halves of the contract, because they are different contracts.
 
-    assert LABELS > ALL + 1, (
-        f'labels start at z{LABELS} and every contour at z{ALL}; they were '
-        f'adjacent when labels cost a third of a repaint at both')
+    The relationship - labels above where every contour draws, with a gap - is
+    the reasoning: the contours are what a mapper reads at z12 and z13, and the
+    labels were about a third of what it cost to draw them there.
+
+    The number is a measurement. 14 is where 11 labels cost 3 ms rather than
+    where 86 cost 10, and changing it moves what a pan costs by about a third
+    at two zooms. The test above cannot see that: it takes both the zoom it
+    sets and the expectation from `ZOOM_LABELS`, so moving the constant to 13
+    or 15 leaves it passing. Pinned here, so a change to the number is a change
+    someone made on purpose.
+    """
+    assert ZOOM_LABELS == 14, (
+        f'labels now start at z{ZOOM_LABELS}; the measurements behind 14 are in '
+        f'the constant\'s own comment and in F5c, and want re-taking if it moves')
+    assert ZOOM_LABELS > ZOOM_ALL + 1, (
+        f'labels start at z{ZOOM_LABELS} and every contour at z{ZOOM_ALL}; they '
+        f'were adjacent when labels cost a third of a repaint at both')

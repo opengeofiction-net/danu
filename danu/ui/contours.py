@@ -47,12 +47,19 @@ from .mapview import visible_rect
 
 ZOOM_INDEX = 8
 ZOOM_ALL = 11
-# 14, not 12. Labels are the most expensive thing this layer draws per unit of
-# what they tell you: at z12 they were 10.6 ms of a 34.1 ms repaint for 86 of
-# them, and at z13 7.0 of 22.8 for 55 - about a third of the cost at both, on
-# every pan and twice on every edit. Two zooms further in there are 11 of them
-# and they cost 3.9 ms, because the same contour carries one label however far
-# in you are.
+# 14, not 12. Labels are the most expensive thing this layer draws for what
+# they tell you, and they cost most where they say least: a contour carries one
+# label however far in you are, so zooming out puts more of them on screen and
+# makes each one smaller. Measured in one run, so the columns subtract:
+#
+#        labels from 12        labels from 14      saved
+#   z12  33.6 ms, 86 labels    23.2 ms,  0        10.4 ms
+#   z13  21.7 ms, 55 labels    14.6 ms,  0         7.2 ms
+#   z14  13.2 ms, 11 labels    13.2 ms, 11             -
+#
+# About a third of a *repaint* at z12 and z13. Not a third of an edit: an edit
+# is two repaints on top of a solve, so the 7.2 ms at z13 is about 14 of some
+# 145, which is worth having and is not the same claim.
 ZOOM_LABELS = 14
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0

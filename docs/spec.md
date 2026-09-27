@@ -1577,18 +1577,24 @@ them are where run-to-run variation sits on a figure like this - which is the
 reason to take the measurement rather than do the arithmetic, and the reason
 both numbers are here instead of only the tidier one.
 
-**And the labels stop until z14.** Using it at 146 ms found z12 and z13 still
-lagging, and the guess was that the labels were in it. They were a third of the
-repaint at both - 10.6 ms of 34.1 at z12 for 86 labels, 7.0 of 22.8 at z13 for
-55 - because the same contour carries one label however far in you are, so
-zooming out puts more of them on screen and makes each one smaller. Two zooms
-further in there are 11, costing 3.9 ms.
+**And the labels stop until z14.** Using it at 146 ms an edit found z12 and z13
+still lagging, and the guess was that the labels were in it. They were, and
+they cost most where they say least: a contour carries one label however far in
+you are, so zooming out puts more of them on screen and makes each one smaller.
 
-| | with labels from z12 | from z14 |
-|---|---|---|
-| a repaint at z12 | 34.1 ms | 23.4 ms |
-| a repaint at z13 | 22.8 ms | 14.9 ms |
-| an edit at z13 | 146 ms | 136 ms |
+One run, so the columns subtract:
+
+| | labels from z12 | from z14 | saved |
+|---|---|---|---|
+| a repaint at z12 | 33.6 ms, 86 labels | 23.2 ms | 10.4 ms |
+| a repaint at z13 | 21.7 ms, 55 labels | 14.6 ms | 7.2 ms |
+| a repaint at z14 | 13.2 ms, 11 labels | 13.2 ms | - |
+
+About a third of a *repaint* at both. Not a third of an edit: an edit is two
+repaints on top of a solve, so 7.2 ms at z13 is about 14 of some 145 - worth
+having, and a different claim from the one the repaint figures make on their
+own. An edit measures about 136 ms against 146 before, which is that saving
+inside the run-to-run spread rather than distinguishable from it.
 
 Two zooms above `ZOOM_ALL` rather than one, which is the part worth writing
 down: the contours are what a mapper is reading at z12 and z13, and the labels
