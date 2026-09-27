@@ -298,7 +298,8 @@ class Scaling:
         # partition - and the working space becomes one strip's.
         lo = hi = None
         for y, h in strips(*dem.shape, itemsize=dem.itemsize, bands=6):
-            land = dem[y:y + h][dem[y:y + h] > 0]
+            strip = dem[y:y + h]
+            land = strip[strip > 0]
             if land.size == 0:
                 continue
             a, b = float(land.min()), float(land.max())
@@ -351,7 +352,14 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     # range out would come back a different colour from the strip above it.
     # Hoisted for the same reason it is passed in rather than recomputed per
     # box - see the docstring on ``stretch``.
-    if ramp is not None and ramp.name != 'relief.ramp':
+    # taken before the rescale, not after. `rescaled` does carry the name
+    # through, but the alpha rule below would then rest on its doing so -
+    # a hypsometric ramp carries its own alpha and must not be given the
+    # opaque-where-land one, and if a rescale ever renamed a ramp the sea
+    # would quietly go opaque. The question is about the ramp the caller
+    # passed, so it is asked of that one and kept.
+    hypsometric = ramp is not None and ramp.name == 'relief.ramp'
+    if ramp is not None and not hypsometric:
         lo, hi = stretch if stretch is not None else scaling.range_for(shaded.dem)
         ramp = ramp.rescaled(lo, hi)
 
@@ -364,7 +372,11 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     # "not responding". Measured dead linear at 104 bytes per cell from 2.2 M
     # cells to 56 M. Banded, the working space is one strip's and the peak is
     # `out` itself.
-    for y, h in strips(rows, cols, itemsize=1, bands=COMPOSE_BYTES_PER_CELL):
+    # `strips` budgets `cols * itemsize * bands` bytes a row. What compose
+    # costs is per cell rather than per band, so it goes in as the itemsize
+    # with a single band - not as `bands` with `itemsize=1`, which came out the
+    # same and invited someone to "fix" the 1 to a 4 and quarter the strips.
+    for y, h in strips(rows, cols, itemsize=COMPOSE_BYTES_PER_CELL, bands=1):
         sl = slice(y, y + h)
         dem, hill = shaded.dem[sl], shaded.shade[sl]
         if mode == 'hillshade':
@@ -373,7 +385,7 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
             out[sl, :, 3] = np.where(hill == HILLSHADE_NODATA, 0, 255).astype(np.uint8)
             continue
         rgba = ramp.rgba(dem)
-        if ramp.name != 'relief.ramp':
+        if not hypsometric:
             rgba[..., 3] = np.where(dem > 0, 255, 0).astype(np.uint8)
         colour = rgba[..., :3].astype(np.float32)
         if mode == 'shaded relief':
