@@ -411,7 +411,7 @@ def test_a_preview_says_where_the_unreached_overlay_has_gone_stale(qtbot, monkey
     d._run()
     assert len(stale) == 1, "nothing said the overlay had stopped describing the surface"
     assert stale[0], "the signal named no ground at all"
-    for y, x, rows, cols in stale[0]:
+    for _y, _x, rows, cols in stale[0]:
         assert rows > 0 and cols > 0
 
 

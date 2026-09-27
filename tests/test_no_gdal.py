@@ -74,6 +74,12 @@ def test_the_linter_is_configured_and_runs_here():
         'E402 is what makes the two live `# noqa: E402` comments mean something '
         '- the imports that follow an assigned importorskip')
     assert 'I' in rules, 'import sorting is enforced, not a habit'
+    assert 'B' in rules, (
+        'B is the rule that found defects rather than untidiness - a zip with '
+        'no strict= stops at the shorter argument and says nothing')
+    assert conf['tool']['ruff']['lint']['flake8-bugbear']['extend-immutable-calls'], (
+        'SquareName is a frozen dataclass; without this B008 flags it as a '
+        'shared mutable default, which it cannot be')
     assert 'RUF100' in rules, (
         'RUF100 is what keeps the `# noqa` comments honest; without it they '
         'accumulate against rules nothing runs, as ninety of them had')

@@ -6,6 +6,8 @@ which nothing ever called, and was verified only by the numbers it produced on
 gobras.
 """
 
+from itertools import pairwise
+
 import numpy as np
 from hypothesis import given
 from hypothesis import strategies as st
@@ -52,8 +54,8 @@ def test_the_linear_fix_never_leaves_a_climb_it_was_given(vals):
     fixed = linear_fix(elev, invalid_intervals(elev))
     # the fix may not be able to touch the mouth, which it guards deliberately,
     # so what is asserted is that it removes climbs rather than adding any
-    before = sum(1 for a, b in zip(elev, elev[1:]) if b > a)
-    after = sum(1 for a, b in zip(fixed, fixed[1:]) if b > a)
+    before = sum(1 for a, b in pairwise(elev) if b > a)
+    after = sum(1 for a, b in pairwise(fixed) if b > a)
     assert after <= before
 
 

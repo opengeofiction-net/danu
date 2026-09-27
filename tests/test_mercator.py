@@ -105,7 +105,7 @@ def test_the_array_projection_is_the_scalar_one_to_far_below_a_pixel():
     lat = np.concatenate([lat, [0.0, -0.0, 90.0, -90.0, m.MAX_LAT, -m.MAX_LAT]])
 
     got = m.lonlat_to_scene_array(lon, lat)
-    want = np.array([m.lonlat_to_scene(a, b) for a, b in zip(lon, lat)])
+    want = np.array([m.lonlat_to_scene(a, b) for a, b in zip(lon, lat, strict=True)])
     assert got.shape == want.shape == (len(lon), 2)
     worst = float(np.abs(got - want).max())
     assert worst < 1e-3, f'worst {worst} scene units, which is {worst:.1e} of a pixel at z19'

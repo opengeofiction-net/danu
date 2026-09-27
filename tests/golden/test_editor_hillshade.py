@@ -76,7 +76,7 @@ def test_the_editors_hillshade_is_the_shells(tmp_path, shell_run, zfactor):
     assert shaded.shade.shape == ref.shape, f'editor {shaded.shade.shape}, shell {ref.shape}'
     differing = int((shaded.shade != ref).sum())
     assert differing == 0, f'{differing} of {ref.size} hillshade cells differ; worst {np.abs(shaded.shade.astype(int) - ref.astype(int)).max()}'
-    assert all(abs(a - b) < 1e-6 for a, b in zip(shaded.geotransform, ref_ds.GetGeoTransform()))
+    assert all(abs(a - b) < 1e-6 for a, b in zip(shaded.geotransform, ref_ds.GetGeoTransform(), strict=True))
 
 
 def test_the_shaded_relief_composes_where_there_is_land(tmp_path, shell_run):

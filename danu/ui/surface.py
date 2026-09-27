@@ -436,7 +436,7 @@ class SurfaceLayer(QGraphicsItem):
             return None
         if was.dem.shape != now.dem.shape or was.shade.shape != now.shade.shape:
             return None
-        if any(abs(a - b) > 1e-9 for a, b in zip(was.geotransform, now.geotransform)):
+        if any(abs(a - b) > 1e-9 for a, b in zip(was.geotransform, now.geotransform, strict=True)):
             return None
         ramp = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
         stretch = self.style.scaling.range_for(now.dem) if ramp else None

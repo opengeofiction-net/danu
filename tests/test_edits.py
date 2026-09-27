@@ -284,7 +284,7 @@ def test_coordinates_near_zero_are_written_as_decimals_and_read_back_exactly(tmp
     assert 'e-0' not in text and "lat='0.00001'" not in text.replace("lon='0.00001'", '')  # decimals, not exponents
     assert "lon='0.00001'" in text and "lat='-0.0000123'" in text and "lon='0.0000001'" in text
     again = read_square(out)
-    for nid, (lon, lat) in zip(ids, coords):
+    for nid, (lon, lat) in zip(ids, coords, strict=True):
         assert again.nodes[nid].lon == lon and again.nodes[nid].lat == lat
 
 
@@ -362,7 +362,7 @@ def test_a_stretch_of_a_way_is_swapped_for_another_and_put_back():
     sq, wid, ids = line_square()
     alloc = edits.IdAllocator(sq)
     fresh = [alloc.take(), alloc.take()]
-    for nid, lat in zip(fresh, (10.6, 10.7)):
+    for nid, lat in zip(fresh, (10.6, 10.7), strict=True):
         sq.nodes[nid] = Node(id=nid, lat=lat, lon=10.4)
     before = edits.snapshot(sq)
     cmd = edits.ReplaceSection(wid, 2, 5, [ids[2], *fresh, ids[5]])

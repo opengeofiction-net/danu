@@ -41,7 +41,7 @@ def test_the_array_form_is_the_scalar_form():
     xs = np.array([-5.0, 0.0, 0.5, 1.0, 57.0, 200.0, 2999.0, 7000.0])
     arr = t.rgba(xs)
     assert arr.shape == (8, 4) and arr.dtype == np.uint8
-    for x, row in zip(xs, arr):
+    for x, row in zip(xs, arr, strict=True):
         assert tuple(int(v) for v in row) == t.colour(float(x))
 
 

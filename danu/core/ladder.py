@@ -26,6 +26,7 @@ import os
 import tomllib
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Callable
 
@@ -160,11 +161,11 @@ def infer(square: Square, extend_above: int = EXTEND_ABOVE) -> Ladder | None:
     values = sorted(counts)
     if len(values) < 2:
         return None
-    gaps = Counter(round(b - a, 6) for a, b in zip(values, values[1:]))
+    gaps = Counter(round(b - a, 6) for a, b in pairwise(values))
     # the modal gap; a tie goes to the gap whose ends carry more contours,
     # then to the wider, since the finer one is more often detail
     def weight(g):
-        return sum(counts[a] + counts[b] for a, b in zip(values, values[1:]) if round(b - a, 6) == g)
+        return sum(counts[a] + counts[b] for a, b in pairwise(values) if round(b - a, 6) == g)
     interval = max(gaps, key=lambda g: (gaps[g], weight(g), g))
     residues = Counter()
     for v in values:

@@ -144,7 +144,7 @@ def test_the_editors_surface_is_the_shells_surface(tmp_path, library):
     assert differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m'
     # and the grids are the same grid, not merely the same shape
     ref_gt, new_gt = ref_ds.GetGeoTransform(), new_ds.GetGeoTransform()
-    assert all(abs(x - y) < 1e-12 for x, y in zip(ref_gt, new_gt)), (ref_gt, new_gt)
+    assert all(abs(x - y) < 1e-12 for x, y in zip(ref_gt, new_gt, strict=True)), (ref_gt, new_gt)
 
 
 def test_a_staged_square_builds_the_same_surface_uncompressed(tmp_path):

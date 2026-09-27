@@ -142,7 +142,7 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
     # two warps of two rasters on one grid at one cell size land on one grid;
     # said here rather than assumed, since the arrays are paired cell by cell
     if (d_ds.RasterXSize, d_ds.RasterYSize) != (h_ds.RasterXSize, h_ds.RasterYSize) or \
-            any(abs(a - b) > 1e-6 for a, b in zip(d_ds.GetGeoTransform(), h_ds.GetGeoTransform())):
+            any(abs(a - b) > 1e-6 for a, b in zip(d_ds.GetGeoTransform(), h_ds.GetGeoTransform(), strict=True)):
         raise RuntimeError('the warped DEM and its hillshade are not on one grid')
     cls, reading = None, None
     if classes is not None:

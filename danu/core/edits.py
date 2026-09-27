@@ -99,7 +99,7 @@ class AddWay(Command):
         return {self.way_id}
 
     def apply(self, square: Square) -> None:
-        for nid, (lon, lat) in zip(self.node_ids, self.coords):
+        for nid, (lon, lat) in zip(self.node_ids, self.coords, strict=True):
             square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
         square.ways[self.way_id] = Way(id=self.way_id, refs=list(self.node_ids), tags=dict(self.tags))
 
@@ -422,7 +422,7 @@ def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Co
         step = limit - 1
         pieces = [way.refs[s:s + limit] for s in range(0, n - 1, step)]
         new_ids = [wid] + [alloc.take() for _ in pieces[1:]]
-        cmds.append(_ReplaceWays(wid, way, [(nid, refs, dict(way.tags)) for nid, refs in zip(new_ids, pieces)]))
+        cmds.append(_ReplaceWays(wid, way, [(nid, refs, dict(way.tags)) for nid, refs in zip(new_ids, pieces, strict=True)]))
     if not cmds:
         return None
     return Compound(cmds, name=f'split {len(cmds)} long way(s)')
