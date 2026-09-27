@@ -387,6 +387,11 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
         rgba = ramp.rgba(dem)
         if not hypsometric:
             rgba[..., 3] = np.where(dem > 0, 255, 0).astype(np.uint8)
+        # .astype copies, and that is load-bearing as well as costly: it is
+        # what makes `colour` not a view of `rgba`, so the in-place multiply
+        # below cannot reach the alpha that `rgba[..., 3]` supplies two lines
+        # later. Dropping it as redundant - the multiply would upcast anyway -
+        # would light the sea's own transparency by the hillshade.
         colour = rgba[..., :3].astype(np.float32)
         if mode == 'shaded relief':
             lit = hill.astype(np.float32) / 255.0
