@@ -8,7 +8,7 @@ from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtGui import QWheelEvent  # noqa: E402
 
 from danu.ui import config  # noqa: E402
-from danu.ui import mercator as m
+from danu.ui import mercator as m  # noqa: E402
 from danu.ui.app import MainWindow  # noqa: E402
 from danu.ui.mapview import Graticule, MapView  # noqa: E402
 
