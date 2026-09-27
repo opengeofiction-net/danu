@@ -245,7 +245,14 @@ class PreviewDriver(QObject):
         for lon, lat in points:
             x = math.floor((lon - gt[0]) / gt[1])
             y = math.floor((lat - gt[3]) / gt[5])
-            if 0 <= y < rows and 0 <= x < cols and not self._kept.mask[y, x]:
+            if not (0 <= y < rows and 0 <= x < cols):
+                # off the raster entirely, which is the same answer for a
+                # stronger reason: the build's extent is the squares that held
+                # contours, so a contour beyond it is on ground the surface
+                # does not merely fail to reach but does not describe at all.
+                # Reachable when a square that had none gains its first.
+                return True
+            if not self._kept.mask[y, x]:
                 return True
         return False
 
