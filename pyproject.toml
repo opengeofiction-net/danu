@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ui = ["PySide6>=6.6"]
-dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6"]
+dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6", "ruff>=0.16"]
 
 # No [project.scripts] yet. Declaring entry points for modules which do not
 # exist ships commands that fail on import: the first package built this way
@@ -33,6 +33,35 @@ dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6"]
 # The server's entry points are the shell scripts, installed by the package.
 # These come back when danu.cli exists, and danu-build has to be one thing or
 # the other by then.
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# F and E402, and deliberately not the rest of pycodestyle yet.
+#
+# F is what this was added for: forty-five unused imports had accumulated
+# across nineteen files with nothing watching, including five in the commit
+# that noticed. It has no opinion about style - an unused import, an unused
+# variable, a name that is not defined.
+#
+# E402 earns its place because ninety-seven `# noqa: E402` comments were
+# already written against it, in the test files that import Qt after
+# `pytest.importorskip`. Without the rule enabled those comments are inert and
+# a reader cannot tell whether they still mean anything.
+#
+# The rest of E would be a style change nobody has asked for: 140 semicolons
+# that pair two short assignments on purpose, and twenty-five `l, t, r, b =
+# scene_rect` unpackings where `l` means left. Both are choices this codebase
+# has made, and a linter is not the place to reopen them.
+select = ["F", "E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# The GDAL idiom for closing a dataset is to drop the last reference to it:
+# `out_ds = sea_ds = water_ds = None` is three closes, not three dead stores,
+# and removing the "unused" name would leave the file open.
+"danu/surface/land_clamp.py" = ["F841"]
+"danu/surface/sea_mask.py" = ["F841"]
 
 [tool.setuptools.packages.find]
 include = ["danu*"]

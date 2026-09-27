@@ -25,7 +25,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 from xml.etree import ElementTree
 
 # N42E017, the SRTM convention: the south-west corner, latitude two digits,

@@ -10,8 +10,8 @@ import pytest
 pytest.importorskip('PySide6')
 from PySide6.QtGui import QColor, QImage, QPainter                       # noqa: E402
 
-from danu.core.square import SquareName, WorkingSet, read_square           # noqa: E402
-from danu.surface.ramp import spectral, traditional                        # noqa: E402
+from danu.core.square import SquareName, WorkingSet           # noqa: E402
+from danu.surface.ramp import traditional                        # noqa: E402
 from danu.ui import mercator as m                                          # noqa: E402
 from danu.ui.app import MainWindow                                         # noqa: E402
 from danu.ui.config import load_layers                                     # noqa: E402
@@ -462,7 +462,6 @@ def test_the_flat_arrays_are_built_when_something_picks_not_when_an_edit_lands(v
     node, and the crossing check - so building them on every edit spent 14.5 ms
     of each one on an answer usually wanted later or never. Drawing a contour
     node by node paid it once a node and used it on none of them."""
-    from danu.core import edits
 
     layer = ContourLayer()
     built = []
@@ -496,7 +495,6 @@ def test_picking_finds_a_contour_moved_since_the_last_pick(view, ws):
     """The point of the laziness is that nothing notices it. A way moved and
     then picked has to be found where it now is - if the staleness flag were
     not set, the pick would answer from the geometry before the edit."""
-    import numpy as np
     from danu.core import edits
     from danu.ui import mercator as m
 

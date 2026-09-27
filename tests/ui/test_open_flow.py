@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import Qt                                    # noqa: E402
 from PySide6.QtGui import QColor, QImage, QPainter               # noqa: E402
 
 from danu.core.square import SquareName, WorkingSet               # noqa: E402

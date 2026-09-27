@@ -54,7 +54,6 @@
 import argparse
 import collections
 import json
-import math
 import os
 import sys
 import urllib.request
@@ -63,7 +62,7 @@ import warnings
 import numpy as np
 from osgeo import gdal, ogr, osr
 
-from danu.core.profile import MAX_SEGMENT_M, densify, grade, seg_lengths
+from danu.core.profile import densify, grade, seg_lengths
 
 gdal.UseExceptions()
 ogr.UseExceptions()

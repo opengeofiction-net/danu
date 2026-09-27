@@ -7,7 +7,6 @@ gobras.
 """
 
 import numpy as np
-import pytest
 from hypothesis import given, strategies as st
 
 from danu.core.profile import invalid_intervals, linear_fix

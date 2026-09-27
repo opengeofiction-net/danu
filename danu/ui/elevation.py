@@ -16,7 +16,6 @@ can draw that one heavier, and asked what lies under the cursor for pick-up.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (QDockWidget, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,

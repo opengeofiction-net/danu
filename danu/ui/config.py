@@ -12,7 +12,7 @@ No Qt here. The caller says where the user file is; this decides what it means.
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 

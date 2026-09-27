@@ -212,7 +212,6 @@ def test_ctrl_and_alt_take_the_wheel_off_the_zoom(view, qtbot):
 
 def right(view, pos, kind, buttons=None):
     from PySide6.QtGui import QMouseEvent
-    from PySide6.QtCore import QEvent
     b = Qt.MouseButton.RightButton
     return QMouseEvent(kind, QPointF(pos), view.mapToGlobal(QPointF(pos).toPoint()), b,
                        b if buttons is None else buttons, Qt.KeyboardModifier.NoModifier)

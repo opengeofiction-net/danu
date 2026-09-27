@@ -1,7 +1,5 @@
 """Elevation control: keys, wheel, slider, pick-up, and the ladder of the square under the cursor."""
 
-import shutil
-from pathlib import Path
 
 import pytest
 
@@ -10,13 +8,11 @@ from PySide6.QtCore import QPoint, QPointF, Qt                       # noqa: E40
 from PySide6.QtGui import QKeySequence, QWheelEvent                  # noqa: E402
 from PySide6.QtTest import QTest                                     # noqa: E402
 
-from danu.core import edits, ladder as L                             # noqa: E402
-from danu.core.square import Square, SquareName, WorkingSet, read_square, write_square   # noqa: E402
+from danu.core.square import SquareName, WorkingSet   # noqa: E402
 from danu.ui import mercator as m                                    # noqa: E402
 from danu.ui.app import MainWindow                                   # noqa: E402
 from danu.ui.config import load_layers                               # noqa: E402
 from danu.ui.contours import ContourLayer                            # noqa: E402
-from danu.ui.elevation import ElevationControl, ElevationPanel       # noqa: E402
 from danu.ui.settings import DEFAULT_KEYS, Settings                  # noqa: E402
 
 from .conftest import cursor_to                                      # noqa: E402

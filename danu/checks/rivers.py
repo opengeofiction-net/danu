@@ -27,7 +27,6 @@
 # a kilometre apart.
 
 import argparse
-import math
 import sys
 import urllib.request
 import warnings

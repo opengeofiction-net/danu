@@ -215,7 +215,7 @@ def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
     into a deleted QObject, and *Signal source has been deleted* comes out of
     QRunnable::run where nobody sees it - while the failure it was reporting
     was the teardown itself."""
-    from danu.ui.surface import _Job, _Signals
+    from danu.ui.surface import _Job
 
     class Dead:
         class _S:

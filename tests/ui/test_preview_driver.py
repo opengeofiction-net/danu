@@ -383,7 +383,8 @@ def test_a_way_just_off_the_raster_is_not_boxed_at_its_corner(qtbot, monkeypatch
     """int() truncates toward zero, so a way half a cell west of the raster
     came out at column 0 and was boxed as though it were inside."""
     d = driver_over(monkeypatch)
-    gt = d._kept.geotransform                 # 0.01 deg cells from lon 0
+    # lon -0.005 is half a cell west of the raster, whose geotransform starts
+    # at lon 0 with 0.01 degree cells
     just_west = Square([Way(1, [1, 2])],
                        {1: Node(-0.005, 0.5), 2: Node(-0.004, 0.5)})
     d.edited(just_west, {1})
@@ -568,7 +569,6 @@ def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
 
     This was the fix for that and had no test.
     """
-    import numpy as np
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0
