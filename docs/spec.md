@@ -1512,7 +1512,43 @@ fill.
 The freeze is the *recolour*, not the build. The display grid at 1 arcsecond is
 15,291 by 14,367 - 219.7 M cells and 0.82 GB of RGBA - and `recolour` measures
 a flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds
-on the UI thread, after every rebuild. And almost all of it is wasted: an exact
+on the UI thread, after every rebuild.
+
+**And it was not only the time, which is why the popup came back.** Once item 3
+made 1 arcsecond usable, the window manager started putting up *python3 is not
+responding* again on the first build of a session - the one case `set_shaded`
+still recolours whole. Measured rather than assumed: `shade.compose` allocates
+**104 bytes of working space per cell**, dead linear from 2.2 M cells to 56 M.
+`rgba[..., :3].astype(np.float32)` is twelve of them and the multiply, the
+`rint` and the `clip` are twelve each again, against the four bytes per cell it
+produces - about twenty-six times the size of its own answer. Three more copies
+sat around it: `Scaling.range_for` built a boolean mask and a compacted copy of
+every land cell to answer a min and a max, `img.copy()` duplicated the finished
+RGBA, and the layer then held that RGBA for the life of the session.
+
+At 3 arcseconds that is 2.5 GB and merely wasteful. At 1 arcsecond it is about
+**25 GB on a 15 GB laptop**, so the freeze was never sixteen seconds of
+arithmetic - it was that plus swapping.
+
+**Done, for the memory.** `compose` and `range_for` work a strip at a time,
+through the same `strips()` the surface comparison uses, and the two spare
+copies are gone: `QPixmap.fromImage` copies into the platform format itself, so
+`img.copy()` was a second full copy nothing read and keeping the array was a
+third. The composed output is byte for byte what it was, over every mode and
+both ramps.
+
+| a whole recolour at 1 arcsecond | before | after |
+|---|---|---|
+| working space | ~25 GB | **0.95 GB** |
+| `compose` alone | 104 bytes/cell | 4.3 bytes/cell |
+
+**Not done, and it is what the popup is now.** The arithmetic is unchanged and
+so is its cost: `range_for` 0.4 s, `compose` 21.2 s, the pixmap 0.07 s - 21.7 s
+on the thread that is meant to be drawing. Bounded memory stops it swapping and
+does not stop it blocking, and a window manager gives up long before twenty-one
+seconds. What is left is to get that work off the UI thread, which is now a
+question about threading alone and not about memory, since a strip at a time is
+a shape that can be yielded from. And almost all of it is wasted: an exact
 rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
 rows. A build is not a reason to recolour a raster, it is a reason to find out
 what moved.

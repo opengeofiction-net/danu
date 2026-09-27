@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import strips
 from .params import Params
 from .ramp import Ramp
 
@@ -290,10 +291,22 @@ class Scaling:
             return (self.lo, self.hi) if self.hi > self.lo else (self.lo, self.lo + 1.0)
         if self.mode == 'pinch':
             return self.centre - self.width / 2.0, self.centre + self.width / 2.0
-        land = dem[dem > 0]
-        if land.size == 0:
+        # A strip at a time, for the reason compose is banded: `dem[dem > 0]`
+        # is a boolean mask and then a compacted copy of every land cell, 1.1
+        # GB of working space at 1 arcsecond, to answer a min and a max. The
+        # answer is the same either way - min and max distribute over a
+        # partition - and the working space becomes one strip's.
+        lo = hi = None
+        for y, h in strips(*dem.shape, itemsize=dem.itemsize, bands=6):
+            strip = dem[y:y + h]
+            land = strip[strip > 0]
+            if land.size == 0:
+                continue
+            a, b = float(land.min()), float(land.max())
+            lo = a if lo is None else min(lo, a)
+            hi = b if hi is None else max(hi, b)
+        if lo is None:
             return 0.0, 1.0
-        lo, hi = float(land.min()), float(land.max())
         return (lo, hi) if hi > lo else (lo, lo + 1.0)
 
 
@@ -305,6 +318,12 @@ def ramp_rgba(ramp: Ramp, values: np.ndarray, scaling: Scaling, dem: np.ndarray)
     range it worked out itself."""
     lo, hi = scaling.range_for(dem)
     return ramp.rescaled(lo, hi).rgba(np.asarray(values, dtype=float))
+
+
+# What composing a cell costs in working space, measured rather than counted
+# up from the expressions: shade.compose allocates dead linear at this rate
+# from 2.2 M cells to 56 M, so it is what `strips` is given to budget with.
+COMPOSE_BYTES_PER_CELL = 104
 
 
 def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'shaded relief',
@@ -320,30 +339,66 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     land in the whole array, so a rectangle asked to work it out for itself
     gets a different one and comes out a different colour from the ground it
     sits in. The caller passes the whole surface's range instead."""
-    rows, cols = shaded.dem.shape
-    out = np.zeros((rows, cols, 4), np.uint8)
-    lit = shaded.shade.astype(np.float32) / 255.0
-    lit = 1.0 - shade_strength * (1.0 - lit)          # strength 0: unlit, 1: full
     if mode not in ('hillshade', 'relief', 'shaded relief'):
         raise ValueError(f'compose: mode {mode!r}')
     if ramp is None and mode != 'hillshade':
         raise ValueError(f'compose: {mode} needs a ramp')
-    if mode == 'hillshade':
-        grey = np.clip(np.rint(shaded.shade.astype(np.float32)), 0, 255).astype(np.uint8)
-        out[..., 0] = out[..., 1] = out[..., 2] = grey
-        out[..., 3] = np.where(shaded.shade == HILLSHADE_NODATA, 0, 255).astype(np.uint8)
-        return out
-    if ramp.name == 'relief.ramp':
-        rgba = ramp.rgba(shaded.dem)
-    else:
+
+    rows, cols = shaded.dem.shape
+    out = np.zeros((rows, cols, 4), np.uint8)
+
+    # The range is the whole array's, whatever this composes: in `auto` the
+    # ramp is stretched over the land in all of it, so a strip working its own
+    # range out would come back a different colour from the strip above it.
+    # Hoisted for the same reason it is passed in rather than recomputed per
+    # box - see the docstring on ``stretch``.
+    # taken before the rescale, not after. `rescaled` does carry the name
+    # through, but the alpha rule below would then rest on its doing so -
+    # a hypsometric ramp carries its own alpha and must not be given the
+    # opaque-where-land one, and if a rescale ever renamed a ramp the sea
+    # would quietly go opaque. The question is about the ramp the caller
+    # passed, so it is asked of that one and kept.
+    hypsometric = ramp is not None and ramp.name == 'relief.ramp'
+    if ramp is not None and not hypsometric:
         lo, hi = stretch if stretch is not None else scaling.range_for(shaded.dem)
-        rgba = ramp.rescaled(lo, hi).rgba(shaded.dem)
-        rgba[..., 3] = np.where(shaded.dem > 0, 255, 0).astype(np.uint8)
-    colour = rgba[..., :3].astype(np.float32)
-    if mode == 'shaded relief':
-        colour = colour * lit[..., None]
-    out[..., :3] = np.clip(np.rint(colour), 0, 255).astype(np.uint8)
-    out[..., 3] = rgba[..., 3]
+        ramp = ramp.rescaled(lo, hi)
+
+    # A strip at a time. Composing the whole raster at once allocates 104 bytes
+    # per cell of float32 working space - `rgba[..., :3].astype(np.float32)` is
+    # twelve of them, and the multiply, the rint and the clip are twelve each
+    # again - against the four bytes per cell it produces. That is 2.5 GB for
+    # the gobras 3x3 at 3 arcseconds, where it is merely wasteful, and 22.8 GB
+    # at 1 arcsecond, where a 15 GB laptop swaps and the window manager puts up
+    # "not responding". Measured dead linear at 104 bytes per cell from 2.2 M
+    # cells to 56 M. Banded, the working space is one strip's and the peak is
+    # `out` itself.
+    # `strips` budgets `cols * itemsize * bands` bytes a row. What compose
+    # costs is per cell rather than per band, so it goes in as the itemsize
+    # with a single band - not as `bands` with `itemsize=1`, which came out the
+    # same and invited someone to "fix" the 1 to a 4 and quarter the strips.
+    for y, h in strips(rows, cols, itemsize=COMPOSE_BYTES_PER_CELL, bands=1):
+        sl = slice(y, y + h)
+        dem, hill = shaded.dem[sl], shaded.shade[sl]
+        if mode == 'hillshade':
+            out[sl, :, 0] = out[sl, :, 1] = out[sl, :, 2] = \
+                np.clip(np.rint(hill.astype(np.float32)), 0, 255).astype(np.uint8)
+            out[sl, :, 3] = np.where(hill == HILLSHADE_NODATA, 0, 255).astype(np.uint8)
+            continue
+        rgba = ramp.rgba(dem)
+        if not hypsometric:
+            rgba[..., 3] = np.where(dem > 0, 255, 0).astype(np.uint8)
+        # .astype copies, and that is load-bearing as well as costly: it is
+        # what makes `colour` not a view of `rgba`, so the in-place multiply
+        # below cannot reach the alpha that `rgba[..., 3]` supplies two lines
+        # later. Dropping it as redundant - the multiply would upcast anyway -
+        # would light the sea's own transparency by the hillshade.
+        colour = rgba[..., :3].astype(np.float32)
+        if mode == 'shaded relief':
+            lit = hill.astype(np.float32) / 255.0
+            lit = 1.0 - shade_strength * (1.0 - lit)      # strength 0: unlit, 1: full
+            colour *= lit[..., None]
+        out[sl, :, :3] = np.clip(np.rint(colour), 0, 255).astype(np.uint8)
+        out[sl, :, 3] = rgba[..., 3]
     return out
 
 
