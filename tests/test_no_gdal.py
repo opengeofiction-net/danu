@@ -75,6 +75,13 @@ def test_the_linter_is_configured_and_runs_here():
     assert 'I' in rules, 'import sorting is enforced, not a habit'
     assert 'ruff>=0.16' in conf['project']['optional-dependencies']['dev']
 
+    # Under [tool.ruff], not [tool.ruff.lint]: it is isort's wrap width and
+    # nothing else measures against it. At ruff's default of 88 the sort
+    # explodes the long Qt imports into one name per line, which is why it is
+    # set at all - so what this pins is that it is set, and above the default.
+    assert conf['tool']['ruff']['line-length'] > 88, (
+        'at 88 the import sort rewrites the Qt imports one name per line')
+
     workflow = (root / '.github' / 'workflows' / 'ci.yml').read_text()
     assert 'ruff check .' in workflow, 'the CI job does not run the linter'
     assert '  lint:' in workflow

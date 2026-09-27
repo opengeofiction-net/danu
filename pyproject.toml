@@ -59,6 +59,11 @@ line-length = 110
 # assignment - `osr = pytest.importorskip(...)` in tests/test_land_clamp.py and
 # tests/test_mercator_proj.py - which is code, and E402 is kept for those.
 #
+# The eighty-nine inert comments stay for now, deliberately and not by
+# oversight. Deleting them is RUF100's job - it can prove each one suppresses
+# nothing, which grepping cannot - and that is a rule to select on its own
+# rather than eighty-nine hand edits buried in an import sort.
+#
 # The rest of E would be a style change nobody has asked for: 140 semicolons
 # that pair two short assignments on purpose, and twenty-five `l, t, r, b =
 # scene_rect` unpackings where `l` means left. Both are choices this codebase
