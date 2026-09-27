@@ -264,6 +264,7 @@ def test_a_geometry_whose_refs_and_points_disagree_is_refused():
     WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])          # aligned, accepted
     WayGeom(sq, way, 100.0, np.zeros((2, 2)))                  # and no refs at all
 
+
 def test_the_cull_follows_the_viewport(view, ws):
     """A level's ways joined into one path have a rectangle that spans the
     working set, so culling by it culls nothing: the gobras 3x3 redrew 341,694
@@ -276,8 +277,6 @@ def test_the_cull_follows_the_viewport(view, ws):
     threshold here would be a fact about the fixture. On the gobras 3x3 the same
     code draws 235 ways of 6,305 at zoom 12 and 5 at zoom 16.
     """
-    from danu.ui.contours import ContourLayer, ZOOM_ALL
-
     layer = ContourLayer()
     layer.set_working_set(ws)
     view.scene().addItem(layer)
@@ -311,8 +310,6 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
     the two must agree pixel for pixel."""
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QColor, QImage, QPainter
-
-    from danu.ui.contours import ContourLayer, ZOOM_ALL
 
     sq = ws.squares[SquareName(125, -24)]
     way = max(sq.contours(), key=lambda w: len(w.refs))
@@ -374,8 +371,6 @@ def test_a_contour_running_due_east_is_not_culled(view, ws):
     this file happens to contain.
     """
     from danu.core import edits
-    from danu.ui.contours import ContourLayer, ZOOM_ALL
-
     layer = ContourLayer()
     layer.set_working_set(ws)
     view.scene().addItem(layer)
