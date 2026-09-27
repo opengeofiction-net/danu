@@ -398,11 +398,12 @@ class SurfaceLayer(QGraphicsItem):
         highest ground recolours every cell, including ones whose elevation did
         not change.
 
-        ``_stretch`` is only ever set by a whole ``recolour``, so it can be
-        older than the style but never newer than the pixels. A style changed
-        without a recolour therefore makes this refuse a comparison it could
-        have made, and never the other way about - which is the safe direction,
-        and worth knowing before anyone touches ``set_style``.
+        ``_stretch`` describes the pixels on screen, not the style: every whole
+        ``recolour`` sets it, and every path that changes the style goes
+        through one - ``set_style`` recolours. So there is no ordering in which
+        the scale on screen and the scale recorded here disagree, and the guard
+        above compares like with like. Anything that recoloured without setting
+        it, or set the style without recolouring, would break that quietly.
 
         Building the ramp here costs 4 microseconds for the spectral one and 35
         for the hypsometric, once per call, so it is not worth hoisting.

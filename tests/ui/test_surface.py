@@ -450,8 +450,13 @@ def test_a_build_that_moves_the_colour_scale_recolours_whole(qtbot):
     layer.set_shaded(base)
     assert layer._stretch is not None
 
-    # the same ground, but one box lifted well above everything else
+    # the same ground, but one box lifted well above everything else. The lift
+    # has to be big enough to move the range, or this passes for no reason:
+    # synthetic runs 0 to 400 m, so auto stretches over 1..400
     higher = _changed(base, (40, 60, 12, 15), lift=5000.0)
+    assert layer.style.scaling.range_for(higher.dem) != layer._stretch, (
+        'the lift did not move the colour scale, so there is nothing here to '
+        'refuse a comparison over')
     assert layer._moved(base, higher) is None, (
         'a build that moved the colour scale was recoloured box by box')
 
@@ -485,3 +490,33 @@ def test_ground_that_only_shades_differently_is_recoloured(qtbot):
     assert boxes, 'ground that only shades differently was not noticed'
     y0, x0, rows, cols = boxes[0]
     assert (y0, x0, rows, cols) == (40, 60, 12, 15), boxes
+
+
+def test_changing_the_style_keeps_the_colour_scale_and_the_pixels_in_step(qtbot):
+    """`_moved` refuses a comparison when the colour scale has moved, and it
+    decides that by comparing against `_stretch`. That only works if `_stretch`
+    describes what is on screen.
+
+    Every whole recolour sets it, and every path that changes the style goes
+    through one - so there should be no ordering in which they disagree. A
+    style change followed by a new surface is the ordering that would show it.
+    """
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    layer = SurfaceLayer()
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+    auto_stretch = layer._stretch
+
+    manual = Style()
+    manual.scaling = shade_mod.Scaling(mode='manual', lo=0.0, hi=900.0)
+    layer.set_style(manual)
+    assert layer._stretch == (0.0, 900.0), (
+        f'the style changed and _stretch stayed at {layer._stretch} - it no '
+        f'longer describes the pixels, and _moved would compare against it')
+    assert layer._stretch != auto_stretch
+
+    # and a comparison made after that is made against the new scale
+    after = _changed(base, (40, 60, 12, 15), lift=5.0)
+    assert layer._moved(base, after) is not None
