@@ -1432,14 +1432,15 @@ job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
 
-**F5c, what is actually slow.** Not started. Named for the margin, and then
+**F5c, what is actually slow.** Item 1 done, the rest not started. Named for
+the margin, and then
 the app was used for an afternoon and the margin turned out not to be the
 binding constraint - nor the second, nor the third. What follows is measured on
 the gobras 3x3, in the real window rather than in a harness.
 
 In the order a mapper would feel them:
 
-1. the contour layer, which owns 150 ms of a 153 ms repaint;
+1. the contour layer, which owned 150 ms of a 153 ms repaint - **done**;
 2. the recolour after a build, which redraws 24 M cells to move 30 of them;
 3. `Kept` holding whole rasters, which is why there is no preview at 1
    arcsecond;

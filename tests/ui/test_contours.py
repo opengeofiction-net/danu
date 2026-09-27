@@ -349,15 +349,29 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
         checked += 1
     assert checked == 4
 
-    # and that the comparison can tell two pictures apart. QImage's == is a
-    # content comparison - identical images compare equal, a single differing
-    # pixel does not - but an assertion of sameness that could not detect a
-    # difference would pass on any implementation at all, and a review reading
-    # it as an identity test is reason enough to have it say so here.
-    elsewhere, _ = shot(False, ZOOM_ALL + 2)
-    assert elsewhere != culled, (
-        'two renders at different zooms compare equal, so comparing images '
-        'proves nothing about the cull')
+    # and that the comparison can detect the difference this test is about.
+    # QImage's == is a content comparison - identical images compare equal, a
+    # single differing pixel does not - but an assertion of sameness that could
+    # not detect a difference would pass on any implementation at all. Two
+    # renders at different zooms would show that much; this drops one level
+    # from the picture at the same zoom and centre, which is the shape of
+    # "the cull let something through that it should not have".
+    zoom = ZOOM_ALL + 1
+    full, _ = shot(False, zoom)
+    short = ContourLayer()
+    short.set_working_set(ws)
+    dropped = sorted(short.paths)[len(short.paths) // 2]
+    short.paths[dropped] = []
+    view.scene().addItem(short)
+    view.set_zoom(zoom)
+    view.center_on_lonlat(lon, lat)
+    img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img); view.render(p); p.end()
+    view.scene().removeItem(short)
+    assert img != full, (
+        f'dropping the ways at {dropped} m changed no pixel, so comparing '
+        f'images cannot see a cull that drops something')
 
 
 def test_a_contour_running_due_east_is_not_culled(view, ws):
@@ -398,3 +412,41 @@ def test_a_contour_running_due_east_is_not_culled(view, ws):
     view.center_on_lonlat((lon0 + lon1) / 2, lat)
     render(view)
     assert layer.drawn_ways > 0, 'a contour running due east was culled away'
+
+
+def test_refreshing_a_way_twice_does_not_draw_it_twice(view, ws):
+    """Each level's pieces are a list appended to, so a rebuild that failed to
+    clear the level first would append every way again - every contour drawn
+    twice, at twice the cost, looking only slightly heavier.
+
+    `_rebuild_levels` pops each level before refilling it, and `refresh` puts
+    both the elevation a way had and the one it has into that set. This is what
+    says so, because the shape that would break it is one line away: the
+    previous structure was a path per level and appending to it had the same
+    hazard, so neither spelling protects itself."""
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(iter(sq.contours()))
+    before = {ele: len(pieces) for ele, pieces in layer.paths.items()}
+
+    layer.refresh(sq, {way.id})
+    once = {ele: len(pieces) for ele, pieces in layer.paths.items()}
+    assert once == before, 'refreshing a way changed how many pieces exist'
+
+    layer.refresh(sq, {way.id})
+    layer.refresh(sq, {way.id})
+    assert {ele: len(p) for ele, p in layer.paths.items()} == before, \
+        'refreshing the same way again appended it a second time'
+
+    # and a way moved to another elevation leaves nothing behind at the old
+    # one. `was` is read before the tag changes: Way.ele reads the tag, so
+    # afterwards it names the new level and the check would look at the wrong
+    # list and pass
+    was = way.ele
+    n_old = len(layer.paths[was])
+    moved_to = max(layer.paths) + 1000.0
+    sq.ways[way.id].tags['ele'] = str(moved_to)
+    layer.refresh(sq, {way.id})
+    assert len(layer.paths.get(was, [])) == n_old - 1, 'the way stayed at its old level'
+    assert len(layer.paths[moved_to]) == 1
