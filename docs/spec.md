@@ -1432,7 +1432,7 @@ job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
 
-**F5c, what is actually slow.** Items 1 and 2 done, the rest not started. Named for
+**F5c, what is actually slow.** Items 1, 2 and 3 done, 4 half done. Named for
 the margin, and then
 the app was used for an afternoon and the margin turned out not to be the
 binding constraint - nor the second, nor the third. What follows is measured on
@@ -1443,8 +1443,8 @@ In the order a mapper would feel them:
 1. the contour layer, which owned 150 ms of a 153 ms repaint - **done**;
 2. the recolour after a build, which redrew 24 M cells to move 30 of them -
    **done**;
-3. `Kept` holding whole rasters, which is why there is no preview at 1
-   arcsecond;
+3. `Kept` holding whole rasters, which is why there was no preview at 1
+   arcsecond - **done**;
 4. the rebuild trigger, which fired on a timer rather than on the two things
    that need it - **half done**: fresh ground triggers a rebuild, and the
    detector for the other half turned out not to discriminate;
@@ -1607,8 +1607,8 @@ draws 1,957 ways and is the smudge this layer's own level-of-detail note warns
 about. At z12 the same change takes 44 levels to 8 and the low ground loses its
 shape entirely. Not taken, either way, until someone wants z11 specifically.
 
-**Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
-off above 3 arcseconds
+**Done, and it retires `PREVIEW_ARCSEC`.** The preview was off above 3
+arcseconds
 because `Kept` holds the build's grids as whole arrays and they would be
 gigabytes - but a solve reads *one grown box*, and the rasters are tiled
 GeoTIFFs written 256 by 256:
@@ -1619,10 +1619,56 @@ GeoTIFFs written 256 by 256:
 | a 201 by 201 window | 0.040 M | 0.01 ms | 0.08 MB |
 | an 801 by 801 window | 0.642 M | 0.08 ms | 1.22 MB |
 
-A window costs the window. `Kept` holding open datasets and reading boxes on
-demand costs neither the memory nor the time, and the constant that exists to
-dodge the memory goes with it - which is the fix for *no preview at 1
-arcsecond* rather than the workaround of admitting there is none.
+A window costs the window. So `Kept` holds five `Band`s - an open dataset
+each - and reads a box when a preview asks for one. `patch` reads the grown
+window of the mask, the water and the surface, and does not read the
+constraints at all: it re-burns them from `contours`, so the burn *is* that
+window's constraints after the edit. That retired the old put-in-take-out
+dance, where the burn went into the whole kept array for the call and came
+back out afterwards, which existed only because `local.resolve` took whole
+rasters. `resolve` now splits at the seam it always had - it sliced its four
+arguments once and worked on the windows from there - so `resolve_window` is
+what a caller with a window calls, and the array signature is unchanged for
+the golden tests that use it.
+
+Measured cold, in a process that did not do the build, on the gobras squares
+around N20E087:
+
+| | 3 arcseconds | 1 arcsecond |
+|---|---|---|
+| the grid | 2,401 x 2,401, 5.8 M cells | 7,201 x 10,801, 77.8 M cells |
+| the five grids as arrays | 81 MB | **1,089 MB** |
+| `Kept` open, over a bare interpreter | **+66 MB** | **+66 MB** |
+| five successive previews | 18 to 36 ms | 23 to 37 ms |
+| peak RSS | 100 MB | 117 MB |
+
+A grid thirteen times the size costs the same to keep and about the same to
+preview. The +66 MB is identical in both columns because it is the contour
+layer, which is the same contours either way; the rasters cost nothing until a
+box is read, and RSS is flat across five previews, so the windows are not
+accumulating. The preview at 1 arcsecond is slower only because `good` is 243
+cells square against 83 - the fill radius is 60 cells there and 20 here - which
+is 8.6 times the cells for about 1.3 times the time.
+
+`PREVIEW_ARCSEC` is gone. There is no resolution at which the editor declines
+to preview.
+
+Writing back is the one thing that is not a read. The surface carries each
+patch forward so the next preview holds its rim at what is on screen, and the
+clamped patch goes into the DEM for the same reason; both are now writes into
+the build's own `rounded.tif` and `dem.tif`, at 0.12 ms for a patch. That is
+safe because the build has finished with them - `clamp` reads `rounded.tif` to
+produce the DEM and nothing reads either afterwards except the preview, and the
+shell deletes them outright.
+
+There are two implementations of the band interface, which is a thing to keep
+honest rather than to be pleased about: `Band` over a dataset, and `ArrayBand`
+over an array, because the ui tests run on a job with Qt and no GDAL and cannot
+open a raster at all. `tests/golden/test_preview.py` asserts the two present
+the same methods with the same arguments and give the same answers over the
+same data, and the golden preview test itself now opens the build's real files
+rather than handing `Kept` arrays it already had - if nothing there reads a
+raster then nothing tests the path a mapper is on.
 
 What cannot be banded is isofill's second pass, which is a global multigrid
 solve over the whole raster. That is the two minutes. It runs on a worker, so

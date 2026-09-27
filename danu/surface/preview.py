@@ -217,30 +217,126 @@ def clamp_patch(surface: np.ndarray, constraints: np.ndarray,
     return d
 
 
+class Band:
+    """One band of a build's raster, read a window at a time.
+
+    ``Kept`` used to hold whole arrays, which is why there was no preview above
+    3 arcseconds: the gobras 3x3 is 308 MB of them at 3 arcseconds and 1.5 to
+    2.8 GB at 1, so the editor refused rather than allocate it. But a preview
+    reads one grown box and nothing else, and the build writes its rasters as
+    tiled GeoTIFFs, so a window costs the window - 0.08 ms and 1.22 MB for 801
+    by 801, against 44.2 ms and 44 MB for the whole constraints raster.
+
+    Holding the dataset rather than the array is therefore the whole of it. The
+    dataset is kept on the instance, not just the band: a band does not own its
+    dataset, and reading through one whose dataset has been collected is a
+    segfault rather than an exception.
+    """
+
+    def __init__(self, ds, dtype=None):
+        self.ds = ds                      # held: the band dies with the dataset
+        self.band = ds.GetRasterBand(1)
+        self.shape = (ds.RasterYSize, ds.RasterXSize)
+        self.dtype = dtype
+
+    @classmethod
+    def open(cls, path: Path | str, dtype=None, update: bool = False) -> 'Band':
+        from osgeo import gdal
+        ds = gdal.Open(str(path), gdal.GA_Update if update else gdal.GA_ReadOnly)
+        if ds is None:
+            raise OSError(f'{path}: not readable as a raster')
+        return cls(ds, dtype)
+
+    def read(self, box: Box) -> np.ndarray:
+        """``box``, inclusive at both ends, as an array of ``box.shape``."""
+        rows, cols = box.shape
+        a = self.band.ReadAsArray(box.x0, box.y0, cols, rows)
+        return a.astype(self.dtype) if self.dtype is not None else a
+
+    def at(self, y: int, x: int):
+        """One cell. The fresh-ground test asks about a handful of them and
+        would otherwise read a raster to answer."""
+        return self.band.ReadAsArray(int(x), int(y), 1, 1)[0, 0]
+
+    def write(self, box: Box, patch: np.ndarray) -> None:
+        """``patch`` into ``box``. Only the surface is written, and only by the
+        caller keeping it current - see ``Kept.surface``."""
+        self.band.WriteArray(np.asarray(patch), box.x0, box.y0)
+
+    def read_all(self) -> np.ndarray:
+        """The whole band. For a test or a measurement, not for a preview -
+        this is the allocation the class exists to avoid."""
+        a = self.band.ReadAsArray()
+        return a.astype(self.dtype) if self.dtype is not None else a
+
+
+class ArrayBand:
+    """A ``Band`` over an array already in hand, with no dataset behind it.
+
+    Two callers want this. The ui tests run on a job with Qt and no GDAL, so
+    they cannot open a raster at all and their fake working set is numpy; and
+    a caller that has legitimately read a whole grid should not have to write
+    it to a file to hand it to ``Kept``.
+
+    It is a second implementation of an interface, which is a thing to keep
+    honest rather than to be pleased about - ``test_preview.py`` asserts that
+    the two present the same methods, because a fake that drifts from the real
+    one tests the fake.
+    """
+
+    def __init__(self, a: np.ndarray, dtype=None):
+        self.a = a.astype(dtype) if dtype is not None else a
+        self.shape = self.a.shape
+        self.dtype = dtype
+
+    def read(self, box: Box) -> np.ndarray:
+        return self.a[box.slice]
+
+    def at(self, y: int, x: int):
+        return self.a[int(y), int(x)]
+
+    def write(self, box: Box, patch: np.ndarray) -> None:
+        self.a[box.slice] = patch
+
+    def read_all(self) -> np.ndarray:
+        return self.a
+
+
 @dataclass
 class Kept:
     """What the last exact build left, which a preview reads and updates.
 
-    The arrays are the whole working set's, on the build's own lat/lon grid.
-    ``surface`` is ``rounded.tif``, the fill's answer before the clamp, because
-    that is what a solve continues from and what a solve returns - and it is
-    the caller's to keep current: splice each patch into it, or the next
-    preview holds the rim at a surface two edits old.
+    Five ``Band``s on the build's own lat/lon grid, each an open dataset rather
+    than an array, because a preview reads one window of each and the whole of
+    none. ``surface`` is ``rounded.tif``, the fill's answer before the clamp,
+    because that is what a solve continues from and what a solve returns - and
+    it is the caller's to keep current: splice each patch into it, or the next
+    preview holds the rim at a surface two edits old. That splice is now a
+    write into the file, which is the one band opened for update.
+
+    Writing into ``rounded.tif`` is safe because the build has finished with
+    it: ``clamp`` reads it to produce the DEM and nothing reads it afterwards
+    except this. The shell deletes it outright.
     """
-    constraints: np.ndarray
-    mask: np.ndarray
-    water: np.ndarray | None
-    surface: np.ndarray
+    constraints: Band | ArrayBand
+    mask: Band | ArrayBand
+    water: Band | ArrayBand | None
+    surface: Band | ArrayBand                   # opened for update: the caller splices
+                                    # each patch into it
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
-    dem: np.ndarray                 # the clamped surface, which clamp_patch
+    dem: Band | ArrayBand           # the clamped surface, which clamp_patch
                                     # reads the sea decision off. Not optional:
                                     # the default was documented as being for
                                     # a caller that solves without clamping,
                                     # and there is no such caller - what it
                                     # bought was a TypeError in a slot, from a
                                     # Kept built without one
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.constraints.shape
 
 
 def radii(params: Params, cover: int | None = None,
@@ -272,34 +368,31 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
           slack: int | None = None, lib=None) -> tuple[np.ndarray, Box]:
     """The surface around an edit, and the box it is good for.
 
-    The constraints are re-burned over everything the solve reads - the edited
-    box grown by the cover and the reach - and put into the kept array for the
-    call, so ``local.resolve`` sees the whole raster as it is after the edit,
-    which is what it documents itself as taking.
+    Everything the solve reads is one window - the edited box grown by the
+    cover and the reach - and nothing here touches a whole raster. The
+    constraints for that window are not read at all: they are re-burned from
+    ``contours``, which is every contour in the set as the editor now has it,
+    so the burn *is* the window's constraints after the edit rather than a
+    patch applied to them.
 
-    Put in, and taken out again. Copying the array instead would be 92 MB per
-    keystroke at 3 arcseconds and 311 at 1, which is most of what solving a box
-    was meant to avoid; and leaving the burn behind would have the kept
-    constraints drift from the build that produced them, one box at a time. The
-    edits are not lost by restoring, because they live in ``contours`` and
-    every preview re-burns its own box from there.
+    That is what retired the old dance. ``constraints`` used to be a whole
+    array that the burn was written into for the call and taken back out
+    afterwards - written, because ``local.resolve`` took the whole raster;
+    taken out, because leaving it would have the kept constraints drift from
+    the build that produced them, one box at a time. Reading a window makes
+    both halves unnecessary: the array the solve gets is already this call's
+    own.
 
-    ``mask`` and ``water`` need no such care and get none: ``isofill`` takes
-    both as ``const``, and a test asserts they come back untouched. The
-    asymmetry with ``constraints`` is the point - that one is written on
-    purpose, and put back.
+    ``mask``, ``water`` and the surface are read the same way and are not
+    written back. ``isofill`` takes the two masks as ``const``, and a test
+    asserts they come back untouched.
     """
     cover, slack = radii(params, cover, slack)
     shape = kept.constraints.shape
     good = box.grown(cover, shape)
     grown = good.grown(local.reach(params, slack), shape)
     fresh = kept.contours.burn(kept.geotransform, grown, kept.nodata)
-    sl = grown.slice
-    was = kept.constraints[sl].copy()
-    kept.constraints[sl] = fresh
-    try:
-        return local.resolve(kept.constraints, kept.mask, kept.water, kept.surface,
-                             box, params, cover=cover, slack=slack,
-                             nodata=kept.nodata, lib=lib)
-    finally:
-        kept.constraints[sl] = was
+    return local.resolve_window(fresh, kept.mask.read(grown),
+                                kept.water.read(grown) if kept.water is not None else None,
+                                kept.surface.read(grown), good, grown, shape, params,
+                                nodata=kept.nodata, lib=lib)

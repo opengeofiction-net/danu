@@ -147,22 +147,29 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     xs = [int((lon - gt[0]) / gt[1]) for lon, _ in coords]
     box = local.Box.around(ys, xs)
 
-    dem_ds = gdal.Open(str(before['result'].dem))        # held
-    kept = preview.Kept(constraints=before['constraints'], mask=before['mask'],
-                        water=before['water'], surface=before['surface'],
+    # the build's own files, opened as the editor opens them, so this holds
+    # the dataset-backed Band and not a stand-in for it: the ui tests run
+    # without GDAL and use ArrayBand, so if nothing here reads a raster then
+    # nothing tests the path a mapper is on
+    r = before['result']
+    kept = preview.Kept(constraints=preview.Band.open(r.constraints, np.float32),
+                        mask=preview.Band.open(r.drawn_mask),
+                        water=preview.Band.open(r.water_mask) if r.water_mask else None,
+                        surface=preview.Band.open(r.surface, np.float32),
                         geotransform=gt, nodata=before['nodata'], contours=layer,
-                        dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32))
-    keep_a_copy = before['constraints'].copy()
-    mask_copy = before['mask'].copy()
-    water_copy = before['water'].copy() if before['water'] is not None else None
+                        dem=preview.Band.open(r.dem, np.float32))
+    keep_a_copy = kept.constraints.read_all().copy()
+    mask_copy = kept.mask.read_all().copy()
+    water_copy = kept.water.read_all().copy() if kept.water is not None else None
     patch, good = preview.patch(kept, box, p)
-    assert np.array_equal(kept.constraints, keep_a_copy), \
-        'the preview left its burn behind in the kept constraints'
-    # constraints are written on purpose and put back; these two are not
-    # written at all - isofill takes both as const - and the asymmetry is
-    # worth pinning rather than leaving to a reading of the header
-    assert np.array_equal(kept.mask, mask_copy), 'the preview moved the drawn mask'
-    assert water_copy is None or np.array_equal(kept.water, water_copy), \
+    # The burn is a window of its own now and never reaches the file, so this
+    # is no longer about putting something back - it is that a preview writes
+    # no raster at all. isofill takes both masks as const; the surface is
+    # written only by the driver splicing a patch in, which is not this call.
+    assert np.array_equal(kept.constraints.read_all(), keep_a_copy), \
+        'the preview wrote to the constraints raster'
+    assert np.array_equal(kept.mask.read_all(), mask_copy), 'the preview moved the drawn mask'
+    assert water_copy is None or np.array_equal(kept.water.read_all(), water_copy), \
         'the preview moved the water mask'
 
     # the exact build of the same edit
@@ -474,3 +481,45 @@ def test_the_clamp_puts_the_burned_constraints_back():
                               np.array([[NODATA]], np.float32),
                               np.array([[1.0]], np.float32))
     assert low[0, 0] == 1.0, 'land below a metre was not lifted to one'
+
+
+def test_the_two_bands_present_the_same_interface(tmp_path):
+    """ArrayBand stands in for Band wherever there is no GDAL, which is the ui
+    job and every test that runs on it. A stand-in that has drifted from the
+    thing it stands in for tests itself, so the two are held to the same
+    methods and to the same answers over the same data."""
+    import inspect
+
+    import numpy as np
+    from osgeo import gdal
+
+    from danu.surface import local
+    from danu.surface.preview import ArrayBand, Band
+
+    public = lambda c: {n for n, _ in inspect.getmembers(c, inspect.isfunction)  # noqa: E731
+                        if not n.startswith('_')}
+    assert public(Band) - {'open'} == public(ArrayBand), \
+        'the two Bands no longer offer the same methods'
+    for name in public(ArrayBand):
+        real = inspect.signature(getattr(Band, name))
+        fake = inspect.signature(getattr(ArrayBand, name))
+        assert real.parameters.keys() == fake.parameters.keys(), \
+            f'{name} takes different arguments on the two'
+
+    a = np.arange(48, dtype=np.float32).reshape(6, 8)
+    path = tmp_path / 'band.tif'
+    ds = gdal.GetDriverByName('GTiff').Create(str(path), 8, 6, 1, gdal.GDT_Float32)
+    ds.GetRasterBand(1).WriteArray(a)
+    ds = None
+
+    real, fake = Band.open(path, np.float32, update=True), ArrayBand(a.copy())
+    box = local.Box(2, 1, 5, 3)
+    assert real.shape == fake.shape == (6, 8)
+    assert np.array_equal(real.read(box), fake.read(box))
+    assert real.at(4, 7) == fake.at(4, 7) == a[4, 7]
+
+    patch = np.full(box.shape, -1.0, np.float32)
+    real.write(box, patch)
+    fake.write(box, patch)
+    assert np.array_equal(real.read_all(), fake.read_all()), \
+        'writing a box left the two disagreeing'
