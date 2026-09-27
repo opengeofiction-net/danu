@@ -535,19 +535,30 @@ def test_a_label_outline_is_built_once_per_elevation(view, ws):
     view.set_zoom(ZOOM_LABELS)
     view.center_on_lonlat(lon, lat)
 
+    # what was asked for, recorded: the cache should hold exactly the strings
+    # the paint asked about, and asking is once per label while holding is once
+    # per string
+    asked = []
+    real = layer._text_path
+    layer._text_path = lambda text: asked.append(text) or real(text)
+
     render(view)
     assert layer.drawn_labels > 0, 'no labels were drawn, so nothing was cached'
     after_one = dict(layer._text)
     assert after_one, 'no outline was kept'
-    # one outline per label string drawn, and a string is an elevation. Fewer
-    # than the elevations present, since a label is only drawn where its
-    # contour is long enough on screen to carry one
-    assert set(after_one) == {f'{lab.ele:g}' for lab in layer.labels
-                              if f'{lab.ele:g}' in after_one}
-    assert len(after_one) <= layer.drawn_labels, 'more outlines than labels drawn'
+    assert set(after_one) == set(asked), (
+        f'the cache holds {sorted(set(after_one))} and the paint asked for '
+        f'{sorted(set(asked))}')
+    assert len(asked) > len(set(asked)), (
+        'every label wanted a different string, so this fixture cannot show '
+        'one outline being reused')
+    assert set(after_one) <= {f'{lab.ele:g}' for lab in layer.labels}, \
+        'an outline was cached for something that is not a label'
 
+    asked.clear()
     render(view)
     assert layer._text.keys() == after_one.keys(), 'a repaint built new outlines'
+    assert asked, 'the second paint did not ask for any outline at all'
     for text, path in after_one.items():
         assert layer._text[text] is path, f'the outline for {text} was rebuilt'
 

@@ -438,8 +438,12 @@ class ContourLayer(QGraphicsItem):
         is built once per string.
 
         ``FONT_PT`` is a module constant and nothing changes the font at run
-        time, so the string is the whole of the key. A size that varied - with
-        the zoom, with a setting, with the display - would have to be in it.
+        time, so the string is the whole of the key. The zoom is not part of
+        it and does not need to be: the path is built at one size and
+        ``_paint_labels`` scales the *painter* by the reciprocal of the view's
+        scale, so the same outline is right at every zoom. What would have to
+        be in the key is a size that changed how the path itself was built -
+        a setting, a display's pixel ratio, a font chosen per level.
 
         Worth less than it looks: labels went from 9.2 ms of a zoom-13 repaint
         to 7.3, not to nothing. Building the outline is the smaller half of
