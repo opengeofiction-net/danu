@@ -635,3 +635,43 @@ def test_a_label_outline_is_not_reused_across_fonts(view, ws):
     assert a is not b, 'the same outline was served for two different fonts'
     assert a.boundingRect().height() < b.boundingRect().height()
     assert layer._text_path('100', small) is a, 'the first font stopped hitting'
+
+
+def test_labels_start_exactly_at_their_zoom(view, ws):
+    """The threshold, pinned at wherever it is rather than at a number.
+
+    The level-of-detail test above uses ZOOM_LABELS for both the zoom and the
+    expectation, so it follows the constant and cannot see it move. This checks
+    the step: none at one zoom below, some at it. An off-by-one either way -
+    labels a zoom early, or a zoom late - changes what a pan costs by about a
+    third and nothing would say so.
+    """
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    view.set_zoom(ZOOM_LABELS - 1)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    assert layer.drawn_ways > 0, 'no contour is on screen, so this says nothing about labels'
+    assert layer.drawn_labels == 0, 'a label was drawn a zoom below ZOOM_LABELS'
+
+    view.set_zoom(ZOOM_LABELS)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    assert layer.drawn_labels > 0, 'no label was drawn at ZOOM_LABELS'
+
+
+def test_labels_start_above_where_every_contour_does(view, ws):
+    """Two zooms above ZOOM_ALL, not one. The contours are what a mapper reads
+    at z12 and z13, and the labels were about a third of what it cost to draw
+    them there - so the two thresholds are deliberately not adjacent, and a
+    change that brought them back together would be a third of a repaint."""
+    from danu.ui.contours import ZOOM_ALL as ALL, ZOOM_LABELS as LABELS
+
+    assert LABELS > ALL + 1, (
+        f'labels start at z{LABELS} and every contour at z{ALL}; they were '
+        f'adjacent when labels cost a third of a repaint at both')
