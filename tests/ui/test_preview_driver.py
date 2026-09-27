@@ -896,3 +896,26 @@ def test_overlapping_stale_rects_fade_once_and_not_twice(qtbot):
             f"overlapping rects instead of one covering rect")
     assert at(overlapped, 0.25, 0.25) != fresh, "the overlap was not faded at all"
     assert at(overlapped, 0.9, 0.9) == fresh, "ground outside both rects was faded"
+
+
+def test_the_idle_wait_is_a_backstop_and_not_a_gesture_timer():
+    """The two costs are wildly asymmetric and the timer has to reflect it.
+
+    Waiting is nearly free: over twenty-one successive edits measured against a
+    rebuild at each, seventeen previews were already right to 0.013 m. Firing
+    is expensive: a whole working set is 5.6 seconds at 3 arcseconds and about
+    two minutes at 1.
+
+    At a second and a half it was shorter than an ordinary pause in drawing, so
+    it fired mid-gesture and was superseded. The tests above pass their own
+    `idle_ms`, so none of them can see the shipped value move - this is what
+    does.
+    """
+    from danu.ui.preview import GESTURE_MS, IDLE_MS
+
+    assert IDLE_MS >= 5_000, (
+        f'{IDLE_MS} ms is inside an ordinary pause in drawing, so the rebuild '
+        f'fires mid-gesture and is superseded before it lands')
+    assert IDLE_MS > 100 * GESTURE_MS, (
+        f'{IDLE_MS} ms against a {GESTURE_MS} ms gesture window - the two are '
+        f'meant to be different kinds of wait, not two sizes of the same one')

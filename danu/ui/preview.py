@@ -44,7 +44,27 @@ from ..surface.params import Params
 GESTURE_MS = 30
 
 # How long the drawing has to stop before the exact rebuild is asked for.
-IDLE_MS = 1500
+#
+# Ten seconds, not the second and a half it was. The two costs are wildly
+# asymmetric and the timer was set as though they were not. Waiting is nearly
+# free: over twenty-one successive edits measured against a rebuild at each,
+# seventeen previews were already right to 0.013 m, so the surface on screen is
+# usually the surface the rebuild would produce. Firing is expensive: a whole
+# working set is 5.6 seconds at 3 arcseconds and about two minutes at 1, all of
+# it a core, and an edit arriving during it makes the answer stale before it
+# lands.
+#
+# A second and a half is shorter than an ordinary pause in drawing - reading
+# the ground, moving the mouse, deciding where the next node goes - so it fired
+# mid-gesture and was superseded, repeatedly, which is what "it kicks in too
+# soon" is.
+#
+# This is a timer standing in for a condition. The rebuild is really needed for
+# two things, neither of which a clock can detect: ground outside the drawn
+# envelope, which a preview cannot show at all, and the occasional edit where
+# the preview is metres out. Those are F5c's, and when they exist this becomes
+# the backstop it is now only approximating.
+IDLE_MS = 10_000
 
 # Pieces one gesture may be solved as. Each costs a whole solve on the UI
 # thread, so past a handful the preview is worse than not previewing: the
