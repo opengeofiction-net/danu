@@ -1655,11 +1655,20 @@ to preview.
 
 Writing back is the one thing that is not a read. The surface carries each
 patch forward so the next preview holds its rim at what is on screen, and the
-clamped patch goes into the DEM for the same reason; both are now writes into
-the build's own `rounded.tif` and `dem.tif`, at 0.12 ms for a patch. That is
-safe because the build has finished with them - `clamp` reads `rounded.tif` to
-produce the DEM and nothing reads either afterwards except the preview, and the
-shell deletes them outright.
+clamped patch goes into the DEM for the same reason; both are writes into a
+file now, at 0.12 ms for a patch.
+
+Not into the build's own files. One working directory serves a whole session -
+`SurfaceBuilder` takes a single `mkdtemp` - so every build writes the same
+`dem.tif` and `rounded.tif` into it, and a preview runs *while* the next
+rebuild is in flight, because that is what a preview is for. Opening the
+build's two files for update would have the preview and the running build
+writing the same two files, for the seventy-four seconds a 1 arcsecond build
+takes; as arrays there was no such thing. They are compressed GeoTIFFs, 15.5 MB
+and 5.2 MB at 1 arcsecond, and copying them is 0.01 s against that build, so
+`_read_rasters` copies both into a directory of its own per build and opens the
+copies. The build's own rasters are never written at all, and a test says so.
+The three nothing writes are opened in place.
 
 There are two implementations of the band interface, which is a thing to keep
 honest rather than to be pleased about: `Band` over a dataset, and `ArrayBand`

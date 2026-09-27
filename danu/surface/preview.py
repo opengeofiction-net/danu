@@ -306,9 +306,9 @@ class ArrayBand:
 class Kept:
     """What the last exact build left, which a preview reads and updates.
 
-    Five ``Band``s on the build's own lat/lon grid, each an open dataset rather
-    than an array, because a preview reads one window of each and the whole of
-    none. ``surface`` is ``rounded.tif``, the fill's answer before the clamp,
+    ``Band``s on the build's own lat/lon grid - five, or four where there is no
+    water mask - each an open dataset rather than an array, because a preview
+    reads one window of each and the whole of none. ``surface`` is ``rounded.tif``, the fill's answer before the clamp,
     because that is what a solve continues from and what a solve returns - and
     it is the caller's to keep current: splice each patch into it, or the next
     preview holds the rim at a surface two edits old. That splice is a write
