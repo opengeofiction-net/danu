@@ -48,7 +48,10 @@ from osgeo import gdal, ogr, osr
 gdal.UseExceptions()
 ogr.UseExceptions()
 
-from . import NODATA        # one definition; see danu/surface/__init__.py
+from . import NODATA, STRIP_BYTES, strips     # noqa: F401
+# one definition of each; see danu/surface/__init__.py. STRIP_BYTES and
+# strips are re-exported because callers have imported them from here since
+# before they moved.
 
 
 
@@ -79,7 +82,6 @@ def ogr_memory_driver():
     raise RuntimeError('no OGR in-memory driver: tried MEM and Memory')
 
 
-from . import STRIP_BYTES, strips        # noqa: F401 - one definition; see __init__
 
 
 def open_band(path):
