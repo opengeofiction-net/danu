@@ -4,15 +4,15 @@ import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt                 # noqa: E402
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QWheelEvent      # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QWheelEvent  # noqa: E402
 
-from danu.surface import ramp, shade                                   # noqa: E402
-from danu.ui.legend import WHEEL_FACTOR, Legend                        # noqa: E402
-from danu.ui.mapview import MapView                                    # noqa: E402
-from danu.ui.surface import SurfaceLayer, SurfacePanel                 # noqa: E402
+from danu.surface import ramp, shade  # noqa: E402
+from danu.ui.legend import WHEEL_FACTOR, Legend  # noqa: E402
+from danu.ui.mapview import MapView  # noqa: E402
+from danu.ui.surface import SurfaceLayer, SurfacePanel  # noqa: E402
 
-from .test_surface import synthetic                                    # noqa: E402
+from .test_surface import synthetic  # noqa: E402
 
 
 def test_ramp_rgba_colours_a_value_as_compose_colours_the_cell():

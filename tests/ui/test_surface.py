@@ -5,13 +5,13 @@ import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtGui import QColor, QImage, QPainter        # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
 
-from danu.surface import shade                            # noqa: E402
-from danu.surface.shade import HALF                       # noqa: E402
-from danu.ui import mercator as m                         # noqa: E402
-from danu.ui.mapview import MapView                       # noqa: E402
-from danu.ui.surface import SurfaceLayer, SurfacePanel, Style   # noqa: E402
+from danu.surface import shade  # noqa: E402
+from danu.surface.shade import HALF  # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
+from danu.ui.mapview import MapView  # noqa: E402
+from danu.ui.surface import Style, SurfaceLayer, SurfacePanel  # noqa: E402
 
 
 def synthetic(rows=40, cols=60, x0_m=0.0, y1_m=2_000_000.0, metres=1000.0) -> shade.Shaded:
@@ -249,6 +249,7 @@ def test_recolouring_one_box_is_what_recolouring_all_of_it_would_give(qtbot):
     painting the pixmap are two steps and only the second one places it.
     """
     import numpy as np
+
     from danu.surface import shade as shade_mod
     from danu.ui.surface import Style, SurfaceLayer
 
@@ -293,6 +294,7 @@ def test_a_box_recolour_keeps_the_whole_surfaces_colour_scale(qtbot):
     the pixels against both stretches and requires the global one.
     """
     import numpy as np
+
     from danu.surface import shade as shade_mod
     from danu.ui.surface import RAMPS, SurfaceLayer
 
@@ -335,6 +337,7 @@ def _pixmap_of(layer):
 def _changed(base, box, lift=60.0, shade=40):
     """A copy of `base` with one box of ground moved."""
     import numpy as np
+
     from danu.surface import shade as shade_mod
 
     y0, x0, rows, cols = box
@@ -383,6 +386,7 @@ def test_recolouring_what_moved_is_the_picture_recolouring_all_of_it_gives(qtbot
     first surface and then the second - the partial path; the other is shown
     the second alone - the whole path. Their pixmaps have to match."""
     import numpy as np
+
     from danu.surface import shade as shade_mod
     from danu.ui.surface import Style, SurfaceLayer
 
@@ -471,6 +475,7 @@ def test_ground_that_only_shades_differently_is_recoloured(qtbot):
     Comparing the DEM alone would find nothing there and leave the old
     hillshade on screen until something else forced a whole recolour."""
     import numpy as np
+
     from danu.surface import shade as shade_mod
     from danu.ui.surface import SurfaceLayer
 
@@ -543,6 +548,7 @@ def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qt
     value it held before, which is the ordering the review called unsafe.
     """
     import numpy as np
+
     from danu.surface import shade as shade_mod
     from danu.ui.surface import SurfaceLayer
 

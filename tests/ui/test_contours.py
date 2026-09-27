@@ -8,15 +8,15 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtGui import QColor, QImage, QPainter                       # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
 
-from danu.core.square import SquareName, WorkingSet           # noqa: E402
-from danu.surface.ramp import traditional                        # noqa: E402
-from danu.ui import mercator as m                                          # noqa: E402
-from danu.ui.app import MainWindow                                         # noqa: E402
-from danu.ui.config import load_layers                                     # noqa: E402
+from danu.core.square import SquareName, WorkingSet  # noqa: E402
+from danu.surface.ramp import traditional  # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
+from danu.ui.app import MainWindow  # noqa: E402
+from danu.ui.config import load_layers  # noqa: E402
 from danu.ui.contours import ZOOM_ALL, ZOOM_INDEX, ZOOM_LABELS, ContourLayer  # noqa: E402
-from danu.ui.mapview import MapView                                        # noqa: E402
+from danu.ui.mapview import MapView  # noqa: E402
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -241,6 +241,7 @@ def test_the_node_index_cache_is_a_cache_and_not_part_of_the_geometry():
     assert '_node_ref' not in str(inspect.signature(WayGeom.__init__))
 
     import numpy as np
+
     from danu.core.square import Square, Way
     sq = Square(name=SquareName(87, 20), present=True)
     way = Way(id=1, refs=[1, 2], tags={'ele': '100'})

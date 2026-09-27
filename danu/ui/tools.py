@@ -22,11 +22,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
-
-import numpy as np
 
 from ..core import edits, geometry
 from ..core.ladder import format_ele

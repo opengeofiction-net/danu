@@ -23,7 +23,13 @@
 # from closed rings ("Sides rather than rings", sea_mask.py), so a split
 # coastline seeds exactly as it did before. Direction is preserved.
 #
-import argparse, lzma, os, re, shutil, sys, tempfile
+import argparse
+import lzma
+import os
+import re
+import shutil
+import sys
+import tempfile
 
 WAY_RE = re.compile(r"<way\s+id='(-?\d+)'")
 ID_RE  = re.compile(r"<way\s+id='(-?\d+)'")

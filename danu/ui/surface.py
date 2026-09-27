@@ -23,14 +23,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QObject, QRectF, QRunnable, QThreadPool, Qt, Signal
+from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout,
-                               QGraphicsItem, QLabel, QPushButton, QSlider, QWidget)
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDockWidget,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGraphicsItem,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QWidget,
+)
 
 from ..core.square import WorkingSet
-from ..surface import strips
-from ..surface import shade
+from ..surface import shade, strips
 from ..surface.params import Params
 from ..surface.ramp import Ramp, spectral, traditional
 

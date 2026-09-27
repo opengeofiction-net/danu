@@ -37,6 +37,12 @@ dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6", "ruff>=0.16"]
 [tool.ruff]
 target-version = "py311"
 
+# Not a style rule - E501 is not selected and nothing here is reflowed. This is
+# the width isort wraps a long `from x import a, b, c` at, and 88 would explode
+# six of the Qt imports into one name per line. The codebase already writes past
+# 88 freely - 911 lines do - and 110 covers all but 132 of them.
+line-length = 110
+
 [tool.ruff.lint]
 # F and E402, and deliberately not the rest of pycodestyle yet.
 #
@@ -45,16 +51,24 @@ target-version = "py311"
 # that noticed. It has no opinion about style - an unused import, an unused
 # variable, a name that is not defined.
 #
-# E402 earns its place because ninety-seven `# noqa: E402` comments were
-# already written against it, in the test files that import Qt after
-# `pytest.importorskip`. Without the rule enabled those comments are inert and
-# a reader cannot tell whether they still mean anything.
+# E402 was selected on the grounds that ninety-odd `# noqa: E402` comments were
+# already written against it. That reason was wrong: ruff does not count a bare
+# `pytest.importorskip('PySide6')` as code, so the imports after it are at the
+# top of the file as far as the rule is concerned and eighty-nine of the ninety
+# one comments suppress nothing. The two that are live are the ones after an
+# assignment - `osr = pytest.importorskip(...)` in tests/test_land_clamp.py and
+# tests/test_mercator_proj.py - which is code, and E402 is kept for those.
 #
 # The rest of E would be a style change nobody has asked for: 140 semicolons
 # that pair two short assignments on purpose, and twenty-five `l, t, r, b =
 # scene_rect` unpackings where `l` means left. Both are choices this codebase
 # has made, and a linter is not the place to reopen them.
-select = ["F", "E402"]
+#
+# I sorts the imports. It was left out of the first cut because it rewrites
+# every file's header and that is better seen on its own; this is that change.
+# The grouping it enforces - standard library, third party, then the package -
+# is the one the files mostly already used, by hand and not everywhere.
+select = ["F", "E402", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 # The GDAL idiom for closing a dataset is to drop the last reference to it:

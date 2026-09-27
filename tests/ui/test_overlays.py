@@ -7,10 +7,10 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.surface import shade                               # noqa: E402
-from danu.ui import mercator as m                            # noqa: E402
-from danu.ui.overlays import EnvelopeItem, UnreachedLayer, envelope_rings   # noqa: E402
-from danu.ui.surface import SurfaceLayer, SurfacePanel       # noqa: E402
+from danu.surface import shade  # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
+from danu.ui.overlays import EnvelopeItem, UnreachedLayer, envelope_rings  # noqa: E402
+from danu.ui.surface import SurfaceLayer, SurfacePanel  # noqa: E402
 
 
 def test_envelope_rings_come_from_the_geojson_the_build_writes(tmp_path):

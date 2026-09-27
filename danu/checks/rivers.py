@@ -35,8 +35,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal
 
-from danu.core.profile import (densify, invalid_intervals, linear_fix,
-                               seg_lengths as seg_len_m)
+from danu.core.profile import densify, invalid_intervals, linear_fix
+from danu.core.profile import seg_lengths as seg_len_m
 
 gdal.UseExceptions()
 # a way partly outside the raster samples as nan, which is expected

@@ -75,6 +75,7 @@ def test_the_library_version_this_module_wants_is_the_submodules():
     one, and its header says which. Bumping the submodule without updating
     the module - or the other way round - goes red here."""
     import re
+
     from danu.surface import isofill_lib
     header = (ROOT / 'extern' / 'isofill' / 'src' / 'isofill.h').read_text()
     m = re.search(r'#define ISOFILL_VERSION "([^"]+)"', header)

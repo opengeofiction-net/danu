@@ -44,6 +44,7 @@
 # against a cell the mask did keep.
 #
 import sys
+
 import numpy as np
 from osgeo import gdal
 

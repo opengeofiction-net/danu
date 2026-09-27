@@ -246,6 +246,7 @@ def test_saving_a_square_does_not_change_the_surface_it_builds(tmp_path):
     editor-written copy passed throughout. This builds a square that is not
     sorted and where a cliff puts two elevations in one cell."""
     import numpy as np
+
     from danu.core.square import read_square, write_square
     from danu.surface import params
 
@@ -310,6 +311,7 @@ def test_the_files_grad_min_is_the_binarys_default_which_both_paths_rely_on():
     isofill actually uses, read from the binary itself."""
     import re
     import subprocess
+
     from danu.surface import params
     run = subprocess.run(['isofill'], capture_output=True, text=True)
     usage = run.stdout + run.stderr
@@ -323,7 +325,9 @@ def test_the_library_is_the_binary_on_a_raster_the_golden_square_does_not_cover(
     the library from the same file, compared cell for cell. The golden
     square has no water and one drawn envelope; this has both."""
     import subprocess
+
     import numpy as np
+
     from danu.surface import isofill_lib, params
     lib = isofill_lib.Isofill.load()
     rows, cols = 96, 128
@@ -432,6 +436,7 @@ def test_a_first_pass_from_another_grid_is_refused_rather_than_classified(tmp_pa
     the same pixel dimensions and different ground under them, so the kept pass
     carries the geotransform it was filled from."""
     import numpy as np
+
     from danu.surface import build, params
     with (HERE / 'params.lock').open('rb') as fh:
         lock = tomllib.load(fh)
@@ -648,6 +653,7 @@ def test_the_first_pass_reading_says_where_the_contours_do_not_describe_ground(t
     the drawn area are OUTSIDE, and a sparse square has ground its contours
     leave the first pass unable to answer."""
     import numpy as np
+
     from danu.surface import build, params, shade
     with (HERE / 'params.lock').open('rb') as fh:
         lock = tomllib.load(fh)
@@ -693,6 +699,7 @@ def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
     same ground."""
     import os
     import subprocess
+
     from danu.core.square import read_square, write_square
     with (HERE / 'params.lock').open('rb') as fh:
         lock = tomllib.load(fh)
@@ -720,6 +727,7 @@ def test_a_square_drawn_from_blank_saved_by_the_editor_builds_on_the_server_path
     the same zone to the same cells, and the DEM has the hill in it."""
     import os
     import subprocess
+
     from danu.core import edits, save
     from danu.core.square import Square, SquareName
     from danu.surface import build, params

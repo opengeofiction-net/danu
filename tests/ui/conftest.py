@@ -19,17 +19,18 @@ import pytest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent, QPointF, Qt, QThreadPool           # noqa: E402
-from PySide6.QtGui import QMouseEvent                                # noqa: E402
-from PySide6.QtTest import QTest                                     # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, Qt, QThreadPool  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 
-from danu.core import edits                                          # noqa: E402
-from danu.core.square import Square, SquareName, write_square        # noqa: E402
-from danu.ui.app import MainWindow                                   # noqa: E402
-from danu.ui.config import load_layers                               # noqa: E402
-from danu.ui.settings import Settings                                # noqa: E402
-from danu.ui.territory import TerritoryFetcher                       # noqa: E402
-from danu.ui import territory as _territory, tiles as _tiles         # noqa: E402
+from danu.core import edits  # noqa: E402
+from danu.core.square import Square, SquareName, write_square  # noqa: E402
+from danu.ui import territory as _territory  # noqa: E402
+from danu.ui import tiles as _tiles  # noqa: E402
+from danu.ui.app import MainWindow  # noqa: E402
+from danu.ui.config import load_layers  # noqa: E402
+from danu.ui.settings import Settings  # noqa: E402
+from danu.ui.territory import TerritoryFetcher  # noqa: E402
 
 # Nothing in this suite reaches the network, and it is stopped here at import
 # rather than in a fixture. A window built in one test goes on painting during

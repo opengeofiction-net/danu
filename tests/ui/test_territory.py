@@ -4,8 +4,8 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.core.square import SquareName                              # noqa: E402
-from danu.ui.territory import TerritoryFetcher                       # noqa: E402
+from danu.core.square import SquareName  # noqa: E402
+from danu.ui.territory import TerritoryFetcher  # noqa: E402
 
 
 def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fresh(qtbot, tmp_path, territory_files, qapp):
@@ -23,7 +23,8 @@ def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fre
         g.refresh()
     assert g.complete and not g._inflight
     # stale on disk and the network gone: the copy on disk is used, and said so
-    import os, time
+    import os
+    import time
     old = time.time() - 10 * 24 * 3600
     for p in cache.iterdir():
         os.utime(p, (old, old))
@@ -74,6 +75,7 @@ def test_a_window_asks_the_network_for_nothing(qtbot, tmp_path):
     run of this suite made 809 requests to OGF's servers."""
     from PySide6.QtGui import QColor, QImage, QPainter
     from PySide6.QtNetwork import QNetworkAccessManager
+
     from danu.ui.app import MainWindow
     from danu.ui.config import load_layers
     from danu.ui.settings import Settings

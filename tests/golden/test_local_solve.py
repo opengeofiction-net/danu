@@ -46,6 +46,7 @@ def lock_params():
 def solved(zone, work, params):
     """A whole-raster build, with the rasters the local solve needs."""
     import numpy as np
+
     from danu.surface import build
 
     result = build.build_dem(zone, work, params)
@@ -104,6 +105,7 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     before judging.
     """
     import numpy as np
+
     from danu.core import edits
     from danu.core.square import read_square, write_square
     from danu.surface import local
@@ -195,6 +197,7 @@ def test_the_rim_is_what_bounds_it(tmp_path):
     the only ground the second pass moves: a box of answered cells is fixed
     from end to end and no rim would change it."""
     import numpy as np
+
     from danu.surface import build, local
 
     p = lock_params()

@@ -31,9 +31,9 @@ from .mapcontrols import MapControls
 from .mapview import MapView
 from .messages import install as quieten_qt
 from .open_dialog import OpenDialog
+from .overlays import EnvelopeItem, UnreachedLayer
 from .settings import Settings
 from .squares import SquaresItem
-from .overlays import EnvelopeItem, UnreachedLayer
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer

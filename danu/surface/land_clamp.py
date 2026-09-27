@@ -48,7 +48,7 @@ from osgeo import gdal, ogr, osr
 # one definition of each; see danu/surface/__init__.py. STRIP_BYTES and strips
 # are re-exported because callers have imported them from here since before
 # they moved.
-from . import NODATA, STRIP_BYTES, strips     # noqa: F401
+from . import NODATA, STRIP_BYTES, strips  # noqa: F401
 
 gdal.UseExceptions()
 ogr.UseExceptions()

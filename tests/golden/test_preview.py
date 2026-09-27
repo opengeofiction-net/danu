@@ -34,6 +34,7 @@ def lock_params():
 
 def built(zone, work, params):
     import numpy as np
+
     from danu.surface import build
     result = build.build_dem(zone, work, params)
     assert result.dem is not None, 'the fixture built nothing'
@@ -79,6 +80,7 @@ def test_a_box_burned_from_the_layer_is_the_whole_rasters_burn(tmp_path):
     it: the spatial-index ordering that motivated this agreed on 97% of cells.
     """
     import numpy as np
+
     from danu.surface import local, preview
 
     p = lock_params()
@@ -117,6 +119,7 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     The preview never calls collect, rasterise, drawn_area, water_mask or
     clamp. What it does is mutate the layer, burn one box and solve it."""
     import numpy as np
+
     from danu.core import edits
     from danu.core.square import read_square, write_square
     from danu.surface import local, preview
@@ -192,6 +195,7 @@ def test_a_contour_the_build_never_saw_burns_last(tmp_path):
     contours and wins a shared cell. That is a deliberate limit - stated in
     Contours - and this pins the behaviour rather than leaving it to chance."""
     import numpy as np
+
     from danu.surface import local, preview
 
     p = lock_params()
@@ -313,6 +317,7 @@ def test_a_clamped_patch_is_the_clamps_own_answer(tmp_path):
     so over unedited ground it must agree cell for cell.
     """
     import numpy as np
+
     from danu.surface import preview
 
     p = lock_params()
@@ -365,6 +370,7 @@ def test_a_shaded_window_is_the_whole_rasters_shading(tmp_path):
     becomes true rather than asserting a margin someone chose.
     """
     import numpy as np
+
     from danu.surface import local, shade
 
     p = lock_params()
@@ -444,6 +450,7 @@ def test_the_clamp_puts_the_burned_constraints_back():
     line. Synthetic arrays, then, built to make each rule bite on its own.
     """
     import numpy as np
+
     from danu.surface import preview
     from danu.surface.build import NODATA
 

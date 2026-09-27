@@ -47,8 +47,7 @@ from osgeo import gdal, ogr
 
 from ..core.save import STAGE_MARKER
 from ..core.square import SquareName, has_constraints, list_squares, loose_squares
-from . import drawn_mask, isofill_lib, land_clamp, sea_mask
-from . import NODATA
+from . import NODATA, drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
 gdal.UseExceptions()
@@ -989,6 +988,7 @@ def main(argv: list[str] | None = None) -> int:
     ever evaluated."""
     import argparse
     import time
+
     from . import params as params_module
 
     ap = argparse.ArgumentParser(prog='python -m danu.surface.build', description=main.__doc__)

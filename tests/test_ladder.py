@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from danu.core import edits, ladder as L
+from danu.core import edits
+from danu.core import ladder as L
 from danu.core.square import Square, SquareName, read_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'

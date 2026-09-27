@@ -4,19 +4,18 @@
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QPoint, QPointF, Qt                       # noqa: E402
-from PySide6.QtGui import QKeySequence, QWheelEvent                  # noqa: E402
-from PySide6.QtTest import QTest                                     # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QKeySequence, QWheelEvent  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 
-from danu.core.square import SquareName, WorkingSet   # noqa: E402
-from danu.ui import mercator as m                                    # noqa: E402
-from danu.ui.app import MainWindow                                   # noqa: E402
-from danu.ui.config import load_layers                               # noqa: E402
-from danu.ui.contours import ContourLayer                            # noqa: E402
-from danu.ui.settings import DEFAULT_KEYS, Settings                  # noqa: E402
+from danu.core.square import SquareName, WorkingSet  # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
+from danu.ui.app import MainWindow  # noqa: E402
+from danu.ui.config import load_layers  # noqa: E402
+from danu.ui.contours import ContourLayer  # noqa: E402
+from danu.ui.settings import DEFAULT_KEYS, Settings  # noqa: E402
 
-from .conftest import cursor_to                                      # noqa: E402
-
+from .conftest import cursor_to  # noqa: E402
 
 # --------------------------------------------------------------- ladder
 
@@ -194,6 +193,7 @@ def test_the_layer_picks_the_nearest_segment_within_tolerance(zone):
 
 def test_the_active_level_is_drawn_heavier(zone, qtbot):
     from PySide6.QtGui import QColor, QImage, QPainter
+
     from danu.ui.mapview import MapView
     ws = WorkingSet.open(zone, SquareName(126, -24), 1)
     view = MapView(); view.resize(600, 600); qtbot.addWidget(view); view.show(); qtbot.waitExposed(view)

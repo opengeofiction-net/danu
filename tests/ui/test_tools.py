@@ -3,13 +3,13 @@
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt              # noqa: E402
-from PySide6.QtGui import QKeyEvent, QMouseEvent                     # noqa: E402
-from PySide6.QtTest import QTest                                     # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 
-from danu.core import edits                                          # noqa: E402
-from danu.core.square import SquareName                              # noqa: E402
-from danu.ui import mercator as m                                    # noqa: E402
+from danu.core import edits  # noqa: E402
+from danu.core.square import SquareName  # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
 
 TEN = SquareName(126, -24)          # the square with five east-west lines, 10..50 m, at lat -23.9..-23.5
 

@@ -10,7 +10,7 @@ import pytest
 osr = pytest.importorskip('osgeo.osr', reason='GDAL not available')
 ogr = pytest.importorskip('osgeo.ogr', reason='GDAL not available')
 
-from danu.surface.land_clamp import ogr_memory_driver, srs_for        # noqa: E402
+from danu.surface.land_clamp import ogr_memory_driver, srs_for  # noqa: E402
 
 
 def test_a_layer_takes_the_rasters_reference_or_none_but_never_an_empty_one():

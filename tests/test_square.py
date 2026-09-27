@@ -11,10 +11,10 @@ import shutil
 from pathlib import Path
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
-from danu.core.square import (SquareName, Square, WorkingSet, list_squares,
-                              parse_ele, read_square)
+from danu.core.square import Square, SquareName, WorkingSet, list_squares, parse_ele, read_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -269,8 +269,7 @@ def test_a_square_is_read_by_what_it_is_not_by_what_it_is_called(tmp_path):
     template, and the square was dropped from the build with nothing said.
     That is the silent-loss failure this pipeline keeps meeting, and the first
     six bytes of the file close it."""
-    from danu.core.square import (Node, SquareName, Way, has_constraints, read_square,
-                                  write_square)
+    from danu.core.square import Node, SquareName, Way, has_constraints, read_square, write_square
 
     square = Square(name=SquareName(125, -24), present=True)
     square.nodes[-1] = Node(id=-1, lat=-23.5, lon=125.5)

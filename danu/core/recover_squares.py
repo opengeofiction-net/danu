@@ -24,10 +24,9 @@ import math
 import os
 import shutil
 import sys
-
-import numpy as np
 import tempfile
 
+import numpy as np
 from osgeo import gdal, ogr
 
 try:

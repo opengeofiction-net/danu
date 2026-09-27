@@ -15,7 +15,6 @@ is asserted rather than asserted-in-a-comment.
 import builtins
 
 
-
 def test_profile_imports_without_gdal(monkeypatch):
     real = builtins.__import__
 
@@ -71,8 +70,9 @@ def test_the_linter_is_configured_and_runs_here():
     rules = conf['tool']['ruff']['lint']['select']
     assert 'F' in rules, 'pyflakes is the reason the linter is here'
     assert 'E402' in rules, (
-        'E402 is selected because 97 `# noqa: E402` comments are already '
-        'written against it; without the rule they say nothing')
+        'E402 is what makes the two live `# noqa: E402` comments mean something '
+        '- the imports that follow an assigned importorskip')
+    assert 'I' in rules, 'import sorting is enforced, not a habit'
     assert 'ruff>=0.16' in conf['project']['optional-dependencies']['dev']
 
     workflow = (root / '.github' / 'workflows' / 'ci.yml').read_text()
