@@ -162,6 +162,10 @@ class ContourLayer(QGraphicsItem):
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
         self.prepareGeometryChange()
         self.working_set = ws
+        # _text is not cleared with them: it is keyed on the label's string,
+        # which is an elevation, and those are the same from one working set to
+        # the next. It grows with the number of distinct elevations ever shown,
+        # which is bounded and small.
         self.paths, self.labels, self.index_levels, self._geoms = {}, [], set(), {}
         if ws is None:
             self._bounds = QRectF()
@@ -432,6 +436,10 @@ class ContourLayer(QGraphicsItem):
         against 86 labels in one window of it, the same ones again on every
         repaint. The font and the centring depend on nothing else, so the path
         is built once per string.
+
+        ``FONT_PT`` is a module constant and nothing changes the font at run
+        time, so the string is the whole of the key. A size that varied - with
+        the zoom, with a setting, with the display - would have to be in it.
 
         Worth less than it looks: labels went from 9.2 ms of a zoom-13 repaint
         to 7.3, not to nothing. Building the outline is the smaller half of

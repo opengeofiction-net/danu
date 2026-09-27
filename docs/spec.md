@@ -1569,7 +1569,13 @@ into glyph outlines, and there are only as many distinct strings as elevations
 now. That took labels from 9.2 ms of a zoom-13 repaint to 7.3, not to nothing:
 building the outline is the smaller half of drawing a label, and stroking a
 halo round it and filling it is the larger, which is per label however the path
-was made. An edit is about 146 ms.
+was made.
+
+An edit measures about 146 ms after both. That is a fresh measurement and not
+the 165 with the two savings taken off it, which would come to about 149 - the
+difference is where run-to-run variation sits on a figure like this, and
+subtracting measured savings from a measured total is how a number nobody took
+ends up in a document.
 
 **Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
 off above 3 arcseconds

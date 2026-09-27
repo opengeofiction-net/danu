@@ -539,9 +539,52 @@ def test_a_label_outline_is_built_once_per_elevation(view, ws):
     assert layer.drawn_labels > 0, 'no labels were drawn, so nothing was cached'
     after_one = dict(layer._text)
     assert after_one, 'no outline was kept'
-    assert len(after_one) <= len(layer.paths), 'more outlines than elevations'
+    # one outline per label string drawn, and a string is an elevation. Fewer
+    # than the elevations present, since a label is only drawn where its
+    # contour is long enough on screen to carry one
+    assert set(after_one) == {f'{lab.ele:g}' for lab in layer.labels
+                              if f'{lab.ele:g}' in after_one}
+    assert len(after_one) <= layer.drawn_labels, 'more outlines than labels drawn'
 
     render(view)
     assert layer._text.keys() == after_one.keys(), 'a repaint built new outlines'
     for text, path in after_one.items():
         assert layer._text[text] is path, f'the outline for {text} was rebuilt'
+
+
+def test_only_the_picks_read_the_flat_arrays():
+    """The arrays are built when something asks, so any method that reads them
+    without asking reads whatever the last edit left.
+
+    Nothing outside this file touches them - checked across the tree - and
+    inside it the readers are the three picks, which call `_ensure_arrays`
+    first, and `_rebuild_arrays`, which builds them. A fourth reader is the
+    shape of this bug, and it would be silent: the arrays are usually current,
+    because something usually picked before the edit.
+    """
+    import ast
+    from pathlib import Path
+
+    FLAT = {'_seg_a', '_seg_b', '_seg_ele', '_seg_way', '_seg_i', '_node_xy', '_node_ref'}
+    src = (Path(__file__).parents[2] / 'danu' / 'ui' / 'contours.py').read_text()
+    layer = next(n for n in ast.parse(src).body
+                 if isinstance(n, ast.ClassDef) and n.name == 'ContourLayer')
+
+    def touches(fn):
+        return {a.attr for a in ast.walk(fn)
+                if isinstance(a, ast.Attribute) and a.attr in FLAT}
+
+    def asks(fn):
+        return any(isinstance(c.func, ast.Attribute) and c.func.attr == '_ensure_arrays'
+                   for c in ast.walk(fn) if isinstance(c, ast.Call))
+
+    builders = {'__init__', '_rebuild_arrays'}
+    readers = {fn.name for fn in layer.body
+               if isinstance(fn, ast.FunctionDef) and touches(fn) and fn.name not in builders}
+    assert readers, 'no method reads the flat arrays, so this guard is watching nothing'
+    unguarded = {name for name in readers
+                 if not asks(next(fn for fn in layer.body
+                                  if isinstance(fn, ast.FunctionDef) and fn.name == name))}
+    assert unguarded == set(), (
+        f'{sorted(unguarded)} read the flat arrays without calling _ensure_arrays, '
+        f'so they answer from whatever the last edit left')
