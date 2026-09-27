@@ -328,7 +328,9 @@ class Kept:
     geotransform: tuple
     nodata: float          # the build's own; None would reach SetNoDataValue
     contours: Contours
-    dem: Band | ArrayBand           # the clamped surface, which clamp_patch
+    dem: Band | ArrayBand           # opened for update too: the caller writes
+                                    # each clamped patch back. The clamped
+                                    # surface, which clamp_patch
                                     # reads the sea decision off. Not optional:
                                     # the default was documented as being for
                                     # a caller that solves without clamping,

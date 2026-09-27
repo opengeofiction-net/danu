@@ -155,9 +155,14 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     kept = preview.Kept(constraints=preview.Band.open(r.constraints, np.float32),
                         mask=preview.Band.open(r.drawn_mask),
                         water=preview.Band.open(r.water_mask) if r.water_mask else None,
-                        surface=preview.Band.open(r.surface, np.float32),
+                        # update=True on these two, as _read_rasters opens
+                        # them: the preview writes the surface and the dem, and
+                        # a read-only handle would not be the path a mapper is
+                        # on. This test does not itself write - patch() does not
+                        # - but the mode is part of what is being exercised.
+                        surface=preview.Band.open(r.surface, np.float32, update=True),
                         geotransform=gt, nodata=before['nodata'], contours=layer,
-                        dem=preview.Band.open(r.dem, np.float32))
+                        dem=preview.Band.open(r.dem, np.float32, update=True))
     keep_a_copy = kept.constraints.read_all().copy()
     mask_copy = kept.mask.read_all().copy()
     water_copy = kept.water.read_all().copy() if kept.water is not None else None
