@@ -1577,6 +1577,35 @@ them are where run-to-run variation sits on a figure like this - which is the
 reason to take the measurement rather than do the arithmetic, and the reason
 both numbers are here instead of only the tidier one.
 
+**And the labels stop until z14.** Using it at 146 ms an edit found z12 and z13
+still lagging, and the guess was that the labels were in it. They were, and
+they cost most where they say least: a contour carries one label however far in
+you are, so zooming out puts more of them on screen and makes each one smaller.
+
+One run, so the columns subtract:
+
+| | labels from z12 | from z14 | saved |
+|---|---|---|---|
+| a repaint at z12 | 33.6 ms, 86 labels | 23.2 ms | 10.4 ms |
+| a repaint at z13 | 21.7 ms, 55 labels | 14.6 ms | 7.2 ms |
+| a repaint at z14 | 13.2 ms, 11 labels | 13.2 ms | - |
+
+About a third of a *repaint* at both. Not a third of an edit: an edit is two
+repaints on top of a solve, so 7.2 ms at z13 is about 14 of some 145 - worth
+having, and a different claim from the one the repaint figures make on their
+own. An edit measures about 136 ms against 146 before, which is that saving
+inside the run-to-run spread rather than distinguishable from it.
+
+Two zooms above `ZOOM_ALL` rather than one, which is the part worth writing
+down: the contours are what a mapper is reading at z12 and z13, and the labels
+were a third of the cost of showing them.
+
+Index contours below z12 was measured as well, and rendered rather than
+guessed at - 12 ms cheaper at z11 and, unexpectedly, easier to read, since z11
+draws 1,957 ways and is the smudge this layer's own level-of-detail note warns
+about. At z12 the same change takes 44 levels to 8 and the low ground loses its
+shape entirely. Not taken, either way, until someone wants z11 specifically.
+
 **Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
 off above 3 arcseconds
 because `Kept` holds the build's grids as whole arrays and they would be

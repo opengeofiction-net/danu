@@ -16,7 +16,10 @@ and a thousand contours in it are a smudge:
   every fifth rung of it. Not every 100 m: OGF ladders are odd - 101, 151,
   201 - and a square can have no round hundred in it at all
 - from ZOOM_ALL every contour
-- from ZOOM_LABELS labels too, on ways long enough on screen to carry one
+- from ZOOM_LABELS labels too, on ways long enough on screen to carry one.
+  Two zooms above ZOOM_ALL rather than one: the contours are what a mapper is
+  reading at z12 and z13, and the labels were a third of what it cost to draw
+  them
 
 Colour is by elevation through a Ramp. The default is the spectral ramp over
 the working set's own range, because the tiles' hypsometric ramp - available
@@ -44,7 +47,20 @@ from .mapview import visible_rect
 
 ZOOM_INDEX = 8
 ZOOM_ALL = 11
-ZOOM_LABELS = 12
+# 14, not 12. Labels are the most expensive thing this layer draws for what
+# they tell you, and they cost most where they say least: a contour carries one
+# label however far in you are, so zooming out puts more of them on screen and
+# makes each one smaller. Measured in one run, so the columns subtract:
+#
+#        labels from 12        labels from 14      saved
+#   z12  33.6 ms, 86 labels    23.2 ms,  0        10.4 ms
+#   z13  21.7 ms, 55 labels    14.6 ms,  0         7.2 ms
+#   z14  13.2 ms, 11 labels    13.2 ms, 11             -
+#
+# About a third of a *repaint* at z12 and z13. Not a third of an edit: an edit
+# is two repaints on top of a solve, so the 7.2 ms at z13 is about 14 of some
+# 145, which is worth having and is not the same claim.
+ZOOM_LABELS = 14
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9

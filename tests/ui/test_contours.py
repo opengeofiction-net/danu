@@ -635,3 +635,56 @@ def test_a_label_outline_is_not_reused_across_fonts(view, ws):
     assert a is not b, 'the same outline was served for two different fonts'
     assert a.boundingRect().height() < b.boundingRect().height()
     assert layer._text_path('100', small) is a, 'the first font stopped hitting'
+
+
+def test_labels_start_exactly_at_their_zoom(view, ws):
+    """The threshold, pinned at wherever it is rather than at a number.
+
+    The level-of-detail test above uses ZOOM_LABELS for both the zoom and the
+    expectation, so it follows the constant and cannot see it move. This checks
+    the step: none at one zoom below, some at it. An off-by-one either way -
+    labels a zoom early, or a zoom late - changes what a pan costs by about a
+    third and nothing would say so.
+    """
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    # drawn_labels is cleared at the top of paint, with drawn_ways and
+    # drawn_levels, so each render answers for itself and the order here is
+    # readability rather than load-bearing
+    view.set_zoom(ZOOM_LABELS - 1)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    assert layer.drawn_ways > 0, 'no contour is on screen, so this says nothing about labels'
+    assert layer.drawn_labels == 0, 'a label was drawn a zoom below ZOOM_LABELS'
+
+    view.set_zoom(ZOOM_LABELS)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    assert layer.drawn_labels > 0, 'no label was drawn at ZOOM_LABELS'
+
+
+def test_labels_start_at_z14_and_above_where_every_contour_does():
+    """Both halves of the contract, because they are different contracts.
+
+    The relationship - labels above where every contour draws, with a gap - is
+    the reasoning: the contours are what a mapper reads at z12 and z13, and the
+    labels were about a third of what it cost to draw them there.
+
+    The number is a measurement. 14 is where 11 labels cost 3 ms rather than
+    where 86 cost 10, and changing it moves what a pan costs by about a third
+    at two zooms. The test above cannot see that: it takes both the zoom it
+    sets and the expectation from `ZOOM_LABELS`, so moving the constant to 13
+    or 15 leaves it passing. Pinned here, so a change to the number is a change
+    someone made on purpose.
+    """
+    assert ZOOM_LABELS == 14, (
+        f'labels now start at z{ZOOM_LABELS}; the measurements behind 14 are in '
+        f'the constant\'s own comment and in F5c, and want re-taking if it moves')
+    assert ZOOM_LABELS > ZOOM_ALL + 1, (
+        f'labels start at z{ZOOM_LABELS} and every contour at z{ZOOM_ALL}; they '
+        f'were adjacent when labels cost a third of a repaint at both')
