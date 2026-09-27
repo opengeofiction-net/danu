@@ -4,8 +4,8 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.core.square import SquareName  # noqa: E402
-from danu.ui.territory import TerritoryFetcher  # noqa: E402
+from danu.core.square import SquareName
+from danu.ui.territory import TerritoryFetcher
 
 
 def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fresh(qtbot, tmp_path, territory_files, qapp):

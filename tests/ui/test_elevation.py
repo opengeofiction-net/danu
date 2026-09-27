@@ -4,18 +4,18 @@
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QKeySequence, QWheelEvent  # noqa: E402
-from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QKeySequence, QWheelEvent
+from PySide6.QtTest import QTest
 
-from danu.core.square import SquareName, WorkingSet  # noqa: E402
-from danu.ui import mercator as m  # noqa: E402
-from danu.ui.app import MainWindow  # noqa: E402
-from danu.ui.config import load_layers  # noqa: E402
-from danu.ui.contours import ContourLayer  # noqa: E402
-from danu.ui.settings import DEFAULT_KEYS, Settings  # noqa: E402
+from danu.core.square import SquareName, WorkingSet
+from danu.ui import mercator as m
+from danu.ui.app import MainWindow
+from danu.ui.config import load_layers
+from danu.ui.contours import ContourLayer
+from danu.ui.settings import DEFAULT_KEYS, Settings
 
-from .conftest import cursor_to  # noqa: E402
+from .conftest import cursor_to
 
 # --------------------------------------------------------------- ladder
 

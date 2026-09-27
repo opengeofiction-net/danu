@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.ui import mercator as m  # noqa: E402
+from danu.ui import mercator as m
 
 
 def test_the_buttons_zoom_and_switch_tools_and_follow_the_state(window):

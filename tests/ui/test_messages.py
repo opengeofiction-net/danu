@@ -5,9 +5,9 @@ import atexit
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import qCritical, qInstallMessageHandler, qWarning  # noqa: E402
+from PySide6.QtCore import qCritical, qInstallMessageHandler, qWarning
 
-from danu.ui import messages  # noqa: E402
+from danu.ui import messages
 
 
 @pytest.mark.parametrize('category,text,noise', [

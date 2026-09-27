@@ -64,7 +64,7 @@ def fetch_waterways(bbox, timeout=180):
             req = urllib.request.Request(OVERPASS_URL, data=query.encode())
             with urllib.request.urlopen(req, timeout=timeout + 60) as resp:
                 return parse_osm(resp.read())
-        except Exception as exc:                      # noqa: BLE001
+        except Exception as exc:
             if attempt == MAX_RETRIES:
                 raise
             print(f'  overpass attempt {attempt} failed ({exc}), retrying',

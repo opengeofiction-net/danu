@@ -59,21 +59,33 @@ line-length = 110
 # assignment - `osr = pytest.importorskip(...)` in tests/test_land_clamp.py and
 # tests/test_mercator_proj.py - which is code, and E402 is kept for those.
 #
-# The eighty-nine inert comments stay for now, deliberately and not by
-# oversight. Deleting them is RUF100's job - it can prove each one suppresses
-# nothing, which grepping cannot - and that is a rule to select on its own
-# rather than eighty-nine hand edits buried in an import sort.
+# RUF100 is what settles the inert ones, and it is why the rest of this list
+# exists. It reports a `# noqa` that suppresses nothing, so every directive in
+# the tree now has to be true: ninety E402 comments went because they were
+# not, and the twelve that remained named rules nothing was running.
 #
-# The rest of E would be a style change nobody has asked for: 140 semicolons
-# that pair two short assignments on purpose, and twenty-five `l, t, r, b =
-# scene_rect` unpackings where `l` means left. Both are choices this codebase
-# has made, and a linter is not the place to reopen them.
+# BLE001 and E731 are those twelve rules, turned on rather than deleted. Both
+# were selected with no new work to do - every site they flag already carried
+# the directive, so the tree was clean the moment they went in. What they buy
+# is that the directives now mean something. A bare `except Exception` in a
+# worker thread is deliberate six times over, because a UI that dies on an
+# unexpected error is worse than one that reports it as text, and each of
+# those six says so. The seventh, in danu/checks/rivers.py, re-raises on the
+# last attempt and so was never blind; RUF100 removed it. The five `E731`
+# lambdas are ctypes pointer casts and Mercator scalings, local and one line
+# each. The point of both rules is the *next* one, which will have to be
+# argued for in a comment rather than appearing unremarked.
+#
+# The rest of E stays out - it would be a style change nobody has asked for:
+# 140 semicolons that pair two short assignments on purpose, and twenty-five
+# `l, t, r, b = scene_rect` unpackings where `l` means left. Both are choices
+# this codebase has made, and a linter is not the place to reopen them.
 #
 # I sorts the imports. It was left out of the first cut because it rewrites
 # every file's header and that is better seen on its own; this is that change.
 # The grouping it enforces - standard library, third party, then the package -
 # is the one the files mostly already used, by hand and not everywhere.
-select = ["F", "E402", "I"]
+select = ["F", "E402", "I", "RUF100", "BLE001", "E731"]
 
 [tool.ruff.lint.per-file-ignores]
 # The GDAL idiom for closing a dataset is to drop the last reference to it:

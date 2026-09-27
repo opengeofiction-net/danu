@@ -11,9 +11,9 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.surface import params as surface_params  # noqa: E402
-from danu.ui.preview import PreviewDriver  # noqa: E402
-from danu.ui.surface import Built  # noqa: E402
+from danu.surface import params as surface_params
+from danu.ui.preview import PreviewDriver
+from danu.ui.surface import Built
 
 PARAMS = surface_params.load().with_arcsec(3.0)
 

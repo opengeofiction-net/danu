@@ -62,6 +62,7 @@ def test_the_linter_is_configured_and_runs_here():
     nothing watching, five of them in the commit that noticed. This is what
     makes the config the contract rather than a habit.
     """
+    import re
     import tomllib
     from pathlib import Path
 
@@ -73,6 +74,9 @@ def test_the_linter_is_configured_and_runs_here():
         'E402 is what makes the two live `# noqa: E402` comments mean something '
         '- the imports that follow an assigned importorskip')
     assert 'I' in rules, 'import sorting is enforced, not a habit'
+    assert 'RUF100' in rules, (
+        'RUF100 is what keeps the `# noqa` comments honest; without it they '
+        'accumulate against rules nothing runs, as ninety of them had')
     assert 'ruff>=0.16' in conf['project']['optional-dependencies']['dev']
 
     # Under [tool.ruff], not [tool.ruff.lint]: it is isort's wrap width and
@@ -81,6 +85,26 @@ def test_the_linter_is_configured_and_runs_here():
     # set at all - so what this pins is that it is set, and above the default.
     assert conf['tool']['ruff']['line-length'] > 88, (
         'at 88 the import sort rewrites the Qt imports one name per line')
+
+    # Every rule a surviving noqa comment names has to be one ruff is running.
+    # This is the property RUF100 enforces from the other side: it deletes a
+    # directive whose rule is off, so a directive that is still here and names
+    # a rule not in `select` would mean the two had drifted apart. Ninety
+    # E402 comments and one BLE001 went this way; what is left says something.
+    noqa = re.compile(r'#\s*noqa:\s*([A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*)')
+    found = set()
+    for py in sorted(root.glob('**/*.py')):
+        if '.venv' in py.parts or 'build' in py.parts:
+            continue
+        for line in py.read_text().splitlines():
+            for m in noqa.finditer(line):
+                found.update(c.strip() for c in m.group(1).split(','))
+    assert found, 'no `# noqa` comments found at all - the scan is broken'
+    ignored = {c for codes in conf['tool']['ruff']['lint'].get(
+        'per-file-ignores', {}).values() for c in codes}
+    for code in sorted(found):
+        assert any(code.startswith(r) for r in rules) or code in ignored, \
+            f'`# noqa: {code}` names a rule ruff is not running'
 
     workflow = (root / '.github' / 'workflows' / 'ci.yml').read_text()
     assert 'ruff check .' in workflow, 'the CI job does not run the linter'
