@@ -1571,11 +1571,11 @@ building the outline is the smaller half of drawing a label, and stroking a
 halo round it and filling it is the larger, which is per label however the path
 was made.
 
-An edit measures about 146 ms after both. That is a fresh measurement and not
-the 165 with the two savings taken off it, which would come to about 149 - the
-difference is where run-to-run variation sits on a figure like this, and
-subtracting measured savings from a measured total is how a number nobody took
-ends up in a document.
+An edit measures about 146 ms after both, taken afresh rather than worked out.
+Working it out would have given about 149, and the three milliseconds between
+them are where run-to-run variation sits on a figure like this - which is the
+reason to take the measurement rather than do the arithmetic, and the reason
+both numbers are here instead of only the tidier one.
 
 **Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
 off above 3 arcseconds

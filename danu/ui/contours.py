@@ -148,7 +148,7 @@ class ContourLayer(QGraphicsItem):
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._arrays_stale = False
-        self._text: dict[str, QPainterPath] = {}
+        self._text: dict[tuple[str, str], QPainterPath] = {}
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
@@ -162,10 +162,11 @@ class ContourLayer(QGraphicsItem):
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
         self.prepareGeometryChange()
         self.working_set = ws
-        # _text is not cleared with them: it is keyed on the label's string,
-        # which is an elevation, and those are the same from one working set to
-        # the next. It grows with the number of distinct elevations ever shown,
-        # which is bounded and small.
+        # _text is not cleared with them: it is keyed on the label's string and
+        # the font, and the strings are elevations, which are the same from one
+        # working set to the next. It grows with the distinct pairs ever shown,
+        # which is bounded and small - and the font being in the key is what
+        # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels, self._geoms = {}, [], set(), {}
         if ws is None:
             self._bounds = QRectF()
@@ -428,7 +429,7 @@ class ContourLayer(QGraphicsItem):
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
 
-    def _text_path(self, text: str) -> QPainterPath:
+    def _text_path(self, text: str, font: QFont) -> QPainterPath:
         """The outline of a label's text, centred on the origin, kept.
 
         ``addText`` turns a string into glyph outlines, and there are only as
@@ -437,31 +438,39 @@ class ContourLayer(QGraphicsItem):
         repaint. The font and the centring depend on nothing else, so the path
         is built once per string.
 
-        ``FONT_PT`` is a module constant and nothing changes the font at run
-        time, so the string is the whole of the key. The zoom is not part of
-        it and does not need to be: the path is built at one size and
-        ``_paint_labels`` scales the *painter* by the reciprocal of the view's
-        scale, so the same outline is right at every zoom. What would have to
-        be in the key is a size that changed how the path itself was built -
-        a setting, a display's pixel ratio, a font chosen per level.
+        Keyed on the string *and the font*. ``FONT_PT`` is a module constant,
+        but ``QFont()`` is not: it resolves to the application's default
+        family, which a theme or a display can change under a running editor,
+        and an outline cached before that would be served after it with no way
+        to evict it - the cache is deliberately not cleared between working
+        sets. ``QFont.key()`` is what makes that impossible rather than
+        unlikely.
+
+        The zoom is not in the key and does not need to be: the path is built
+        at one size and ``_paint_labels`` scales the *painter* by the
+        reciprocal of the view's scale, so one outline is right at every
+        zoom.
 
         Worth less than it looks: labels went from 9.2 ms of a zoom-13 repaint
         to 7.3, not to nothing. Building the outline is the smaller half of
         drawing a label; the larger is stroking a three-wide halo around it and
         then filling it, and that is per label wherever the path came from.
         """
-        path = self._text.get(text)
+        key = (text, font.key())
+        path = self._text.get(key)
         if path is None:
-            font = QFont()
-            font.setPointSize(FONT_PT)
             path = QPainterPath()
             path.addText(QPointF(0, 0), font, text)
             box = path.boundingRect()
             path.translate(-box.width() / 2, box.height() / 2 - 1)
-            self._text[text] = path
+            self._text[key] = path
         return path
 
     def _paint_labels(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
+        # one font per paint, not one per label: it is the cache's key as well
+        # as what builds the outline
+        font = QFont()
+        font.setPointSize(FONT_PT)
         halo = QPen(QColor(255, 255, 255, 220), 3.0)
         halo.setCosmetic(True)
         for lab in self.labels:
@@ -469,7 +478,7 @@ class ContourLayer(QGraphicsItem):
                 continue
             if zoom < ZOOM_ALL and not self.is_index(lab.ele):
                 continue
-            tp = self._text_path(f'{lab.ele:g}')
+            tp = self._text_path(f'{lab.ele:g}', font)
             painter.save()
             painter.translate(lab.x, lab.y)
             painter.rotate(lab.angle)

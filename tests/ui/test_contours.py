@@ -540,44 +540,59 @@ def test_a_label_outline_is_built_once_per_elevation(view, ws):
     # per string
     asked = []
     real = layer._text_path
-    layer._text_path = lambda text: asked.append(text) or real(text)
+    layer._text_path = lambda text, font: asked.append(text) or real(text, font)
 
     render(view)
     assert layer.drawn_labels > 0, 'no labels were drawn, so nothing was cached'
     after_one = dict(layer._text)
     assert after_one, 'no outline was kept'
-    assert set(after_one) == set(asked), (
-        f'the cache holds {sorted(set(after_one))} and the paint asked for '
-        f'{sorted(set(asked))}')
+    assert {text for text, _font in after_one} == set(asked), (
+        f'the cache holds {sorted(t for t, _ in after_one)} and the paint asked '
+        f'for {sorted(set(asked))}')
     assert len(asked) > len(set(asked)), (
         'every label wanted a different string, so this fixture cannot show '
         'one outline being reused')
-    assert set(after_one) <= {f'{lab.ele:g}' for lab in layer.labels}, \
+    assert {text for text, _font in after_one} <= {f'{lab.ele:g}' for lab in layer.labels}, \
         'an outline was cached for something that is not a label'
 
     asked.clear()
     render(view)
     assert layer._text.keys() == after_one.keys(), 'a repaint built new outlines'
     assert asked, 'the second paint did not ask for any outline at all'
-    for text, path in after_one.items():
-        assert layer._text[text] is path, f'the outline for {text} was rebuilt'
+    for key, path in after_one.items():
+        assert layer._text[key] is path, f'the outline for {key[0]} was rebuilt'
 
 
 def test_only_the_picks_read_the_flat_arrays():
     """The arrays are built when something asks, so any method that reads them
     without asking reads whatever the last edit left.
 
-    Nothing outside this file touches them - checked across the tree - and
-    inside it the readers are the three picks, which call `_ensure_arrays`
-    first, and `_rebuild_arrays`, which builds them. A fourth reader is the
-    shape of this bug, and it would be silent: the arrays are usually current,
-    because something usually picked before the edit.
+    Two halves, because the claim has two: that nothing outside `contours.py`
+    names them at all, and that inside it every reader asks first. The second
+    was checked here from the start; the first was asserted in a comment and
+    checked by hand, which is not the same thing.
+
+    A fourth reader is the shape of this bug and it would be silent: the arrays
+    are usually current, because something usually picked before the edit.
     """
     import ast
     from pathlib import Path
 
     FLAT = {'_seg_a', '_seg_b', '_seg_ele', '_seg_way', '_seg_i', '_node_xy', '_node_ref'}
-    src = (Path(__file__).parents[2] / 'danu' / 'ui' / 'contours.py').read_text()
+    root = Path(__file__).parents[2]
+    outside = {}
+    for path in sorted((root / 'danu').rglob('*.py')):
+        if path.name == 'contours.py':
+            continue
+        names = {a.attr for a in ast.walk(ast.parse(path.read_text()))
+                 if isinstance(a, ast.Attribute) and a.attr in FLAT}
+        if names:
+            outside[path.relative_to(root).as_posix()] = sorted(names)
+    assert outside == {}, (
+        f'{outside} name the flat arrays outside contours.py, where nothing '
+        f'calls _ensure_arrays for them')
+
+    src = (root / 'danu' / 'ui' / 'contours.py').read_text()
     layer = next(n for n in ast.parse(src).body
                  if isinstance(n, ast.ClassDef) and n.name == 'ContourLayer')
 
@@ -599,3 +614,24 @@ def test_only_the_picks_read_the_flat_arrays():
     assert unguarded == set(), (
         f'{sorted(unguarded)} read the flat arrays without calling _ensure_arrays, '
         f'so they answer from whatever the last edit left')
+
+
+def test_a_label_outline_is_not_reused_across_fonts(view, ws):
+    """QFont() resolves to the application default family, which a theme or a
+    display can change under a running editor - and the cache is deliberately
+    never cleared, so there is no eviction. If the font were not in the key, an
+    outline built before the change would be served after it for ever."""
+    from PySide6.QtGui import QFont
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    small, large = QFont(), QFont()
+    small.setPointSize(9)
+    large.setPointSize(22)
+    assert small.key() != large.key()
+
+    a = layer._text_path('100', small)
+    b = layer._text_path('100', large)
+    assert a is not b, 'the same outline was served for two different fonts'
+    assert a.boundingRect().height() < b.boundingRect().height()
+    assert layer._text_path('100', small) is a, 'the first font stopped hitting'
