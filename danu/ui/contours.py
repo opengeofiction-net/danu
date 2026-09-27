@@ -150,7 +150,10 @@ class ContourLayer(QGraphicsItem):
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
         self.drawn_levels = 0
-        self.drawn_ways = 0        # how many the cull let through, for tests
+        # how many ways the cull let through, for tests. The level pass only:
+        # the active level is drawn again over the top and counting that would
+        # count the same ways twice
+        self.drawn_ways = 0
         self.drawn_labels = 0
 
     # ------------------------------------------------------------ data

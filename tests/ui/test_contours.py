@@ -379,6 +379,9 @@ def test_a_contour_running_due_east_is_not_culled(view, ws):
     alloc = edits.IdAllocator(sq)
     lat = -23.5
     lon0, lon1 = 125.2, 125.8
+    # an elevation nothing else in the set uses, so `paths[7.0]` is this way
+    # and the count below fails for the reason it names
+    assert 7.0 not in layer.paths, 'the fixture already draws at 7 m'
     wid = alloc.take()
     cmd = edits.AddWay(wid, [alloc.take(), alloc.take()],
                        [(lon0, lat), (lon1, lat)], {'ele': '7'})
@@ -386,7 +389,7 @@ def test_a_contour_running_due_east_is_not_culled(view, ws):
     layer.refresh(sq, {wid})
 
     pieces = layer.paths[7.0]
-    assert len(pieces) == 1
+    assert len(pieces) == 1, 'the way drawn here is not the only one at 7 m'
     assert pieces[0].rect.height() > 0, (
         'the rectangle was not grown, so this contour has no height and '
         'QRectF.intersects would cull it from every window')

@@ -1475,7 +1475,9 @@ ever culled and a third of a million points were redrawn antialiased on every
 paint - on every pan, and on every edit.
 
 **Done.** One path per way, each with its own rectangle. The whole map's
-repaint, on the gobras 3x3 at a 687 by 954 viewport, over 6,305 ways:
+repaint, on the gobras 3x3 at a 687 by 954 viewport. 6,305 ways there, not the
+6,401 above: ninety-six of those carry an `ele` but fewer than two points the
+square still holds, so they are not geometry and the layer never builds one.
 
 | zoom | | before | after | ways drawn |
 |---|---|---|---|---|
