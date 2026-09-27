@@ -348,7 +348,7 @@ def _changed(base, box, lift=60.0, shade=40):
                             metres=base.metres)
 
 
-def test_a_rebuild_recolours_what_moved_and_not_the_raster(qtbot):
+def test_the_comparison_finds_the_box_that_moved(qtbot):
     """A build is not a reason to recolour a raster. An exact rebuild after one
     node moved changes 30 cells of 24.4 million, in eleven rows; finding them
     costs 16.4 ms and redrawing them 0.4, against 1,547 for the whole.
@@ -399,7 +399,16 @@ def test_recolouring_what_moved_is_the_picture_recolouring_all_of_it_gives(qtbot
     partial = SurfaceLayer(); partial.set_style(fixed())
     partial.set_shaded(base)
     before_pixels = _pixmap_of(partial)
+
+    # and the shortcut has to be the path taken, or this compares a whole
+    # recolour against a whole recolour and holds nothing
+    whole_calls, box_calls = [], []
+    real_recolour, real_box = partial.recolour, partial.recolour_box
+    partial.recolour = lambda: whole_calls.append(True) or real_recolour()
+    partial.recolour_box = lambda *a: box_calls.append(a) or real_box(*a)
     partial.set_shaded(after)
+    assert whole_calls == [], 'showing the rebuild recoloured the whole raster'
+    assert box_calls, 'showing the rebuild recoloured nothing at all'
 
     whole = SurfaceLayer(); whole.set_style(fixed())
     whole.set_shaded(after)

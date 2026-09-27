@@ -1537,7 +1537,8 @@ ground recolours every cell - including ones whose own elevation did not
 change. Recolouring only what moved there would leave the rest at the old scale
 and the patch would show as a rectangle.
 
-The same idea retires `PREVIEW_ARCSEC`. The preview is off above 3 arcseconds
+**Next, and not done:** the same idea retires `PREVIEW_ARCSEC`. The preview is
+off above 3 arcseconds
 because `Kept` holds the build's grids as whole arrays and they would be
 gigabytes - but a solve reads *one grown box*, and the rasters are tiled
 GeoTIFFs written 256 by 256:

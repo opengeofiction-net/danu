@@ -13,8 +13,10 @@
 NODATA = -9999
 
 
-# Rows per strip, chosen so one strip of one band is tens of megabytes whatever
-# the width of the zone.
+# Rows per strip. Sized so that one strip of the arrays a caller says it is
+# holding comes to tens of megabytes whatever the width of the zone - the
+# caller says how many and how wide through `strips`' own arguments, so this is
+# a budget for the strip rather than for any one band.
 STRIP_BYTES = 64 << 20
 
 
