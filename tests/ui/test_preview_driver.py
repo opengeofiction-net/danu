@@ -569,7 +569,6 @@ def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
     This was the fix for that and had no test.
     """
     import numpy as np
-    from danu.surface import local
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0
@@ -594,8 +593,6 @@ def test_the_crop_holds_when_the_window_was_clipped_by_the_raster(qtbot, monkeyp
     Here the source window is clipped to half its asked-for height while the
     Mercator output keeps its own, which is the shape of that disagreement.
     """
-    import numpy as np
-    from danu.surface import local
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0
@@ -919,3 +916,76 @@ def test_the_idle_wait_is_a_backstop_and_not_a_gesture_timer():
     assert IDLE_MS > 100 * GESTURE_MS, (
         f'{IDLE_MS} ms against a {GESTURE_MS} ms gesture window - the two are '
         f'meant to be different kinds of wait, not two sizes of the same one')
+
+
+def _with_mask(monkeypatch, drawn):
+    """A driver whose drawn mask is `drawn` - 1 where the build's fill reaches."""
+    d = driver_over(monkeypatch)
+    d._kept.mask[:] = drawn
+    return d
+
+
+def test_a_contour_on_undrawn_ground_asks_for_a_rebuild_at_once(qtbot, monkeypatch):
+    """The drawn mask belongs to the build and the fill is told not to reach
+    outside it, so a contour drawn beyond the drawn envelope moves nothing in
+    the preview - measured, 0 of 25 cells. Waiting out the backstop for that
+    shows the mapper nothing at all for ten seconds."""
+
+    d = _with_mask(monkeypatch, 1)
+    d._kept.mask[:200, :200] = 0            # a corner the build never reached
+    asked, fresh = [], []
+    d.exact_wanted.connect(lambda: asked.append(True))
+    d.freshGround.connect(fresh.append)
+
+    d.edited(at_cell(300, 300, wid=1), {1})     # well inside drawn ground
+    assert asked == [] and fresh == [], 'an ordinary edit asked for a rebuild'
+
+    d.edited(at_cell(60, 60, wid=2), {2})       # out in the undrawn corner
+    assert fresh == [[2]], f'the undrawn contour was not reported: {fresh}'
+    assert asked == [True], 'no rebuild was asked for'
+
+
+def test_the_trigger_is_the_contour_not_the_patch(qtbot, monkeypatch):
+    """The drawn mask is the fill's reach from the contours, not a solid blob,
+    so it is full of holes and edges an ordinary patch straddles: over twelve
+    edits on the gobras 3x3 between 1.9% and 28.3% of each *patch* lay outside
+    it, which as a trigger fires on almost every edit and is worse than the
+    timer it replaces. The moved contour's own cells were outside it 0.0% of
+    the time across all twelve."""
+
+    d = _with_mask(monkeypatch, 1)
+    # a hole inside the patch the edit will solve - the ways at at_cell(300,
+    # 300) span columns 300 to 302 on row 300, and a patch reaches 40 cells
+    # each way - but not under the contour itself. This is the shape the
+    # gobras patches had: a quarter of one outside the mask, the contour
+    # entirely on drawn ground.
+    d._kept.mask[262:338, 262:296] = 0
+    fresh = []
+    d.freshGround.connect(fresh.append)
+    d.edited(at_cell(300, 300, wid=1), {1})
+    assert fresh == [], (
+        'a hole in the mask beside the contour triggered a rebuild; the test is '
+        'the contour, not the ground around it')
+
+    # and under it, it does fire
+    d._kept.mask[295:305, 295:315] = 0
+    d.edited(at_cell(300, 300, wid=2), {2})
+    assert fresh == [[2]], 'a contour standing on undrawn ground did not fire'
+
+
+def test_a_contour_off_the_raster_is_fresh_ground_too(qtbot, monkeypatch):
+    """The build's extent is the squares that held contours, so a square
+    gaining its first one puts a contour outside the raster altogether - not
+    merely outside the fill's reach. Treating an out-of-bounds cell as "not
+    fresh" would leave that case waiting out the backstop, which is the one
+    thing the trigger exists to avoid."""
+    d = _with_mask(monkeypatch, 1)
+    fresh = []
+    d.freshGround.connect(fresh.append)
+
+    d.edited(at_cell(300, 300, wid=1), {1})
+    assert fresh == [], 'an edit on the raster was called fresh ground'
+
+    off = Square([Way(2, [1, 2])], {1: Node(140.0, -12.0), 2: Node(140.02, -12.0)})
+    d.edited(off, {2})
+    assert fresh == [[2]], 'a contour beyond the raster was not called fresh ground'

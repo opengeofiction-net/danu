@@ -86,6 +86,7 @@ class PreviewDriver(QObject):
     patched = Signal(object, float)     # the display rects written, and how long it took
     classesStale = Signal(object)       # where R20's overlay stopped describing the surface
     skipped = Signal(int)               # edits in a gesture too broken up to preview
+    freshGround = Signal(object)        # an edit the preview cannot show at all
     exact_wanted = Signal()
     unavailable = Signal(str)           # why there is no preview, once per reason
 
@@ -187,6 +188,7 @@ class PreviewDriver(QObject):
         self._idle.start()
         if not self.ready:
             return
+        fresh: list = []
         for wid in way_ids:
             way = square.ways.get(wid)
             points = ([(square.nodes[r].lon, square.nodes[r].lat)
@@ -194,6 +196,8 @@ class PreviewDriver(QObject):
             ele = getattr(way, 'ele', None) if way is not None else None
             if ele is not None and len(points) > 1:
                 self._mark(wid, points)
+                if self._on_fresh_ground(points):
+                    fresh.append(wid)
                 self._kept.contours.apply(wid, points, ele)
                 self._drawn[wid] = points
             elif wid in self._drawn:
@@ -208,8 +212,49 @@ class PreviewDriver(QObject):
                 # resolve - boxing its geometry would solve ground the edit
                 # cannot have changed, at tens of milliseconds a go
                 self._kept.contours.remove(wid)
+        if fresh:
+            # nothing local can show this, so there is no sense waiting out the
+            # backstop for it - see _on_fresh_ground
+            self.freshGround.emit(fresh)
+            self.exact_wanted.emit()
         if self._pending:
             self._gesture.start()
+
+    def _on_fresh_ground(self, points) -> bool:
+        """Is this contour on ground the build's drawn mask does not cover?
+
+        The mask and the extent belong to the build; `preview.patch` passes the
+        mask straight through, and the fill is told not to reach outside it. A
+        contour drawn beyond the drawn envelope therefore moves **nothing** in
+        the preview - measured, 0 of 25 cells - so extending coverage into new
+        ground shows a mapper nothing at all until a rebuild lands. Waiting out
+        a ten-second backstop for that is the wrong behaviour; it is the one
+        case where the rebuild is the only thing that can answer.
+
+        The way's *own* cells, not the patch's. The drawn mask is the fill's
+        reach from the contours rather than a solid blob, so it is full of
+        holes and edges that an ordinary patch straddles: over twelve edits on
+        the gobras 3x3, between 1.9% and 28.3% of each patch lay outside it,
+        which as a trigger would fire on almost every edit and be worse than
+        the timer. The moved contour's own cells were outside it 0.0% of the
+        time across all twelve, because a contour moved within drawn ground is
+        by definition on drawn ground.
+        """
+        gt = self._kept.geotransform
+        rows, cols = self._kept.mask.shape
+        for lon, lat in points:
+            x = math.floor((lon - gt[0]) / gt[1])
+            y = math.floor((lat - gt[3]) / gt[5])
+            if not (0 <= y < rows and 0 <= x < cols):
+                # off the raster entirely, which is the same answer for a
+                # stronger reason: the build's extent is the squares that held
+                # contours, so a contour beyond it is on ground the surface
+                # does not merely fail to reach but does not describe at all.
+                # Reachable when a square that had none gains its first.
+                return True
+            if not self._kept.mask[y, x]:
+                return True
+        return False
 
     def _mark(self, wid, points):
         """Box the part of a way whose burn actually changed.
