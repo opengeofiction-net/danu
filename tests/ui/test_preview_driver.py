@@ -67,7 +67,7 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     calls = []
     monkeypatch.setattr(surface_preview, 'patch',
                         lambda kept, box, p, **kw: (calls.append(box),
-                                                    (kept.surface[box.slice], box))[1])
+                                                    (kept.surface.read(box), box))[1])
     d = PreviewDriver(gesture_ms=gesture_ms, idle_ms=idle_ms)
     # as the real one does: where in the display it landed. Returning None
     # means nothing reached the screen, which is a different case and has
@@ -79,9 +79,10 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     # hundred-cell raster every box grows to the whole of it, every union is
     # free, and the merging tests would pass whatever the rule was.
     zeros = np.zeros((GRID, GRID), np.float32)
+    band = surface_preview.ArrayBand
     rasters = type('R', (), dict(
-        constraints=zeros.copy(), mask=np.ones((GRID, GRID), np.uint8), water=None,
-        surface=zeros.copy(), dem=zeros.copy(),
+        constraints=band(zeros.copy()), mask=band(np.ones((GRID, GRID), np.uint8)),
+        water=None, surface=band(zeros.copy()), dem=band(zeros.copy()),
         geotransform=(0.0, 0.01, 0.0, 1.0, 0.0, -0.01),
         projection='', nodata=-9999.0, gpkg='none.gpkg'))()
     shaded = type('S', (), dict(geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
@@ -527,13 +528,12 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
 
     kept.contours = BurnsTheNewContour()
     # the fill guessed something else entirely for that ground
-    kept.surface[:] = 40.0
-    kept.dem[:] = 40.0
-    kept.constraints[:] = NODATA                     # the build never saw it
+    kept.surface.a[:] = 40.0
+    kept.dem.a[:] = 40.0
+    kept.constraints.a[:] = NODATA                   # the build never saw it
 
     monkeypatch.setattr(surface_preview, 'patch',
-                        lambda k, box, p, **kw: (k.surface[box.grown(0, k.constraints.shape).slice],
-                                                 box))
+                        lambda k, box, p, **kw: (k.surface.read(box.grown(0, k.shape)), box))
     monkeypatch.setattr(surface_shade, 'shade_window',
                         lambda *a, **kw: (np.zeros((2, 2), np.float32),
                                           np.zeros((2, 2), np.uint8),
@@ -543,7 +543,7 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     from danu.ui.preview import PreviewDriver as Driver
     Driver._repaint(d, local.Box(20, 20, 24, 24))
 
-    assert NEW_ELE in set(np.unique(kept.dem).tolist()), (
+    assert NEW_ELE in set(np.unique(kept.dem.read_all()).tolist()), (
         'the clamp never saw the contour just drawn, so its elevation did not '
         'reach the surface')
 
@@ -933,7 +933,7 @@ def test_the_idle_wait_is_a_backstop_and_not_a_gesture_timer():
 def _with_mask(monkeypatch, drawn):
     """A driver whose drawn mask is `drawn` - 1 where the build's fill reaches."""
     d = driver_over(monkeypatch)
-    d._kept.mask[:] = drawn
+    d._kept.mask.a[:] = drawn
     return d
 
 
@@ -944,7 +944,7 @@ def test_a_contour_on_undrawn_ground_asks_for_a_rebuild_at_once(qtbot, monkeypat
     shows the mapper nothing at all for ten seconds."""
 
     d = _with_mask(monkeypatch, 1)
-    d._kept.mask[:200, :200] = 0            # a corner the build never reached
+    d._kept.mask.a[:200, :200] = 0            # a corner the build never reached
     asked, fresh = [], []
     d.exact_wanted.connect(lambda: asked.append(True))
     d.freshGround.connect(fresh.append)
@@ -971,7 +971,7 @@ def test_the_trigger_is_the_contour_not_the_patch(qtbot, monkeypatch):
     # each way - but not under the contour itself. This is the shape the
     # gobras patches had: a quarter of one outside the mask, the contour
     # entirely on drawn ground.
-    d._kept.mask[262:338, 262:296] = 0
+    d._kept.mask.a[262:338, 262:296] = 0
     fresh = []
     d.freshGround.connect(fresh.append)
     d.edited(at_cell(300, 300, wid=1), {1})
@@ -980,7 +980,7 @@ def test_the_trigger_is_the_contour_not_the_patch(qtbot, monkeypatch):
         'the contour, not the ground around it')
 
     # and under it, it does fire
-    d._kept.mask[295:305, 295:315] = 0
+    d._kept.mask.a[295:305, 295:315] = 0
     d.edited(at_cell(300, 300, wid=2), {2})
     assert fresh == [[2]], 'a contour standing on undrawn ground did not fire'
 

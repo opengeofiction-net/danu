@@ -577,3 +577,87 @@ def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qt
     assert layer._stretch == (0.0, 1200.0)
     layer.set_shaded(at(700.0))
     assert layer._stretch == layer.style.scaling.range_for(layer.shaded.dem)
+
+
+def test_the_preview_never_writes_the_builds_own_rasters(tmp_path, monkeypatch):
+    """_read_rasters copies the two rasters a preview writes to.
+
+    One working directory serves the whole session, so every build writes the
+    same dem.tif and rounded.tif into it, and a preview runs while the next
+    rebuild is in flight - that is what a preview is for. Opening the build's
+    own files for update would have the preview and the running build writing
+    the same two files, for the seventy-four seconds a 1 arcsecond build takes.
+    """
+    from pathlib import Path
+
+    from danu.surface import preview as surface_preview
+    from danu.ui import surface as ui_surface
+
+    work = tmp_path / 'work'
+    work.mkdir()
+    built = tmp_path / 'built'
+    built.mkdir()
+    names = ('cont.tif', 'drawn-mask.tif', 'water.tif', 'rounded.tif', 'dem.tif')
+    for n in names:
+        (built / n).write_bytes(b'the build wrote this')
+
+    opened = []
+
+    class FakeBand:
+        def __init__(self, path, update):
+            self.path, self.shape, self.band = Path(path), (4, 4), self
+            self.ds = self
+
+        def write(self, box, patch):
+            # a real write, so the assertion below is about bytes on disk and
+            # not about where a handle points. Checking only the path would
+            # pass a _read_rasters that opened the build's files and skipped
+            # the copy, as long as it named them in the right directory.
+            self.path.write_bytes(b'a preview wrote this')
+
+        def GetGeoTransform(self):       # GDAL's spelling, not ours
+            return (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+
+        def GetProjection(self):
+            return ''
+
+        def GetNoDataValue(self):
+            return -9999.0
+
+    def fake_open(path, dtype=None, update=False):
+        opened.append((Path(path), update))
+        return FakeBand(path, update)
+
+    monkeypatch.setattr(surface_preview.Band, 'open', fake_open)
+    result = type('R', (), dict(
+        constraints=built / 'cont.tif', drawn_mask=built / 'drawn-mask.tif',
+        water_mask=built / 'water.tif', surface=built / 'rounded.tif',
+        dem=built / 'dem.tif', contours_gpkg=built / 'c.gpkg'))()
+
+    rasters = ui_surface._read_rasters(result, work)
+
+    for_update = [p for p, update in opened if update]
+    assert len(for_update) == 2, 'exactly the surface and the dem are written'
+    for p in for_update:
+        assert p.parent.parent == work and p.parent.name.startswith('preview-'), \
+            f'{p} is not in a preview directory of its own'
+        assert built not in p.parents, 'a preview would write the build\'s own raster'
+    assert {p.name for p in for_update} == {'rounded.tif', 'dem.tif'}
+    for p in for_update:
+        assert p.read_bytes() == b'the build wrote this', 'the copy is not the build\'s'
+    assert rasters.surface.path in for_update and rasters.dem.path in for_update
+
+    # and the read-only three are the build's own, not copies of them
+    read_only = [p for p, update in opened if not update]
+    assert all(p.parent == built for p in read_only), \
+        'a raster nothing writes was copied for no reason'
+
+    # now write through both, which is what the driver does after every
+    # preview, and the build's own rasters have to be exactly as it left them
+    rasters.surface.write(None, None)
+    rasters.dem.write(None, None)
+    for n in names:
+        assert (built / n).read_bytes() == b'the build wrote this', \
+            f'a preview write reached the build\'s own {n}'
+    assert {p.read_bytes() for p in for_update} == {b'a preview wrote this'}, \
+        'the write did not land in the copies either'

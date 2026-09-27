@@ -251,7 +251,7 @@ class PreviewDriver(QObject):
                 # does not merely fail to reach but does not describe at all.
                 # Reachable when a square that had none gains its first.
                 return True
-            if not self._kept.mask[y, x]:
+            if not self._kept.mask.at(y, x):
                 return True
         return False
 
@@ -270,7 +270,7 @@ class PreviewDriver(QObject):
         a rebuild - is marked whole, because all of it is new.
         """
         gt = self._kept.geotransform
-        shape = self._kept.constraints.shape
+        shape = self._kept.shape
         # the caller's, not the dict's: on the deletion path the entry has
         # already been popped and what arrives as `points` *is* the old
         # geometry. Reading self._drawn here would find nothing and work only
@@ -353,7 +353,7 @@ class PreviewDriver(QObject):
             # the kept surface carries the edit forward, so the next preview
             # holds its rim at what is on screen and not at a surface two
             # edits old
-            self._kept.surface[good.slice] = patch
+            self._kept.surface.write(good, patch)
             rect = self._repaint(good)
             if rect is not None:
                 written.append(rect)
@@ -379,7 +379,7 @@ class PreviewDriver(QObject):
         separately would be, which is what a gesture's run of adjacent nodes
         looks like.
         """
-        shape = self._kept.constraints.shape
+        shape = self._kept.shape
         grow = preview.grown_by(self._params)
 
         def solved(b):
@@ -422,19 +422,19 @@ class PreviewDriver(QObject):
         layer draws."""
         kept, p = self._kept, self._params
         gt = kept.geotransform
-        shape = kept.constraints.shape
+        shape = kept.shape
         # a halo, because the box filter and the hillshade both read their
         # neighbours and the warp reads whatever bilinear touches
         halo = p.smooth_cells + 4
         win = good.grown(halo, shape)
-        # the constraints as they are *after* the edit. patch() puts its burn
-        # back when it returns, so the kept array holds the build's again and
-        # the contour just drawn is not in it - which would leave clamp_patch's
-        # third rule testing for a constraint that is not there and never
-        # putting the new contour's own elevation back over the fill's guess
+        # the constraints as they are *after* the edit, burned rather than
+        # read: what is on disk is the build's, and the contour just drawn is
+        # not in it - which would leave clamp_patch's third rule testing for a
+        # constraint that is not there and never putting the new contour's own
+        # elevation back over the fill's guess
         fresh = kept.contours.burn(gt, win, kept.nodata)
-        clamped = preview.clamp_patch(kept.surface[win.slice], fresh, kept.dem[win.slice])
-        kept.dem[win.slice] = clamped
+        clamped = preview.clamp_patch(kept.surface.read(win), fresh, kept.dem.read(win))
+        kept.dem.write(win, clamped)
         sub_gt = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
         m_dem, m_shade, m_gt, _metres = shade.shade_window(
             clamped, sub_gt, self._projection, p, align_to=self._shaded.geotransform)

@@ -120,17 +120,37 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     metre against a 25 m contour interval, invisible in a hillshade, and the
     exact rebuild on idle is what removes it.
     """
-    lib = lib or isofill_lib.Isofill.load()
     if cover is None:
         cover = 2 * params.fill_cells
     if slack is None:
         slack = 2 * params.fill_cells
-    good = box.grown(cover, constraints.shape)
-    grown = good.grown(reach(params, slack), constraints.shape)
+    shape = constraints.shape
+    good = box.grown(cover, shape)
+    grown = good.grown(reach(params, slack), shape)
     sl = grown.slice
-    cons = np.ascontiguousarray(constraints[sl], dtype=np.float32)
-    sub_mask = np.ascontiguousarray(mask[sl], dtype=np.uint8)
-    sub_water = np.ascontiguousarray(water[sl], dtype=np.uint8) if water is not None else None
+    return resolve_window(constraints[sl], mask[sl],
+                          water[sl] if water is not None else None,
+                          previous[sl], good, grown, shape, params,
+                          nodata=nodata, lib=lib)
+
+
+def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
+                   previous: np.ndarray, good: Box, grown: Box, shape: tuple[int, int],
+                   params: Params, nodata: float | None = None,
+                   lib=None) -> tuple[np.ndarray, Box]:
+    """``resolve`` once the windows have been cut: the same solve, over arrays
+    that are already the ``grown`` box rather than the whole raster.
+
+    This is the seam ``resolve`` always had - it sliced its four arguments once
+    and worked on the windows from there. Naming it lets a caller that can read
+    a window without materialising the raster do so, which is what ``Kept``
+    does; ``shape`` is the whole raster's, and is needed only to know which
+    sides of ``grown`` have ground beyond them.
+    """
+    lib = lib or isofill_lib.Isofill.load()
+    cons = np.ascontiguousarray(constraints, dtype=np.float32)
+    sub_mask = np.ascontiguousarray(mask, dtype=np.uint8)
+    sub_water = np.ascontiguousarray(water, dtype=np.uint8) if water is not None else None
 
     # pass 1 over the grown box. Exact for every cell more than radius inside
     # it, which is every cell of the edited box
@@ -155,8 +175,8 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     # at cover 0 and slack 0, where taking the row beyond shifts the boundary
     # outward by a cell and is nearer by accident rather than by meaning. This
     # one says what the comment says - the rim is those cells, as they were.
-    rows, cols = constraints.shape
-    prev = previous[sl]
+    rows, cols = shape
+    prev = previous
     if grown.y0 > 0:
         first[0, :] = prev[0, :]
     if grown.y1 < rows - 1:

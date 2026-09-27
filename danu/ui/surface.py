@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.square import WorkingSet
-from ..surface import shade, strips
+from ..surface import preview, shade, strips
 from ..surface.params import Params
 from ..surface.ramp import Ramp, spectral, traditional
 
@@ -64,28 +64,22 @@ class Rasters:
     """The build's own grids, kept so an edit can be previewed against them
     rather than rebuilt.
 
-    Held in memory, which is what bounds this: 308 MB for the gobras 3x3 at 3
-    arcseconds, and 1.5 to 2.8 GB at 1. So they are kept at the drawing
-    resolution and not at the publishing one, where the editor already says
-    "slow" in the menu and an edit waits for the exact build. PREVIEW_ARCSEC
-    is where that line is drawn.
+    Open datasets, not arrays. As arrays they were 308 MB for the gobras 3x3 at
+    3 arcseconds and 1.5 to 2.8 GB at 1, which is why there used to be a
+    ``PREVIEW_ARCSEC`` above which the editor declined to keep them and an edit
+    waited for the exact build. A preview reads one window of each, the build
+    writes tiled GeoTIFFs, and a window costs the window - so the resolution no
+    longer decides whether there is a preview.
     """
-    constraints: np.ndarray
-    mask: np.ndarray
-    water: np.ndarray | None
-    surface: np.ndarray
-    dem: np.ndarray
+    constraints: preview.Band
+    mask: preview.Band
+    water: preview.Band | None
+    surface: preview.Band
+    dem: preview.Band
     geotransform: tuple
     projection: str
     nodata: float
     gpkg: Path
-
-
-# Above this, the rasters the preview needs are gigabytes and are not kept.
-# 3 arcseconds is 308 MB for a three by three and is the resolution drawing
-# happens at; 1 arcsecond is the published DEM's, is labelled slow where it is
-# chosen, and rebuilds exactly instead.
-PREVIEW_ARCSEC = 3.0
 
 
 class _Signals(QObject):
@@ -114,12 +108,12 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
 
 
 def _rasters(result, work: Path, params: Params):
-    """The build's grids as arrays, or None where the preview is off.
+    """The build's grids as open datasets, or None if they cannot be opened.
 
-    Read here, on the worker, because reading them is I/O and the UI thread is
-    where the frames are."""
-    if params.arcsec > PREVIEW_ARCSEC:
-        return None
+    Opened here, on the worker, because opening them is I/O and the UI thread
+    is where the frames are. No resolution refuses a preview any more; what
+    used to be gigabytes of array is now five open files.
+    """
     try:
         return _read_rasters(result, work)
     except Exception:      # noqa: BLE001
@@ -132,26 +126,44 @@ def _rasters(result, work: Path, params: Params):
 
 
 def _read_rasters(result, work: Path):
-    from osgeo import gdal
-    held = {}
+    # The preview writes to two of these - it splices each patch into the
+    # surface so the next rim is held at what is on screen, and writes the
+    # clamped patch into the dem for the same reason - so those two are copied
+    # and the build's own files are never written at all.
+    #
+    # Not an abundance of caution. One working directory serves the whole
+    # session, so every build writes the same dem.tif and rounded.tif into it,
+    # and a preview runs *while* a rebuild is in flight - that is what a
+    # preview is for. Writing the build's files in place would have the
+    # preview and the running build writing the same two files, for the 74
+    # seconds a 1 arcsecond build takes. They are compressed GeoTIFFs, 15.5 MB
+    # and 5.2 MB at 1 arcsecond, and the copy is 0.01 s against that build.
+    #
+    # In a directory of their own per build, so that the copy itself cannot
+    # collide with the previous build's Kept still reading them.
+    mine = Path(tempfile.mkdtemp(dir=work, prefix='preview-'))
+    for stale in work.glob('preview-*'):
+        # the previous build's, whose Kept is about to be replaced. On Linux an
+        # open file survives its name being removed, so a preview still running
+        # against it keeps working; on Windows the directory stays until
+        # cleanup() takes the lot, which is why this does not insist.
+        if stale != mine:
+            shutil.rmtree(stale, ignore_errors=True)
+    surface = mine / 'rounded.tif'
+    dem_path = mine / 'dem.tif'
+    shutil.copyfile(result.surface, surface)
+    shutil.copyfile(result.dem, dem_path)
 
-    def read(path, dtype=None):
-        ds = gdal.Open(str(path))        # held: the band dies with the dataset
-        held[str(path)] = ds
-        a = ds.GetRasterBand(1).ReadAsArray()
-        return a.astype(dtype) if dtype is not None else a
-
-    cons = read(result.constraints, np.float32)
-    band = held[str(result.constraints)].GetRasterBand(1)
-    dem_ds = gdal.Open(str(result.dem))
+    cons = preview.Band.open(result.constraints, np.float32)
+    dem = preview.Band.open(dem_path, np.float32, update=True)
     return Rasters(constraints=cons,
-                   mask=read(result.drawn_mask),
-                   water=read(result.water_mask) if result.water_mask else None,
-                   surface=read(result.surface, np.float32),
-                   dem=dem_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
-                   geotransform=tuple(dem_ds.GetGeoTransform()),
-                   projection=dem_ds.GetProjection(),
-                   nodata=band.GetNoDataValue(),
+                   mask=preview.Band.open(result.drawn_mask),
+                   water=preview.Band.open(result.water_mask) if result.water_mask else None,
+                   surface=preview.Band.open(surface, np.float32, update=True),
+                   dem=dem,
+                   geotransform=tuple(dem.ds.GetGeoTransform()),
+                   projection=dem.ds.GetProjection(),
+                   nodata=cons.band.GetNoDataValue(),
                    gpkg=result.contours_gpkg)
 
 
