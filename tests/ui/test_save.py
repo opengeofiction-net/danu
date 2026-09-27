@@ -3,8 +3,6 @@
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent, QPointF, Qt                       # noqa: E402
-from PySide6.QtGui import QMouseEvent                                # noqa: E402
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox  # noqa: E402
 
 from danu.core import edits, save                                    # noqa: E402

@@ -4,7 +4,6 @@ than done, pixmaps handed to it directly, and the view rendered offscreen."""
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QRectF                                   # noqa: E402
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap         # noqa: E402
 from PySide6.QtNetwork import QNetworkRequest                       # noqa: E402
 

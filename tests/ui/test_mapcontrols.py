@@ -3,7 +3,6 @@
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QEvent                                     # noqa: E402
 
 from danu.ui import mercator as m                                     # noqa: E402
 

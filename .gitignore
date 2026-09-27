@@ -29,3 +29,10 @@ htmlcov/
 !tests/golden/*.osm.xz
 !tests/golden/expected.tif
 .hypothesis/
+
+# Review notes and usage notes, kept beside the spec they are about rather
+# than loose in the root, and not committed: they are working material - a
+# reviewer's findings, an afternoon's observations from using the editor -
+# and what survives them belongs in docs/spec.md, where it is written as
+# what the thing does rather than as what somebody said about it.
+docs/reviews/

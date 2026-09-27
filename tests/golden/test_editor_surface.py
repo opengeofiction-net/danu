@@ -153,9 +153,8 @@ def test_a_staged_square_builds_the_same_surface_uncompressed(tmp_path):
     staging of the gobras 3x3 took, and the reader paid for it again. What the
     build makes of it has to be the same surface to the cell, or the saving
     bought a different map."""
-    import numpy as np
     from danu.core import save
-    from danu.core.square import SquareName, read_square
+    from danu.core.square import read_square
     from danu.surface import build, params
     with (HERE / 'params.lock').open('rb') as fh:
         lock = tomllib.load(fh)
@@ -373,7 +372,6 @@ def test_the_overlay_reads_the_fill_the_surface_already_did(tmp_path):
     overlay."""
     import json
 
-    import numpy as np
     from danu.surface import build, params
     with (HERE / 'params.lock').open('rb') as fh:
         lock = tomllib.load(fh)

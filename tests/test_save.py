@@ -1,6 +1,5 @@
 """danu.core.save: a square drawn from nothing becomes a file the build reads."""
 
-from pathlib import Path
 
 import pytest
 

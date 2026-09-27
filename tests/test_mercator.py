@@ -2,7 +2,6 @@
 
 import math
 
-import pytest
 from hypothesis import given, strategies as st
 
 from danu.ui import mercator as m

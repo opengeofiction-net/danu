@@ -159,7 +159,6 @@ def test_the_worker_asks_the_build_to_keep_its_first_pass(qtbot, tmp_path, monke
     import sys
     import types
 
-    import numpy as np
     from danu.core.make_square import write_square
     from danu.core.square import SquareName, WorkingSet
     from danu.surface import params
@@ -261,7 +260,6 @@ def test_recolouring_one_box_is_what_recolouring_all_of_it_would_give(qtbot):
         st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=600.0)
         return st
 
-    s = synthetic(rows=40, cols=60)
     whole, part = SurfaceLayer(), SurfaceLayer()
     for layer in (whole, part):
         layer.set_style(fixed())
@@ -442,7 +440,6 @@ def test_a_build_that_moves_the_colour_scale_recolours_whole(qtbot):
     build that raised the highest ground recolours every cell - including ones
     whose own elevation did not change. Recolouring only what moved would leave
     the rest at the old scale, and the patch would show as a rectangle."""
-    import numpy as np
     from danu.ui.surface import SurfaceLayer
 
     layer = SurfaceLayer()                       # auto scaling by default

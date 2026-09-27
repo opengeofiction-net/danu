@@ -383,7 +383,11 @@ def test_a_way_just_off_the_raster_is_not_boxed_at_its_corner(qtbot, monkeypatch
     """int() truncates toward zero, so a way half a cell west of the raster
     came out at column 0 and was boxed as though it were inside."""
     d = driver_over(monkeypatch)
-    gt = d._kept.geotransform                 # 0.01 deg cells from lon 0
+    # checked, not asserted in a comment: the whole test is that -0.005 is half
+    # a cell *west* of the raster, and if the fixture's origin or cell size
+    # moved it would quietly become an ordinary point inside it
+    assert d._kept.geotransform[0] == 0.0 and d._kept.geotransform[1] == 0.01, \
+        f'the fixture starts at {d._kept.geotransform[:2]}, so -0.005 may be inside it'
     just_west = Square([Way(1, [1, 2])],
                        {1: Node(-0.005, 0.5), 2: Node(-0.004, 0.5)})
     d.edited(just_west, {1})
@@ -568,7 +572,6 @@ def test_the_halo_is_cropped_before_the_patch_is_written(qtbot, monkeypatch):
 
     This was the fix for that and had no test.
     """
-    import numpy as np
 
     d = driver_over(monkeypatch)
     d._shaded.shade[:] = 0

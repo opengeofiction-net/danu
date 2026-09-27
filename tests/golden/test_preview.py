@@ -79,7 +79,7 @@ def test_a_box_burned_from_the_layer_is_the_whole_rasters_burn(tmp_path):
     it: the spatial-index ordering that motivated this agreed on 97% of cells.
     """
     import numpy as np
-    from danu.surface import build, local, preview
+    from danu.surface import local, preview
 
     p = lock_params()
     zone = tmp_path / 'zone'
@@ -192,7 +192,7 @@ def test_a_contour_the_build_never_saw_burns_last(tmp_path):
     contours and wins a shared cell. That is a deliberate limit - stated in
     Contours - and this pins the behaviour rather than leaving it to chance."""
     import numpy as np
-    from danu.surface import build, local, preview
+    from danu.surface import local, preview
 
     p = lock_params()
     zone = tmp_path / 'zone'

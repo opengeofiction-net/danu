@@ -16,7 +16,6 @@ import os
 import pathlib
 import shutil
 import subprocess
-import sys
 import tomllib
 
 import pytest
@@ -76,7 +75,6 @@ def test_surface_matches_the_reference(tmp_path, lock):
     produced = tmp_path / "pub" / "golden" / "dem-golden.tif"
     assert produced.exists(), "the build published no DEM"
 
-    import numpy as np
 
     # the datasets are held in locals on purpose: gdal.Open(...).GetRasterBand(1)
     # frees the dataset before the band is read and fails with a TypeError out

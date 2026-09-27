@@ -14,7 +14,6 @@ is asserted rather than asserted-in-a-comment.
 
 import builtins
 
-import pytest
 
 
 def test_profile_imports_without_gdal(monkeypatch):
@@ -54,3 +53,28 @@ def test_the_pure_modules_import_no_raster_ui_or_network_library():
                 # square is not, so the model stays importable anywhere
                 assert n.split('.')[0] not in banned or (name == 'profile' and n == 'numpy'), \
                     f'danu.core.{name} imports {n}'
+
+
+def test_the_linter_is_configured_and_runs_here():
+    """Ruff's config lives in pyproject and the CI job runs `ruff check .`, so
+    a developer and the runner have to be asking the same question.
+
+    Forty-five unused imports had accumulated across nineteen files with
+    nothing watching, five of them in the commit that noticed. This is what
+    makes the config the contract rather than a habit.
+    """
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    conf = tomllib.loads((root / 'pyproject.toml').read_text())
+    rules = conf['tool']['ruff']['lint']['select']
+    assert 'F' in rules, 'pyflakes is the reason the linter is here'
+    assert 'E402' in rules, (
+        'E402 is selected because 97 `# noqa: E402` comments are already '
+        'written against it; without the rule they say nothing')
+    assert 'ruff>=0.16' in conf['project']['optional-dependencies']['dev']
+
+    workflow = (root / '.github' / 'workflows' / 'ci.yml').read_text()
+    assert 'ruff check .' in workflow, 'the CI job does not run the linter'
+    assert '  lint:' in workflow

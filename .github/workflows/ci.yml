@@ -10,6 +10,19 @@ jobs:
   # these tests cover the functions which decide what a contour means, and
   # keeping them importable without GDAL is what lets this job run on Windows
   # at all. The parts which need GDAL are covered by the golden surface below.
+  # Unused imports, unused locals, undefined names. Linux only and no
+  # submodule: it reads the source and runs nothing, so a second platform would
+  # answer the same question twice.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+
   tests:
     strategy:
       fail-fast: false

@@ -1,6 +1,5 @@
 """danu.surface.ramp: the tiles' colours, and the spectral one."""
 
-import subprocess
 from pathlib import Path
 
 import numpy as np
