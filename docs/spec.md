@@ -356,7 +356,7 @@ the radius, and it decides what the patch gets wrong. Both want two radii; see
 | when | patch covers | solved | pass 1 | pass 2 | cost |
 |---|---|---|---|---|---|
 | while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 63-73 ms |
-| on idle, 1.5 s | whole working set | all | exact | exact | 5.6 s at 3", 114 at 1" |
+| on idle, 10 s | whole working set | all | exact | exact | 5.6 s at 3", 114 at 1" |
 
 The budgets this table used to carry - 30 ms while dragging, 200 on release,
 two seconds to idle - were guesses made before any of it existed, and three of
@@ -1628,6 +1628,16 @@ and can say so.
 
 With those two, the idle timer becomes a long backstop rather than the
 mechanism, and the provisional rim says what it already says.
+
+**Lengthened in the meantime.** A second and a half is shorter than an ordinary
+pause in drawing - reading the ground, moving the mouse, deciding where the next
+node goes - so the rebuild fired mid-gesture and was superseded, repeatedly,
+which is what using it feels like rather than what any measurement said. Ten
+seconds now. The two costs are asymmetric and the old value was set as though
+they were not: waiting is nearly free, since seventeen previews of twenty-one
+were already right to 0.013 m, and firing is 5.6 seconds of a core at 3
+arcseconds and two minutes at 1. It is still a timer standing in for a
+condition, and the conditions above are what replace it.
 
 **And last, the margin**, which is what this item was called when it was
 written. `cover` and `slack` are two radii each because F3 measured what they
