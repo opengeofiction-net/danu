@@ -1445,8 +1445,9 @@ In the order a mapper would feel them:
    **done**;
 3. `Kept` holding whole rasters, which is why there is no preview at 1
    arcsecond;
-4. the rebuild trigger, which fires on a timer rather than on the two things
-   that need it;
+4. the rebuild trigger, which fired on a timer rather than on the two things
+   that need it - **half done**: fresh ground triggers a rebuild, and the
+   detector for the other half turned out not to discriminate;
 5. the margin, which by then may not be worth changing.
 
 Timing one node moved, through the editor, from the command to the frame:
@@ -1645,15 +1646,36 @@ no local solve can change that, because the fill is told not to reach outside
 the mask. An edit whose box meets the mask's edge, or a square gaining its
 first contour, is a rebuild whatever the timer says.
 
-The second is the occasional bad approximation, and it is detectable. Of those
-twenty-one edits, three came out 5.65 m wrong over some 270 cells - and it does
-not accumulate, it resets: edit 19 was back to 0.013 m. **Every one of those
-cells was one the first pass declined**, inside the drawn mask, sixteen cells
-from the raster edge. That is F3's own residual - pass 2 diffusing across a
-region of unanswered ground that runs past the box - and the first pass's
-classes are already computed at build time for R20's overlay. A preview whose
-solved box has unanswered ground touching its own boundary is one to distrust,
-and can say so.
+**Fresh ground, done** - and the test is the contour, not the patch. The drawn
+mask is the fill's reach from the contours rather than a solid blob, so it is
+full of holes and edges an ordinary patch straddles: over twelve edits on the
+gobras 3x3, between 1.9% and 28.3% of each patch lay outside it. As a trigger
+that fires on almost every edit and is worse than the timer it replaces. The
+moved contour's *own* cells lay outside the mask 0.0% of the time across all
+twelve, because a contour moved within drawn ground is on drawn ground by
+definition. That is the signal.
+
+**The second detector does not work, and the premise behind it was wrong.**
+
+It was to be this: a preview whose solved box has unanswered ground touching
+its own boundary is one to distrust, since that is F3's residual - pass 2
+diffusing across a region that runs past the box - and the classes are already
+computed for R20. Measured over twenty-one edits it discriminates nothing. Any
+unanswered cell on the boundary flags 43% to 53% of the boundary on *every*
+edit, good and bad alike. Narrowed to the connected region the edit actually
+lands in, it flags 8 of 11 wrong previews and the 1 right one as well.
+
+And the figure it was built on - seventeen of twenty-one previews already right
+to 0.013 m - is the golden square's, which is one sparse square. Repeated on
+the gobras 3x3, with the exact build re-adopted after each edit as the editor
+does, eleven of twelve previews are between 0.085 m and 0.877 m out and one is
+0.003. Not accumulation: each is measured on its own. Previews on a real
+working set are simply less exact than on that fixture, which is worth knowing
+wherever the 0.013 m figure is quoted - including in the case for the ten
+second backstop above, which it weakens without overturning, since 0.877 m
+against a 25 m contour interval is still nothing a hillshade shows.
+
+What would detect the bad ones is not known. It is not the classes.
 
 With those two, the idle timer becomes a long backstop rather than the
 mechanism, and the provisional rim says what it already says.

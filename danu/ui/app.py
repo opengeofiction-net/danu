@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         self.preview.unavailable.connect(self._preview_unavailable)
         self.preview.classesStale.connect(self.unreached.set_stale)
         self.preview.skipped.connect(self._preview_skipped)
+        self.preview.freshGround.connect(self._preview_on_fresh_ground)
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
@@ -525,6 +526,14 @@ class MainWindow(QMainWindow):
         status label is its only build feedback - so writing there replaced
         "surface built in N s" with the preview note on every 1″ build."""
         self.statusBar().showMessage(why)
+
+    def _preview_on_fresh_ground(self, ways):
+        """A contour drawn beyond the drawn envelope shows nothing until a
+        rebuild, so say that rather than let it look like a surface that
+        declined to move."""
+        self.statusBar().showMessage(
+            f'{len(ways)} contour{"" if len(ways) == 1 else "s"} on ground the '
+            f'surface does not cover yet - rebuilding to reach it')
 
     def _preview_skipped(self, edits: int):
         """A gesture too broken up to preview between keystrokes.
