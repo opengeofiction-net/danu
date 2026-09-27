@@ -11,9 +11,9 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.surface import params as surface_params      # noqa: E402
-from danu.ui.preview import PreviewDriver              # noqa: E402
-from danu.ui.surface import Built                      # noqa: E402
+from danu.surface import params as surface_params  # noqa: E402
+from danu.ui.preview import PreviewDriver  # noqa: E402
+from danu.ui.surface import Built  # noqa: E402
 
 PARAMS = surface_params.load().with_arcsec(3.0)
 
@@ -58,6 +58,7 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     """A driver holding a 100x100 grid, with the solve and the repaint stubbed:
     what is under test here is when they are called and with what."""
     import numpy as np
+
     from danu.surface import preview as surface_preview
 
     monkeypatch.setattr(surface_preview, 'Contours', lambda gpkg: FakeContours())
@@ -325,8 +326,9 @@ def test_adopt_survives_gdal_raising_rather_than_returning_none(qtbot, monkeypat
     """By the time adopt runs, build_surface has put GDAL in exception mode, so
     a file it cannot open is a RuntimeError and not the OSError Contours raises
     for a missing one. adopt is called from a slot too."""
-    from danu.surface import preview as surface_preview
     import numpy as np
+
+    from danu.surface import preview as surface_preview
 
     def gdal_says_no(gpkg):
         raise RuntimeError("not recognised as a supported file format")
@@ -436,6 +438,7 @@ def test_a_working_set_whose_ways_share_an_id_gets_no_preview(qtbot, monkeypatch
     rebuild is right; only the live patching would be wrong, so it is the live
     patching that stops."""
     import numpy as np
+
     from danu.surface import preview as surface_preview
 
     monkeypatch.setattr(surface_preview, "Contours",
@@ -465,6 +468,7 @@ def test_the_unreached_overlay_fades_when_the_surface_has_moved_under_it(qtbot):
     Faded, not hidden: what it says is still true of most of the raster.
     """
     import numpy as np
+
     from danu.surface import shade
     from danu.ui.overlays import UnreachedLayer
 
@@ -496,10 +500,12 @@ def test_the_clamp_sees_the_contour_that_was_just_drawn(qtbot, monkeypatch):
     own elevation reaches kept.dem.
     """
     import numpy as np
+
     # NODATA from the package, not from build: this job has Qt and no GDAL,
     # and build imports osgeo at module scope
     from danu.surface import NODATA, local
-    from danu.surface import preview as surface_preview, shade as surface_shade
+    from danu.surface import preview as surface_preview
+    from danu.surface import shade as surface_shade
 
     d = driver_over(monkeypatch)
     kept = d._kept
@@ -551,6 +557,7 @@ def _splice_marker(d, source_rows, mercator_rows, halo=1):
     reaches the display.
     """
     import numpy as np
+
     from danu.ui.preview import PreviewDriver as Driver
 
     ring = max(1, round(halo * mercator_rows / max(1, source_rows)))
@@ -634,7 +641,9 @@ def test_repaint_measures_the_halo_against_the_window_it_actually_solved(qtbot, 
     call.
     """
     import numpy as np
-    from danu.surface import local, shade as surface_shade
+
+    from danu.surface import local
+    from danu.surface import shade as surface_shade
     from danu.ui.preview import PreviewDriver as Driver
 
     d = driver_over(monkeypatch)
@@ -754,8 +763,8 @@ def test_the_unreached_overlay_dims_where_the_surface_moved_and_nowhere_else(qtb
     from PySide6.QtGui import QColor, QImage, QPainter
 
     from danu.surface import shade
-    from danu.ui.mapview import MapView
     from danu.ui import mercator as m
+    from danu.ui.mapview import MapView
     from danu.ui.overlays import UnreachedLayer
 
     rows = cols = 64
@@ -850,8 +859,8 @@ def test_overlapping_stale_rects_fade_once_and_not_twice(qtbot):
     from PySide6.QtGui import QColor, QImage, QPainter
 
     from danu.surface import shade
-    from danu.ui.mapview import MapView
     from danu.ui import mercator as m
+    from danu.ui.mapview import MapView
     from danu.ui.overlays import UnreachedLayer
 
     n = 64

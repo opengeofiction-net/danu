@@ -67,6 +67,7 @@ def shell_run(tmp_path_factory):
 @pytest.mark.parametrize('zfactor', [2.0, 5.0])
 def test_the_editors_hillshade_is_the_shells(tmp_path, shell_run, zfactor):
     import numpy as np
+
     from danu.surface import params, shade
     p = params.load().with_arcsec(shell_run['arcsec'])
     shaded = shade.shade_dem(shell_run['dem'], p, tmp_path, zfactor=zfactor)
@@ -80,6 +81,7 @@ def test_the_editors_hillshade_is_the_shells(tmp_path, shell_run, zfactor):
 
 def test_the_shaded_relief_composes_where_there_is_land(tmp_path, shell_run):
     import numpy as np
+
     from danu.surface import params, ramp, shade
     p = params.load().with_arcsec(shell_run['arcsec'])
     shaded = shade.shade_dem(shell_run['dem'], p, tmp_path)

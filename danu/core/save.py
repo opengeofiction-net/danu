@@ -24,7 +24,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import edits, ladder as L
+from . import edits
+from . import ladder as L
 from .square import Square, SquareName, write_square
 
 FRAME_NOTE = 'square frame - do not edit'

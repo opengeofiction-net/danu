@@ -1,7 +1,8 @@
 """Grading a waterway between the contours it crosses."""
 
 import numpy as np
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from danu.core.profile import densify, grade, seg_lengths
 

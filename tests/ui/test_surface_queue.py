@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from danu.surface import params as surface_params         # noqa: E402
+from danu.surface import params as surface_params  # noqa: E402
 from danu.ui.surface import Built, Nothing, SurfaceBuilder  # noqa: E402
 
 PARAMS = surface_params.load()

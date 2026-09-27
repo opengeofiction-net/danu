@@ -16,10 +16,17 @@ can draw that one heavier, and asked what lies under the cursor for pick-up.
 
 from __future__ import annotations
 
-
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import (QDockWidget, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
-                               QSlider, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QDoubleSpinBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core import ladder as L
 from ..core.square import Square, WorkingSet

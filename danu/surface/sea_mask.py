@@ -33,10 +33,10 @@
 # plumes it exists to remove all sit within the fill radius of land, so a couple
 # of times that is reach enough.
 
+import multiprocessing
 import os
 import sys
 
-import multiprocessing
 import numpy as np
 from osgeo import gdal, ogr
 

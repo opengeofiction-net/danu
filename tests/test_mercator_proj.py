@@ -11,18 +11,18 @@ pixel at zoom 19, on points across the whole world.
 Needs GDAL, so it runs in the golden job, which has it.
 """
 
-import pytest
-
 import math
 import re
 from pathlib import Path
+
+import pytest
 
 osr = pytest.importorskip('osgeo.osr')
 gdal = pytest.importorskip('osgeo.gdal')
 # GDAL 4 will raise by default; asking for it now keeps the warning out of the run
 gdal.UseExceptions()
 
-from danu.ui import mercator as m   # noqa: E402
+from danu.ui import mercator as m  # noqa: E402
 
 BUILD_ZONE = Path(__file__).parents[1] / 'server' / 'bin' / 'danu-build-zone'
 

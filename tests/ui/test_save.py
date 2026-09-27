@@ -5,10 +5,10 @@ import pytest
 pytest.importorskip('PySide6')
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox  # noqa: E402
 
-from danu.core import edits, save                                    # noqa: E402
-from danu.core.square import SquareName, read_square                 # noqa: E402
+from danu.core import edits, save  # noqa: E402
+from danu.core.square import SquareName, read_square  # noqa: E402
 
-from .conftest import cursor_to                                      # noqa: E402
+from .conftest import cursor_to  # noqa: E402
 
 TEN = SquareName(126, -24)
 BLANK = SquareName(125, -23)
