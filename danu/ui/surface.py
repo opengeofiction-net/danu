@@ -369,7 +369,6 @@ class SurfaceLayer(QGraphicsItem):
         self.style = Style()
         self._pixmap: QPixmap | None = None
         self._rect = QRectF()
-        self._array = None
         self._stretch: tuple | None = None
         self._preview = False
 
@@ -401,14 +400,14 @@ class SurfaceLayer(QGraphicsItem):
         self.prepareGeometryChange()
         self.shaded = shaded
         if shaded is None:
-            self._pixmap, self._rect, self._array, self._stretch = None, QRectF(), None, None
+            self._pixmap, self._rect, self._stretch = None, QRectF(), None
             self.update()
             return
         l, t, r, b = shaded.scene_rect
         self._rect = QRectF(l, t, r - l, b - t)
         # before anything recolours. _moved is handed both surfaces, but it
-        # also reads `_pixmap`, `_array`, `_stretch` and the style, and all
-        # four still describe what is on screen - which is `was`. A recolour
+        # also reads `_pixmap`, `_stretch` and the style, and all three
+        # still describe what is on screen - which is `was`. A recolour
         # moved above this line would have it compare the new surface against
         # itself and find nothing, silently.
         boxes = self._moved(was, shaded)
@@ -444,7 +443,7 @@ class SurfaceLayer(QGraphicsItem):
         Building the ramp here costs 4 microseconds for the spectral one and 35
         for the hypsometric, once per call, so it is not worth hoisting.
         """
-        if was is None or self._pixmap is None or self._array is None:
+        if was is None or self._pixmap is None:
             return None
         if was.dem.shape != now.dem.shape or was.shade.shape != now.shade.shape:
             return None
@@ -494,10 +493,14 @@ class SurfaceLayer(QGraphicsItem):
         rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode,
                              self.style.shade_strength, stretch=self._stretch)
         rows, cols = rgba.shape[:2]
-        # QImage over the array, then a copy so the array may go
-        self._array = np.ascontiguousarray(rgba)
-        img = QImage(self._array.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
-        self._pixmap = QPixmap.fromImage(img.copy())
+        # QImage over the array, and no copy of either. QPixmap.fromImage
+        # copies into the platform format itself - verified by mutating the
+        # numpy buffer afterwards and reading the pixmap back - so `img.copy()`
+        # was a second full copy of the RGBA that nothing read, and keeping the
+        # array was a third. At 1 arcsecond each is 0.88 GB.
+        rgba = np.ascontiguousarray(rgba)
+        img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
+        self._pixmap = QPixmap.fromImage(img)
 
     def recolour_box(self, y0: int, x0: int, rows: int, cols: int) -> bool:
         """Recolour one rectangle of the surface and paint it into the pixmap.

@@ -79,23 +79,43 @@ def test_compose_refuses_a_relief_with_no_ramp_and_an_unknown_mode():
         shade.compose(s, None, shade.Scaling(), mode='sepia')
 
 
+def drawn(layer) -> np.ndarray:
+    """What the layer has actually drawn, read back from its pixmap.
+
+    The composed array used to be kept on the layer and this read it. It is
+    not kept any more - at 1 arcsecond it is 0.88 GB that nothing but this
+    looked at - and reading the pixmap is the better question anyway: it asks
+    what reached the screen rather than what was handed to Qt.
+
+    The copy is not tidiness. ``constBits()`` hands back a buffer belonging to
+    ``img``, and ``img`` dies when this returns, so a view over it is a view
+    over freed memory - which reads as plausible pixels for a while and then
+    does not. Written without the copy first, and the hillshade came back
+    coloured with an alpha gradient.
+    """
+    img = layer._pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+    rows, cols = img.height(), img.width()
+    buf = np.frombuffer(img.constBits(), np.uint8, count=img.sizeInBytes())
+    return buf.reshape(rows, img.bytesPerLine() // 4, 4)[:, :cols].copy()
+
+
 def test_recolour_follows_the_style_without_a_rebuild():
     layer = SurfaceLayer()
     s = synthetic()
     layer.set_shaded(s)
     layer.set_style(Style(mode='hillshade'))
-    grey = layer._array.copy()
+    grey = drawn(layer)
     assert (grey[..., 0] == grey[..., 1]).all()
     layer.set_style(Style(mode='relief', ramp='spectral', scaling=shade.Scaling('auto')))
-    colour = layer._array.copy()
+    colour = drawn(layer)
     assert not (colour[..., 0] == colour[..., 1]).all()          # coloured now
     west, east = colour[10, 2, :3], colour[10, -3, :3]
     assert tuple(west) != tuple(east)                             # low is not high
     layer.set_style(Style(mode='relief', ramp='spectral', scaling=shade.Scaling('pinch', centre=200, width=20)))
-    pinched = layer._array.copy()
+    pinched = drawn(layer)
     assert tuple(pinched[10, -3, :3]) == tuple(pinched[10, -10, :3])   # everything above 210 m saturates alike
     layer.set_style(Style(mode='relief', ramp='traditional'))
-    trad = layer._array.copy()
+    trad = drawn(layer)
     assert (trad[-2, :, 3] == 0).all()                             # sea transparent in metres
 
 
