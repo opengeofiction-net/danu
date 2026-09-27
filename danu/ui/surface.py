@@ -357,9 +357,14 @@ class SurfaceLayer(QGraphicsItem):
 
         A build is not a reason to recolour a raster. An exact rebuild after
         one node moved changes 30 cells of 24.4 million, in eleven rows -
-        finding them costs 16.4 ms and redrawing them 0.4, against 1,547 ms for
-        the whole. At 1 arcsecond the whole is 219.7 M cells and about sixteen
-        seconds, on the thread that is meant to be drawing.
+        finding them costs 14.3 ms and redrawing them 0.3, where recolouring
+        the whole is 1,500. At 1 arcsecond the whole is 219.7 M cells and about
+        sixteen seconds, on the thread that is meant to be drawing.
+
+        Those are one run of the gobras 3x3 at 3 arcseconds, and a whole
+        recolour of it varies by about five per cent between runs - 1,475 to
+        1,547 across the ones taken here. Every figure quoted anywhere for this
+        is from the run above, so they can be compared with each other.
 
         The comparison walks the two rasters in strips, so its own working set
         is bounded whatever the resolution, and it yields one box per strip

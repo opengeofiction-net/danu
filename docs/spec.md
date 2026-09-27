@@ -1518,9 +1518,14 @@ what moved.
 
 **Done.** `set_shaded` compares the new surface with the one on screen and
 recolours the boxes that differ. On the gobras 3x3 at 3 arcseconds, showing a
-rebuild after one node moved goes from **1,475 ms to 25.2 ms**, of which 14.4
-is the comparison itself. The first surface of a session still costs a whole
-recolour, because there is nothing to compare it against.
+rebuild after one node moved goes from **1,500 ms to 25.4 ms**, of which 14.3
+is the comparison itself and 0.3 the redraw. The first surface of a session
+still costs a whole recolour, because there is nothing to compare it against.
+
+One run, and a whole recolour of that set varies by about five per cent between
+runs - 1,475 to 1,547 across the ones taken here. Every figure quoted for this,
+in the spec and in the code, is from the same run, so they can be put beside
+each other.
 
 The comparison walks the two rasters in strips - `strips()`, which was written
 for `land_clamp` and now lives where it does not need GDAL to reach - so its

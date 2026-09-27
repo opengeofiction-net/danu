@@ -351,7 +351,7 @@ def _changed(base, box, lift=60.0, shade=40):
 def test_the_comparison_finds_the_box_that_moved(qtbot):
     """A build is not a reason to recolour a raster. An exact rebuild after one
     node moved changes 30 cells of 24.4 million, in eleven rows; finding them
-    costs 16.4 ms and redrawing them 0.4, against 1,547 for the whole.
+    costs 14.3 ms and redrawing them 0.3, where recolouring the whole is 1,500.
 
     Here: the same surface twice, differing in one box, and the second showing
     has to touch that box and nothing else.
@@ -532,7 +532,7 @@ def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qt
     `self.shaded`, `set_style` recolours, and the box path is only taken when
     the range did not move. A review proposed checking `range_for(was.dem)`
     against it at run time instead. That is 33.9 ms over the gobras 3x3's 24.4
-    M cells - more than the 25.2 ms that showing a whole rebuild now costs -
+    M cells - more than the 25.4 ms that showing a whole rebuild now costs -
     so the invariant is worth a test rather than a measurement on every build.
 
     The sequence includes a range that goes up, stays, and comes back down to a
