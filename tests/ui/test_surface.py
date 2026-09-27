@@ -608,6 +608,13 @@ def test_the_preview_never_writes_the_builds_own_rasters(tmp_path, monkeypatch):
             self.path, self.shape, self.band = Path(path), (4, 4), self
             self.ds = self
 
+        def write(self, box, patch):
+            # a real write, so the assertion below is about bytes on disk and
+            # not about where a handle points. Checking only the path would
+            # pass a _read_rasters that opened the build's files and skipped
+            # the copy, as long as it named them in the right directory.
+            self.path.write_bytes(b'a preview wrote this')
+
         def GetGeoTransform(self):       # GDAL's spelling, not ours
             return (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
 
@@ -644,3 +651,13 @@ def test_the_preview_never_writes_the_builds_own_rasters(tmp_path, monkeypatch):
     read_only = [p for p, update in opened if not update]
     assert all(p.parent == built for p in read_only), \
         'a raster nothing writes was copied for no reason'
+
+    # now write through both, which is what the driver does after every
+    # preview, and the build's own rasters have to be exactly as it left them
+    rasters.surface.write(None, None)
+    rasters.dem.write(None, None)
+    for n in names:
+        assert (built / n).read_bytes() == b'the build wrote this', \
+            f'a preview write reached the build\'s own {n}'
+    assert {p.read_bytes() for p in for_update} == {b'a preview wrote this'}, \
+        'the write did not land in the copies either'

@@ -152,17 +152,29 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     # without GDAL and use ArrayBand, so if nothing here reads a raster then
     # nothing tests the path a mapper is on
     r = before['result']
+
+    def own(path):
+        """A copy of a build raster, as _read_rasters makes for the two the
+        preview writes."""
+        mine = tmp_path / 'preview'
+        mine.mkdir(exist_ok=True)
+        dst = mine / Path(path).name
+        shutil.copyfile(path, dst)
+        return dst
+
     kept = preview.Kept(constraints=preview.Band.open(r.constraints, np.float32),
                         mask=preview.Band.open(r.drawn_mask),
                         water=preview.Band.open(r.water_mask) if r.water_mask else None,
-                        # update=True on these two, as _read_rasters opens
-                        # them: the preview writes the surface and the dem, and
-                        # a read-only handle would not be the path a mapper is
-                        # on. This test does not itself write - patch() does not
-                        # - but the mode is part of what is being exercised.
-                        surface=preview.Band.open(r.surface, np.float32, update=True),
+                        # the two the preview writes are copies opened for
+                        # update, which is what _read_rasters does and for the
+                        # reason it does it. Opening the build's own files here
+                        # would be a configuration no mapper is ever on, and
+                        # would leave anything that later wrote through Kept
+                        # comparing the rebuild against a baseline it had
+                        # moved.
+                        surface=preview.Band.open(own(r.surface), np.float32, update=True),
                         geotransform=gt, nodata=before['nodata'], contours=layer,
-                        dem=preview.Band.open(r.dem, np.float32, update=True))
+                        dem=preview.Band.open(own(r.dem), np.float32, update=True))
     keep_a_copy = kept.constraints.read_all().copy()
     mask_copy = kept.mask.read_all().copy()
     water_copy = kept.water.read_all().copy() if kept.water is not None else None
