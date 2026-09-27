@@ -98,7 +98,7 @@ def test_level_of_detail_follows_the_zoom(view, ws):
     view.fit_bounds(*ws.squares[SquareName(125, -24)].bounds)
     view.set_zoom(ZOOM_INDEX - 1)
     render(view)
-    assert layer.drawn_levels == 0 and layer.drawn_labels == 0
+    assert layer.drawn_levels == 0 and layer.drawn_labels == 0 and layer.drawn_ways == 0
     view.set_zoom(ZOOM_INDEX)
     render(view)
     assert layer.drawn_levels == len(layer.index_levels) == 5      # index only
@@ -114,6 +114,14 @@ def test_level_of_detail_follows_the_zoom(view, ws):
     view.set_zoom(ZOOM_LABELS)
     render(view)
     assert layer.drawn_labels > 0
+    # and back out, after something has been drawn. Zooming out from nothing
+    # cannot catch a counter that is not reset, because it is still zero from
+    # __init__ - the count has to be made stale first
+    assert layer.drawn_ways > 0
+    view.set_zoom(ZOOM_INDEX - 1)
+    render(view)
+    assert layer.drawn_levels == 0 and layer.drawn_labels == 0, 'a counter survived zooming out'
+    assert layer.drawn_ways == 0, 'drawn_ways kept the last paint\'s count'
 
 
 def test_a_contour_is_drawn_where_its_nodes_are_in_its_colour(view, ws):
@@ -255,3 +263,190 @@ def test_a_geometry_whose_refs_and_points_disagree_is_refused():
         WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2, 3])
     WayGeom(sq, way, 100.0, np.zeros((2, 2)), [1, 2])          # aligned, accepted
     WayGeom(sq, way, 100.0, np.zeros((2, 2)))                  # and no refs at all
+
+
+def test_the_cull_follows_the_viewport(view, ws):
+    """A level's ways joined into one path have a rectangle that spans the
+    working set, so culling by it culls nothing: the gobras 3x3 redrew 341,694
+    points on every paint, 150.8 ms of a 153 ms repaint, on every pan and every
+    edit. Per way the rectangle is the way's own.
+
+    What is asserted is that the number drawn follows the window, not a
+    fraction. This fixture is one dense square where a long sinuous contour's
+    rectangle overlaps most of the others - 76 of 94 ways at two zooms in - so a
+    threshold here would be a fact about the fixture. On the gobras 3x3 the same
+    code draws 235 ways of 6,305 at zoom 12 and 5 at zoom 16.
+    """
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    total = sum(len(pieces) for pieces in layer.paths.values())
+    assert total > 50, f'the fixture has only {total} ways to cull'
+
+    # the same centre at two zooms, so only the window differs
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    view.set_zoom(ZOOM_ALL)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    wide = layer.drawn_ways
+    assert wide > 0, 'nothing was drawn over a contour with the square in view'
+
+    view.set_zoom(ZOOM_ALL + 6)
+    view.center_on_lonlat(lon, lat)
+    render(view)
+    close = layer.drawn_ways
+
+    assert 0 < close < wide, (
+        f'{close} ways drawn zoomed in against {wide} zoomed out - '
+        f'the cull does not follow the window')
+
+
+def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
+    """The picture has to be the same picture. Rendered against a layer whose
+    pieces all carry a rectangle covering everything - so nothing is culled -
+    the two must agree pixel for pixel."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    sq = ws.squares[SquareName(125, -24)]
+    way = max(sq.contours(), key=lambda w: len(w.refs))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+
+    def shot(no_cull, zoom):
+        layer = ContourLayer()
+        layer.set_working_set(ws)
+        if no_cull:
+            everywhere = QRectF(-1e12, -1e12, 2e12, 2e12)
+            for pieces in layer.paths.values():
+                for piece in pieces:
+                    piece.rect = everywhere
+        view.scene().addItem(layer)
+        view.set_zoom(zoom)
+        view.center_on_lonlat(lon, lat)
+        img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img); view.render(p); p.end()
+        drawn = layer.drawn_ways
+        view.scene().removeItem(layer)
+        return img, drawn
+
+    # at several zooms, not one. The rectangles are in scene units and the cull
+    # is the only thing between them and the window, so a fault that depended
+    # on scale - the growth swamped at one end, a rounding at the other - would
+    # sit outside a single sample. ZOOM_ALL is where every level starts being
+    # drawn, so this brackets it.
+    checked = 0
+    for zoom in (ZOOM_ALL, ZOOM_ALL + 1, ZOOM_ALL + 3, ZOOM_ALL + 6):
+        culled, n_culled = shot(False, zoom)
+        whole, n_whole = shot(True, zoom)
+        assert n_whole > n_culled, (
+            f'at zoom {zoom} the unculled layer drew {n_whole} and the culled one '
+            f'{n_culled} - nothing was culled, so this compares two identical renders')
+        assert culled == whole, f'culling changed the picture at zoom {zoom}'
+        checked += 1
+    assert checked == 4
+
+    # and that the comparison can detect the difference this test is about.
+    # QImage's == is a content comparison - identical images compare equal, a
+    # single differing pixel does not - but an assertion of sameness that could
+    # not detect a difference would pass on any implementation at all. Two
+    # renders at different zooms would show that much; this drops one level
+    # from the picture at the same zoom and centre, which is the shape of
+    # "the cull let something through that it should not have".
+    zoom = ZOOM_ALL + 1
+    full, _ = shot(False, zoom)
+    short = ContourLayer()
+    short.set_working_set(ws)
+    dropped = sorted(short.paths)[len(short.paths) // 2]
+    short.paths[dropped] = []
+    view.scene().addItem(short)
+    view.set_zoom(zoom)
+    view.center_on_lonlat(lon, lat)
+    img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img); view.render(p); p.end()
+    view.scene().removeItem(short)
+    assert img != full, (
+        f'dropping the ways at {dropped} m changed no pixel, so comparing '
+        f'images cannot see a cull that drops something')
+
+
+def test_a_contour_running_due_east_is_not_culled(view, ws):
+    """Its rectangle has no height, and QRectF.intersects is false for an empty
+    rectangle - so an east-west contour would be culled wherever the window
+    was, and vanish. The rectangles are grown by a unit for that reason; this
+    is what says so.
+
+    The way is drawn here rather than taken from a fixture, because the
+    geometry *is* the test: every point at one latitude, which no fixture in
+    this file happens to contain.
+    """
+    from danu.core import edits
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+
+    sq = ws.squares[SquareName(125, -24)]
+    alloc = edits.IdAllocator(sq)
+    lat = -23.5
+    lon0, lon1 = 125.2, 125.8
+    # an elevation nothing else in the set uses, so `paths[7.0]` is this way
+    # and the count below fails for the reason it names
+    assert 7.0 not in layer.paths, 'the fixture already draws at 7 m'
+    wid = alloc.take()
+    cmd = edits.AddWay(wid, [alloc.take(), alloc.take()],
+                       [(lon0, lat), (lon1, lat)], {'ele': '7'})
+    cmd.apply(sq)
+    layer.refresh(sq, {wid})
+
+    pieces = layer.paths[7.0]
+    assert len(pieces) == 1, 'the way drawn here is not the only one at 7 m'
+    assert pieces[0].rect.height() > 0, (
+        'the rectangle was not grown, so this contour has no height and '
+        'QRectF.intersects would cull it from every window')
+
+    view.set_zoom(ZOOM_ALL)
+    view.center_on_lonlat((lon0 + lon1) / 2, lat)
+    render(view)
+    assert layer.drawn_ways > 0, 'a contour running due east was culled away'
+
+
+def test_refreshing_a_way_twice_does_not_draw_it_twice(view, ws):
+    """Each level's pieces are a list appended to, so a rebuild that failed to
+    clear the level first would append every way again - every contour drawn
+    twice, at twice the cost, looking only slightly heavier.
+
+    `_rebuild_levels` pops each level before refilling it, and `refresh` puts
+    both the elevation a way had and the one it has into that set. This is what
+    says so, because the shape that would break it is one line away: the
+    previous structure was a path per level and appending to it had the same
+    hazard, so neither spelling protects itself."""
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(iter(sq.contours()))
+    before = {ele: len(pieces) for ele, pieces in layer.paths.items()}
+
+    layer.refresh(sq, {way.id})
+    once = {ele: len(pieces) for ele, pieces in layer.paths.items()}
+    assert once == before, 'refreshing a way changed how many pieces exist'
+
+    layer.refresh(sq, {way.id})
+    layer.refresh(sq, {way.id})
+    assert {ele: len(p) for ele, p in layer.paths.items()} == before, \
+        'refreshing the same way again appended it a second time'
+
+    # and a way moved to another elevation leaves nothing behind at the old
+    # one. `was` is read before the tag changes: Way.ele reads the tag, so
+    # afterwards it names the new level and the check would look at the wrong
+    # list and pass
+    was = way.ele
+    n_old = len(layer.paths[was])
+    moved_to = max(layer.paths) + 1000.0
+    sq.ways[way.id].tags['ele'] = str(moved_to)
+    layer.refresh(sq, {way.id})
+    assert len(layer.paths.get(was, [])) == n_old - 1, 'the way stayed at its old level'
+    assert len(layer.paths[moved_to]) == 1

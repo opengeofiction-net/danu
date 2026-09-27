@@ -1432,14 +1432,15 @@ job's own flag, since the pool's answers for whatever else is on it - and
 leaves the directory behind rather than pull it from under a live writer if the
 wait runs out.
 
-**F5c, what is actually slow.** Not started. Named for the margin, and then
+**F5c, what is actually slow.** Item 1 done, the rest not started. Named for
+the margin, and then
 the app was used for an afternoon and the margin turned out not to be the
 binding constraint - nor the second, nor the third. What follows is measured on
 the gobras 3x3, in the real window rather than in a harness.
 
 In the order a mapper would feel them:
 
-1. the contour layer, which owns 150 ms of a 153 ms repaint;
+1. the contour layer, which owned 150 ms of a 153 ms repaint - **done**;
 2. the recolour after a build, which redraws 24 M cells to move 30 of them;
 3. `Kept` holding whole rasters, which is why there is no preview at 1
    arcsecond;
@@ -1468,13 +1469,32 @@ the drawing is one layer:
 | **without the contours** | **2.7 ms** |
 | the tiles alone | 0.6 ms |
 
-`ContourLayer.paint` builds one `QPainterPath` per elevation and culls by each
+`ContourLayer.paint` built one `QPainterPath` per elevation and culled by each
 path's `controlPointRect`. On a working set that is 72 elevations over 6,401
-ways and 341,694 points, every path spans nearly the whole set, so nothing is
-ever culled and a third of a million points are redrawn antialiased on every
-paint - on every pan, and on every edit. Culling per way rather than per level,
-or caching what does not change, is the first thing F5c does, because until it
-is done nothing else is visible.
+ways and 341,694 points, every path spans nearly the whole set, so nothing was
+ever culled and a third of a million points were redrawn antialiased on every
+paint - on every pan, and on every edit.
+
+**Done.** One path per way, each with its own rectangle. The whole map's
+repaint, on the gobras 3x3 at a 687 by 954 viewport. 6,305 ways there, not the
+6,401 above: ninety-six of those carry an `ele` but fewer than two points the
+square still holds, so they are not geometry and the layer never builds one.
+
+| zoom | | before | after | ways drawn |
+|---|---|---|---|---|
+| 9 | index levels only | 187.6 ms | 47.6 ms | 1,088 of 6,305 |
+| 11 | every level | 170.0 ms | 37.0 ms | 1,062 of 6,305 |
+| 12 | every level | 51.0 ms | 22.9 ms | 235 of 6,305 |
+| 13 | every level | 36.2 ms | 10.7 ms | 32 of 6,305 |
+| 16 | every level | 28.4 ms | 5.7 ms | 5 of 6,305 |
+
+`ZOOM_ALL` is 11, so the first row draws a fifth of the levels and the rest
+draw all of them; each row compares like with like, since the same filter
+applied before. Faster at every one, including zoom 11, where every level is
+drawn and a sixth of the ways still are: a rectangle test per way costs
+nothing against the points it saves. The floor - the same repaint with the
+layer hidden - is 0.2 ms, so from zoom 13 in the contours are no longer what a
+repaint is.
 
 **Correcting F5b's own account.** It said "what F5c does not need to account
 for is the drawing", on the strength of the overlay fade measuring 2 to 6 ms.
