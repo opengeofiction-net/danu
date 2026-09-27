@@ -77,7 +77,8 @@ def test_the_linter_is_configured_and_runs_here():
     assert 'B' in rules, (
         'B is the rule that found defects rather than untidiness - a zip with '
         'no strict= stops at the shorter argument and says nothing')
-    assert conf['tool']['ruff']['lint']['flake8-bugbear']['extend-immutable-calls'], (
+    bugbear = conf['tool']['ruff']['lint'].get('flake8-bugbear', {})
+    assert bugbear.get('extend-immutable-calls'), (
         'SquareName is a frozen dataclass; without this B008 flags it as a '
         'shared mutable default, which it cannot be')
     assert 'RUF100' in rules, (
