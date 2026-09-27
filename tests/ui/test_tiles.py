@@ -4,15 +4,15 @@ than done, pixmaps handed to it directly, and the view rendered offscreen."""
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap  # noqa: E402
-from PySide6.QtNetwork import QNetworkRequest  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtNetwork import QNetworkRequest
 
-from danu import __version__  # noqa: E402
-from danu.ui import mercator as m  # noqa: E402
-from danu.ui.app import MainWindow  # noqa: E402
-from danu.ui.config import Layer, load_layers  # noqa: E402
-from danu.ui.mapview import MapView  # noqa: E402
-from danu.ui.tiles import USER_AGENT, TileFetcher, TileLayer  # noqa: E402
+from danu import __version__
+from danu.ui import mercator as m
+from danu.ui.app import MainWindow
+from danu.ui.config import Layer, load_layers
+from danu.ui.mapview import MapView
+from danu.ui.tiles import USER_AGENT, TileFetcher, TileLayer
 
 
 class RecordingFetcher(TileFetcher):

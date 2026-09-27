@@ -5,13 +5,13 @@ import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter
 
-from danu.surface import shade  # noqa: E402
-from danu.surface.shade import HALF  # noqa: E402
-from danu.ui import mercator as m  # noqa: E402
-from danu.ui.mapview import MapView  # noqa: E402
-from danu.ui.surface import Style, SurfaceLayer, SurfacePanel  # noqa: E402
+from danu.surface import shade
+from danu.surface.shade import HALF
+from danu.ui import mercator as m
+from danu.ui.mapview import MapView
+from danu.ui.surface import Style, SurfaceLayer, SurfacePanel
 
 
 def synthetic(rows=40, cols=60, x0_m=0.0, y1_m=2_000_000.0, metres=1000.0) -> shade.Shaded:

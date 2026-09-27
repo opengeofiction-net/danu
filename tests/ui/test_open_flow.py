@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtGui import QColor, QImage, QPainter  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter
 
-from danu.core.square import SquareName, WorkingSet  # noqa: E402
-from danu.ui import mercator as m  # noqa: E402
-from danu.ui.app import MainWindow  # noqa: E402
-from danu.ui.config import load_layers  # noqa: E402
-from danu.ui.loader import WorkingSetLoader  # noqa: E402
-from danu.ui.mapview import MapView  # noqa: E402
-from danu.ui.open_dialog import OpenDialog, zones_under  # noqa: E402
-from danu.ui.settings import Settings  # noqa: E402
-from danu.ui.squares import SquaresItem  # noqa: E402
+from danu.core.square import SquareName, WorkingSet
+from danu.ui import mercator as m
+from danu.ui.app import MainWindow
+from danu.ui.config import load_layers
+from danu.ui.loader import WorkingSetLoader
+from danu.ui.mapview import MapView
+from danu.ui.open_dialog import OpenDialog, zones_under
+from danu.ui.settings import Settings
+from danu.ui.squares import SquaresItem
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
