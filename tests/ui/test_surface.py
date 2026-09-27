@@ -324,3 +324,155 @@ def test_a_box_recolour_keeps_the_whole_surfaces_colour_scale(qtbot):
 
     got = _pixels(layer)[sl]
     assert np.array_equal(got, with_global), "the patch restretched to its own contents"
+
+def _pixmap_of(layer):
+    import numpy as np
+    from PySide6.QtGui import QImage
+    img = layer._pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+    return np.frombuffer(img.constBits(), np.uint8,
+                         img.height() * img.bytesPerLine()).reshape(
+                             img.height(), img.bytesPerLine() // 4, 4)[:, :img.width()].copy()
+
+
+def _changed(base, box, lift=60.0, shade=40):
+    """A copy of `base` with one box of ground moved."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+
+    y0, x0, rows, cols = box
+    dem = base.dem.copy()
+    hs = base.shade.copy()
+    dem[y0:y0 + rows, x0:x0 + cols] += np.float32(lift)
+    hs[y0:y0 + rows, x0:x0 + cols] = shade
+    return shade_mod.Shaded(dem=dem, shade=hs, geotransform=base.geotransform,
+                            metres=base.metres)
+
+
+def test_a_rebuild_recolours_what_moved_and_not_the_raster(qtbot):
+    """A build is not a reason to recolour a raster. An exact rebuild after one
+    node moved changes 30 cells of 24.4 million, in eleven rows; finding them
+    costs 16.4 ms and redrawing them 0.4, against 1,547 for the whole.
+
+    Here: the same surface twice, differing in one box, and the second showing
+    has to touch that box and nothing else.
+    """
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    def fixed():
+        st = Style()
+        st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=900.0)
+        return st
+
+    base = synthetic(rows=200, cols=300)
+    box = (40, 60, 12, 15)
+    after = _changed(base, box)
+
+    layer = SurfaceLayer()
+    layer.set_style(fixed())
+    layer.set_shaded(base)
+
+    boxes = layer._moved(base, after)
+    assert boxes is not None, 'the comparison refused a grid it should have taken'
+    assert boxes, 'the comparison found no difference where one was made'
+    y0, x0, rows, cols = boxes[0]
+    assert (y0, x0) == (40, 60) and (rows, cols) == (12, 15), boxes
+    assert rows * cols < base.dem.size / 100, 'the box is most of the raster'
+
+
+def test_recolouring_what_moved_is_the_picture_recolouring_all_of_it_gives(qtbot):
+    """The shortcut must not be a different picture. One layer is shown the
+    first surface and then the second - the partial path; the other is shown
+    the second alone - the whole path. Their pixmaps have to match."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import Style, SurfaceLayer
+
+    def fixed():
+        st = Style()
+        st.scaling = shade_mod.Scaling(mode="manual", lo=0.0, hi=900.0)
+        return st
+
+    base = synthetic(rows=200, cols=300)
+    after = _changed(base, (40, 60, 12, 15))
+
+    partial = SurfaceLayer(); partial.set_style(fixed())
+    partial.set_shaded(base)
+    before_pixels = _pixmap_of(partial)
+    partial.set_shaded(after)
+
+    whole = SurfaceLayer(); whole.set_style(fixed())
+    whole.set_shaded(after)
+
+    got, want = _pixmap_of(partial), _pixmap_of(whole)
+    assert np.array_equal(got, want), (
+        f'{int((got != want).sum())} of {want.size} bytes differ between '
+        f'recolouring the box and recolouring the raster')
+    assert not np.array_equal(got, before_pixels), 'the edit changed no pixel at all'
+
+
+def test_a_surface_on_a_new_grid_recolours_whole(qtbot):
+    """A build whose extent grew is a different raster, and a box in one is not
+    a box in the other. There is nothing to compare, so everything is redrawn.
+    """
+    from danu.ui.surface import SurfaceLayer
+
+    layer = SurfaceLayer()
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+
+    assert layer._moved(base, synthetic(rows=220, cols=300)) is None, 'a taller raster was compared'
+    assert layer._moved(base, synthetic(rows=200, cols=320)) is None, 'a wider raster was compared'
+    moved = synthetic(rows=200, cols=300, x0_m=50_000.0)
+    assert layer._moved(base, moved) is None, 'a raster somewhere else was compared'
+    assert layer._moved(None, base) is None, 'there was nothing on screen to compare against'
+
+
+def test_a_build_that_moves_the_colour_scale_recolours_whole(qtbot):
+    """In 'auto' the ramp is stretched over the land in the whole array, so a
+    build that raised the highest ground recolours every cell - including ones
+    whose own elevation did not change. Recolouring only what moved would leave
+    the rest at the old scale, and the patch would show as a rectangle."""
+    import numpy as np
+    from danu.ui.surface import SurfaceLayer
+
+    layer = SurfaceLayer()                       # auto scaling by default
+    base = synthetic(rows=200, cols=300)
+    layer.set_shaded(base)
+    assert layer._stretch is not None
+
+    # the same ground, but one box lifted well above everything else
+    higher = _changed(base, (40, 60, 12, 15), lift=5000.0)
+    assert layer._moved(base, higher) is None, (
+        'a build that moved the colour scale was recoloured box by box')
+
+    # and a change that leaves the range alone is still compared
+    within = _changed(base, (40, 60, 12, 15), lift=5.0)
+    assert layer.style.scaling.range_for(within.dem) == layer._stretch
+    assert layer._moved(base, within) is not None
+
+
+def test_ground_that_only_shades_differently_is_recoloured(qtbot):
+    """The hillshade is a derivative of the smoothed DEM, so a cell can shade
+    differently without its own elevation moving at all - a contour drawn
+    beside it changes the slope over it and nothing else.
+
+    Comparing the DEM alone would find nothing there and leave the old
+    hillshade on screen until something else forced a whole recolour."""
+    import numpy as np
+    from danu.surface import shade as shade_mod
+    from danu.ui.surface import SurfaceLayer
+
+    base = synthetic(rows=200, cols=300)
+    hs = base.shade.copy()
+    hs[40:52, 60:75] = 40                       # lit differently, same ground
+    lit = shade_mod.Shaded(dem=base.dem, shade=hs, geotransform=base.geotransform,
+                           metres=base.metres)
+    assert np.array_equal(base.dem, lit.dem), 'this fixture moved the elevations too'
+
+    layer = SurfaceLayer()
+    layer.set_shaded(base)
+    boxes = layer._moved(base, lit)
+    assert boxes, 'ground that only shades differently was not noticed'
+    y0, x0, rows, cols = boxes[0]
+    assert (y0, x0, rows, cols) == (40, 60, 12, 15), boxes
