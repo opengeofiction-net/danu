@@ -385,6 +385,11 @@ class SurfaceLayer(QGraphicsItem):
             return
         l, t, r, b = shaded.scene_rect
         self._rect = QRectF(l, t, r - l, b - t)
+        # before anything recolours. _moved is handed both surfaces, but it
+        # also reads `_pixmap`, `_array`, `_stretch` and the style, and all
+        # four still describe what is on screen - which is `was`. A recolour
+        # moved above this line would have it compare the new surface against
+        # itself and find nothing, silently.
         boxes = self._moved(was, shaded)
         if boxes is None:
             self.recolour()

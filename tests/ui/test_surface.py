@@ -524,9 +524,16 @@ def test_changing_the_style_keeps_the_colour_scale_and_the_pixels_in_step(qtbot)
 
 def test_the_colour_scale_recorded_is_always_the_one_the_pixels_were_drawn_at(qtbot):
     """The guard in `_moved` asks whether `now`'s range equals `_stretch`. That
-    is the right question only because `_stretch` is always `was`'s range - so
-    the comparison is between the two surfaces even though only one appears in
-    it.
+    is the right question only because, *at the moment it runs*, `_stretch` is
+    the range the pixels on screen were drawn at - so the comparison is between
+    the two surfaces even though only one appears in it.
+
+    What this checks is the weaker, observable form: after every showing,
+    `_stretch` is the range of the surface now displayed. The two are the same
+    statement one step apart, since the surface displayed after one call is
+    what `_moved` compares against on the next - but they are not the same
+    sentence, and tightening `_moved` on the strength of the stronger one
+    would be a mistake.
 
     It holds by induction across three methods: a whole recolour sets it from
     `self.shaded`, `set_style` recolours, and the box path is only taken when
