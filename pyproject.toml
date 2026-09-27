@@ -71,7 +71,9 @@ line-length = 110
 # worker thread is deliberate six times over, because a UI that dies on an
 # unexpected error is worse than one that reports it as text, and each of
 # those six says so. The seventh, in danu/checks/rivers.py, re-raises on the
-# last attempt and so was never blind; RUF100 removed it. The five `E731`
+# last attempt of a retry loop, and BLE001 does not flag a handler that
+# re-raises - only one that swallows. It was never blind, its directive never
+# suppressed anything, and RUF100 removed it. The five `E731`
 # lambdas are ctypes pointer casts and Mercator scalings, local and one line
 # each. The point of both rules is the *next* one, which will have to be
 # argued for in a comment rather than appearing unremarked.
