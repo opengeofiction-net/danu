@@ -311,12 +311,14 @@ class Kept:
     none. ``surface`` is ``rounded.tif``, the fill's answer before the clamp,
     because that is what a solve continues from and what a solve returns - and
     it is the caller's to keep current: splice each patch into it, or the next
-    preview holds the rim at a surface two edits old. That splice is now a
-    write into the file, which is the one band opened for update.
+    preview holds the rim at a surface two edits old. That splice is a write
+    into the file now, as is the clamped patch into ``dem`` - the two bands
+    opened for update.
 
-    Writing into ``rounded.tif`` is safe because the build has finished with
-    it: ``clamp`` reads it to produce the DEM and nothing reads it afterwards
-    except this. The shell deletes it outright.
+    Neither is a build artefact. ``_read_rasters`` copies both before opening
+    them, because one working directory serves a whole session and a preview
+    runs while the next rebuild is in flight: writing in place would have the
+    preview and the running build writing the same two files.
     """
     constraints: Band | ArrayBand
     mask: Band | ArrayBand

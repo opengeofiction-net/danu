@@ -126,18 +126,40 @@ def _rasters(result, work: Path, params: Params):
 
 
 def _read_rasters(result, work: Path):
-    # surface and dem are opened for update: the preview splices each patch
-    # into the surface so the next rim is held at what is on screen, and writes
-    # the clamped patch into the dem for the same reason. Both are the build's
-    # own intermediates in its working directory, finished with by the time a
-    # preview runs - `clamp` reads rounded.tif to produce the dem, and nothing
-    # reads either afterwards except this.
+    # The preview writes to two of these - it splices each patch into the
+    # surface so the next rim is held at what is on screen, and writes the
+    # clamped patch into the dem for the same reason - so those two are copied
+    # and the build's own files are never written at all.
+    #
+    # Not an abundance of caution. One working directory serves the whole
+    # session, so every build writes the same dem.tif and rounded.tif into it,
+    # and a preview runs *while* a rebuild is in flight - that is what a
+    # preview is for. Writing the build's files in place would have the
+    # preview and the running build writing the same two files, for the 74
+    # seconds a 1 arcsecond build takes. They are compressed GeoTIFFs, 15.5 MB
+    # and 5.2 MB at 1 arcsecond, and the copy is 0.01 s against that build.
+    #
+    # In a directory of their own per build, so that the copy itself cannot
+    # collide with the previous build's Kept still reading them.
+    mine = Path(tempfile.mkdtemp(dir=work, prefix='preview-'))
+    for stale in work.glob('preview-*'):
+        # the previous build's, whose Kept is about to be replaced. On Linux an
+        # open file survives its name being removed, so a preview still running
+        # against it keeps working; on Windows the directory stays until
+        # cleanup() takes the lot, which is why this does not insist.
+        if stale != mine:
+            shutil.rmtree(stale, ignore_errors=True)
+    surface = mine / 'rounded.tif'
+    dem_path = mine / 'dem.tif'
+    shutil.copyfile(result.surface, surface)
+    shutil.copyfile(result.dem, dem_path)
+
     cons = preview.Band.open(result.constraints, np.float32)
-    dem = preview.Band.open(result.dem, np.float32, update=True)
+    dem = preview.Band.open(dem_path, np.float32, update=True)
     return Rasters(constraints=cons,
                    mask=preview.Band.open(result.drawn_mask),
                    water=preview.Band.open(result.water_mask) if result.water_mask else None,
-                   surface=preview.Band.open(result.surface, np.float32, update=True),
+                   surface=preview.Band.open(surface, np.float32, update=True),
                    dem=dem,
                    geotransform=tuple(dem.ds.GetGeoTransform()),
                    projection=dem.ds.GetProjection(),
