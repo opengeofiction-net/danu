@@ -531,6 +531,12 @@ class SurfaceLayer(QGraphicsItem):
         was = self._drawn
         self.shaded = shaded
         if shaded is None:
+            # and the queue with it: a compose in flight still has its serial
+            # in `_pending`, so it would land, pass `_composed`'s guard and
+            # put the surface that was just cleared back on screen - twenty
+            # seconds later at 1 arcsecond, which is long after whatever asked
+            # for nothing to be shown. Zeroed here, the result is dropped.
+            self._pending, self._wanted = 0, False
             self._pixmap, self._rect, self._stretch, self._drawn = None, QRectF(), None, None
             self.update()
             return
@@ -555,8 +561,20 @@ class SurfaceLayer(QGraphicsItem):
         if boxes is None:
             self.recolour()
         else:
-            for y0, x0, rows, cols in boxes:
-                self.recolour_box(y0, x0, rows, cols)
+            # every one, or `_drawn` would name a surface the pixmap only
+            # partly shows. A box is refused when it cannot be trusted, and
+            # then what is drawn is still the surface before this one.
+            done = [self.recolour_box(y0, x0, rows, cols) for y0, x0, rows, cols in boxes]
+            if all(done):
+                # the patches brought the pixmap to this surface, so it is
+                # what is drawn now. Without this `_drawn` stayed at the last
+                # *whole* recolour and `_moved` compared against a surface
+                # several rebuilds old: the trace shows the same six boxes
+                # recomputed and repainted at every rebuild, growing as the
+                # session goes on, and every preview patch in between undone
+                # by ground that had not changed since the surface `_drawn`
+                # still named.
+                self._drawn = shaded
         self.update()
 
     def _moved(self, was, now) -> list | None:

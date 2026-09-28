@@ -1003,3 +1003,49 @@ def test_a_result_landing_after_a_timed_out_cleanup_is_applied():
     assert np.array_equal(drawn(layer), drawn(reference)), \
         'the result was dropped, so the screen kept a surface it had replaced'
     assert not layer._pending, 'it landed and the guard is still on'
+
+def test_patching_boxes_makes_the_new_surface_the_drawn_one(qapp):
+    """`_drawn` is what the pixmap shows, and patching boxes changes that.
+
+    Left unset, `_drawn` stayed at the last *whole* recolour, so `_moved`
+    compared every later surface against one several rebuilds old. A trace from
+    a real session showed it: the same six boxes, recomputed and repainted at
+    every rebuild, identical coordinates each time, for as long as the session
+    went on.
+    """
+    layer = SurfaceLayer()
+    first = synthetic(rows=40, cols=60)
+    layer.set_shaded(first)
+    assert layer._drawn is first
+
+    second = _changed(first, (10, 10, 8, 12))
+    layer.set_shaded(second)
+    assert layer._drawn is second, 'patching boxes left _drawn at the older surface'
+
+    # and the next comparison is against `second`, so ground that has not moved
+    # since is not repainted again. With `_drawn` left at `first` this returns
+    # the box that first-to-second moved, over and over, which is what the
+    # trace showed.
+    boxes = layer._moved(layer._drawn, second)
+    assert boxes == [], f'{len(boxes)} boxes against the surface already drawn'
+
+def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
+    """`set_shaded(None)` means show nothing, and a compose that has not landed
+    yet must not undo it.
+
+    The layer was told to show nothing and twenty seconds later the surface it
+    was told to stop showing arrives - long after whatever asked for it to go.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    assert layer._pixmap is not None
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a whole recolour, in flight
+    assert layer._pending
+    layer.set_shaded(None)
+    assert not layer._pending and not layer._wanted, 'the queue survived the clear'
+
+    held.run_all()                                   # it finishes anyway
+    assert layer._pixmap is None, 'a compose in flight put the surface back'
+    assert layer._drawn is None and layer.boundingRect().isNull()
