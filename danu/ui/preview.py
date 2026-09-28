@@ -36,6 +36,9 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..surface import local, preview, shade
 from ..surface.params import Params
+from . import trace as _tracing
+from .trace import grid as _grid
+from .trace import trace as _trace
 
 # One gesture's worth of edits, coalesced. A contour is drawn a node at a time
 # and each is an edit; at 30 ms a fast hand's run of them becomes one preview
@@ -92,6 +95,14 @@ class PreviewDriver(QObject):
     def __init__(self, parent=None, gesture_ms: int = GESTURE_MS, idle_ms: int = IDLE_MS):
         super().__init__(parent)
         self._kept: preview.Kept | None = None
+        # which build each half is of. `follow` runs for every build and
+        # `adopt` only for the ones that are not stale, so the surface a
+        # preview splices into and the grids it works *from* can be different
+        # builds - and clamp_patch reads the sea decision off the grids. If a
+        # preview is re-zeroing ground a later build raised, these two numbers
+        # are where it shows.
+        self._kept_gen = 0
+        self._shaded_gen = 0
         self._shaded: shade.Shaded | None = None
         self._params: Params | None = None
         self._projection = ''
@@ -113,6 +124,7 @@ class PreviewDriver(QObject):
 
     def forget(self):
         """Drop the rasters - a new working set, or a build that gave none."""
+        _trace('preview forget', kept_gen=self._kept_gen, shaded_gen=self._shaded_gen)
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
         self._drawn.clear()
@@ -127,6 +139,9 @@ class PreviewDriver(QObject):
         nobody draws, and the previews simply stop appearing - which an idle
         rebuild, an edit landing while it runs, and another edit inside the
         gesture window is enough to reach."""
+        self._shaded_gen += 1
+        _trace('preview follow', gen=self._shaded_gen, of=_grid(shaded),
+               kept_gen=self._kept_gen)
         self._shaded = shaded
 
     def adopt(self, built, params: Params):
@@ -161,6 +176,9 @@ class PreviewDriver(QObject):
         self._kept = preview.Kept(constraints=r.constraints, mask=r.mask, water=r.water,
                                   surface=r.surface, geotransform=r.geotransform,
                                   nodata=r.nodata, contours=contours, dem=r.dem)
+        self._kept_gen += 1
+        _trace('preview adopt', gen=self._kept_gen, of=_grid(built.shaded),
+               arcsec=f'{params.arcsec:g}', shaded_gen=self._shaded_gen + 1)
         self._shaded = built.shaded
         self._params = params
         # the layer is the build's again, so what it holds for each way is the
@@ -349,12 +367,19 @@ class PreviewDriver(QObject):
         started = time.perf_counter()
         written: list = []
         for box in boxes:
+            solving = time.perf_counter()
             patch, good = preview.patch(self._kept, box, self._params)
+            solved = time.perf_counter()
             # the kept surface carries the edit forward, so the next preview
             # holds its rim at what is on screen and not at a surface two
             # edits old
             self._kept.surface.write(good, patch)
             rect = self._repaint(good)
+            _trace('preview piece', box=f'{good.shape[0]}x{good.shape[1]}',
+                   solve_ms=f'{(solved - solving) * 1000:.0f}',
+                   repaint_ms=f'{(time.perf_counter() - solved) * 1000:.0f}',
+                   kept_gen=self._kept_gen, shaded_gen=self._shaded_gen,
+                   reached_screen=rect is not None)
             if rect is not None:
                 written.append(rect)
         if written:
@@ -433,7 +458,26 @@ class PreviewDriver(QObject):
         # constraint that is not there and never putting the new contour's own
         # elevation back over the fill's guess
         fresh = kept.contours.burn(gt, win, kept.nodata)
-        clamped = preview.clamp_patch(kept.surface.read(win), fresh, kept.dem.read(win))
+        surface_win, dem_win = kept.surface.read(win), kept.dem.read(win)
+        clamped = preview.clamp_patch(surface_win, fresh, dem_win)
+        if _tracing.TRACE:
+            # Counted only when the trace is on: two sums over the window on
+            # every preview is not a thing to pay for when nobody is reading.
+            #
+            # The hypothesis this exists to settle. clamp_patch does
+            # `d[kept_dem == 0] = 0`: it reads the sea/land decision off the
+            # last exact build's DEM rather than recomputing it, because
+            # deciding which zero cells are sea is a global question. `adopt`
+            # runs only for builds that are not stale, so that DEM can be
+            # older than the surface being drawn - and if a later build raised
+            # ground the older one called sea, every preview puts it back to
+            # zero. A DEM of zero composes to alpha zero, which is
+            # transparent, which is a surface that has disappeared.
+            sea = dem_win == 0
+            _trace('preview clamp', win=f'{win.shape[0]}x{win.shape[1]}',
+                   called_sea=int(sea.sum()),
+                   raised_then_sunk=int((sea & (surface_win > 0)).sum()),
+                   kept_gen=self._kept_gen, shaded_gen=self._shaded_gen)
         kept.dem.write(win, clamped)
         sub_gt = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
         m_dem, m_shade, m_gt, _metres = shade.shade_window(

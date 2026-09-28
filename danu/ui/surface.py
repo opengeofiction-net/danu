@@ -14,7 +14,6 @@ not, and asks the worker.
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 import threading
@@ -43,6 +42,8 @@ from ..core.square import WorkingSet
 from ..surface import preview, shade, strips
 from ..surface.params import Params
 from ..surface.ramp import Ramp, spectral, traditional
+from .trace import grid as _grid
+from .trace import trace as _trace
 
 RESOLUTIONS = ((3.0, '3″ - a minute a set, the .hgt archive\'s'), (1.0, '1″ - the published DEM\'s, slow'))
 MODES = ('shaded relief', 'hillshade', 'relief')
@@ -362,35 +363,6 @@ class Style:
     shade_strength: float = 1.0
 
 
-# Set DANU_SURFACE_TRACE to a path and every step of showing a surface is
-# appended to it, with a timestamp: which surface arrived, what its grid and
-# extent were, when a compose was handed over and when it landed, and every
-# box a preview asked to repaint. It exists because "the new surface
-# disappears when the repaint starts, back to the original extent" is a
-# sequence, and the sequence is what a screenshot cannot show.
-_TRACE = os.environ.get('DANU_SURFACE_TRACE')
-
-
-def _trace(what: str, **fields):
-    if not _TRACE:
-        return
-    bits = ' '.join(f'{k}={v}' for k, v in fields.items())
-    try:
-        with open(_TRACE, 'a') as fh:
-            fh.write(f'{time.monotonic():12.3f} {threading.current_thread().name:<16} '
-                     f'{what:<22} {bits}\n')
-    except OSError:
-        pass        # a trace that cannot be written must not stop the editor
-
-
-def _grid(shaded) -> str:
-    if shaded is None:
-        return 'none'
-    l, t, r, b = shaded.scene_rect
-    return (f'{shaded.dem.shape[0]}x{shaded.dem.shape[1]}'
-            f'@({l:.0f},{t:.0f},{r - l:.0f},{b - t:.0f})')
-
-
 def _same_grid(a, b) -> bool:
     """Whether a box in one is a box in the other - the same cells over the
     same ground. Object identity is not the question: two surfaces from the
@@ -537,6 +509,13 @@ class SurfaceLayer(QGraphicsItem):
             # seconds later at 1 arcsecond, which is long after whatever asked
             # for nothing to be shown. Zeroed here, the result is dropped.
             self._pending, self._wanted = 0, False
+            # the rect goes to nothing, which is a geometry change, and the
+            # scene has to be told before it happens or its index keeps the
+            # old bounding rect and the item is not repainted where it was.
+            # set_shaded used to do this unconditionally at the top; it moved
+            # into _apply with the rest of the rect, and this branch sets the
+            # rect itself and so needs its own.
+            self.prepareGeometryChange()
             self._pixmap, self._rect, self._stretch, self._drawn = None, QRectF(), None, None
             self.update()
             return

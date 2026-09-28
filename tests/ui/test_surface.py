@@ -1049,3 +1049,30 @@ def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
     held.run_all()                                   # it finishes anyway
     assert layer._pixmap is None, 'a compose in flight put the surface back'
     assert layer._drawn is None and layer.boundingRect().isNull()
+
+def test_the_scene_is_told_before_the_rect_changes(qapp, monkeypatch):
+    """prepareGeometryChange before boundingRect moves, on every path.
+
+    set_shaded used to call it unconditionally at the top. It moved into
+    _apply with the rest of the rect handling, which left the clear-the-surface
+    branch setting `_rect` to nothing with the scene never told - so the
+    scene's index keeps the old bounding rect and the item is not repainted
+    where it used to be.
+    """
+    layer, held = a_layer_with_a_runner()
+    told: list = []
+    monkeypatch.setattr(type(layer), 'prepareGeometryChange',
+                        lambda self: told.append(self.boundingRect()))
+
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    assert len(told) == 1, 'the rect grew and the scene was not told'
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a grown extent
+    held.run_all()
+    assert len(told) == 2, 'the rect grew again and the scene was not told'
+
+    layer.set_shaded(None)
+    assert len(told) == 3, 'the rect went to nothing and the scene was not told'
+    assert not told[-1].isNull(), 'it was told after the rect had already gone'
+    assert layer.boundingRect().isNull()
