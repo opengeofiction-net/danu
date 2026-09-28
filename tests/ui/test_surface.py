@@ -1076,3 +1076,28 @@ def test_the_scene_is_told_before_the_rect_changes(qapp, monkeypatch):
     assert len(told) == 3, 'the rect went to nothing and the scene was not told'
     assert not told[-1].isNull(), 'it was told after the rect had already gone'
     assert layer.boundingRect().isNull()
+
+def test_a_stale_build_is_adopted_as_well_as_followed(window, monkeypatch):
+    """Both, for every build.
+
+    Adopting only the builds that are not stale was meant to keep the
+    preview's approximations restarting from an exact answer. At 1 arcsecond
+    it does the opposite: a build takes a hundred seconds, an edit lands
+    inside every one of them, so every build is stale and none is adopted. A
+    traced session has five builds and one adopt - the preview working from
+    the first build's surface throughout, splicing patches derived from it
+    over the exact ground each later build had just put on screen.
+    """
+    from danu.ui.surface import Built
+
+    followed, adopted = [], []
+    monkeypatch.setattr(window.preview, 'follow', lambda shaded: followed.append(shaded))
+    monkeypatch.setattr(window.preview, 'adopt',
+                        lambda built, params: adopted.append(built))
+
+    shaded = synthetic()
+    built = Built(shaded=shaded, rasters=None, params=None)
+    window._surface_built(built, stale=True, seconds=1.0)
+
+    assert followed == [shaded], 'the layer draws it and the driver was not pointed at it'
+    assert adopted == [built], 'a stale build was followed but never adopted'

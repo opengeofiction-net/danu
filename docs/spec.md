@@ -1911,6 +1911,27 @@ and in a real session a rebuild competing for them as well. There is nothing
 to fix there, which is worth knowing before treating a worker as having hidden
 it.
 
+**And every build is adopted, not only the ones that are not stale.** This is
+the surface being lost, and it took the trace to see. `follow` points the
+driver at the array the layer draws and runs for every build; `adopt` gives it
+the grids a preview works *from*, and ran only when a build was not stale, on
+the reasoning that the approximations should restart from an exact answer
+rather than compound.
+
+At 1 arcsecond it does the opposite. A build is a hundred seconds and an edit
+lands inside every one of them, so every build finishes stale and none is ever
+adopted: a traced session has five `follow`s and one `adopt`, every preview
+reading `kept_gen=1` while the display is on its third. The preview worked from
+the first build's surface throughout, and spliced patches derived from it over
+the exact ground each later build had just put on screen - which is a mapper
+drawing a contour, watching the rebuild land correctly, and watching the next
+preview take it away again.
+
+A stale build's grids are not the newest edits. They are the newest exact
+answer there is, and strictly closer than one five builds back; and what a
+preview owes each edit it re-burns from `contours`, which has every edit in it
+either way.
+
 **And last, the margin**, which is what this item was called when it was
 written. `cover` and `slack` are two radii each because F3 measured what they
 were worth in accuracy: two radii take the worst of eighteen edits from 3.278 m
