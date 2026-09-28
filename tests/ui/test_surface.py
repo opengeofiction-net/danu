@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from danu.surface import shade
@@ -681,3 +682,397 @@ def test_the_preview_never_writes_the_builds_own_rasters(tmp_path, monkeypatch):
             f'a preview write reached the build\'s own {n}'
     assert {p.read_bytes() for p in for_update} == {b'a preview wrote this'}, \
         'the write did not land in the copies either'
+
+
+# ------------------------------------------------- composing on a worker
+
+class Held:
+    """A runner that keeps the jobs instead of starting them.
+
+    Running them by hand is what makes these tests about the contract rather
+    than about how fast a thread happens to be. A job's `emit` from this
+    thread is a direct connection, so the result lands before `run` returns.
+    """
+
+    def __init__(self):
+        self.jobs = []
+
+    def __call__(self, job):
+        self.jobs.append(job)
+
+    def run_all(self):
+        for job in self.jobs:
+            job.run()
+        self.jobs.clear()
+
+
+def a_layer_with_a_runner():
+    layer = SurfaceLayer()
+    held = Held()
+    layer.set_runner(held)
+    return layer, held
+
+
+def test_a_whole_recolour_goes_to_the_runner_and_leaves_the_screen_alone():
+    """The point of the worker: at 1 arcsecond composing is 21.7 s, and what a
+    mapper should see for those seconds is the surface that is already there,
+    not a window the system offers to kill."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    assert len(held.jobs) == 1, 'the compose did not go to the runner'
+    assert layer._pixmap is None, 'the UI thread composed it anyway'
+    held.run_all()
+    assert layer._pixmap is not None and layer._stretch is not None
+
+
+def test_the_worker_produces_what_composing_here_would_have():
+    """Two paths to one pixmap is two things to keep in step, so there is one
+    implementation and this holds the paths to it."""
+    inline = SurfaceLayer()
+    inline.set_shaded(synthetic())
+    worker, held = a_layer_with_a_runner()
+    worker.set_shaded(synthetic())
+    held.run_all()
+    assert np.array_equal(drawn(inline), drawn(worker))
+    assert inline._stretch == worker._stretch
+
+
+def test_asking_while_one_composes_starts_no_second_job():
+    """One at a time, newest wins - the queue SurfaceBuilder keeps.
+
+    Before this, asking again started another job alongside: the serial made
+    the result right and nothing bounded the number in flight. The default
+    QThreadPool offers sixteen threads and a 1 arcsecond compose is 0.88 GB of
+    output on top of its working space, so a mapper editing through a
+    twenty-second compose could stack enough to put the machine into swap -
+    which is the failure the banding was for.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    assert len(held.jobs) == 1
+    layer.set_style(Style(mode='hillshade'))
+    layer.set_style(Style(mode='relief', ramp='spectral'))
+    assert len(held.jobs) == 1, 'a second compose was started alongside the first'
+    assert layer._wanted, 'the layer forgot it was asked for another'
+
+
+def test_what_follows_a_compose_is_the_newest_not_the_one_asked_for():
+    """The follow-up composes whatever the style is when it starts, so a run
+    of style changes during one compose costs one more and not one each."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    first = held.jobs.pop(0)
+    layer.set_style(Style(mode='hillshade'))        # asked for while busy
+    layer.set_style(Style(mode='relief', ramp='spectral'))   # and again
+    first.run()                                     # lands; the wanted one starts
+    assert len(held.jobs) == 1, 'the queue is not one deep'
+    assert held.jobs[0].style.mode == 'relief', \
+        'it composed the style asked for first rather than the one in force'
+    held.run_all()
+
+    reference = SurfaceLayer()
+    reference.set_shaded(synthetic())
+    reference.set_style(Style(mode='relief', ramp='spectral'))
+    assert np.array_equal(drawn(layer), drawn(reference))
+
+
+def test_a_result_landing_after_cleanup_is_dropped():
+    """The serial check still has a job to do: cleanup clears _pending while
+    the job's own signal may be queued behind it, and that result must not be
+    applied to a layer that has been told to stop."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    held.run_all()                                   # something on screen
+    was = drawn(layer)
+    layer.set_style(Style(mode='hillshade'))
+    job = held.jobs.pop(0)
+    layer.cleanup(wait_ms=1)                         # times out, keeps _pending
+    layer._pending = 0                               # as a successful wait leaves it
+    job.run()
+    assert np.array_equal(drawn(layer), was), 'a dropped result reached the screen'
+
+
+def test_the_job_holds_the_style_it_was_given_not_the_layers():
+    """Style is a mutable dataclass, so the job is handed a copy.
+
+    Mutated in place, not rebound: ``layer.style = Style(...)`` leaves the job
+    holding the old object and passes whether the copy is made or not, which
+    is how this test first passed without testing anything. The panel does
+    rebind, but a copy that only survives rebinding is not a copy.
+    """
+    layer, held = a_layer_with_a_runner()
+    # a non-default strength first, or the assertion below reads as "the copy
+    # has the default" and would hold for a copy that captured nothing
+    layer.style.shade_strength = 0.75
+    layer.set_shaded(synthetic())
+    job = held.jobs[0]
+    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 0.75
+    layer.style.mode = 'hillshade'                   # changed under it
+    layer.style.shade_strength = 0.25
+    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 0.75, \
+        'the job is composing through the layer live style'
+
+
+def test_a_surface_arriving_while_one_is_composing_is_composed_after_it():
+    """A surface that arrives mid-compose must still end up on screen.
+
+    `_moved` returns None while a compose is in flight, and the point is not
+    only that boxes would be wrong. If it returned boxes, `recolour_box` would
+    refuse every one of them - a landing compose is about to replace the whole
+    pixmap with colours worked out before those patches existed - and
+    `set_shaded` would never call `recolour`, so nothing would ever ask for
+    this surface. The screen would settle on whichever surface the running job
+    happened to be of.
+    """
+    layer, held = a_layer_with_a_runner()
+    first = synthetic(rows=40, cols=60)
+    layer.set_shaded(first)
+    held.run_all()                                   # first is on screen
+
+    # An equal style, not a different one. A changed style makes _moved's own
+    # colour-scale guard fire - `_stretch` is still the old one until the
+    # compose lands - and this test then passes with the guard under test
+    # removed, which is how it was first written.
+    layer.set_style(Style())                         # a compose in flight
+    assert layer._pending
+    second = _changed(first, (10, 10, 8, 12))        # same grid, different ground
+    layer.set_shaded(second)
+    assert layer._wanted, 'nothing asked for the surface that just arrived'
+
+    # run_all picks up jobs appended while it is running, so the style compose
+    # lands and the follow-up it starts runs behind it, in one call
+    held.run_all()
+    assert not layer._pending and not layer._wanted, 'something is still owed'
+
+    reference = SurfaceLayer()
+    reference.set_shaded(second)
+    assert np.array_equal(drawn(layer), drawn(reference)), \
+        'the screen settled on something other than the newest surface'
+
+
+def test_cleanup_waits_for_a_compose_and_says_so():
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    assert layer.cleanup(wait_ms=1) is False, 'it did not wait for a job that never ran'
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    held.run_all()
+    assert layer.cleanup() is True
+    assert SurfaceLayer().cleanup() is True, 'nothing to wait for is not a failure'
+
+
+def test_the_window_composes_on_a_worker(window):
+    """The layer's default is to compose on the calling thread, which is right
+    for a test and wrong for the window. Asserted so it cannot quietly stop."""
+    assert window.surface._runner is not None, 'the window is composing on the UI thread'
+
+def test_a_cleanup_that_timed_out_leaves_the_guard_on():
+    """cleanup reports a job it could not wait for, and must not also forget
+    it: the job is still running and still about to replace the pixmap, so the
+    guards have to stay on.
+
+    Clearing _pending before the wait passes every other test here - the
+    delivery is still safe, because a serial of 0 drops the result when it
+    lands - and reopens exactly the hole the guard was added for.
+    """
+    layer, held = a_layer_with_a_runner()
+    first = synthetic(rows=40, cols=60)
+    layer.set_shaded(first)
+    held.run_all()                                   # something on screen
+    layer.set_style(Style())                         # a compose in flight
+    assert layer._pending
+
+    assert layer.cleanup(wait_ms=1) is False, 'it claimed to have waited'
+    assert layer._pending, 'the guard came off a job that is still running'
+    assert layer.recolour_box(10, 10, 8, 12) is False, \
+        'a box went into a pixmap a running compose is about to replace'
+    assert layer._moved(layer._drawn, _changed(first, (10, 10, 8, 12))) is None, \
+        'it offered boxes while a compose was still running'
+
+    # and a second call can still wait for it, because the job was kept
+    assert layer._job is not None, 'the timeout detached the job it reported'
+    held.jobs.append(layer._job)
+    held.run_all()
+    assert layer.cleanup() is True
+
+
+def test_the_rect_and_the_pixmap_move_together(qapp):
+    """paint() stretches the pixmap into _rect, so a _rect the pixmap does not
+    match draws the old surface over the new surface's ground.
+
+    Reported from using it: draw in a fresh area, let the rebuild land, then
+    edit there again - and the new surface "disappears when the repaint
+    starts, back to the original extent". The extent grew, `_rect` grew with
+    it the moment the surface arrived, and the pixmap did not grow until the
+    worker finished twenty seconds later. Composing on the UI thread kept the
+    two in step by accident: there was no moment between them.
+    """
+    layer, held = a_layer_with_a_runner()
+    small = synthetic(rows=40, cols=60)
+    layer.set_shaded(small)
+    held.run_all()
+    assert layer.boundingRect() == QRectF(*_as_rect(small.scene_rect))
+    was = layer.boundingRect()
+
+    # a rebuild whose extent grew, as fresh ground makes it
+    big = synthetic(rows=80, cols=120)
+    layer.set_shaded(big)
+    assert big.scene_rect != small.scene_rect, 'the two extents are the same'
+    assert layer.boundingRect() == was, \
+        'the rect grew while the pixmap was still the old extent'
+
+    held.run_all()
+    assert layer.boundingRect() == QRectF(*_as_rect(big.scene_rect)), \
+        'the rect never caught up with the surface that arrived'
+
+
+def _as_rect(scene_rect):
+    l, t, r, b = scene_rect
+    return l, t, r - l, b - t
+
+# --------------------------------- the reported sequence, at window level
+
+def test_a_preview_patch_while_a_compose_is_in_flight(qapp):
+    """Draw on fresh ground, let the grown rebuild land, edit there again.
+
+    Reported twice from using it: the new surface goes "back to the original
+    extent when the repaint starts". The rect was half of it and is fixed. This
+    is the other half, and it is the same root - with the compose on a worker,
+    `self.shaded` and `self._pixmap` can be different surfaces, so everything
+    that reads both has to cope.
+
+    recolour_box takes its box in `self.shaded`'s grid and paints it into
+    `self._pixmap`. It clamps the size to the pixmap and does nothing about the
+    coordinate space, so while a compose of a *grown* surface is in flight the
+    preview's boxes are being painted at the wrong place in the old, smaller
+    pixmap - which is what a mapper sees as the surface reverting.
+    """
+    layer, held = a_layer_with_a_runner()
+    small = synthetic(rows=40, cols=60)
+    layer.set_shaded(small)
+    held.run_all()                                   # the small surface is drawn
+    drawn_small = drawn(layer)
+
+    # a rebuild whose extent grew, still composing
+    big = synthetic(rows=80, cols=120)
+    layer.set_shaded(big)
+    assert layer._pending, 'nothing in flight, so this tests nothing'
+
+    # A box the old pixmap has room for, which is the case that matters: one
+    # past its edge is clamped away and refused already. Cell (10, 10) of the
+    # grown grid is not cell (10, 10) of the old one - different ground, same
+    # indices - so composing from `self.shaded` and painting at those indices
+    # puts the patch in the wrong place.
+    assert layer.recolour_box(10, 10, 8, 12) is False, \
+        'a box in the new grid was painted into the old surface pixmap'
+    assert np.array_equal(drawn(layer), drawn_small), \
+        'the pixmap on screen was changed by a box that means other ground'
+
+    held.run_all()
+    assert drawn(layer).shape[:2] == (80, 120), 'the grown surface never landed'
+    # the same box, accepted now. Refused-by-the-guard and clamped-away-as-out-
+    # of-bounds are indistinguishable from outside - both return False and
+    # leave the pixmap alone - so this is what says the refusal above was the
+    # guard and not the clamp.
+    assert layer.recolour_box(10, 10, 8, 12) is True, \
+        'the box was out of bounds all along, so the refusal proved nothing'
+
+def test_a_result_landing_after_a_timed_out_cleanup_is_applied():
+    """The gap between the other two cleanup tests.
+
+    One covers a result landing after a *successful* wait, where `_pending` is
+    zero and the serial drops it. One covers the timeout leaving the guards on.
+    Neither says what happens when the job the timeout reported then finishes:
+    `_pending` is still its serial, so it is applied - and that is right,
+    because the layer is alive and the surface is newer than what is drawn.
+    Asserted so that "left set" cannot quietly become "left set and ignored".
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    # a grown extent, so this is a whole recolour and there is a compose to
+    # time out on - a same-grid surface takes the box path and dispatches none
+    second = synthetic(rows=80, cols=120)
+    layer.set_shaded(second)
+    assert layer._pending, 'nothing is composing, so this tests nothing'
+    assert layer.cleanup(wait_ms=1) is False
+
+    held.run_all()                                   # the job finishes anyway
+    reference = SurfaceLayer()
+    reference.set_shaded(second)
+    assert np.array_equal(drawn(layer), drawn(reference)), \
+        'the result was dropped, so the screen kept a surface it had replaced'
+    assert not layer._pending, 'it landed and the guard is still on'
+
+def test_patching_boxes_makes_the_new_surface_the_drawn_one(qapp):
+    """`_drawn` is what the pixmap shows, and patching boxes changes that.
+
+    Left unset, `_drawn` stayed at the last *whole* recolour, so `_moved`
+    compared every later surface against one several rebuilds old. A trace from
+    a real session showed it: the same six boxes, recomputed and repainted at
+    every rebuild, identical coordinates each time, for as long as the session
+    went on.
+    """
+    layer = SurfaceLayer()
+    first = synthetic(rows=40, cols=60)
+    layer.set_shaded(first)
+    assert layer._drawn is first
+
+    second = _changed(first, (10, 10, 8, 12))
+    layer.set_shaded(second)
+    assert layer._drawn is second, 'patching boxes left _drawn at the older surface'
+
+    # and the next comparison is against `second`, so ground that has not moved
+    # since is not repainted again. With `_drawn` left at `first` this returns
+    # the box that first-to-second moved, over and over, which is what the
+    # trace showed.
+    boxes = layer._moved(layer._drawn, second)
+    assert boxes == [], f'{len(boxes)} boxes against the surface already drawn'
+
+def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
+    """`set_shaded(None)` means show nothing, and a compose that has not landed
+    yet must not undo it.
+
+    The layer was told to show nothing and twenty seconds later the surface it
+    was told to stop showing arrives - long after whatever asked for it to go.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    assert layer._pixmap is not None
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a whole recolour, in flight
+    assert layer._pending
+    layer.set_shaded(None)
+    assert not layer._pending and not layer._wanted, 'the queue survived the clear'
+
+    held.run_all()                                   # it finishes anyway
+    assert layer._pixmap is None, 'a compose in flight put the surface back'
+    assert layer._drawn is None and layer.boundingRect().isNull()
+
+def test_the_scene_is_told_before_the_rect_changes(qapp, monkeypatch):
+    """prepareGeometryChange before boundingRect moves, on every path.
+
+    set_shaded used to call it unconditionally at the top. It moved into
+    _apply with the rest of the rect handling, which left the clear-the-surface
+    branch setting `_rect` to nothing with the scene never told - so the
+    scene's index keeps the old bounding rect and the item is not repainted
+    where it used to be.
+    """
+    layer, held = a_layer_with_a_runner()
+    told: list = []
+    monkeypatch.setattr(type(layer), 'prepareGeometryChange',
+                        lambda self: told.append(self.boundingRect()))
+
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    assert len(told) == 1, 'the rect grew and the scene was not told'
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a grown extent
+    held.run_all()
+    assert len(told) == 2, 'the rect grew again and the scene was not told'
+
+    layer.set_shaded(None)
+    assert len(told) == 3, 'the rect went to nothing and the scene was not told'
+    assert not told[-1].isNull(), 'it was told after the rect had already gone'
+    assert layer.boundingRect().isNull()

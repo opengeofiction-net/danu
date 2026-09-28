@@ -1512,7 +1512,10 @@ fill.
 The freeze is the *recolour*, not the build. The display grid at 1 arcsecond is
 15,291 by 14,367 - 219.7 M cells and 0.82 GB of RGBA - and `recolour` measures
 a flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds
-on the UI thread, after every rebuild.
+on the UI thread, after every rebuild. And almost all of it is wasted: an exact
+rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
+rows. A build is not a reason to recolour a raster, it is a reason to find out
+what moved.
 
 **And it was not only the time, which is why the popup came back.** Once item 3
 made 1 arcsecond usable, the window manager started putting up *python3 is not
@@ -1542,16 +1545,87 @@ both ramps.
 | working space | ~25 GB | **0.95 GB** |
 | `compose` alone | 104 bytes/cell | 4.3 bytes/cell |
 
-**Not done, and it is what the popup is now.** The arithmetic is unchanged and
-so is its cost: `range_for` 0.4 s, `compose` 21.2 s, the pixmap 0.07 s - 21.7 s
-on the thread that is meant to be drawing. Bounded memory stops it swapping and
-does not stop it blocking, and a window manager gives up long before twenty-one
-seconds. What is left is to get that work off the UI thread, which is now a
-question about threading alone and not about memory, since a strip at a time is
-a shape that can be yielded from. And almost all of it is wasted: an exact
-rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
-rows. A build is not a reason to recolour a raster, it is a reason to find out
-what moved.
+**And done for the block - though not for the popup, which turned out to be
+something else.** Bounding the memory stopped it swapping and did not stop it
+blocking: the arithmetic is unchanged
+and so is its cost, and a window manager gives up long before twenty-one
+seconds. So a whole recolour composes on a worker. The layer keeps a runner -
+`QThreadPool.start`, installed by the window - and `recolour` hands the job
+over and returns, leaving the surface already on screen until the new one is
+ready. The UI thread's share is the `QImage` and the `QPixmap`.
+
+Measured at the 1 arcsecond display grid, through the layer configured as the
+window configures it - the layer's own default is to compose inline, so the
+second and third rows are the window's arrangement and not the class's:
+
+| | UI thread blocked |
+|---|---|
+| composing on the UI thread | **20.89 s** |
+| handing it to a worker | 0.2 ms |
+| applying the result when it lands | 65.8 ms |
+
+The nineteen seconds of arithmetic are still nineteen seconds; they are just
+not in front of anybody. There is one implementation of the arithmetic,
+`_composed_now`, called on a worker or on the calling thread, because two
+would be two things to keep in step and the point of the worker is that it
+produces what the inline path would have.
+
+Three things the worker needs that composing in place did not. A job cannot be
+stopped mid-array, so a superseded one finishes and is dropped by serial when
+it lands - the alternative is a surface arriving in a ramp nobody chose. The
+style goes to the job as a copy, since `Style` is a mutable dataclass and a
+job composing under one ramp while the user picks another must finish saying
+what it was asked. And `_moved` refuses to compare while a compose is in
+flight: the pixmap is then older than the surface that asked for it, so boxes
+would be right about the two surfaces and wrong about the screen, leaving
+everything outside them showing a surface two builds old.
+
+Only one compose runs at a time, newest wins - the queue `SurfaceBuilder`
+keeps, for the same reason and a sharper one. Asking for another while one ran
+used to start it alongside: the serial made the *result* right and nothing
+bounded the number in flight, and the default `QThreadPool` offers sixteen
+threads against a compose that is 0.88 GB of output on top of its working
+space. A mapper editing through a twenty-second compose could stack enough of
+them to put a 15 GB machine into swap, which is the failure the banding was
+for. The one running is left to land, and what follows it is whatever the
+surface and the style are by then.
+
+What the pixmap is of is now recorded rather than assumed. `self.shaded` and
+`self._pixmap` are different surfaces for the twenty seconds a compose takes,
+so `_drawn` names the one on screen and the two guards that used to ask about
+`self.shaded` ask about that instead - which is also what keeps them right
+when a compose *fails*, where `_pending` would stay set with nothing coming.
+A box is refused while a compose is in flight as well, on a second ground: a
+landing compose replaces the whole pixmap with colours worked out before the
+patch existed, so patching is work thrown away after being shown, which is a
+surface going backwards on screen. That costs the live preview for as long as
+a compose takes, and applying one a strip at a time is what would fix it
+properly.
+
+**What this was not.** It was taken on as the fix for *python3 is not
+responding* at 1 arcsecond, and it is not. A trace of a real session has a
+whole recolour happening twice, both at startup, and the status bar reading
+"preview, 5643 ms": what a mapper meets on every edit is the preview's own
+solve, which is on the UI thread and which this change does not touch. The
+work here still earns its place - a whole recolour is twenty-one seconds and
+a style or ramp change asks for one - but the popup is the preview's, and the
+measurement that said otherwise is corrected below.
+
+A fourth thing, which using it found rather than reasoning about it did. The
+rectangle `paint` stretches the pixmap into belongs to the *pixmap*, not to
+`self.shaded`, and with the compose on a worker there are twenty seconds
+between the two. `set_shaded` had been setting it eagerly, so a rebuild whose
+extent had grown - which is what drawing on fresh ground produces - grew the
+rectangle at once and left the old pixmap stretched across the new ground:
+draw in a fresh area, let the rebuild land, edit there again, and the surface
+went *back to the original extent*. Composing on the UI thread had kept the
+two in step by accident, there being no moment between them. The compose
+carries its surface back with its colours now, and the rectangle and the
+pixmap are set together from it.
+
+The layer's own default is still to compose on the calling thread, which is
+what every test and every raster small enough wants; the window opts in, and a
+test asserts that it does so this cannot quietly stop happening.
 
 **Done.** `set_shaded` compares the new surface with the one on screen and
 recolours the boxes that differ. On the gobras 3x3 at 3 arcseconds, showing a
@@ -1678,8 +1752,16 @@ around N20E087:
 | five successive previews | 18 to 36 ms | 23 to 37 ms |
 | peak RSS | 100 MB | 117 MB |
 
-A grid thirteen times the size costs the same to keep and about the same to
-preview. The +66 MB is identical in both columns because it is the contour
+**The preview row is wrong and is left here corrected rather than quietly
+fixed, because it was quoted to justify the change.** Those boxes were at the
+raster's centre, which on this working set is 0.0% drawn ground: the mask is
+empty there, the fill has nothing to answer, and what was being timed was the
+window being read and isofill returning. On drawn ground - 65.7% of the solve
+window, where a mapper actually draws - the same call at 1 arcsecond is **1.8
+to 2.0 s**, and a trace of real use has it between 1.3 and 7.0 s. The memory
+rows are unaffected: they do not depend on what the fill finds.
+
+A grid thirteen times the size costs the same to keep. The +66 MB is identical in both columns because it is the contour
 layer, which is the same contours either way; the rasters cost nothing until a
 box is read, and RSS is flat across five previews, so the windows are not
 accumulating. The preview at 1 arcsecond is slower only because `good` is 243

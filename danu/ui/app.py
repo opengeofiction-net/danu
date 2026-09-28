@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, Qt
+from PySide6.QtCore import QStandardPaths, Qt, QThreadPool
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
@@ -90,6 +90,12 @@ class MainWindow(QMainWindow):
         self.panel = LayersPanel(self.tile_items, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
         self.surface = SurfaceLayer()
+        # composing a whole raster goes to a worker from here on: it is 21.7 s
+        # at 1 arcsecond and a window manager offers to kill an application
+        # that has not drawn for a fraction of that. The layer's own default is
+        # to compose on the calling thread, which is what a test wants and what
+        # a small raster does not notice.
+        self.surface.set_runner(QThreadPool.globalInstance().start)
         self.map.scene().addItem(self.surface)
         self.unreached = UnreachedLayer()
         self.map.scene().addItem(self.unreached)
@@ -293,6 +299,9 @@ class MainWindow(QMainWindow):
         # started during teardown would be writing into the directory cleanup
         # is about to remove
         self.preview.forget()
+        # before the signal object it emits into goes with the window
+        if not self.surface.cleanup():
+            self.statusBar().showMessage('a recolour was still running')
         if not self.builder.cleanup():
             self.statusBar().showMessage('a build was still running; its working files are left behind')
         super().closeEvent(event)

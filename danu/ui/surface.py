@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +42,8 @@ from ..core.square import WorkingSet
 from ..surface import preview, shade, strips
 from ..surface.params import Params
 from ..surface.ramp import Ramp, spectral, traditional
+from .trace import grid as _grid
+from .trace import trace as _trace
 
 RESOLUTIONS = ((3.0, '3″ - a minute a set, the .hgt archive\'s'), (1.0, '1″ - the published DEM\'s, slow'))
 MODES = ('shaded relief', 'hillshade', 'relief')
@@ -361,6 +363,86 @@ class Style:
     shade_strength: float = 1.0
 
 
+def _same_grid(a, b) -> bool:
+    """Whether a box in one is a box in the other - the same cells over the
+    same ground. Object identity is not the question: two surfaces from the
+    same extent patch into each other perfectly well, and a rebuild whose
+    extent grew does not."""
+    return (a is not None and b is not None
+            and a.dem.shape == b.dem.shape and a.shade.shape == b.shade.shape
+            and not any(abs(x - y) > 1e-9
+                        for x, y in zip(a.geotransform, b.geotransform, strict=True)))
+
+
+def _composed_now(shaded, style: 'Style'):
+    """The RGBA for a surface under a style, and the range it was stretched
+    over. One implementation, called on a worker or on the calling thread -
+    two would be two things to keep in step, and the whole point of the worker
+    is that it produces what the inline path would have."""
+    ramp: Ramp | None = None if style.mode == 'hillshade' else RAMPS[style.ramp]()
+    # only where a ramp will use it: in 'auto', range_for is a min and a max
+    # over the land in the whole array, and compose returns before it touches
+    # a range at all in hillshade
+    stretch = style.scaling.range_for(shaded.dem) if ramp else None
+    rgba = shade.compose(shaded, ramp, style.scaling, style.mode,
+                         style.shade_strength, stretch=stretch)
+    # here rather than in either caller, so the worker path and the inline one
+    # agree about strides as well as values. compose already returns a
+    # contiguous array, so this is a no-op in every case there is - but it is
+    # on whichever thread composed, which is the point of doing it once here
+    # and not on the UI thread as the array lands.
+    return np.ascontiguousarray(rgba), stretch
+
+
+class _ComposeSignals(QObject):
+    done = Signal(int, object, object, object)   # serial, rgba, stretch, shaded
+
+
+class _ComposeJob(QRunnable):
+    """compose() off the UI thread, for the whole-raster case.
+
+    At 1 arcsecond a whole recolour is 21.7 s - 0.4 in the colour-scale guard
+    and 21.2 composing - and a window manager offers to kill an application
+    that has not drawn for a fraction of that. The arithmetic is numpy over
+    arrays nothing else is touching, so it runs here and the UI thread does
+    the 65.8 ms of QImage and QPixmap when it lands.
+
+    The style is a copy taken when the job starts, not a reference to the
+    layer's: a job composing under one ramp while the user picks another must
+    finish saying what it was asked, and be discarded by serial rather than
+    deliver a surface in a ramp nobody chose. A shallow copy is enough because
+    ``Scaling`` is a frozen dataclass, so the one field ``replace`` does not
+    rebuild cannot be changed under the job either.
+    """
+
+    def __init__(self, serial: int, shaded, style: 'Style', signals: _ComposeSignals):
+        super().__init__()
+        self.serial, self.shaded, self.style, self.signals = serial, shaded, style, signals
+        # set when run() returns, however it returns - what makes it safe to
+        # stop waiting is that the job has stopped touching the arrays, which
+        # is this, and not the delivery of a signal to another thread
+        self.done = threading.Event()
+
+    def run(self):
+        try:
+            rgba, stretch = _composed_now(self.shaded, self.style)
+            # the surface goes back with its colours, because the rect the
+            # layer draws into comes from it and the two must land together
+            self.signals.done.emit(self.serial, rgba, stretch, self.shaded)
+        except Exception as e:      # noqa: BLE001 - a recolour must not kill the editor
+            # the surface on screen stays as it is and the next one will try
+            # again; there is nothing a user can do about it here. It goes back
+            # as a failure rather than as silence, because the queue has to be
+            # let go of: `done` is set either way, but nothing would clear
+            # `_pending` and the next compose would be recorded as wanted and
+            # never started. What keeps the guards right meanwhile is `_drawn`,
+            # which still names the surface actually on screen.
+            traceback.print_exception(e)
+            self.signals.done.emit(self.serial, None, None, None)
+        finally:
+            self.done.set()
+
+
 class SurfaceLayer(QGraphicsItem):
     def __init__(self):
         super().__init__()
@@ -371,6 +453,25 @@ class SurfaceLayer(QGraphicsItem):
         self._rect = QRectF()
         self._stretch: tuple | None = None
         self._preview = False
+        # None means compose on the calling thread, which is what every test
+        # and every small raster wants. The window installs a runner - see
+        # MainWindow - because at 1 arcsecond composing is 21 s and the UI
+        # thread is where the frames are.
+        self._runner = None
+        self._serial = 0            # whole recolours asked for
+        self._pending = 0           # the serial of the one in flight, or 0
+        self._wanted = False        # another was asked for while that one ran
+        # the surface `_pixmap` holds the colours of, which is not always
+        # `self.shaded`: a compose takes twenty seconds at 1 arcsecond, and
+        # for those twenty seconds the screen is of the surface before. Two
+        # guards below ask about this rather than about `_pending`, because
+        # what they need to know is what is drawn - and a compose that raised
+        # leaves `_pending` set with nothing coming, where `_drawn` stays
+        # truthfully the older surface.
+        self._drawn: shade.Shaded | None = None
+        self._compose_signals = _ComposeSignals()
+        self._compose_signals.done.connect(self._composed)
+        self._job = None
 
     def set_shaded(self, shaded: shade.Shaded | None):
         """Show a surface, recolouring only what moved where that is possible.
@@ -396,26 +497,63 @@ class SurfaceLayer(QGraphicsItem):
         rather than one for the raster: a change in two places does not drag
         the ground between them into the redraw.
         """
-        was = self.shaded
-        self.prepareGeometryChange()
+        # the surface on screen, which is what `_moved` documents `was` as
+        # being and what it was while a recolour could not outlive its caller.
+        # `self.shaded` is only the same thing when nothing is composing.
+        was = self._drawn
         self.shaded = shaded
         if shaded is None:
-            self._pixmap, self._rect, self._stretch = None, QRectF(), None
+            # and the queue with it: a compose in flight still has its serial
+            # in `_pending`, so it would land, pass `_composed`'s guard and
+            # put the surface that was just cleared back on screen - twenty
+            # seconds later at 1 arcsecond, which is long after whatever asked
+            # for nothing to be shown. Zeroed here, the result is dropped.
+            self._pending, self._wanted = 0, False
+            # the rect goes to nothing, which is a geometry change, and the
+            # scene has to be told before it happens or its index keeps the
+            # old bounding rect and the item is not repainted where it was.
+            # set_shaded used to do this unconditionally at the top; it moved
+            # into _apply with the rest of the rect, and this branch sets the
+            # rect itself and so needs its own.
+            self.prepareGeometryChange()
+            self._pixmap, self._rect, self._stretch, self._drawn = None, QRectF(), None, None
             self.update()
             return
-        l, t, r, b = shaded.scene_rect
-        self._rect = QRectF(l, t, r - l, b - t)
+        # `_rect` is not set here. It is the rectangle `paint` stretches the
+        # pixmap into, so it belongs to the pixmap and not to `self.shaded` -
+        # and with the compose on a worker there are twenty seconds between
+        # the two. Setting it here grew the rect the moment a bigger surface
+        # arrived and left the old pixmap stretched across the new ground: draw
+        # in a fresh area, let the rebuild land, edit there again, and the
+        # surface went "back to the original extent". Composing on the UI
+        # thread kept them in step by accident, there being no moment between.
+        # _apply sets both, together, from the surface that was composed.
+        #
         # before anything recolours. _moved is handed both surfaces, but it
         # also reads `_pixmap`, `_stretch` and the style, and all three
         # still describe what is on screen - which is `was`. A recolour
         # moved above this line would have it compare the new surface against
         # itself and find nothing, silently.
+        _trace('set_shaded', arrived=_grid(shaded), was=_grid(was),
+               pending=self._pending, pixmap=self._pixmap is not None)
         boxes = self._moved(was, shaded)
         if boxes is None:
             self.recolour()
         else:
-            for y0, x0, rows, cols in boxes:
-                self.recolour_box(y0, x0, rows, cols)
+            # every one, or `_drawn` would name a surface the pixmap only
+            # partly shows. A box is refused when it cannot be trusted, and
+            # then what is drawn is still the surface before this one.
+            done = [self.recolour_box(y0, x0, rows, cols) for y0, x0, rows, cols in boxes]
+            if all(done):
+                # the patches brought the pixmap to this surface, so it is
+                # what is drawn now. Without this `_drawn` stayed at the last
+                # *whole* recolour and `_moved` compared against a surface
+                # several rebuilds old: the trace shows the same six boxes
+                # recomputed and repainted at every rebuild, growing as the
+                # session goes on, and every preview patch in between undone
+                # by ground that had not changed since the surface `_drawn`
+                # still named.
+                self._drawn = shaded
         self.update()
 
     def _moved(self, was, now) -> list | None:
@@ -445,9 +583,17 @@ class SurfaceLayer(QGraphicsItem):
         """
         if was is None or self._pixmap is None:
             return None
-        if was.dem.shape != now.dem.shape or was.shade.shape != now.shade.shape:
+        if self._pending:
+            # A compose is in flight, so `recolour_box` would refuse these
+            # boxes anyway - and if this returned them, `set_shaded` would
+            # patch nothing and never call `recolour`, so `now` would never be
+            # composed at all and the screen would settle on the surface the
+            # running job is of. None instead, which asks for a whole recolour:
+            # that is recorded as wanted and started when this one lands.
             return None
-        if any(abs(a - b) > 1e-9 for a, b in zip(was.geotransform, now.geotransform, strict=True)):
+        if not _same_grid(was, now):
+            # a build whose extent grew is a different raster, and a box in one
+            # is not a box in the other
             return None
         ramp = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
         stretch = self.style.scaling.range_for(now.dem) if ramp else None
@@ -476,7 +622,7 @@ class SurfaceLayer(QGraphicsItem):
             self.update()
 
     def recolour(self):
-        """compose() the kept arrays into the pixmap.
+        """compose() the kept arrays into the pixmap, here or on a worker.
 
         Not cheap, which I had asserted it was without measuring. On the gobras
         3x3 at 3 arcseconds the composed array is 24.4 M cells and this is
@@ -484,23 +630,138 @@ class SurfaceLayer(QGraphicsItem):
         twenty-four times the solve it follows. A preview that took 62 ms to
         work out was spending a second and a half being shown, which is what
         recolour_box is for.
+
+        At 1 arcsecond it is 21.7 s, which is not a cost to shave but a place
+        not to be: with a runner installed the compose goes to a worker and
+        this returns at once, leaving the surface already on screen until the
+        new one is ready. Without one it composes here, which is what every
+        test wants - the branch is on whether a runner was installed and on
+        nothing else, so a small raster in the window goes to the worker too.
         """
-        ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
-        # only where a ramp will use it: in 'auto', range_for is dem[dem > 0]
-        # and a min and a max over the whole array, and compose returns before
-        # it touches a range at all in hillshade
-        self._stretch = self.style.scaling.range_for(self.shaded.dem) if ramp else None
-        rgba = shade.compose(self.shaded, ramp, self.style.scaling, self.style.mode,
-                             self.style.shade_strength, stretch=self._stretch)
+        _trace('recolour', serial=self._serial + 1, of=_grid(self.shaded),
+               inline=self._runner is None, busy=self._pending)
+        if self._runner is None:
+            self._serial += 1
+            self._apply(*_composed_now(self.shaded, self.style), self.shaded)
+            return
+        if self._pending:
+            # One at a time, newest wins - the queue SurfaceBuilder keeps, for
+            # the same reason and a sharper one. A job cannot be stopped
+            # mid-array, so asking for another while one runs used to start it
+            # alongside: the serial made the *result* right and nothing bounded
+            # the number in flight. The default QThreadPool offers sixteen
+            # threads, and at 1 arcsecond a compose is 0.88 GB of output on top
+            # of its working space - so a mapper editing through a
+            # twenty-second compose could stack enough of them to put a 15 GB
+            # machine into swap, which is the failure the banding was for.
+            #
+            # The one running is left to land, because it will draw its own
+            # ground correctly and is strictly newer than what is on screen.
+            # What follows it is whatever `self.shaded` and the style are by
+            # then, which is the newest and not a queue of stale ones.
+            self._wanted = True
+            return
+        self._serial += 1
+        self._pending = self._serial
+        self._job = _ComposeJob(self._serial, self.shaded, replace(self.style),
+                                self._compose_signals)
+        self._job.setAutoDelete(False)       # Python owns it; see loader.py
+        self._runner(self._job)
+
+    def _composed(self, serial: int, rgba, stretch, shaded):
+        """A worker's answer, on the UI thread."""
+        _trace('composed', serial=serial, of=_grid(shaded), wanted=self._pending,
+               dropped=serial != self._pending, failed=rgba is None)
+        if serial != self._pending:
+            return      # superseded, or the layer has been cleaned up
+        self._pending = 0
+        self._job = None            # finished; cleanup has nothing to wait on
+        if rgba is not None:
+            self._apply(rgba, stretch, shaded)
+            self.update()
+        if self._wanted:
+            # asked for while that one was composing. Started now rather than
+            # then, so what gets composed is the newest surface and not the
+            # one that happened to arrive first.
+            self._wanted = False
+            self.recolour()
+
+    def _apply(self, rgba, stretch, shaded):
+        """The composed RGBA into the pixmap, and the rectangle it is drawn in.
+
+        The UI thread's whole share of a whole recolour: 65.8 ms at 1 arcsecond
+        against the 20.89 s of arithmetic that produced it.
+
+        ``shaded`` is the surface these colours are of, which need not be
+        ``self.shaded`` - a superseded compose is dropped by serial, but a
+        landing one is answering the surface it was given, and the rect has to
+        be that surface's or the pixmap is stretched across the wrong ground.
+        """
+        l, t, r, b = shaded.scene_rect
+        rect = QRectF(l, t, r - l, b - t)
+        _trace('apply', of=_grid(shaded), rect_moves=rect != self._rect)
+        self._drawn = shaded
+        if rect != self._rect:
+            self.prepareGeometryChange()
+            self._rect = rect
+        self._stretch = stretch
         rows, cols = rgba.shape[:2]
+        # _composed_now made it contiguous on whichever thread composed it
         # QImage over the array, and no copy of either. QPixmap.fromImage
         # copies into the platform format itself - verified by mutating the
         # numpy buffer afterwards and reading the pixmap back - so `img.copy()`
         # was a second full copy of the RGBA that nothing read, and keeping the
         # array was a third. At 1 arcsecond each is 0.88 GB.
-        rgba = np.ascontiguousarray(rgba)
         img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         self._pixmap = QPixmap.fromImage(img)
+
+    def set_runner(self, runner) -> None:
+        """Compose whole rasters through ``runner`` - ``QThreadPool.start`` in
+        the window - instead of on the calling thread.
+
+        Opt in rather than the default, because the default is what runs in
+        every test and in the one place a caller might reasonably want the
+        pixmap to exist by the time ``recolour`` returns. The window opts in;
+        a test asserts that it does, so this cannot quietly stop happening.
+        """
+        self._runner = runner
+
+    def cleanup(self, wait_ms: int = 5000) -> bool:
+        """Wait for a compose in flight, so a closing window does not leave one
+        emitting into a deleted signal object.
+
+        The same bargain as SurfaceBuilder.cleanup: waiting on the job's own
+        Event, because what makes it safe to go is that the job has stopped -
+        not that a signal was delivered, which is queued to this thread and
+        arrives later or never.
+
+        Nothing is forgotten on a timeout. Clearing `_pending` before the wait
+        would take the guard off `_moved` while the job it describes was still
+        running, and the next surface would then be offered boxes against a
+        pixmap that job is about to replace - which is the whole thing the
+        guard exists for, reintroduced on the one path where the job is known
+        to still be going. A `_pending` left set only ever costs whole
+        recolours, which are slower and right; and the job is kept too, so a
+        second call can wait again.
+
+        On the path where the wait succeeds, `_pending` is cleared while that
+        job's `_composed` may still be queued to this thread - `run` sets
+        `done` after it emits - so the result is then dropped by serial. That
+        is what a closing window wants, and it is not a general property: a
+        `cleanup` on a live layer would discard a finished compose and leave
+        the older surface up until something asked for another. Nothing calls
+        it that way.
+        """
+        job = self._job
+        self._wanted = False
+        if job is None:
+            self._pending = 0
+            return True
+        if not job.done.wait(wait_ms / 1000.0):
+            return False
+        self._job = None
+        self._pending = 0
+        return True
 
     def recolour_box(self, y0: int, x0: int, rows: int, cols: int) -> bool:
         """Recolour one rectangle of the surface and paint it into the pixmap.
@@ -514,6 +775,27 @@ class SurfaceLayer(QGraphicsItem):
         """
         if self._pixmap is None or self.shaded is None:
             return False
+        if self._pending or not _same_grid(self._drawn, self.shaded):
+            _trace('box refused', at=f'{y0},{x0}', size=f'{rows}x{cols}',
+                   pending=self._pending, of=_grid(self.shaded),
+                   drawn=_grid(self._drawn))
+            # Two reasons, and they are not the same reason.
+            #
+            # A box is in `self.shaded`'s grid and the pixmap is of
+            # `self._drawn`. Cell (10, 10) of a grown grid is not cell (10, 10)
+            # of the one on screen: same indices, other ground. The clamp below
+            # catches a box past the old pixmap's edge and nothing catches one
+            # that fits, so the patch went in at the wrong place.
+            #
+            # And a compose in flight is going to replace the whole pixmap when
+            # it lands, with colours worked out before this patch existed - so
+            # patching now is work that gets thrown away, and worse, thrown
+            # away *after* being shown. That is a surface going backwards on
+            # screen. Refusing costs the preview for as long as the compose
+            # takes, which at 1 arcsecond is twenty seconds of no live update;
+            # applying the compose a strip at a time is what would fix that
+            # properly, and is not this change.
+            return False
         y0, x0 = max(0, y0), max(0, x0)
         # the pixmap's bounds, because the pixmap is what is drawn. The
         # composed array was kept only to be measured here, and a full copy of
@@ -523,6 +805,7 @@ class SurfaceLayer(QGraphicsItem):
         cols = min(cols, self._pixmap.width() - x0)
         if rows <= 0 or cols <= 0:
             return False
+        _trace('box', at=f'{y0},{x0}', size=f'{rows}x{cols}', of=_grid(self.shaded))
         sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
         window = shade.Shaded(dem=self.shaded.dem[sl], shade=self.shaded.shade[sl],
