@@ -864,3 +864,44 @@ def test_the_rect_and_the_pixmap_move_together(qapp):
 def _as_rect(scene_rect):
     l, t, r, b = scene_rect
     return l, t, r - l, b - t
+
+# --------------------------------- the reported sequence, at window level
+
+def test_a_preview_patch_while_a_compose_is_in_flight(qapp):
+    """Draw on fresh ground, let the grown rebuild land, edit there again.
+
+    Reported twice from using it: the new surface goes "back to the original
+    extent when the repaint starts". The rect was half of it and is fixed. This
+    is the other half, and it is the same root - with the compose on a worker,
+    `self.shaded` and `self._pixmap` can be different surfaces, so everything
+    that reads both has to cope.
+
+    recolour_box takes its box in `self.shaded`'s grid and paints it into
+    `self._pixmap`. It clamps the size to the pixmap and does nothing about the
+    coordinate space, so while a compose of a *grown* surface is in flight the
+    preview's boxes are being painted at the wrong place in the old, smaller
+    pixmap - which is what a mapper sees as the surface reverting.
+    """
+    layer, held = a_layer_with_a_runner()
+    small = synthetic(rows=40, cols=60)
+    layer.set_shaded(small)
+    held.run_all()                                   # the small surface is drawn
+    drawn_small = drawn(layer)
+
+    # a rebuild whose extent grew, still composing
+    big = synthetic(rows=80, cols=120)
+    layer.set_shaded(big)
+    assert layer._pending, 'nothing in flight, so this tests nothing'
+
+    # A box the old pixmap has room for, which is the case that matters: one
+    # past its edge is clamped away and refused already. Cell (10, 10) of the
+    # grown grid is not cell (10, 10) of the old one - different ground, same
+    # indices - so composing from `self.shaded` and painting at those indices
+    # puts the patch in the wrong place.
+    assert layer.recolour_box(10, 10, 8, 12) is False, \
+        'a box in the new grid was painted into the old surface pixmap'
+    assert np.array_equal(drawn(layer), drawn_small), \
+        'the pixmap on screen was changed by a box that means other ground'
+
+    held.run_all()
+    assert drawn(layer).shape[:2] == (80, 120), 'the grown surface never landed'

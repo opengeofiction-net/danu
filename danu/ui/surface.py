@@ -14,6 +14,7 @@ not, and asks the worker.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import threading
@@ -361,6 +362,35 @@ class Style:
     shade_strength: float = 1.0
 
 
+# Set DANU_SURFACE_TRACE to a path and every step of showing a surface is
+# appended to it, with a timestamp: which surface arrived, what its grid and
+# extent were, when a compose was handed over and when it landed, and every
+# box a preview asked to repaint. It exists because "the new surface
+# disappears when the repaint starts, back to the original extent" is a
+# sequence, and the sequence is what a screenshot cannot show.
+_TRACE = os.environ.get('DANU_SURFACE_TRACE')
+
+
+def _trace(what: str, **fields):
+    if not _TRACE:
+        return
+    bits = ' '.join(f'{k}={v}' for k, v in fields.items())
+    try:
+        with open(_TRACE, 'a') as fh:
+            fh.write(f'{time.monotonic():12.3f} {threading.current_thread().name:<16} '
+                     f'{what:<22} {bits}\n')
+    except OSError:
+        pass        # a trace that cannot be written must not stop the editor
+
+
+def _grid(shaded) -> str:
+    if shaded is None:
+        return 'none'
+    l, t, r, b = shaded.scene_rect
+    return (f'{shaded.dem.shape[0]}x{shaded.dem.shape[1]}'
+            f'@({l:.0f},{t:.0f},{r - l:.0f},{b - t:.0f})')
+
+
 def _composed_now(shaded, style: 'Style'):
     """The RGBA for a surface under a style, and the range it was stretched
     over. One implementation, called on a worker or on the calling thread -
@@ -489,6 +519,8 @@ class SurfaceLayer(QGraphicsItem):
         # still describe what is on screen - which is `was`. A recolour
         # moved above this line would have it compare the new surface against
         # itself and find nothing, silently.
+        _trace('set_shaded', arrived=_grid(shaded), was=_grid(was),
+               pending=self._pending, pixmap=self._pixmap is not None)
         boxes = self._moved(was, shaded)
         if boxes is None:
             self.recolour()
@@ -580,6 +612,8 @@ class SurfaceLayer(QGraphicsItem):
         test and every raster small enough wants.
         """
         self._serial += 1
+        _trace('recolour', serial=self._serial, of=_grid(self.shaded),
+               inline=self._runner is None, superseding=self._pending)
         if self._runner is None:
             self._apply(*_composed_now(self.shaded, self.style), self.shaded)
             return
@@ -594,6 +628,8 @@ class SurfaceLayer(QGraphicsItem):
 
     def _composed(self, serial: int, rgba, stretch, shaded):
         """A worker's answer, on the UI thread."""
+        _trace('composed', serial=serial, of=_grid(shaded),
+               wanted=self._pending, dropped=serial != self._pending)
         if serial != self._pending:
             return      # superseded while it was composing
         self._pending = 0
@@ -614,6 +650,7 @@ class SurfaceLayer(QGraphicsItem):
         """
         l, t, r, b = shaded.scene_rect
         rect = QRectF(l, t, r - l, b - t)
+        _trace('apply', of=_grid(shaded), rect_moves=rect != self._rect)
         if rect != self._rect:
             self.prepareGeometryChange()
             self._rect = rect
@@ -679,6 +716,18 @@ class SurfaceLayer(QGraphicsItem):
         """
         if self._pixmap is None or self.shaded is None:
             return False
+        if self._pending:
+            _trace('box refused', at=f'{y0},{x0}', size=f'{rows}x{cols}',
+                   reason='a compose is in flight', of=_grid(self.shaded))
+            # the pixmap is not of `self.shaded` - a whole recolour is
+            # composing on a worker and until it lands the screen shows the
+            # surface before it. A box is in `self.shaded`'s grid, and cell
+            # (10, 10) of a grown grid is not cell (10, 10) of the one on
+            # screen: same indices, other ground. The clamp below catches a box
+            # past the old pixmap's edge and nothing catches one that fits, so
+            # the patch went in at the wrong place. Refused; the whole recolour
+            # in flight will draw this ground correctly anyway.
+            return False
         y0, x0 = max(0, y0), max(0, x0)
         # the pixmap's bounds, because the pixmap is what is drawn. The
         # composed array was kept only to be measured here, and a full copy of
@@ -688,6 +737,7 @@ class SurfaceLayer(QGraphicsItem):
         cols = min(cols, self._pixmap.width() - x0)
         if rows <= 0 or cols <= 0:
             return False
+        _trace('box', at=f'{y0},{x0}', size=f'{rows}x{cols}', of=_grid(self.shaded))
         sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
         window = shade.Shaded(dem=self.shaded.dem[sl], shade=self.shaded.shade[sl],
