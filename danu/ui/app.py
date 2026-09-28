@@ -106,10 +106,10 @@ class MainWindow(QMainWindow):
         self.builder = SurfaceBuilder(self)
         from .preview import PreviewDriver
         self.preview = PreviewDriver(self)
-        # the solve goes to a worker from here on. At 1 arcsecond the first
+        # the solve goes to a worker from here on. At 1 arcsecond its first
         # pass alone is 1.7 to 2.2 s over a 604 by 604 window, on the thread
-        # that draws - which is what "python3 is not responding" was, and what
-        # a trace of a real session showed at 5,643 ms for one preview.
+        # that draws. A trace of a real session has one whole preview at 5,643
+        # ms, which is what "python3 is not responding" was.
         self.preview.set_runner(QThreadPool.globalInstance().start)
         self.preview.patched.connect(self._surface_previewed)
         self.preview.exact_wanted.connect(self._rebuild_after_idle)

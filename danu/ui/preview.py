@@ -100,8 +100,10 @@ class _SolveJob(QRunnable):
     It takes arrays and nothing else. Everything that touches the contour
     layer, the datasets or the display stays on the UI thread, because the
     editor goes on taking edits while this runs: the OGR layer is mutated by
-    every keystroke, and the two rasters a preview writes are written from the
-    thread that owns them. What is handed over is already a copy.
+    every keystroke, and the two rasters a preview writes - the kept surface,
+    spliced when a solve lands, and the kept DEM, written by the repaint - are
+    written from the thread that owns them. What is handed over is already a
+    copy.
     """
 
     def __init__(self, serial, cons, mask, water, previous, good, grown, shape,
@@ -115,15 +117,20 @@ class _SolveJob(QRunnable):
 
     def run(self):
         cons, mask, water, previous, good, grown, shape, params, nodata = self.args
+        patch = at = error = None
         try:
             patch, at = local.resolve_window(cons, mask, water, previous, good, grown,
                                              shape, params, nodata=nodata)
-            self.signals.done.emit(self.serial, patch, at, None)
         except Exception as e:      # noqa: BLE001 - reported on the UI thread
             # not raised here: this is a worker, and the driver's own handling
             # of a solve that cannot run - say so once, fall back to rebuilding
             # on idle - is written for the UI thread
-            self.signals.done.emit(self.serial, None, None, e)
+            error = e
+        try:
+            # outside the guard above, so that a failing emit cannot be caught
+            # and answered with a second emit that fails the same way, leaving
+            # the exception to escape run() on a thread with nobody to take it
+            self.signals.done.emit(self.serial, patch, at, error)
         finally:
             self.done.set()
 
