@@ -1742,8 +1742,16 @@ around N20E087:
 | five successive previews | 18 to 36 ms | 23 to 37 ms |
 | peak RSS | 100 MB | 117 MB |
 
-A grid thirteen times the size costs the same to keep and about the same to
-preview. The +66 MB is identical in both columns because it is the contour
+**The preview row is wrong and is left here corrected rather than quietly
+fixed, because it was quoted to justify the change.** Those boxes were at the
+raster's centre, which on this working set is 0.0% drawn ground: the mask is
+empty there, the fill has nothing to answer, and what was being timed was the
+window being read and isofill returning. On drawn ground - 65.7% of the solve
+window, where a mapper actually draws - the same call at 1 arcsecond is **1.8
+to 2.0 s**, and a trace of real use has it between 1.3 and 7.0 s. The memory
+rows are unaffected: they do not depend on what the fill finds.
+
+A grid thirteen times the size costs the same to keep. The +66 MB is identical in both columns because it is the contour
 layer, which is the same contours either way; the rasters cost nothing until a
 box is read, and RSS is flat across five previews, so the windows are not
 accumulating. The preview at 1 arcsecond is slower only because `good` is 243
