@@ -30,9 +30,10 @@ above and by nothing else, and each of those is measured in
 from __future__ import annotations
 
 import math
+import threading
 import time
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
 from ..surface import local, preview, shade
 from ..surface.params import Params
@@ -82,6 +83,51 @@ IDLE_MS = 10_000
 MAX_PIECES = 8
 
 
+class _SolveSignals(QObject):
+    done = Signal(int, object, object, object)   # serial, patch, good, error
+
+
+class _SolveJob(QRunnable):
+    """``local.resolve_window`` off the UI thread.
+
+    This is the whole of what a preview costs. Measured on the gobras set at 1
+    arcsecond, over a 604 by 604 window: the first pass is 1.7 to 2.2 s and the
+    second is 17 ms, against 5 to 7 ms to burn the constraints and under 10 to
+    read the windows. A window manager offers to kill an application that has
+    not drawn for a fraction of that, which is what *python3 is not
+    responding* was.
+
+    It takes arrays and nothing else. Everything that touches the contour
+    layer, the datasets or the display stays on the UI thread, because the
+    editor goes on taking edits while this runs: the OGR layer is mutated by
+    every keystroke, and the two rasters a preview writes are written from the
+    thread that owns them. What is handed over is already a copy.
+    """
+
+    def __init__(self, serial, cons, mask, water, previous, good, grown, shape,
+                 params, nodata, signals):
+        super().__init__()
+        self.serial, self.signals = serial, signals
+        self.args = (cons, mask, water, previous, good, grown, shape, params, nodata)
+        # set when run() returns, however it returns - see SurfaceLayer.cleanup
+        # for why the Event and not the signal is what makes it safe to go
+        self.done = threading.Event()
+
+    def run(self):
+        cons, mask, water, previous, good, grown, shape, params, nodata = self.args
+        try:
+            patch, at = local.resolve_window(cons, mask, water, previous, good, grown,
+                                             shape, params, nodata=nodata)
+            self.signals.done.emit(self.serial, patch, at, None)
+        except Exception as e:      # noqa: BLE001 - reported on the UI thread
+            # not raised here: this is a worker, and the driver's own handling
+            # of a solve that cannot run - say so once, fall back to rebuilding
+            # on idle - is written for the UI thread
+            self.signals.done.emit(self.serial, None, None, e)
+        finally:
+            self.done.set()
+
+
 class PreviewDriver(QObject):
     """Turns edits into patched surface, and silence into an exact rebuild."""
 
@@ -103,6 +149,19 @@ class PreviewDriver(QObject):
         # are where it shows.
         self._kept_gen = 0
         self._shaded_gen = 0
+        # None composes on the calling thread, which is what every test wants
+        # and what a 3 arcsecond solve does not notice. The window installs a
+        # runner: at 1 arcsecond a solve is seconds, on the thread that draws.
+        self._runner = None
+        self._solve_serial = 0
+        self._solving = 0           # the serial in flight, or 0
+        self._queue: list = []      # boxes of this preview not yet solved
+        self._written: list = []    # where its patches reached the display
+        self._started = 0.0
+        self._prepared_ms = 0.0
+        self._solve_signals = _SolveSignals()
+        self._solve_signals.done.connect(self._solved)
+        self._job = None
         self._shaded: shade.Shaded | None = None
         self._params: Params | None = None
         self._projection = ''
@@ -124,7 +183,12 @@ class PreviewDriver(QObject):
 
     def forget(self):
         """Drop the rasters - a new working set, or a build that gave none."""
-        _trace('preview forget', kept_gen=self._kept_gen, shaded_gen=self._shaded_gen)
+        _trace('preview forget', kept_gen=self._kept_gen, shaded_gen=self._shaded_gen,
+               solving=self._solving, queued=len(self._queue))
+        # a solve in flight keeps running - numpy cannot be stopped mid-array -
+        # but its serial goes, so its answer is dropped rather than spliced
+        # into a Kept that is no longer there
+        self._solving, self._queue, self._written = 0, [], []
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
         self._drawn.clear()
@@ -341,17 +405,67 @@ class PreviewDriver(QObject):
         try:
             self._preview_once()
         except Exception as e:      # noqa: BLE001
-            # off, said once, and quiet after that. The exact rebuild on idle
-            # still runs, so the editor keeps working - slower, and honest
-            # about it
-            self._gesture.stop()
-            self._pending.clear()
-            self._kept = None
-            self._say(f'no live preview: {type(e).__name__}: {e} - '
-                      f'edits rebuild on idle instead')
+            self._fail(e)
+
+    def _fail(self, e: Exception):
+        """Turn the preview off, once, and say why.
+
+        Reached from two places and it matters that it is not a `raise` in one
+        of them. A solve that cannot run used to raise inside `_run`'s guard,
+        because the solve was here; it happens on a worker now and comes back
+        as a value. Re-raising it from `_solved` would leave a slot - queued
+        from another thread, with no caller - and PySide6 aborts the process
+        rather than printing it, which is the failure this handling exists to
+        prevent.
+        """
+        self._gesture.stop()
+        self._pending.clear()
+        self._queue, self._written, self._solving = [], [], 0
+        self._kept = None
+        # off, said once, and quiet after that. The exact rebuild on idle still
+        # runs, so the editor keeps working - slower, and honest about it
+        self._say(f'no live preview: {type(e).__name__}: {e} - '
+                  f'edits rebuild on idle instead')
+
+    def set_runner(self, runner) -> None:
+        """Solve through ``runner`` - ``QThreadPool.start`` in the window -
+        instead of on the calling thread.
+
+        Opt in, as ``SurfaceLayer`` is: the default keeps every test
+        deterministic, and a 3 arcsecond solve is tens of milliseconds and does
+        not need a thread. The window opts in, and a test says so.
+        """
+        self._runner = runner
+
+    def cleanup(self, wait_ms: int = 5000) -> bool:
+        """Wait for a solve in flight, so a closing window does not leave one
+        emitting into a deleted signal object.
+
+        The same bargain as SurfaceBuilder.cleanup and SurfaceLayer.cleanup:
+        the job's own Event, because what makes it safe to go is that the job
+        has stopped - not that a signal was delivered, which is queued to this
+        thread and arrives later or never.
+        """
+        job = self._job
+        self._queue = []
+        if job is None:
+            self._solving = 0
+            return True
+        if not job.done.wait(wait_ms / 1000.0):
+            return False
+        self._job = None
+        self._solving = 0
+        return True
 
     def _preview_once(self):
         if not self.ready or not self._pending:
+            return
+        if self._solving:
+            # one solve at a time. The edits stay pending and are merged into
+            # the next preview, which is what the gesture timer does anyway -
+            # at 1 arcsecond a solve is seconds, and starting a second one
+            # alongside would have two of them competing for the same cores
+            # and neither arriving sooner.
             return
         pending, self._pending = self._pending, []
         boxes = self._merged(pending)
@@ -364,24 +478,67 @@ class PreviewDriver(QObject):
             # nothing to a mapper who made twenty edits
             self.skipped.emit(len(pending))
             return
-        started = time.perf_counter()
-        written: list = []
-        for box in boxes:
-            solving = time.perf_counter()
-            patch, good = preview.patch(self._kept, box, self._params)
-            solved = time.perf_counter()
-            # the kept surface carries the edit forward, so the next preview
-            # holds its rim at what is on screen and not at a surface two
-            # edits old
-            self._kept.surface.write(good, patch)
-            rect = self._repaint(good)
-            _trace('preview piece', box=f'{good.shape[0]}x{good.shape[1]}',
-                   solve_ms=f'{(solved - solving) * 1000:.0f}',
-                   repaint_ms=f'{(time.perf_counter() - solved) * 1000:.0f}',
-                   kept_gen=self._kept_gen, shaded_gen=self._shaded_gen,
-                   reached_screen=rect is not None)
-            if rect is not None:
-                written.append(rect)
+        self._started = time.perf_counter()
+        self._written = []
+        self._queue = list(boxes)
+        self._solve_next()
+
+    def _solve_next(self):
+        """Solve the next box of this preview, or finish.
+
+        One box at a time and not all of them handed over together, because
+        each box's solve reads the surface *after* the box before it was
+        spliced in: two overlapping boxes solved from the same snapshot would
+        have the second not see the first. That was true when this ran here
+        and it stays true.
+        """
+        if not self._queue:
+            self._finish()
+            return
+        box = self._queue.pop(0)
+        kept, p = self._kept, self._params
+        # everything that touches the contour layer, the datasets or Qt is
+        # done here and handed over as arrays. The editor goes on taking edits
+        # while the solve runs, and every one of them mutates the OGR layer.
+        at = time.perf_counter()
+        args = preview.prepared(kept, box, p)
+        self._solve_serial += 1
+        self._solving = self._solve_serial
+        self._prepared_ms = (time.perf_counter() - at) * 1000
+        self._job = _SolveJob(self._solve_serial, *args, kept.nodata,
+                              self._solve_signals)
+        self._job.setAutoDelete(False)       # Python owns it; see loader.py
+        if self._runner is None:
+            self._job.run()
+        else:
+            self._runner(self._job)
+
+    def _solved(self, serial, patch, good, error):
+        """A worker's answer, on the UI thread."""
+        if serial != self._solving:
+            return          # superseded, or the driver has been told to stop
+        self._solving = 0
+        self._job = None
+        if error is not None:
+            self._fail(error)
+            return
+        solved = time.perf_counter()
+        # the kept surface carries the edit forward, so the next preview holds
+        # its rim at what is on screen and not at a surface two edits old
+        self._kept.surface.write(good, patch)
+        rect = self._repaint(good)
+        _trace('preview piece', box=f'{good.shape[0]}x{good.shape[1]}',
+               prepare_ms=f'{self._prepared_ms:.0f}',
+               repaint_ms=f'{(time.perf_counter() - solved) * 1000:.0f}',
+               kept_gen=self._kept_gen, shaded_gen=self._shaded_gen,
+               left=len(self._queue), reached_screen=rect is not None)
+        if rect is not None:
+            self._written.append(rect)
+        self._solve_next()
+
+    def _finish(self):
+        written = self._written
+        self._written = []
         if written:
             # R20's overlay is the first pass's classes, and a preview reruns
             # the first pass without bringing them back: shade_window returns
@@ -390,7 +547,12 @@ class PreviewDriver(QObject):
             # drawn reaches - and saying nothing would leave red over ground
             # the mapper has just described.
             self.classesStale.emit(written)
-        self.patched.emit(written, time.perf_counter() - started)
+        self.patched.emit(written, time.perf_counter() - self._started)
+        if self._pending:
+            # edits arrived while that one was solving and were left pending
+            # rather than started alongside. They go now, merged into one
+            # preview, which is what the gesture timer would have done.
+            self._run()
 
     def _merged(self, boxes: list) -> list:
         """The gesture's boxes, joined where joining is cheaper than not.

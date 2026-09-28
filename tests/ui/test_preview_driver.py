@@ -59,15 +59,24 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     what is under test here is when they are called and with what."""
     import numpy as np
 
+    from danu.surface import local
     from danu.surface import preview as surface_preview
 
     monkeypatch.setattr(surface_preview, 'Contours', lambda gpkg: FakeContours())
     # the solve and the repaint are held to the exact build elsewhere; here
     # they only have to record that they were asked, and with what
     calls = []
-    monkeypatch.setattr(surface_preview, 'patch',
+    # Stubbed at `prepared`, which is where the driver splits the work: what
+    # it returns goes to a worker as arrays. The shape matters - the driver
+    # unpacks it into the job - so this returns the same eight things the real
+    # one does, with the box standing in for `good` and `grown`.
+    monkeypatch.setattr(surface_preview, 'prepared',
                         lambda kept, box, p, **kw: (calls.append(box),
-                                                    (kept.surface.read(box), box))[1])
+                                                    (None, None, None, None, box, box,
+                                                     kept.shape, p))[1])
+    monkeypatch.setattr(local, 'resolve_window',
+                        lambda cons, mask, water, previous, good, grown, shape, params,
+                        **kw: (zeros[good.slice], good))
     d = PreviewDriver(gesture_ms=gesture_ms, idle_ms=idle_ms)
     # as the real one does: where in the display it landed. Returning None
     # means nothing reached the screen, which is a different case and has
@@ -300,7 +309,7 @@ def test_a_solve_that_cannot_run_turns_the_preview_off_instead_of_the_process(qt
     interpolate already handles by falling back, so the build succeeds there,
     the driver adopts, and the editor looks correct right up to the first edit.
     """
-    from danu.surface import preview as surface_preview
+    from danu.surface import local
 
     d = driver_over(monkeypatch)
     said = []
@@ -309,7 +318,10 @@ def test_a_solve_that_cannot_run_turns_the_preview_off_instead_of_the_process(qt
     def no_library(*a, **kw):
         raise RuntimeError("no isofill library: tried libisofill.so")
 
-    monkeypatch.setattr(surface_preview, "patch", no_library)
+    # in the solve, which is where loading the library happens and which is on
+    # a worker now: it comes back as a value and must not be re-raised from the
+    # slot that receives it
+    monkeypatch.setattr(local, "resolve_window", no_library)
     d.edited(a_square(), {1})
     d._run()                                  # must not raise
 
@@ -1001,3 +1013,86 @@ def test_a_contour_off_the_raster_is_fresh_ground_too(qtbot, monkeypatch):
     off = Square([Way(2, [1, 2])], {1: Node(140.0, -12.0), 2: Node(140.02, -12.0)})
     d.edited(off, {2})
     assert fresh == [[2]], 'a contour beyond the raster was not called fresh ground'
+
+# ------------------------------------------------- solving on a worker
+
+class HeldSolves:
+    """A runner that keeps the jobs instead of starting them."""
+
+    def __init__(self):
+        self.jobs = []
+
+    def __call__(self, job):
+        self.jobs.append(job)
+
+    def run_all(self):
+        while self.jobs:
+            self.jobs.pop(0).run()
+
+
+def test_a_solve_goes_to_the_runner_and_the_thread_is_free(qtbot, monkeypatch):
+    """The whole point. At 1 arcsecond the first pass alone is 1.7 to 2.2 s over
+    a 604 by 604 window, and a trace of a real session had one preview at 5,643
+    ms - on the thread that draws, which is what the window manager offers to
+    kill the application over."""
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    d.edited(a_square(), {1})
+    d._run()
+    assert len(held.jobs) == 1, 'the solve did not go to the runner'
+    assert d._solving, 'nothing is recorded as in flight'
+    held.run_all()
+    assert not d._solving and not d._queue
+
+
+def test_only_one_solve_runs_at_a_time(qtbot, monkeypatch):
+    """Two solves at 1 arcsecond compete for the same cores and neither arrives
+    sooner. The edits stay pending and go into the next preview, which is what
+    the gesture timer does anyway."""
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    d.edited(a_square(), {1})
+    d._run()
+    assert len(held.jobs) == 1
+
+    d.edited(a_square(0.4, 0.5), {1})
+    d._run()                                  # while the first is still going
+    assert len(held.jobs) == 1, 'a second solve was started alongside the first'
+    assert d._pending, 'the edit was dropped rather than left pending'
+
+    held.run_all()                            # the first lands and takes the rest
+    assert not d._pending, 'the pending edit was never previewed'
+
+
+def test_a_solve_that_fails_on_the_worker_does_not_leave_the_slot(qtbot, monkeypatch):
+    """A solve that cannot run used to raise inside _run's guard, because the
+    solve was there. It is on a worker now and comes back as a value: re-raised
+    from the slot that receives it, it would leave a queued slot with no caller
+    and PySide6 aborts the process."""
+    from danu.surface import local
+
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    said = []
+    d.unavailable.connect(said.append)
+    monkeypatch.setattr(local, 'resolve_window',
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('no isofill')))
+    d.edited(a_square(), {1})
+    d._run()
+    held.run_all()                            # must not raise out of the slot
+    assert said and 'no live preview' in said[0], said
+    assert not d.ready and not d._solving and not d._queue
+
+
+def test_cleanup_waits_for_a_solve(qtbot, monkeypatch):
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    d.edited(a_square(), {1})
+    d._run()
+    assert d.cleanup(wait_ms=1) is False, 'it did not wait for a job that never ran'
+    held.run_all()
+    assert d.cleanup() is True

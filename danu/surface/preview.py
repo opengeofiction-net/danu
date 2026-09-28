@@ -410,12 +410,29 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     written back. ``isofill`` takes the two masks as ``const``, and a test
     asserts they come back untouched.
     """
+    return local.resolve_window(*prepared(kept, box, params, cover, slack),
+                                nodata=kept.nodata, lib=lib)
+
+
+def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
+             slack: int | None = None):
+    """Everything ``resolve_window`` needs for one box, read out of ``kept``.
+
+    The seam between what has to happen where. This touches the contour layer
+    and the datasets, so it belongs to whichever thread owns them - the editor
+    mutates the OGR layer on every keystroke - while what it returns is arrays
+    and can be solved anywhere. ``patch`` does both in a row for a caller that
+    does not care; the editor calls this on the UI thread and hands the rest
+    to a worker, because at 1 arcsecond the solve is seconds.
+
+    One implementation either way. Two would be two things to keep in step,
+    and the whole point is that the worker solves what ``patch`` would have.
+    """
     cover, slack = radii(params, cover, slack)
     shape = kept.constraints.shape
     good = box.grown(cover, shape)
     grown = good.grown(local.reach(params, slack), shape)
     fresh = kept.contours.burn(kept.geotransform, grown, kept.nodata)
-    return local.resolve_window(fresh, kept.mask.read(grown),
-                                kept.water.read(grown) if kept.water is not None else None,
-                                kept.surface.read(grown), good, grown, shape, params,
-                                nodata=kept.nodata, lib=lib)
+    return (fresh, kept.mask.read(grown),
+            kept.water.read(grown) if kept.water is not None else None,
+            kept.surface.read(grown), good, grown, shape, params)

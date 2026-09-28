@@ -106,6 +106,11 @@ class MainWindow(QMainWindow):
         self.builder = SurfaceBuilder(self)
         from .preview import PreviewDriver
         self.preview = PreviewDriver(self)
+        # the solve goes to a worker from here on. At 1 arcsecond the first
+        # pass alone is 1.7 to 2.2 s over a 604 by 604 window, on the thread
+        # that draws - which is what "python3 is not responding" was, and what
+        # a trace of a real session showed at 5,643 ms for one preview.
+        self.preview.set_runner(QThreadPool.globalInstance().start)
         self.preview.patched.connect(self._surface_previewed)
         self.preview.exact_wanted.connect(self._rebuild_after_idle)
         self.preview.unavailable.connect(self._preview_unavailable)
@@ -298,6 +303,8 @@ class MainWindow(QMainWindow):
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
+        if not self.preview.cleanup():
+            self.statusBar().showMessage('a preview was still running')
         self.preview.forget()
         # before the signal object it emits into goes with the window
         if not self.surface.cleanup():
