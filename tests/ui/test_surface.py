@@ -804,3 +804,28 @@ def test_the_window_composes_on_a_worker(window):
     """The layer's default is to compose on the calling thread, which is right
     for a test and wrong for the window. Asserted so it cannot quietly stop."""
     assert window.surface._runner is not None, 'the window is composing on the UI thread'
+
+def test_a_cleanup_that_timed_out_leaves_the_guard_on():
+    """cleanup reports a job it could not wait for, and must not also forget
+    it: the job is still running and still about to replace the pixmap, so
+    _moved has to go on refusing to compare.
+
+    Clearing _pending before the wait passes every other test here - the
+    delivery is still safe, because a serial of 0 drops the result when it
+    lands - and reopens exactly the hole the guard was added for.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    held.run_all()                                   # something on screen
+    layer.set_style(Style())                         # a compose in flight
+    assert layer._pending
+
+    assert layer.cleanup(wait_ms=1) is False, 'it claimed to have waited'
+    assert layer._pending, 'the guard came off a job that is still running'
+    assert layer._moved(synthetic(), synthetic()) is None, \
+        'boxes against a pixmap a running compose is about to replace'
+
+    # and a second call can still wait for it, because the job was kept
+    held.jobs.append(layer._job)
+    held.run_all()
+    assert layer.cleanup() is True

@@ -1512,7 +1512,10 @@ fill.
 The freeze is the *recolour*, not the build. The display grid at 1 arcsecond is
 15,291 by 14,367 - 219.7 M cells and 0.82 GB of RGBA - and `recolour` measures
 a flat 74 ms per million cells from 4 M to 42 M. That is about sixteen seconds
-on the UI thread, after every rebuild.
+on the UI thread, after every rebuild. And almost all of it is wasted: an exact
+rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
+rows. A build is not a reason to recolour a raster, it is a reason to find out
+what moved.
 
 **And it was not only the time, which is why the popup came back.** Once item 3
 made 1 arcsecond usable, the window manager started putting up *python3 is not
@@ -1550,7 +1553,9 @@ seconds. So a whole recolour composes on a worker. The layer keeps a runner -
 over and returns, leaving the surface already on screen until the new one is
 ready. The UI thread's share is the `QImage` and the `QPixmap`.
 
-Measured through the layer, at the 1 arcsecond display grid:
+Measured at the 1 arcsecond display grid, through the layer configured as the
+window configures it - the layer's own default is to compose inline, so the
+second and third rows are the window's arrangement and not the class's:
 
 | | UI thread blocked |
 |---|---|
@@ -1576,10 +1581,7 @@ everything outside them showing a surface two builds old.
 
 The layer's own default is still to compose on the calling thread, which is
 what every test and every raster small enough wants; the window opts in, and a
-test asserts that it does so this cannot quietly stop happening. And almost all of it is wasted: an exact
-rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
-rows. A build is not a reason to recolour a raster, it is a reason to find out
-what moved.
+test asserts that it does so this cannot quietly stop happening.
 
 **Done.** `set_shaded` compares the new surface with the one on screen and
 recolours the boxes that differ. On the gobras 3x3 at 3 arcseconds, showing a

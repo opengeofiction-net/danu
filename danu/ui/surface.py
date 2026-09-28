@@ -373,7 +373,12 @@ def _composed_now(shaded, style: 'Style'):
     stretch = style.scaling.range_for(shaded.dem) if ramp else None
     rgba = shade.compose(shaded, ramp, style.scaling, style.mode,
                          style.shade_strength, stretch=stretch)
-    return rgba, stretch
+    # here rather than in either caller, so the worker path and the inline one
+    # agree about strides as well as values. compose already returns a
+    # contiguous array, so this is a no-op in every case there is - but it is
+    # on whichever thread composed, which is the point of doing it once here
+    # and not on the UI thread as the array lands.
+    return np.ascontiguousarray(rgba), stretch
 
 
 class _ComposeSignals(QObject):
@@ -387,7 +392,7 @@ class _ComposeJob(QRunnable):
     and 21.2 composing - and a window manager offers to kill an application
     that has not drawn for a fraction of that. The arithmetic is numpy over
     arrays nothing else is touching, so it runs here and the UI thread does
-    the 70 ms of QImage and QPixmap when it lands.
+    the 65.8 ms of QImage and QPixmap when it lands.
 
     The style is a copy taken when the job starts, not a reference to the
     layer's: a job composing under one ramp while the user picks another must
@@ -406,7 +411,7 @@ class _ComposeJob(QRunnable):
     def run(self):
         try:
             rgba, stretch = _composed_now(self.shaded, self.style)
-            self.signals.done.emit(self.serial, np.ascontiguousarray(rgba), stretch)
+            self.signals.done.emit(self.serial, rgba, stretch)
         except Exception as e:      # noqa: BLE001 - a recolour must not kill the editor
             # the surface on screen stays as it is and the next one will try
             # again; there is nothing a user can do about it here
@@ -582,21 +587,22 @@ class SurfaceLayer(QGraphicsItem):
         if serial != self._pending:
             return      # superseded while it was composing
         self._pending = 0
+        self._job = None            # finished; cleanup has nothing to wait on
         self._apply(rgba, stretch)
         self.update()
 
     def _apply(self, rgba, stretch):
         """The composed RGBA into the pixmap. The UI thread's whole share of a
-        whole recolour: 70 ms at 1 arcsecond against the 21.2 s of arithmetic
-        that produced it."""
+        whole recolour: 65.8 ms at 1 arcsecond against the 20.89 s of
+        arithmetic that produced it."""
         self._stretch = stretch
         rows, cols = rgba.shape[:2]
+        # _composed_now made it contiguous on whichever thread composed it
         # QImage over the array, and no copy of either. QPixmap.fromImage
         # copies into the platform format itself - verified by mutating the
         # numpy buffer afterwards and reading the pixmap back - so `img.copy()`
         # was a second full copy of the RGBA that nothing read, and keeping the
         # array was a third. At 1 arcsecond each is 0.88 GB.
-        rgba = np.ascontiguousarray(rgba)
         img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         self._pixmap = QPixmap.fromImage(img)
 
@@ -619,12 +625,25 @@ class SurfaceLayer(QGraphicsItem):
         Event, because what makes it safe to go is that the job has stopped -
         not that a signal was delivered, which is queued to this thread and
         arrives later or never.
+
+        Nothing is forgotten on a timeout. Clearing `_pending` before the wait
+        would take the guard off `_moved` while the job it describes was still
+        running, and the next surface would then be offered boxes against a
+        pixmap that job is about to replace - which is the whole thing the
+        guard exists for, reintroduced on the one path where the job is known
+        to still be going. A `_pending` left set only ever costs whole
+        recolours, which are slower and right; and the job is kept too, so a
+        second call can wait again.
         """
-        job, self._job = self._job, None
-        self._pending = 0
+        job = self._job
         if job is None:
+            self._pending = 0
             return True
-        return job.done.wait(wait_ms / 1000.0)
+        if not job.done.wait(wait_ms / 1000.0):
+            return False
+        self._job = None
+        self._pending = 0
+        return True
 
     def recolour_box(self, y0: int, x0: int, rows: int, cols: int) -> bool:
         """Recolour one rectangle of the surface and paint it into the pixmap.
