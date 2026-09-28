@@ -1579,6 +1579,18 @@ flight: the pixmap is then older than the surface that asked for it, so boxes
 would be right about the two surfaces and wrong about the screen, leaving
 everything outside them showing a surface two builds old.
 
+A fourth thing, which using it found rather than reasoning about it did. The
+rectangle `paint` stretches the pixmap into belongs to the *pixmap*, not to
+`self.shaded`, and with the compose on a worker there are twenty seconds
+between the two. `set_shaded` had been setting it eagerly, so a rebuild whose
+extent had grown - which is what drawing on fresh ground produces - grew the
+rectangle at once and left the old pixmap stretched across the new ground:
+draw in a fresh area, let the rebuild land, edit there again, and the surface
+went *back to the original extent*. Composing on the UI thread had kept the
+two in step by accident, there being no moment between them. The compose
+carries its surface back with its colours now, and the rectangle and the
+pixmap are set together from it.
+
 The layer's own default is still to compose on the calling thread, which is
 what every test and every raster small enough wants; the window opts in, and a
 test asserts that it does so this cannot quietly stop happening.

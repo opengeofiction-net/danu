@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QImage, QPainter
 
 from danu.surface import shade
@@ -829,3 +830,37 @@ def test_a_cleanup_that_timed_out_leaves_the_guard_on():
     held.jobs.append(layer._job)
     held.run_all()
     assert layer.cleanup() is True
+
+def test_the_rect_and_the_pixmap_move_together(qapp):
+    """paint() stretches the pixmap into _rect, so a _rect the pixmap does not
+    match draws the old surface over the new surface's ground.
+
+    Reported from using it: draw in a fresh area, let the rebuild land, then
+    edit there again - and the new surface "disappears when the repaint
+    starts, back to the original extent". The extent grew, `_rect` grew with
+    it the moment the surface arrived, and the pixmap did not grow until the
+    worker finished twenty seconds later. Composing on the UI thread kept the
+    two in step by accident: there was no moment between them.
+    """
+    layer, held = a_layer_with_a_runner()
+    small = synthetic(rows=40, cols=60)
+    layer.set_shaded(small)
+    held.run_all()
+    assert layer.boundingRect() == QRectF(*_as_rect(small.scene_rect))
+    was = layer.boundingRect()
+
+    # a rebuild whose extent grew, as fresh ground makes it
+    big = synthetic(rows=80, cols=120)
+    layer.set_shaded(big)
+    assert big.scene_rect != small.scene_rect, 'the two extents are the same'
+    assert layer.boundingRect() == was, \
+        'the rect grew while the pixmap was still the old extent'
+
+    held.run_all()
+    assert layer.boundingRect() == QRectF(*_as_rect(big.scene_rect)), \
+        'the rect never caught up with the surface that arrived'
+
+
+def _as_rect(scene_rect):
+    l, t, r, b = scene_rect
+    return l, t, r - l, b - t

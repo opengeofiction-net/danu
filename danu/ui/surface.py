@@ -382,7 +382,7 @@ def _composed_now(shaded, style: 'Style'):
 
 
 class _ComposeSignals(QObject):
-    done = Signal(int, object, object)      # serial, rgba, stretch
+    done = Signal(int, object, object, object)   # serial, rgba, stretch, shaded
 
 
 class _ComposeJob(QRunnable):
@@ -411,7 +411,9 @@ class _ComposeJob(QRunnable):
     def run(self):
         try:
             rgba, stretch = _composed_now(self.shaded, self.style)
-            self.signals.done.emit(self.serial, rgba, stretch)
+            # the surface goes back with its colours, because the rect the
+            # layer draws into comes from it and the two must land together
+            self.signals.done.emit(self.serial, rgba, stretch, self.shaded)
         except Exception as e:      # noqa: BLE001 - a recolour must not kill the editor
             # the surface on screen stays as it is and the next one will try
             # again; there is nothing a user can do about it here
@@ -472,8 +474,16 @@ class SurfaceLayer(QGraphicsItem):
             self._pixmap, self._rect, self._stretch = None, QRectF(), None
             self.update()
             return
-        l, t, r, b = shaded.scene_rect
-        self._rect = QRectF(l, t, r - l, b - t)
+        # `_rect` is not set here. It is the rectangle `paint` stretches the
+        # pixmap into, so it belongs to the pixmap and not to `self.shaded` -
+        # and with the compose on a worker there are twenty seconds between
+        # the two. Setting it here grew the rect the moment a bigger surface
+        # arrived and left the old pixmap stretched across the new ground: draw
+        # in a fresh area, let the rebuild land, edit there again, and the
+        # surface went "back to the original extent". Composing on the UI
+        # thread kept them in step by accident, there being no moment between.
+        # _apply sets both, together, from the surface that was composed.
+        #
         # before anything recolours. _moved is handed both surfaces, but it
         # also reads `_pixmap`, `_stretch` and the style, and all three
         # still describe what is on screen - which is `was`. A recolour
@@ -571,7 +581,7 @@ class SurfaceLayer(QGraphicsItem):
         """
         self._serial += 1
         if self._runner is None:
-            self._apply(*_composed_now(self.shaded, self.style))
+            self._apply(*_composed_now(self.shaded, self.style), self.shaded)
             return
         # a job already in flight keeps running - there is no way to stop
         # numpy mid-array - but its serial is now stale and its result will be
@@ -582,19 +592,31 @@ class SurfaceLayer(QGraphicsItem):
         self._job.setAutoDelete(False)       # Python owns it; see loader.py
         self._runner(self._job)
 
-    def _composed(self, serial: int, rgba, stretch):
+    def _composed(self, serial: int, rgba, stretch, shaded):
         """A worker's answer, on the UI thread."""
         if serial != self._pending:
             return      # superseded while it was composing
         self._pending = 0
         self._job = None            # finished; cleanup has nothing to wait on
-        self._apply(rgba, stretch)
+        self._apply(rgba, stretch, shaded)
         self.update()
 
-    def _apply(self, rgba, stretch):
-        """The composed RGBA into the pixmap. The UI thread's whole share of a
-        whole recolour: 65.8 ms at 1 arcsecond against the 20.89 s of
-        arithmetic that produced it."""
+    def _apply(self, rgba, stretch, shaded):
+        """The composed RGBA into the pixmap, and the rectangle it is drawn in.
+
+        The UI thread's whole share of a whole recolour: 65.8 ms at 1 arcsecond
+        against the 20.89 s of arithmetic that produced it.
+
+        ``shaded`` is the surface these colours are of, which need not be
+        ``self.shaded`` - a superseded compose is dropped by serial, but a
+        landing one is answering the surface it was given, and the rect has to
+        be that surface's or the pixmap is stretched across the wrong ground.
+        """
+        l, t, r, b = shaded.scene_rect
+        rect = QRectF(l, t, r - l, b - t)
+        if rect != self._rect:
+            self.prepareGeometryChange()
+            self._rect = rect
         self._stretch = stretch
         rows, cols = rgba.shape[:2]
         # _composed_now made it contiguous on whichever thread composed it
