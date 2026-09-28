@@ -1542,13 +1542,41 @@ both ramps.
 | working space | ~25 GB | **0.95 GB** |
 | `compose` alone | 104 bytes/cell | 4.3 bytes/cell |
 
-**Not done, and it is what the popup is now.** The arithmetic is unchanged and
-so is its cost: `range_for` 0.4 s, `compose` 21.2 s, the pixmap 0.07 s - 21.7 s
-on the thread that is meant to be drawing. Bounded memory stops it swapping and
-does not stop it blocking, and a window manager gives up long before twenty-one
-seconds. What is left is to get that work off the UI thread, which is now a
-question about threading alone and not about memory, since a strip at a time is
-a shape that can be yielded from. And almost all of it is wasted: an exact
+**And done for the block, which is what the popup was.** Bounding the memory
+stopped it swapping and did not stop it blocking: the arithmetic is unchanged
+and so is its cost, and a window manager gives up long before twenty-one
+seconds. So a whole recolour composes on a worker. The layer keeps a runner -
+`QThreadPool.start`, installed by the window - and `recolour` hands the job
+over and returns, leaving the surface already on screen until the new one is
+ready. The UI thread's share is the `QImage` and the `QPixmap`.
+
+Measured through the layer, at the 1 arcsecond display grid:
+
+| | UI thread blocked |
+|---|---|
+| composing on the UI thread | **20.89 s** |
+| handing it to a worker | 0.2 ms |
+| applying the result when it lands | 65.8 ms |
+
+The nineteen seconds of arithmetic are still nineteen seconds; they are just
+not in front of anybody. There is one implementation of the arithmetic,
+`_composed_now`, called on a worker or on the calling thread, because two
+would be two things to keep in step and the point of the worker is that it
+produces what the inline path would have.
+
+Three things the worker needs that composing in place did not. A job cannot be
+stopped mid-array, so a superseded one finishes and is dropped by serial when
+it lands - the alternative is a surface arriving in a ramp nobody chose. The
+style goes to the job as a copy, since `Style` is a mutable dataclass and a
+job composing under one ramp while the user picks another must finish saying
+what it was asked. And `_moved` refuses to compare while a compose is in
+flight: the pixmap is then older than the surface that asked for it, so boxes
+would be right about the two surfaces and wrong about the screen, leaving
+everything outside them showing a surface two builds old.
+
+The layer's own default is still to compose on the calling thread, which is
+what every test and every raster small enough wants; the window opts in, and a
+test asserts that it does so this cannot quietly stop happening. And almost all of it is wasted: an exact
 rebuild after one node moved changes **30 cells of 24.4 million**, in eleven
 rows. A build is not a reason to recolour a raster, it is a reason to find out
 what moved.

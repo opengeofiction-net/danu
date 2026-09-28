@@ -681,3 +681,126 @@ def test_the_preview_never_writes_the_builds_own_rasters(tmp_path, monkeypatch):
             f'a preview write reached the build\'s own {n}'
     assert {p.read_bytes() for p in for_update} == {b'a preview wrote this'}, \
         'the write did not land in the copies either'
+
+
+# ------------------------------------------------- composing on a worker
+
+class Held:
+    """A runner that keeps the jobs instead of starting them.
+
+    Running them by hand is what makes these tests about the contract rather
+    than about how fast a thread happens to be. A job's `emit` from this
+    thread is a direct connection, so the result lands before `run` returns.
+    """
+
+    def __init__(self):
+        self.jobs = []
+
+    def __call__(self, job):
+        self.jobs.append(job)
+
+    def run_all(self):
+        for job in self.jobs:
+            job.run()
+        self.jobs.clear()
+
+
+def a_layer_with_a_runner():
+    layer = SurfaceLayer()
+    held = Held()
+    layer.set_runner(held)
+    return layer, held
+
+
+def test_a_whole_recolour_goes_to_the_runner_and_leaves_the_screen_alone():
+    """The point of the worker: at 1 arcsecond composing is 21.7 s, and what a
+    mapper should see for those seconds is the surface that is already there,
+    not a window the system offers to kill."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    assert len(held.jobs) == 1, 'the compose did not go to the runner'
+    assert layer._pixmap is None, 'the UI thread composed it anyway'
+    held.run_all()
+    assert layer._pixmap is not None and layer._stretch is not None
+
+
+def test_the_worker_produces_what_composing_here_would_have():
+    """Two paths to one pixmap is two things to keep in step, so there is one
+    implementation and this holds the paths to it."""
+    inline = SurfaceLayer()
+    inline.set_shaded(synthetic())
+    worker, held = a_layer_with_a_runner()
+    worker.set_shaded(synthetic())
+    held.run_all()
+    assert np.array_equal(drawn(inline), drawn(worker))
+    assert inline._stretch == worker._stretch
+
+
+def test_a_superseded_compose_is_dropped_when_it_lands():
+    """A job cannot be stopped mid-array, so it finishes and is discarded by
+    serial. The alternative is a surface arriving under a ramp nobody chose."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    first = held.jobs[0]
+    layer.set_style(Style(mode='hillshade'))        # supersedes it
+    second = held.jobs[1]
+    held.jobs.clear()
+    second.run()
+    hillshade = drawn(layer).copy()
+    first.run()                                     # the stale one, arriving late
+    assert np.array_equal(drawn(layer), hillshade), \
+        'a superseded compose reached the screen'
+
+
+def test_the_job_holds_the_style_it_was_given_not_the_layers():
+    """Style is a mutable dataclass, so the job is handed a copy.
+
+    Mutated in place, not rebound: ``layer.style = Style(...)`` leaves the job
+    holding the old object and passes whether the copy is made or not, which
+    is how this test first passed without testing anything. The panel does
+    rebind, but a copy that only survives rebinding is not a copy.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    job = held.jobs[0]
+    assert job.style.mode == 'shaded relief'
+    layer.style.mode = 'hillshade'                   # changed under it
+    layer.style.shade_strength = 0.25
+    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 1.0, \
+        'the job is composing through the layer live style'
+
+
+def test_a_surface_arriving_while_one_is_composing_recolours_whole():
+    """_moved compares the new surface with the one on screen, and while a
+    compose is in flight the screen is older than either. Boxes would be right
+    about the two surfaces and wrong about the pixels."""
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    held.run_all()                                   # something on screen
+    # The style has to be an equal one, not a different one. Written first
+    # with a change to hillshade, this passed with the guard removed - because
+    # _moved's own colour-scale guard fired instead, `_stretch` still being the
+    # shaded-relief one until the compose lands. It was passing for a reason it
+    # did not name. An identical style leaves every other guard satisfied, so
+    # what returns None is the one under test.
+    layer.set_style(Style())
+    assert layer._pending, 'nothing is composing, so this tests nothing'
+    assert layer._moved(synthetic(), synthetic()) is None, \
+        'it offered boxes against a pixmap the compose has not replaced yet'
+
+
+def test_cleanup_waits_for_a_compose_and_says_so():
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    assert layer.cleanup(wait_ms=1) is False, 'it did not wait for a job that never ran'
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic())
+    held.run_all()
+    assert layer.cleanup() is True
+    assert SurfaceLayer().cleanup() is True, 'nothing to wait for is not a failure'
+
+
+def test_the_window_composes_on_a_worker(window):
+    """The layer's default is to compose on the calling thread, which is right
+    for a test and wrong for the window. Asserted so it cannot quietly stop."""
+    assert window.surface._runner is not None, 'the window is composing on the UI thread'
