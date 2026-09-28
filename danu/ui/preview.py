@@ -155,6 +155,7 @@ class PreviewDriver(QObject):
         self._runner = None
         self._solve_serial = 0
         self._solving = 0           # the serial in flight, or 0
+        self._solving_gen = 0       # the Kept it was prepared from
         self._queue: list = []      # boxes of this preview not yet solved
         self._written: list = []    # where its patches reached the display
         self._started = 0.0
@@ -504,6 +505,7 @@ class PreviewDriver(QObject):
         args = preview.prepared(kept, box, p)
         self._solve_serial += 1
         self._solving = self._solve_serial
+        self._solving_gen = self._kept_gen
         self._prepared_ms = (time.perf_counter() - at) * 1000
         self._job = _SolveJob(self._solve_serial, *args, kept.nodata,
                               self._solve_signals)
@@ -514,10 +516,27 @@ class PreviewDriver(QObject):
             self._runner(self._job)
 
     def _solved(self, serial, patch, good, error):
-        """A worker's answer, on the UI thread."""
+        """A worker's answer, on the UI thread.
+
+        `_solving` is cleared before `_solve_next` runs, and that is what holds
+        the one-at-a-time rule while this re-enters the queue from inside the
+        delivery of a job's own signal.
+        """
         if serial != self._solving:
             return          # superseded, or the driver has been told to stop
         self._solving = 0
+        if self._solving_gen != self._kept_gen:
+            # a build landed while this was solving and `adopt` put its grids
+            # in. The serial still matches, because adopt does not go through
+            # `forget` and has no reason to - but this patch was worked out
+            # from the surface before it, and splicing it into the new one
+            # would put ground back as an older build had it. The exact build
+            # that just arrived already describes this ground.
+            _trace('preview dropped', reason='the Kept changed under it',
+                   was=self._solving_gen, now=self._kept_gen)
+            self._queue = []
+            self._finish()
+            return
         self._job = None
         if error is not None:
             self._fail(error)

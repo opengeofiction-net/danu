@@ -1096,3 +1096,39 @@ def test_cleanup_waits_for_a_solve(qtbot, monkeypatch):
     assert d.cleanup(wait_ms=1) is False, 'it did not wait for a job that never ran'
     held.run_all()
     assert d.cleanup() is True
+
+def test_a_solve_is_dropped_when_a_build_lands_under_it(qtbot, monkeypatch):
+    """adopt replaces the grids a preview works from, and does not go through
+    forget - it has no reason to. So the serial still matches when a solve that
+    started before the build lands after it, and the patch it carries was
+    worked out from the surface before. Splicing it would put ground back as
+    the older build had it."""
+    import numpy as np
+
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    d.edited(a_square(), {1})
+    d._run()
+    assert d._solving
+
+    # a build lands and is adopted, as it is on every build that is not stale
+    zeros = np.zeros((GRID, GRID), np.float32)
+    band = surface_preview.ArrayBand
+    rasters = type('R', (), dict(
+        constraints=band(zeros.copy()), mask=band(np.ones((GRID, GRID), np.uint8)),
+        water=None, surface=band(zeros.copy()), dem=band(zeros.copy()),
+        geotransform=(0.0, 0.01, 0.0, 1.0, 0.0, -0.01),
+        projection='', nodata=-9999.0, gpkg='none.gpkg'))()
+    shaded = type('S', (), dict(geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0),
+                                dem=zeros.copy(), shade=np.zeros((GRID, GRID), np.uint8)))()
+    before = d._kept
+    d.adopt(Built(shaded=shaded, rasters=rasters), PARAMS)
+    assert d._kept is not before, 'the test did not replace the grids'
+
+    written = []
+    d.patched.connect(lambda rects, secs: written.append(rects))
+    held.run_all()
+    assert written == [[]], 'the stale patch reached the display'
