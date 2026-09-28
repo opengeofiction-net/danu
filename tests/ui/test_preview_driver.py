@@ -1132,3 +1132,25 @@ def test_a_solve_is_dropped_when_a_build_lands_under_it(qtbot, monkeypatch):
     d.patched.connect(lambda rects, secs: written.append(rects))
     held.run_all()
     assert written == [[]], 'the stale patch reached the display'
+
+
+def test_a_solve_landing_after_a_timed_out_cleanup_does_not_arrive(qtbot, monkeypatch):
+    """The driver's half of the same contract as SurfaceLayer.cleanup.
+
+    A `False` means a solve is still running while the window is being taken
+    apart, and what it will emit into is a bound method of a driver that goes
+    with the window. Disconnected, the emit lands on a signal object the job
+    keeps alive itself and nothing receives it.
+    """
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    written = []
+    d.patched.connect(lambda rects, secs: written.append(rects))
+    d.edited(a_square(), {1})
+    d._run()
+    assert d._solving
+
+    assert d.cleanup(wait_ms=1) is False
+    held.run_all()                                # it finishes anyway
+    assert written == [], 'a solve landed on a driver that had been torn down'

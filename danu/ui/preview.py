@@ -460,6 +460,13 @@ class PreviewDriver(QObject):
             self._solving = 0
             return True
         if not job.done.wait(wait_ms / 1000.0):
+            # It is still solving and this is teardown, so the answer must not
+            # be able to arrive: disconnected, the emit it will make lands on a
+            # signal object the job itself keeps alive and nothing receives it.
+            # Reporting alone left `closeEvent` carrying on while a live job
+            # still had a bound method of a driver that goes with the window.
+            # The driver is not to be used again after this.
+            self._solve_signals.done.disconnect(self._solved)
             return False
         self._job = None
         self._solving = 0
