@@ -1545,8 +1545,9 @@ both ramps.
 | working space | ~25 GB | **0.95 GB** |
 | `compose` alone | 104 bytes/cell | 4.3 bytes/cell |
 
-**And done for the block, which is what the popup was.** Bounding the memory
-stopped it swapping and did not stop it blocking: the arithmetic is unchanged
+**And done for the block - though not for the popup, which turned out to be
+something else.** Bounding the memory stopped it swapping and did not stop it
+blocking: the arithmetic is unchanged
 and so is its cost, and a window manager gives up long before twenty-one
 seconds. So a whole recolour composes on a worker. The layer keeps a runner -
 `QThreadPool.start`, installed by the window - and `recolour` hands the job
@@ -1600,6 +1601,15 @@ patch existed, so patching is work thrown away after being shown, which is a
 surface going backwards on screen. That costs the live preview for as long as
 a compose takes, and applying one a strip at a time is what would fix it
 properly.
+
+**What this was not.** It was taken on as the fix for *python3 is not
+responding* at 1 arcsecond, and it is not. A trace of a real session has a
+whole recolour happening twice, both at startup, and the status bar reading
+"preview, 5643 ms": what a mapper meets on every edit is the preview's own
+solve, which is on the UI thread and which this change does not touch. The
+work here still earns its place - a whole recolour is twenty-one seconds and
+a style or ramp change asks for one - but the popup is the preview's, and the
+measurement that said otherwise is corrected below.
 
 A fourth thing, which using it found rather than reasoning about it did. The
 rectangle `paint` stretches the pixmap into belongs to the *pixmap*, not to
