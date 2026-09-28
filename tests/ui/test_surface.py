@@ -801,12 +801,15 @@ def test_the_job_holds_the_style_it_was_given_not_the_layers():
     rebind, but a copy that only survives rebinding is not a copy.
     """
     layer, held = a_layer_with_a_runner()
+    # a non-default strength first, or the assertion below reads as "the copy
+    # has the default" and would hold for a copy that captured nothing
+    layer.style.shade_strength = 0.75
     layer.set_shaded(synthetic())
     job = held.jobs[0]
-    assert job.style.mode == 'shaded relief'
+    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 0.75
     layer.style.mode = 'hillshade'                   # changed under it
     layer.style.shade_strength = 0.25
-    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 1.0, \
+    assert job.style.mode == 'shaded relief' and job.style.shade_strength == 0.75, \
         'the job is composing through the layer live style'
 
 
@@ -887,6 +890,7 @@ def test_a_cleanup_that_timed_out_leaves_the_guard_on():
         'it offered boxes while a compose was still running'
 
     # and a second call can still wait for it, because the job was kept
+    assert layer._job is not None, 'the timeout detached the job it reported'
     held.jobs.append(layer._job)
     held.run_all()
     assert layer.cleanup() is True
@@ -966,3 +970,36 @@ def test_a_preview_patch_while_a_compose_is_in_flight(qapp):
 
     held.run_all()
     assert drawn(layer).shape[:2] == (80, 120), 'the grown surface never landed'
+    # the same box, accepted now. Refused-by-the-guard and clamped-away-as-out-
+    # of-bounds are indistinguishable from outside - both return False and
+    # leave the pixmap alone - so this is what says the refusal above was the
+    # guard and not the clamp.
+    assert layer.recolour_box(10, 10, 8, 12) is True, \
+        'the box was out of bounds all along, so the refusal proved nothing'
+
+def test_a_result_landing_after_a_timed_out_cleanup_is_applied():
+    """The gap between the other two cleanup tests.
+
+    One covers a result landing after a *successful* wait, where `_pending` is
+    zero and the serial drops it. One covers the timeout leaving the guards on.
+    Neither says what happens when the job the timeout reported then finishes:
+    `_pending` is still its serial, so it is applied - and that is right,
+    because the layer is alive and the surface is newer than what is drawn.
+    Asserted so that "left set" cannot quietly become "left set and ignored".
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    # a grown extent, so this is a whole recolour and there is a compose to
+    # time out on - a same-grid surface takes the box path and dispatches none
+    second = synthetic(rows=80, cols=120)
+    layer.set_shaded(second)
+    assert layer._pending, 'nothing is composing, so this tests nothing'
+    assert layer.cleanup(wait_ms=1) is False
+
+    held.run_all()                                   # the job finishes anyway
+    reference = SurfaceLayer()
+    reference.set_shaded(second)
+    assert np.array_equal(drawn(layer), drawn(reference)), \
+        'the result was dropped, so the screen kept a surface it had replaced'
+    assert not layer._pending, 'it landed and the guard is still on'
