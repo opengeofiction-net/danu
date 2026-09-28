@@ -540,3 +540,29 @@ def test_the_two_bands_present_the_same_interface(tmp_path):
     fake.write(box, patch)
     assert np.array_equal(real.read_all(), fake.read_all()), \
         'writing a box left the two disagreeing'
+
+    # a patch that is not the box's shape. Writing one is a caller's mistake,
+    # and the two have to make the same thing of it: GDAL's WriteArray takes
+    # its window from the array and ignores the box, so without a check the
+    # dataset band would put a wrong-sized rectangle at the corner and say
+    # nothing while the array band raised. Both raise.
+    for wrong in (np.full((box.shape[0] - 1, box.shape[1]), -2.0, np.float32),
+                  np.full((box.shape[0] + 1, box.shape[1] + 2), -3.0, np.float32)):
+        for band in (real, fake):
+            with pytest.raises(ValueError):
+                band.write(box, wrong)
+        assert np.array_equal(real.read_all(), fake.read_all()), \
+            f'a refused write of {wrong.shape} still changed one of them'
+
+    # and `at` on a band whose file is not the dtype it was opened as: the
+    # dataset band casts on read, the array band cast in its constructor, and
+    # a caller must not be able to tell which it holds
+    ipath = tmp_path / 'ints.tif'
+    ids = gdal.GetDriverByName('GTiff').Create(str(ipath), 8, 6, 1, gdal.GDT_Int16)
+    ids.GetRasterBand(1).WriteArray(a.astype(np.int16))
+    ids = None
+    r2 = Band.open(ipath, np.float32)
+    f2 = ArrayBand(a.astype(np.int16), np.float32)
+    assert r2.at(4, 7) == f2.at(4, 7)
+    assert r2.at(4, 7).dtype == f2.at(4, 7).dtype == np.float32, \
+        f'{r2.at(4, 7).dtype} against {f2.at(4, 7).dtype}'
