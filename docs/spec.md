@@ -1579,6 +1579,28 @@ flight: the pixmap is then older than the surface that asked for it, so boxes
 would be right about the two surfaces and wrong about the screen, leaving
 everything outside them showing a surface two builds old.
 
+Only one compose runs at a time, newest wins - the queue `SurfaceBuilder`
+keeps, for the same reason and a sharper one. Asking for another while one ran
+used to start it alongside: the serial made the *result* right and nothing
+bounded the number in flight, and the default `QThreadPool` offers sixteen
+threads against a compose that is 0.88 GB of output on top of its working
+space. A mapper editing through a twenty-second compose could stack enough of
+them to put a 15 GB machine into swap, which is the failure the banding was
+for. The one running is left to land, and what follows it is whatever the
+surface and the style are by then.
+
+What the pixmap is of is now recorded rather than assumed. `self.shaded` and
+`self._pixmap` are different surfaces for the twenty seconds a compose takes,
+so `_drawn` names the one on screen and the two guards that used to ask about
+`self.shaded` ask about that instead - which is also what keeps them right
+when a compose *fails*, where `_pending` would stay set with nothing coming.
+A box is refused while a compose is in flight as well, on a second ground: a
+landing compose replaces the whole pixmap with colours worked out before the
+patch existed, so patching is work thrown away after being shown, which is a
+surface going backwards on screen. That costs the live preview for as long as
+a compose takes, and applying one a strip at a time is what would fix it
+properly.
+
 A fourth thing, which using it found rather than reasoning about it did. The
 rectangle `paint` stretches the pixmap into belongs to the *pixmap*, not to
 `self.shaded`, and with the compose on a worker there are twenty seconds
