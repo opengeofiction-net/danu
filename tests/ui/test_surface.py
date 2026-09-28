@@ -977,78 +977,33 @@ def test_a_preview_patch_while_a_compose_is_in_flight(qapp):
     assert layer.recolour_box(10, 10, 8, 12) is True, \
         'the box was out of bounds all along, so the refusal proved nothing'
 
-def test_a_result_landing_after_a_timed_out_cleanup_is_applied():
-    """The gap between the other two cleanup tests.
+def test_a_result_landing_after_a_timed_out_cleanup_does_not_arrive(qapp):
+    """What a `False` from cleanup obliges the caller to do.
 
-    One covers a result landing after a *successful* wait, where `_pending` is
-    zero and the serial drops it. One covers the timeout leaving the guards on.
-    Neither says what happens when the job the timeout reported then finishes:
-    `_pending` is still its serial, so it is applied - and that is right,
-    because the layer is alive and the surface is newer than what is drawn.
-    Asserted so that "left set" cannot quietly become "left set and ignored".
+    Written first the other way round - asserting the late result *is* applied,
+    on the reasoning that the layer is alive and the surface is newer. That
+    reasoning was wrong about what cleanup is. It is called from closeEvent and
+    nowhere else, so a `False` means a job is still composing while the window
+    is being taken apart, and what it will emit into is a bound method of a
+    layer that goes with the window. Reporting that and carrying on left the
+    race the return value exists to report.
+
+    Disconnected, the job's emit lands on a signal object it keeps alive itself
+    and nothing receives it. The layer is not to be used again after this.
     """
     layer, held = a_layer_with_a_runner()
     layer.set_shaded(synthetic(rows=40, cols=60))
     held.run_all()
-    # a grown extent, so this is a whole recolour and there is a compose to
-    # time out on - a same-grid surface takes the box path and dispatches none
-    second = synthetic(rows=80, cols=120)
-    layer.set_shaded(second)
+    was = drawn(layer)
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a whole recolour, in flight
     assert layer._pending, 'nothing is composing, so this tests nothing'
     assert layer.cleanup(wait_ms=1) is False
 
     held.run_all()                                   # the job finishes anyway
-    reference = SurfaceLayer()
-    reference.set_shaded(second)
-    assert np.array_equal(drawn(layer), drawn(reference)), \
-        'the result was dropped, so the screen kept a surface it had replaced'
-    assert not layer._pending, 'it landed and the guard is still on'
+    assert np.array_equal(drawn(layer), was), \
+        'a compose landed on a layer that had been torn down'
 
-def test_patching_boxes_makes_the_new_surface_the_drawn_one(qapp):
-    """`_drawn` is what the pixmap shows, and patching boxes changes that.
-
-    Left unset, `_drawn` stayed at the last *whole* recolour, so `_moved`
-    compared every later surface against one several rebuilds old. A trace from
-    a real session showed it: the same six boxes, recomputed and repainted at
-    every rebuild, identical coordinates each time, for as long as the session
-    went on.
-    """
-    layer = SurfaceLayer()
-    first = synthetic(rows=40, cols=60)
-    layer.set_shaded(first)
-    assert layer._drawn is first
-
-    second = _changed(first, (10, 10, 8, 12))
-    layer.set_shaded(second)
-    assert layer._drawn is second, 'patching boxes left _drawn at the older surface'
-
-    # and the next comparison is against `second`, so ground that has not moved
-    # since is not repainted again. With `_drawn` left at `first` this returns
-    # the box that first-to-second moved, over and over, which is what the
-    # trace showed.
-    boxes = layer._moved(layer._drawn, second)
-    assert boxes == [], f'{len(boxes)} boxes against the surface already drawn'
-
-def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
-    """`set_shaded(None)` means show nothing, and a compose that has not landed
-    yet must not undo it.
-
-    The layer was told to show nothing and twenty seconds later the surface it
-    was told to stop showing arrives - long after whatever asked for it to go.
-    """
-    layer, held = a_layer_with_a_runner()
-    layer.set_shaded(synthetic(rows=40, cols=60))
-    held.run_all()
-    assert layer._pixmap is not None
-
-    layer.set_shaded(synthetic(rows=80, cols=120))   # a whole recolour, in flight
-    assert layer._pending
-    layer.set_shaded(None)
-    assert not layer._pending and not layer._wanted, 'the queue survived the clear'
-
-    held.run_all()                                   # it finishes anyway
-    assert layer._pixmap is None, 'a compose in flight put the surface back'
-    assert layer._drawn is None and layer.boundingRect().isNull()
 
 def test_the_scene_is_told_before_the_rect_changes(qapp, monkeypatch):
     """prepareGeometryChange before boundingRect moves, on every path.
@@ -1076,3 +1031,77 @@ def test_the_scene_is_told_before_the_rect_changes(qapp, monkeypatch):
     assert len(told) == 3, 'the rect went to nothing and the scene was not told'
     assert not told[-1].isNull(), 'it was told after the rect had already gone'
     assert layer.boundingRect().isNull()
+
+def test_a_stale_build_is_adopted_as_well_as_followed(window, monkeypatch):
+    """Both, for every build.
+
+    Adopting only the builds that are not stale was meant to keep the
+    preview's approximations restarting from an exact answer. At 1 arcsecond
+    it does the opposite: a build takes a hundred seconds, an edit lands
+    inside every one of them, so every build is stale and none is adopted. A
+    traced session has five builds and one adopt - the preview working from
+    the first build's surface throughout, splicing patches derived from it
+    over the exact ground each later build had just put on screen.
+    """
+    from danu.ui.surface import Built
+
+    followed, adopted = [], []
+    monkeypatch.setattr(window.preview, 'follow', lambda shaded: followed.append(shaded))
+    monkeypatch.setattr(window.preview, 'adopt',
+                        lambda built, params: adopted.append(built))
+
+    shaded = synthetic()
+    built = Built(shaded=shaded, rasters=None, params=None)
+    window._surface_built(built, stale=True, seconds=1.0)
+
+    assert followed == [shaded], 'the layer draws it and the driver was not pointed at it'
+    assert adopted == [built], 'a stale build was followed but never adopted'
+
+
+
+def test_patching_boxes_makes_the_new_surface_the_drawn_one(qapp):
+    """`_drawn` is what the pixmap shows, and patching boxes changes that.
+
+    Left unset, `_drawn` stayed at the last *whole* recolour, so `_moved`
+    compared every later surface against one several rebuilds old. A trace from
+    a real session showed it: the same six boxes, recomputed and repainted at
+    every rebuild, identical coordinates each time, for as long as the session
+    went on.
+    """
+    layer = SurfaceLayer()
+    first = synthetic(rows=40, cols=60)
+    layer.set_shaded(first)
+    assert layer._drawn is first
+
+    second = _changed(first, (10, 10, 8, 12))
+    layer.set_shaded(second)
+    assert layer._drawn is second, 'patching boxes left _drawn at the older surface'
+
+    # and the next comparison is against `second`, so ground that has not moved
+    # since is not repainted again. With `_drawn` left at `first` this returns
+    # the box that first-to-second moved, over and over, which is what the
+    # trace showed.
+    boxes = layer._moved(layer._drawn, second)
+    assert boxes == [], f'{len(boxes)} boxes against the surface already drawn'
+
+
+def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
+    """`set_shaded(None)` means show nothing, and a compose that has not landed
+    yet must not undo it.
+
+    The layer was told to show nothing and twenty seconds later the surface it
+    was told to stop showing arrives - long after whatever asked for it to go.
+    """
+    layer, held = a_layer_with_a_runner()
+    layer.set_shaded(synthetic(rows=40, cols=60))
+    held.run_all()
+    assert layer._pixmap is not None
+
+    layer.set_shaded(synthetic(rows=80, cols=120))   # a whole recolour, in flight
+    assert layer._pending
+    layer.set_shaded(None)
+    assert not layer._pending and not layer._wanted, 'the queue survived the clear'
+
+    held.run_all()                                   # it finishes anyway
+    assert layer._pixmap is None, 'a compose in flight put the surface back'
+    assert layer._drawn is None and layer.boundingRect().isNull()

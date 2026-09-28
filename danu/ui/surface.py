@@ -758,6 +758,11 @@ class SurfaceLayer(QGraphicsItem):
             self._pending = 0
             return True
         if not job.done.wait(wait_ms / 1000.0):
+            # as PreviewDriver.cleanup does, and for the same reason: this is
+            # teardown, the job is still composing, and a bound method of a
+            # layer that goes with the window must not be what its answer
+            # arrives at. The layer is not to be used again after this.
+            self._compose_signals.done.disconnect(self._composed)
             return False
         self._job = None
         self._pending = 0

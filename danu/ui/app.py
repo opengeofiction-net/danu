@@ -106,6 +106,11 @@ class MainWindow(QMainWindow):
         self.builder = SurfaceBuilder(self)
         from .preview import PreviewDriver
         self.preview = PreviewDriver(self)
+        # the solve goes to a worker from here on. At 1 arcsecond its first
+        # pass alone is 1.7 to 2.2 s over a 604 by 604 window, on the thread
+        # that draws. A trace of a real session has one whole preview at 5,643
+        # ms, which is what "python3 is not responding" was.
+        self.preview.set_runner(QThreadPool.globalInstance().start)
         self.preview.patched.connect(self._surface_previewed)
         self.preview.exact_wanted.connect(self._rebuild_after_idle)
         self.preview.unavailable.connect(self._preview_unavailable)
@@ -298,6 +303,8 @@ class MainWindow(QMainWindow):
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
+        if not self.preview.cleanup():
+            self.statusBar().showMessage('a preview was still running')
         self.preview.forget()
         # before the signal object it emits into goes with the window
         if not self.surface.cleanup():
@@ -603,16 +610,31 @@ class MainWindow(QMainWindow):
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)
         self.surface.set_preview(stale)     # a superseded build is provisional too
-        # The driver must point at the Shaded the layer is drawing, always:
-        # the layer takes every build, so a driver that skipped the stale ones
-        # went on splicing into the array of the build before, which nobody
-        # draws, and previews quietly stopped appearing. Only the grids a
-        # preview *works from* are conditional - those come from the exact
-        # answer, so the approximations restart rather than compound.
+        # Both, for every build, stale or not.
+        #
+        # The driver must point at the Shaded the layer is drawing, because the
+        # layer takes every build: a driver that skipped the stale ones went on
+        # splicing into the array of the build before, which nobody draws, and
+        # previews quietly stopped appearing.
+        #
+        # And it must work from that build's grids for the same reason, which
+        # took a trace to see. Adopting only the builds that are not stale was
+        # meant to keep the approximations restarting from an exact answer
+        # rather than compounding. At 1 arcsecond it does the opposite: a build
+        # takes a hundred seconds, an edit lands inside every one of them, so
+        # every build is stale and none is ever adopted. A traced session has
+        # five builds and one adopt - the preview working from the first
+        # build's surface all the way through, splicing patches derived from it
+        # over the exact ground each later build had just put on screen. That
+        # is the surface being lost.
+        #
+        # A stale build's grids are not the newest edits, but they are the
+        # newest exact answer there is, and strictly closer than the one five
+        # builds back. What the preview owes each edit it re-burns from
+        # `contours`, which has every edit in it either way.
         self.preview.follow(built.shaded)
-        if not stale:
-            self.preview.adopt(built, built.params or
-                               self._loaded_params(fallback=self._arcsec))
+        self.preview.adopt(built, built.params or
+                           self._loaded_params(fallback=self._arcsec))
         if stale:
             self.statusBar().showMessage(
                 f'surface built in {seconds:.0f} s, already out of date - rebuilding')

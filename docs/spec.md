@@ -1863,6 +1863,75 @@ were already right to 0.013 m, and firing is 5.6 seconds of a core at 3
 arcseconds and two minutes at 1. It is still a timer standing in for a
 condition, and the conditions above are what replace it.
 
+**And the preview itself goes to a worker, which is what the popup was.**
+Composing was taken on as the fix and was not it: a trace of a real session has
+a whole recolour twice, both at startup, and the status bar reading "preview,
+5643 ms". What a mapper meets on every edit is the preview's own solve.
+
+Measured on the gobras set at 1 arcsecond, over the 604 by 604 window a
+three-cell edit grows to:
+
+| | |
+|---|---|
+| the first pass, the sight test | 1.7 to 2.2 s |
+| the second pass | 17 ms |
+| burning the constraints and reading the windows | 6 ms |
+
+The first pass is the whole of it, and none of it was ever on a worker. The
+seam is `preview.prepared`: it touches the contour layer and the datasets, so
+it belongs to whichever thread owns them - the editor mutates the OGR layer on
+every keystroke - and what it returns is arrays and can be solved anywhere.
+`patch` is the two in a row for a caller that does not care, so there is one
+implementation and the worker solves what `patch` would have.
+
+| the UI thread's share of one preview | |
+|---|---|
+| `patch()`, all on one thread | **1736 ms** |
+| `prepared()`, which stays | **6 ms** |
+| `resolve_window()`, to the worker | 1726 ms |
+
+One at a time, and edits during a solve stay pending for the next preview
+rather than starting a second: two solves at 1 arcsecond compete for the same
+cores and neither arrives sooner. A solve that cannot run comes back as a
+value rather than an exception, because re-raising it from the slot that
+receives it would leave a queued slot with no caller, and PySide6 aborts the
+process rather than printing it - which is the failure that handling was
+written for in the first place.
+
+**What grows, and what does not.** The trace has four previews of nearly one
+size at 1301, 2852, 3535 and 6989 ms, which looks like something accumulating
+and is not. The contour layer does not grow - `apply` reuses a way's FID.
+Drawing barely moves the burned cells: 78,792 to 79,185 over five edits, and a
+run that reapplies one way id climbs the same. Writing patches into the
+compressed rasters does not slow the reads: 1 to 2 ms, flat over six rounds.
+What it is: the same solve run twelve times on identical input goes from 1,783
+to 3,466 ms while the average clock sags from about 1,500 MHz to 1,000, and
+then levels off. It is the laptop throttling - sixteen cores at 100%, 75 C -
+and in a real session a rebuild competing for them as well. There is nothing
+to fix there, which is worth knowing before treating a worker as having hidden
+it.
+
+**And every build is adopted, not only the ones that are not stale.** This is
+the surface being lost, and it took the trace to see. `follow` points the
+driver at the array the layer draws and runs for every build; `adopt` gives it
+the grids a preview works *from*, and ran only when a build was not stale, on
+the reasoning that the approximations should restart from an exact answer
+rather than compound.
+
+At 1 arcsecond it does the opposite. A build is a hundred seconds and an edit
+lands inside every one of them, so every build finishes stale and none is ever
+adopted: a traced session has five `follow`s and one `adopt`, every preview
+reading `kept_gen=1` while the display is on its third. The preview worked from
+the first build's surface throughout, and spliced patches derived from it over
+the exact ground each later build had just put on screen - which is a mapper
+drawing a contour, watching the rebuild land correctly, and watching the next
+preview take it away again.
+
+A stale build's grids are not the newest edits. They are the newest exact
+answer there is, and strictly closer than one five builds back; and what a
+preview owes each edit it re-burns from `contours`, which has every edit in it
+either way.
+
 **And last, the margin**, which is what this item was called when it was
 written. `cover` and `slack` are two radii each because F3 measured what they
 were worth in accuracy: two radii take the worst of eighteen edits from 3.278 m
