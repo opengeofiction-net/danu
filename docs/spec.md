@@ -1197,6 +1197,12 @@ golden square, which opens new ground the first pass cannot answer rather than
 merely disturbing old - the patch is exact. Rendered as hillshade, local and
 global do not differ by a single grey level.
 
+Those are the two-radii figures. The radii moved when the margin was measured
+for time as well - see *And last, the margin* - and on that same hardest case
+the patch is now 0.000061 m out rather than exact, which is a float32 last bit
+and nine orders below the contour interval it is drawn against. The rest
+stands.
+
 Two numbers control it and they answer different questions, which is worth
 saying because treating them as one number hid both for a while. **Cover** is
 how far past the edited box the patch reaches, and it decides what goes *stale*:
@@ -1932,20 +1938,74 @@ answer there is, and strictly closer than one five builds back; and what a
 preview owes each edit it re-burns from `contours`, which has every edit in it
 either way.
 
-**And last, the margin**, which is what this item was called when it was
-written. `cover` and `slack` are two radii each because F3 measured what they
-were worth in accuracy: two radii take the worst of eighteen edits from 3.278 m
-to 0.268 m, and no further. What they cost in time was never part of that
-decision, and it is most of the 63 to 73 ms. The same eighteen edits, timed as
-well as measured, would say whether one radius of slack is worth the accuracy
-it gives back.
+**And last, the margin - done, and it was not last after all.** `cover` and
+`slack` were two radii each because F3 measured what they were worth in
+accuracy: two radii take the worst of eighteen edits from 3.278 m to 0.268 m,
+and no further. What they cost in time was not part of that decision. At 3
+arcseconds it is 63 to 73 ms and nobody would look again; at 1 arcsecond the
+first pass sweeps the grown window and the radii are most of a two-second
+preview.
 
-It is still the only candidate for the 50 ms this phase ends on, and it is
-still last. A preview at 35 ms behind a 300 ms repaint is not something a
-mapper can tell from one at 60, and the four items above are each larger than
-the whole of it. Whether 50 ms is even the right criterion is worth asking once
-they are done: it measures the fill, and every one of the four says the fill
-was not what was slow.
+Measured again at 1 arcsecond, eight node drags and five contours deleted, each
+against a whole-raster rebuild of the same edit. Two numbers per setting,
+because the radii answer different questions: how wrong the patch is where it
+claims to be right, and how much ground the rebuild moved that the patch does
+not cover at all and so leaves showing the surface from before.
+
+| cover | slack | best ms | worst, drags | worst, deletes |
+|---|---|---|---|---|
+| 2r | 2r | 2,950 | 1.312 m | 0.819 m |
+| 2r | 1r | 1,930 | 1.312 m | 1.007 m |
+| 1r | 1r | 1,244 | 1.250 m | **0.564 m stale** |
+| ½r | ½r | 663 | 1.122 m | **1.616 m stale** |
+
+`slack` is one radius now. It is the clearance the solve keeps, so it cannot
+leave anything stale, and halving it costs at most 0.19 m across both sets.
+
+`cover` is one radius, and two when the edit *removed* a contour. Over eight
+drags nothing was left stale at *half* a radius - 0.000 m, every one - so one
+radius is twice what they were measured to need. Deleting is not like that: of
+five, four also left nothing stale at half a radius, and the fifth moved 47,614
+cells where the others moved 197 to 1,575, and left 1.616 m at half a radius,
+0.564 at one and 0.001 at two. That is F3's own finding reproduced, and it is
+why the two radii stay where the risk was found rather than everywhere. The
+driver already knows which kind of edit it has - a way it can no longer find in
+the square is a deletion - and it asks for the wider cover for the whole
+preview when any edit in it removed something, because boxes are merged and a
+piece cannot say which edits it came from.
+
+A drag is the common edit. On the gobras set at 1 arcsecond, over the same box:
+
+| | window | |
+|---|---|---|
+| before | 604 x 604 | 1,854 ms |
+| a removal | 484 x 484 | 1,138 ms |
+| a drag | 364 x 364 | **720 ms** |
+
+**How it was measured, because four different ways of doing it gave confident
+wrong answers first.** Moving a node by degrees rather than cells moved it less
+than one cell, and the constraint raster came out byte for byte identical -
+there was nothing to measure and the harness said so by reporting no change at
+all. Dragging eight cells took contours across each other, which the editor
+refuses, and moved ground 305 m at distances no cover reaches, so every setting
+looked equally bad. Boxing the one node that moved rather than the contour made
+every setting exact, because the cover reached far past anything that changed.
+And judging each setting over its own `good` box flatters the small ones: a
+bigger cover is judged over more ground and can only look worse, so what is
+reported here is the worst error anywhere on the displayed surface - the patch
+where the patch reaches, what was there before everywhere else.
+
+The settings are interleaved and taken best-of three, not run one to
+completion after another, because this laptop drops from about 1,500 MHz to
+1,000 under sustained all-core load and whichever ran last would otherwise
+look slowest.
+
+**One thing that does not reproduce.** F3's figures for the two-radii setting
+are 0.268 m over eighteen edits at 3 arcseconds and 0.035 m at 1; this harness
+gives 0.777 m and 1.312 m for the same setting. The comparison between settings
+is sound - every setting sees the same edits through the same harness - but the
+absolute disagreement is real and unexplained, and most likely the edits: F3's
+eighteen are not these thirteen.
 
 **And the small things.** `local.resolve` loads `libisofill.so` and has no
 fallback to the binary, which `interpolate` has had all along, so a machine
@@ -2094,7 +2154,8 @@ Nothing about the design. What is left is what building it will answer:
    against a whole-raster solve in F3, a patch covering the edit by two radii
    and solved with two radii of clearance is wrong by at most 0.268 m over
    eighteen edits on the gobras 3x3, 0.035 m at 1 arcsecond, and exact on the
-   hardest case found. Local and global hillshades do not differ by a grey
+   hardest case found. Those radii have since changed - the answer did not,
+   and the hardest case is 0.000061 m out now rather than exact. Local and global hillshades do not differ by a grey
    level. The seam does not show, and the coarser global preview the fallback
    plan called for is not needed. See *F3, the local solve*.
 3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library

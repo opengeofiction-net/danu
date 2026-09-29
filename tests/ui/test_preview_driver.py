@@ -1154,3 +1154,38 @@ def test_a_solve_landing_after_a_timed_out_cleanup_does_not_arrive(qtbot, monkey
     assert d.cleanup(wait_ms=1) is False
     held.run_all()                                # it finishes anyway
     assert written == [], 'a solve landed on a driver that had been torn down'
+
+
+def test_a_deletion_asks_for_the_wider_cover(qtbot, monkeypatch):
+    """The driver is the only thing that knows an edit removed a contour, and
+    the cover it needs depends on that.
+
+    Set for the whole preview and not for the piece: the boxes are merged, and
+    a piece cannot say which edits it came from. The wider cover is the safe
+    way to be wrong.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d._run()
+    assert asked == [False], 'a drag asked for the wider cover'
+
+    # the same way, now gone from the square: that is how a deletion arrives.
+    # `Command.ways()` names it either way, and the square no longer has it.
+    asked.clear()
+    d.edited(Square([], {}), {1})
+    d._run()
+    assert asked == [True], 'a deletion did not ask for the wider cover'
+
+    # and the next preview is judged on its own edits
+    asked.clear()
+    d.edited(at_cell(40, 40, wid=2), {2})
+    d._run()
+    assert asked == [False], 'the wider cover outlived the deletion that asked for it'

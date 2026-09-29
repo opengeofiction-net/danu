@@ -362,8 +362,8 @@ class Kept:
         return self.constraints.shape
 
 
-def radii(params: Params, cover: int | None = None,
-          slack: int | None = None) -> tuple[int, int]:
+def radii(params: Params, cover: int | None = None, slack: int | None = None,
+          removing: bool = False) -> tuple[int, int]:
     """The cover and the slack, defaulted.
 
     The pair, not the sum: ``patch`` needs them apart, because they answer
@@ -372,23 +372,54 @@ def radii(params: Params, cover: int | None = None,
     cannot be the one place the defaults are written - which is what the first
     version of ``grown_by`` was, spelling them out a second time thirty lines
     from ``patch``'s copy, in the same file, under a docstring about a copy
-    that nothing would notice going stale."""
-    return (2 * params.fill_cells if cover is None else cover,
-            2 * params.fill_cells if slack is None else slack)
+    that nothing would notice going stale.
+
+    Both were two radii, chosen in F3 on accuracy alone; what they cost in time
+    was not part of that decision, and at 1 arcsecond they are most of what a
+    preview costs - the first pass sweeps the grown window and these set how
+    big it is. Measured again at 1 arcsecond, on eight node drags and five
+    contours deleted, each judged against a whole-raster rebuild of the same
+    edit:
+
+    ``slack`` is one radius now. Halving it costs at most 0.19 m of patch error
+    across both sets and takes a drag from 2,950 ms to 1,930, and it cannot
+    leave anything stale - it is the clearance the solve keeps, not the ground
+    it hands back.
+
+    ``cover`` is one radius, and two when the edit *removed* a contour. It is
+    what decides how much ground the patch refreshes, so cutting it leaves the
+    rest showing the surface from before. Over eight drags nothing was left
+    stale at half a radius - 0.000 m, every one - so one radius is twice what
+    they were measured to need. Deleting is the case that is not like that: of
+    five, four left nothing stale at half a radius and the fifth moved 47,614
+    cells and left 1.616 m at half, 0.564 at one radius and 0.001 at two. That
+    is F3's own finding reproduced, and it is why the two radii stay exactly
+    where the risk was found rather than everywhere.
+
+    A drag is the common edit, and it goes from 2,950 ms to 1,244.
+    """
+    fill = params.fill_cells
+    return ((2 * fill if removing else fill) if cover is None else cover,
+            fill if slack is None else slack)
 
 
-def grown_by(params: Params, cover: int | None = None, slack: int | None = None) -> int:
+def grown_by(params: Params, cover: int | None = None, slack: int | None = None,
+             removing: bool = False) -> int:
     """How far ``patch`` grows a box before solving it.
 
     The driver needs this to decide whether merging two boxes is free: comparing
     the boxes themselves rather than what they cost to solve keeps
-    near-identical solves apart."""
-    cover, slack = radii(params, cover, slack)
+    near-identical solves apart. It takes ``removing`` for the same reason
+    ``patch`` does - a preview that is about to be solved with two radii of
+    cover grows its boxes twice as far, and merging them is a different
+    question at the two sizes."""
+    cover, slack = radii(params, cover, slack, removing)
     return cover + local.reach(params, slack)
 
 
 def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
-          slack: int | None = None, lib=None) -> tuple[np.ndarray, Box]:
+          slack: int | None = None, lib=None,
+          removing: bool = False) -> tuple[np.ndarray, Box]:
     """The surface around an edit, and the box it is good for.
 
     Everything the solve reads is one window - the edited box grown by the
@@ -410,12 +441,12 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     written back. ``isofill`` takes the two masks as ``const``, and a test
     asserts they come back untouched.
     """
-    return local.resolve_window(*prepared(kept, box, params, cover, slack),
+    return local.resolve_window(*prepared(kept, box, params, cover, slack, removing),
                                 nodata=kept.nodata, lib=lib)
 
 
 def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
-             slack: int | None = None):
+             slack: int | None = None, removing: bool = False):
     """Everything ``resolve_window`` needs for one box, read out of ``kept``.
 
     The seam between what has to happen where. This touches the contour layer
@@ -428,7 +459,7 @@ def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
     One implementation either way. Two would be two things to keep in step,
     and the whole point is that the worker solves what ``patch`` would have.
     """
-    cover, slack = radii(params, cover, slack)
+    cover, slack = radii(params, cover, slack, removing)
     shape = kept.constraints.shape
     good = box.grown(cover, shape)
     grown = good.grown(local.reach(params, slack), shape)

@@ -164,6 +164,9 @@ class PreviewDriver(QObject):
         self._solving = 0           # the serial in flight, or 0
         self._solving_gen = 0       # the Kept it was prepared from
         self._queue: list = []      # boxes of this preview not yet solved
+        # whether anything in the pending edits took a contour away, which is
+        # the case that needs the wider cover - see preview.radii
+        self._removing = False
         self._written: list = []    # where its patches reached the display
         self._started = 0.0
         self._prepared_ms = 0.0
@@ -295,6 +298,11 @@ class PreviewDriver(QObject):
                 # geometry is what is boxed
                 self._mark(wid, self._drawn.pop(wid))
                 self._kept.contours.remove(wid)
+                # the one kind of edit measured to need two radii of cover.
+                # Set for the whole preview and not for the piece, because the
+                # boxes are merged and a piece cannot say which edits it came
+                # from - and the wider cover is the safe way to be wrong.
+                self._removing = True
             else:
                 # it was never a contour. Moving a node of a coastline, or of
                 # anything untagged, constrains nothing and there is nothing to
@@ -516,7 +524,7 @@ class PreviewDriver(QObject):
         # done here and handed over as arrays. The editor goes on taking edits
         # while the solve runs, and every one of them mutates the OGR layer.
         at = time.perf_counter()
-        args = preview.prepared(kept, box, p)
+        args = preview.prepared(kept, box, p, removing=self._removing)
         self._solve_serial += 1
         self._solving = self._solve_serial
         self._solving_gen = self._kept_gen
@@ -572,6 +580,8 @@ class PreviewDriver(QObject):
     def _finish(self):
         written = self._written
         self._written = []
+        # the next preview is judged on its own edits
+        self._removing = False
         if written:
             # R20's overlay is the first pass's classes, and a preview reruns
             # the first pass without bringing them back: shade_window returns
@@ -600,7 +610,7 @@ class PreviewDriver(QObject):
         looks like.
         """
         shape = self._kept.shape
-        grow = preview.grown_by(self._params)
+        grow = preview.grown_by(self._params, removing=self._removing)
 
         def solved(b):
             # what a piece actually costs: patch() grows a box by the cover and
