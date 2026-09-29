@@ -32,7 +32,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.9.0'
+EXPECTED_VERSION = '0.10.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -113,7 +113,15 @@ class Isofill:
         before the second pass overwrote the cells the first declined. The
         first pass is nearly all of the run, so a caller that wants both -
         which is the editor, drawing the ground its contours do not describe
-        over the surface they made - gets both for one fill rather than two."""
+        over the surface they made - gets both for one fill rather than two.
+
+        ``threads`` of 0 is all but two of the machine's cores, from 0.10.0.
+        It used to be every one of them: the count was resolved in isofill's
+        own main() and a library caller got whatever OpenMP chose, so the
+        command line left two cores free and the editor took the lot - on the
+        machine somebody is drawing on. No caller in danu passes a number, and
+        none needs to; a 77.8 M cell fill costs six and a half per cent for
+        the headroom."""
         cons = np.ascontiguousarray(constraints, dtype=np.float32)
         rows, cols = cons.shape
         out = np.empty_like(cons)
