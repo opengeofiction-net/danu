@@ -714,8 +714,10 @@ In the order a mapper would feel them:
 3. `Kept` holding whole rasters, which is why there was no preview at 1
    arcsecond - **done**;
 4. the rebuild trigger, which fired on a timer rather than on the two things
-   that need it - **half done**: fresh ground triggers a rebuild, and the
-   detector for the other half turned out not to discriminate;
+   that need it - **half done, and the other half moves to phase 7**: fresh
+   ground triggers a rebuild, the detector for the other half turned out not
+   to discriminate, and using the editor since has put a different question
+   under it - whether a long session wants automatic rebuilds at all;
 5. the margin, which by then may not be worth changing.
 
 Timing one node moved, through the editor, from the command to the frame:
