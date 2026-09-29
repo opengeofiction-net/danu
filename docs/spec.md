@@ -1805,9 +1805,13 @@ rather than handing `Kept` arrays it already had - if nothing there reads a
 raster then nothing tests the path a mapper is on.
 
 What cannot be banded is isofill's second pass, which is a global multigrid
-solve over the whole raster. That is the two minutes. It runs on a worker, so
-it is wall-clock and not a frozen window, and it is what the rebuild trigger
-below exists to ration.
+solve over the whole raster. It is not, though, where the time goes: measured
+over a 77.8 M cell fill, both passes cost 92.9 s and the first pass alone 88.0
+- the second is about five per cent of the fill, and the fill is 92.5% of a 1
+arcsecond build (65.8 s of 71.2). The two minutes is the first pass, which
+bands. What the second pass cannot do is go away, and it runs on a worker, so
+it is wall-clock and not a frozen window; it is the rebuild trigger below that
+rations the whole build.
 
 **The rebuild, and when it is really needed.** R19 says the surface is rebuilt
 exactly on idle, and the editor does it after every pause. Measured against a
