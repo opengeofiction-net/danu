@@ -1197,11 +1197,11 @@ golden square, which opens new ground the first pass cannot answer rather than
 merely disturbing old - the patch is exact. Rendered as hillshade, local and
 global do not differ by a single grey level.
 
-Those are the two-radii figures. The radii moved when the margin was measured
-for time as well - see *And last, the margin* - and on that same hardest case
-the patch is now 0.000061 m out rather than exact, which is a float32 last bit
-and nine orders below the contour interval it is drawn against. The rest
-stands.
+Those are the two-radii figures, and the radii moved when the margin was
+measured for time as well - see *And last, the margin*. On that same hardest
+case the patch is 0.000061 m out now rather than exact: a float32 last bit,
+nine orders below the contour interval it is drawn against. Everything else
+here stands.
 
 Two numbers control it and they answer different questions, which is worth
 saying because treating them as one number hid both for a while. **Cover** is
@@ -2154,8 +2154,9 @@ Nothing about the design. What is left is what building it will answer:
    against a whole-raster solve in F3, a patch covering the edit by two radii
    and solved with two radii of clearance is wrong by at most 0.268 m over
    eighteen edits on the gobras 3x3, 0.035 m at 1 arcsecond, and exact on the
-   hardest case found. Those radii have since changed - the answer did not,
-   and the hardest case is 0.000061 m out now rather than exact. Local and global hillshades do not differ by a grey
+   hardest case found. Those radii have since changed, and so has that last
+   figure - the hardest case is 0.000061 m out now rather than exact, which
+   leaves the answer to the question the same. Local and global hillshades do not differ by a grey
    level. The seam does not show, and the coarser global preview the fallback
    plan called for is not needed. See *F3, the local solve*.
 3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library

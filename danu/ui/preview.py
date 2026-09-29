@@ -167,6 +167,7 @@ class PreviewDriver(QObject):
         # whether anything in the pending edits took a contour away, which is
         # the case that needs the wider cover - see preview.radii
         self._removing = False
+        self._solving_wide = False  # what the preview in flight was started with
         self._written: list = []    # where its patches reached the display
         self._started = 0.0
         self._prepared_ms = 0.0
@@ -200,6 +201,7 @@ class PreviewDriver(QObject):
         # but its serial goes, so its answer is dropped rather than spliced
         # into a Kept that is no longer there
         self._solving, self._queue, self._written = 0, [], []
+        self._removing = self._solving_wide = False
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
         self._drawn.clear()
@@ -437,6 +439,7 @@ class PreviewDriver(QObject):
         self._gesture.stop()
         self._pending.clear()
         self._queue, self._written, self._solving = [], [], 0
+        self._removing = self._solving_wide = False
         self._kept = None
         # off, said once, and quiet after that. The exact rebuild on idle still
         # runs, so the editor keeps working - slower, and honest about it
@@ -464,6 +467,7 @@ class PreviewDriver(QObject):
         """
         job = self._job
         self._queue = []
+        self._removing = self._solving_wide = False
         if job is None:
             self._solving = 0
             return True
@@ -504,6 +508,13 @@ class PreviewDriver(QObject):
         self._started = time.perf_counter()
         self._written = []
         self._queue = list(boxes)
+        # taken once, here, and not read again per piece. An edit can arrive
+        # while this preview is still solving and set `_removing` for the
+        # *next* one; reading it per piece would give the later pieces of this
+        # preview a wider cover than the earlier ones, for edits they were not
+        # solved for. The boxes were merged under this value too.
+        self._solving_wide = self._removing
+        self._removing = False
         self._solve_next()
 
     def _solve_next(self):
@@ -524,7 +535,7 @@ class PreviewDriver(QObject):
         # done here and handed over as arrays. The editor goes on taking edits
         # while the solve runs, and every one of them mutates the OGR layer.
         at = time.perf_counter()
-        args = preview.prepared(kept, box, p, removing=self._removing)
+        args = preview.prepared(kept, box, p, removing=self._solving_wide)
         self._solve_serial += 1
         self._solving = self._solve_serial
         self._solving_gen = self._kept_gen
@@ -580,8 +591,6 @@ class PreviewDriver(QObject):
     def _finish(self):
         written = self._written
         self._written = []
-        # the next preview is judged on its own edits
-        self._removing = False
         if written:
             # R20's overlay is the first pass's classes, and a preview reruns
             # the first pass without bringing them back: shade_window returns

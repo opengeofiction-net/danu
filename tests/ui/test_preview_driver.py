@@ -1189,3 +1189,57 @@ def test_a_deletion_asks_for_the_wider_cover(qtbot, monkeypatch):
     d.edited(at_cell(40, 40, wid=2), {2})
     d._run()
     assert asked == [False], 'the wider cover outlived the deletion that asked for it'
+
+
+def test_the_wider_cover_does_not_outlive_an_abandoned_preview(qtbot, monkeypatch):
+    """A preview can end without finishing - cleanup, a solve that failed, a
+    build landing under it - and the flag that asked for two radii must go with
+    it. Left set, the next preview solves an ordinary drag at twice the cover:
+    the safe direction to be wrong in, and still wrong.
+    """
+
+    for end_it in (lambda d: d.cleanup(wait_ms=1),
+                   lambda d: d.forget(),
+                   lambda d: d._fail(RuntimeError('no isofill'))):
+        d = driver_over(monkeypatch)
+        held = HeldSolves()
+        d.set_runner(held)
+        # drawn first, then gone: a way the driver never saw is not a deletion,
+        # it is a way that was never a contour
+        d.edited(at_cell(30, 30, wid=1), {1})
+        d.edited(Square([], {}), {1})
+        assert d._removing, 'the deletion did not ask for the wider cover'
+        end_it(d)
+        assert not d._removing and not d._solving_wide, \
+            f'{end_it} left the wider cover set'
+
+
+def test_one_preview_is_solved_at_one_cover_throughout(qtbot, monkeypatch):
+    """An edit can arrive while a preview is still solving and set the flag for
+    the *next* one. Read per piece, the later pieces of this preview would get
+    a wider cover than the earlier ones, for edits they were not solved for -
+    and the boxes were merged under the narrower value."""
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+    # two boxes far apart, so the preview has two pieces to solve
+    d.edited(at_cell(20, 20, wid=1), {1})
+    d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
+    d._run()
+    assert len(d._queue) + 1 == 2, 'this preview does not have two pieces'
+
+    d.edited(Square([], {}), {1})              # way 1, drawn above, now gone
+    assert d._removing, 'the deletion was not noticed'
+    held.run_all()
+    assert asked[:2] == [False, False], \
+        f'the pieces of one preview were solved at different covers: {asked}'
+    # and the deletion is not lost - it is the preview that follows, at the
+    # wider cover, which is the whole point of not reading the flag per piece
+    assert asked[2:] == [True], f'the deletion got its own preview or not: {asked}'
