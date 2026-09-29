@@ -164,6 +164,10 @@ class PreviewDriver(QObject):
         self._solving = 0           # the serial in flight, or 0
         self._solving_gen = 0       # the Kept it was prepared from
         self._queue: list = []      # boxes of this preview not yet solved
+        # whether anything in the pending edits took a contour away, which is
+        # the case that needs the wider cover - see preview.radii
+        self._removing = False
+        self._solving_wide = False  # what the preview in flight was started with
         self._written: list = []    # where its patches reached the display
         self._started = 0.0
         self._prepared_ms = 0.0
@@ -197,6 +201,7 @@ class PreviewDriver(QObject):
         # but its serial goes, so its answer is dropped rather than spliced
         # into a Kept that is no longer there
         self._solving, self._queue, self._written = 0, [], []
+        self._removing = self._solving_wide = False
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
         self._drawn.clear()
@@ -295,6 +300,11 @@ class PreviewDriver(QObject):
                 # geometry is what is boxed
                 self._mark(wid, self._drawn.pop(wid))
                 self._kept.contours.remove(wid)
+                # the one kind of edit measured to need two radii of cover.
+                # Set for the whole preview and not for the piece, because the
+                # boxes are merged and a piece cannot say which edits it came
+                # from - and the wider cover is the safe way to be wrong.
+                self._removing = True
             else:
                 # it was never a contour. Moving a node of a coastline, or of
                 # anything untagged, constrains nothing and there is nothing to
@@ -429,6 +439,7 @@ class PreviewDriver(QObject):
         self._gesture.stop()
         self._pending.clear()
         self._queue, self._written, self._solving = [], [], 0
+        self._removing = self._solving_wide = False
         self._kept = None
         # off, said once, and quiet after that. The exact rebuild on idle still
         # runs, so the editor keeps working - slower, and honest about it
@@ -456,6 +467,7 @@ class PreviewDriver(QObject):
         """
         job = self._job
         self._queue = []
+        self._removing = self._solving_wide = False
         if job is None:
             self._solving = 0
             return True
@@ -483,7 +495,15 @@ class PreviewDriver(QObject):
             # and neither arriving sooner.
             return
         pending, self._pending = self._pending, []
-        boxes = self._merged(pending)
+        # Taken before the merge, and handed to it. Both the merge test and
+        # the solve have to use one cover - the merge decides whether two
+        # boxes are worth joining by what they *cost to solve*, and that is a
+        # different question at the two sizes - and the two were agreeing only
+        # because nothing can land between two statements. Passed, so a
+        # reordering cannot quietly separate them.
+        self._solving_wide = self._removing
+        self._removing = False
+        boxes = self._merged(pending, self._solving_wide)
         if boxes is None:
             # too many pieces to solve between two keystrokes. Nothing is
             # drawn and nothing is claimed: the surface on screen is still the
@@ -491,11 +511,21 @@ class PreviewDriver(QObject):
             # the pending boxes, which is edits and not pieces: pieces are
             # what MAX_PIECES counts, post-merge, and "nine pieces" means
             # nothing to a mapper who made twenty edits
+            # and the cover with them: `_solving_wide` was taken for a
+            # preview that is not going to run, and describes nothing while it
+            # stays set. The edits go too, so there is nothing left that wanted
+            # the wider cover - the idle rebuild is what answers for them now.
+            self._solving_wide = False
             self.skipped.emit(len(pending))
             return
         self._started = time.perf_counter()
         self._written = []
         self._queue = list(boxes)
+        # `_solving_wide` is taken once, above, and not read again per piece.
+        # An edit can arrive while this preview is still solving and set
+        # `_removing` for the *next* one; reading it per piece would give the
+        # later pieces of this preview a wider cover than the earlier ones,
+        # for edits they were not solved for.
         self._solve_next()
 
     def _solve_next(self):
@@ -516,7 +546,7 @@ class PreviewDriver(QObject):
         # done here and handed over as arrays. The editor goes on taking edits
         # while the solve runs, and every one of them mutates the OGR layer.
         at = time.perf_counter()
-        args = preview.prepared(kept, box, p)
+        args = preview.prepared(kept, box, p, removing=self._solving_wide)
         self._solve_serial += 1
         self._solving = self._solve_serial
         self._solving_gen = self._kept_gen
@@ -587,7 +617,7 @@ class PreviewDriver(QObject):
             # preview, which is what the gesture timer would have done.
             self._run()
 
-    def _merged(self, boxes: list) -> list:
+    def _merged(self, boxes: list, wide: bool = False) -> list:
         """The gesture's boxes, joined where joining is cheaper than not.
 
         Not one box around all of them. Two edits at opposite corners of a
@@ -600,7 +630,7 @@ class PreviewDriver(QObject):
         looks like.
         """
         shape = self._kept.shape
-        grow = preview.grown_by(self._params)
+        grow = preview.grown_by(self._params, removing=wide)
 
         def solved(b):
             # what a piece actually costs: patch() grows a box by the cover and

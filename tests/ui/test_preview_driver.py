@@ -1154,3 +1154,192 @@ def test_a_solve_landing_after_a_timed_out_cleanup_does_not_arrive(qtbot, monkey
     assert d.cleanup(wait_ms=1) is False
     held.run_all()                                # it finishes anyway
     assert written == [], 'a solve landed on a driver that had been torn down'
+
+
+def test_a_deletion_asks_for_the_wider_cover(qtbot, monkeypatch):
+    """The driver is the only thing that knows an edit removed a contour, and
+    the cover it needs depends on that.
+
+    Set for the whole preview and not for the piece: the boxes are merged, and
+    a piece cannot say which edits it came from. The wider cover is the safe
+    way to be wrong.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d._run()
+    assert asked == [False], 'a drag asked for the wider cover'
+
+    # the same way, now gone from the square: that is how a deletion arrives.
+    # `Command.ways()` names it either way, and the square no longer has it.
+    asked.clear()
+    d.edited(Square([], {}), {1})
+    d._run()
+    assert asked == [True], 'a deletion did not ask for the wider cover'
+
+    # and the next preview is judged on its own edits
+    asked.clear()
+    d.edited(at_cell(40, 40, wid=2), {2})
+    d._run()
+    assert asked == [False], 'the wider cover outlived the deletion that asked for it'
+
+
+def test_the_wider_cover_does_not_outlive_an_abandoned_preview(qtbot, monkeypatch):
+    """A preview can end without finishing - cleanup, a solve that failed, a
+    build landing under it - and the flag that asked for two radii must go with
+    it. Left set, the next preview solves an ordinary drag at twice the cover:
+    the safe direction to be wrong in, and still wrong.
+    """
+
+    for end_it in (lambda d: d.cleanup(wait_ms=1),
+                   lambda d: d.forget(),
+                   lambda d: d._fail(RuntimeError('no isofill'))):
+        d = driver_over(monkeypatch)
+        held = HeldSolves()
+        d.set_runner(held)
+        # drawn first, then gone: a way the driver never saw is not a deletion,
+        # it is a way that was never a contour
+        d.edited(at_cell(30, 30, wid=1), {1})
+        d.edited(Square([], {}), {1})
+        assert d._removing, 'the deletion did not ask for the wider cover'
+        end_it(d)
+        assert not d._removing and not d._solving_wide, \
+            f'{end_it} left the wider cover set'
+
+
+def test_one_preview_is_solved_at_one_cover_throughout(qtbot, monkeypatch):
+    """An edit can arrive while a preview is still solving and set the flag for
+    the *next* one. Read per piece, the later pieces of this preview would get
+    a wider cover than the earlier ones, for edits they were not solved for -
+    and the boxes were merged under the narrower value."""
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    held = HeldSolves()
+    d.set_runner(held)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+    # two boxes far apart, so the preview has two pieces to solve
+    d.edited(at_cell(20, 20, wid=1), {1})
+    d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
+    d._run()
+    # counted from what was asked for, not from the queue's length: the merge
+    # is the thing under change here, and a queue length would fail for the
+    # unrelated reason that the two corners merged into one piece
+    assert len(asked) + len(d._queue) == 2, \
+        f'this preview has {len(asked) + len(d._queue)} pieces, not two'
+
+    d.edited(Square([], {}), {1})              # way 1, drawn above, now gone
+    assert d._removing, 'the deletion was not noticed'
+    held.run_all()
+    assert asked[:2] == [False, False], \
+        f'the pieces of one preview were solved at different covers: {asked}'
+    # and the deletion is not lost - it is the preview that follows, at the
+    # wider cover, which is the whole point of not reading the flag per piece
+    assert asked[2:] == [True], f'the deletion got its own preview or not: {asked}'
+
+
+def test_the_merge_and_the_solve_use_one_cover(qtbot, monkeypatch):
+    """`_merged` decides whether joining two boxes is free by what they cost to
+    solve, which is a different question at the two covers. If it asked at one
+    and the solve ran at the other, it would join boxes it was meant to keep
+    apart - the case it exists to prevent.
+
+    They agreed because nothing can land between two statements, which is not
+    a thing to rely on. The cover is taken once and handed to both.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    merged_at, solved_at = [], []
+    real_grown, real_prepared = surface_preview.grown_by, surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'grown_by',
+                        lambda p, **kw: (merged_at.append(kw.get('removing')),
+                                         real_grown(p, **kw))[1])
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (solved_at.append(kw.get('removing')),
+                                                    real_prepared(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d.edited(at_cell(60, 60, wid=2), {2})
+    d._run()
+    assert merged_at and solved_at, 'neither the merge nor the solve was reached'
+    assert set(merged_at) == set(solved_at) == {False}, \
+        f'a drag merged at {set(merged_at)} and solved at {set(solved_at)}'
+
+    merged_at.clear(); solved_at.clear()
+    d.edited(Square([], {}), {1})              # way 1, drawn above, now gone
+    d._run()
+    assert set(merged_at) == set(solved_at) == {True}, \
+        f'a deletion merged at {set(merged_at)} and solved at {set(solved_at)}'
+
+
+def test_a_deletion_and_a_drag_in_one_gesture_both_get_the_wider_cover(qtbot, monkeypatch):
+    """Deliberate, and the safe direction to be wrong in.
+
+    A gesture can delete a contour and drag another before any preview runs.
+    The flag stays set until a preview consumes it, so both are solved at two
+    radii - the drag more widely than it needs. The alternative is to decide
+    per box, and a box cannot say which edits it came from: they are merged
+    before anything is solved. Wider is slower and right; narrower would leave
+    the deletion's ground showing the surface from before.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})      # drawn, so it can be deleted
+    d._run()
+    asked.clear()
+
+    d.edited(Square([], {}), {1})              # deleted
+    d.edited(at_cell(60, 60, wid=2), {2})      # and a drag, same gesture
+    assert d._removing, 'the deletion was forgotten before the preview ran'
+    d._run()
+    assert asked and all(asked), \
+        f'a gesture containing a deletion was solved narrow: {asked}'
+
+    # and it does not outlive that preview
+    asked.clear()
+    d.edited(at_cell(70, 70, wid=3), {3})
+    d._run()
+    assert asked == [False], f'the wider cover outlived the gesture: {asked}'
+
+
+def test_a_skipped_gesture_takes_the_wider_cover_with_it(qtbot, monkeypatch):
+    """`_solving_wide` describes the preview in flight, and a gesture split
+    into too many pieces has none.
+
+    The cover is taken before the merge, and the merge is what decides there
+    are too many pieces - so on that path it has been taken for a preview that
+    will not run, and describes nothing while it stays set. The edits go too,
+    so nothing is left that wanted it; the idle rebuild answers for them.
+    """
+    d = driver_over(monkeypatch, gesture_ms=1)
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d._run()
+
+    d.edited(Square([], {}), {1})                    # a deletion
+    assert d._removing
+    monkeypatch.setattr(d, '_merged', lambda boxes, wide=False: None)
+    skipped = []
+    d.skipped.connect(skipped.append)
+    d._run()
+
+    assert skipped, 'the gesture was not skipped, so this tests nothing'
+    assert not d._solving_wide, 'the wider cover outlived a preview that never ran'

@@ -178,7 +178,11 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     keep_a_copy = kept.constraints.read_all().copy()
     mask_copy = kept.mask.read_all().copy()
     water_copy = kept.water.read_all().copy() if kept.water is not None else None
-    patch, good = preview.patch(kept, box, p)
+    # removing=True, because this deletes a contour level and that is what the
+    # driver passes for one. It buys two radii of cover instead of one, and
+    # the assertion below that nothing outside the patch is out of date is
+    # exactly what it buys - see the end of this test.
+    patch, good = preview.patch(kept, box, p, removing=True)
     # The burn is a window of its own now and never reaches the file, so this
     # is no longer about putting something back - it is that a preview writes
     # no raster at all. isofill takes both masks as const; the surface is
@@ -206,12 +210,34 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     got = before['surface'].copy()
     got[good.slice] = patch
     err = np.abs(got.astype(np.float64) - whole)
-    assert float(err[good.slice].max()) == 0.0, \
+    # This asserted exactly zero while the slack was two radii. At one it is
+    # 0.000061 m - a float32 last bit, about two parts in a million of the
+    # 25 m contour interval the surface is drawn against, and below anything a
+    # hillshade can show. The tolerance is a millimetre, which is still far
+    # tighter than the 0.268 m F3 measured over eighteen edits, so a real
+    # regression in the solve fails here as loudly as it ever did.
+    assert float(err[good.slice].max()) < 0.001, \
         f'the previewed patch is {float(err[good.slice].max()):.6f} m out'
     stale = err.copy()
     stale[good.slice] = 0
     assert float(stale.max()) == 0.0, \
         f'ground outside the patch is {float(stale.max()):.3f} m out of date'
+
+    # And the same edit without it, which is what the narrower cover costs.
+    # Measured at 1 arcsecond over five deleted contours, four left nothing
+    # stale at half a radius and the fifth - which moved 47,614 cells - left
+    # 1.616 m at half and 0.564 at one radius. This is that case on the
+    # golden square, and it is why `removing` exists rather than the default
+    # simply being lowered for everything.
+    narrow, narrow_good = preview.patch(kept, box, p)
+    assert narrow_good.cells < good.cells, 'removing=True did not widen the cover'
+    thin = before['surface'].copy()
+    thin[narrow_good.slice] = narrow
+    left = np.abs(thin.astype(np.float64) - whole)
+    left[narrow_good.slice] = 0
+    assert float(left.max()) > 0.0, (
+        'one radius of cover left nothing out of date here, so this fixture no '
+        'longer shows what the wider cover is for')
 
 
 def test_a_contour_the_build_never_saw_burns_last(tmp_path):
