@@ -68,7 +68,7 @@ surface those contours describe with the same code the server runs, held to
 the server's output cell for cell (phase 2) - and says where the contours
 describe no ground at all. No editing yet. See
 [`docs/spec.md`](docs/spec.md) for the requirements, the architecture and the
-plan, and the *What phase N actually did* sections there for how each phase
+plan, and [`docs/implementation.md`](docs/implementation.md) for how each phase
 went against it.
 
 ```
