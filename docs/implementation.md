@@ -53,7 +53,7 @@ never sees. Green from 2026-09-18, on the log rather than the badge: the run
 that landed this shows the compile line against `/ucrt64` and the usage text
 the binary printed. It was found in phase 1 because
 packaging for other people's machines was the reason it was meant to be a phase
-0 deliverable - not in phase 7, where the plan said this kind of thing gets
+0 deliverable - not at release, where the plan said this kind of thing gets
 found.
 
 **The week of nightly builds is a clock, not a task.** Phase 0's code, packaging
@@ -209,11 +209,11 @@ first one is quoted by the third. `gdaldem hillshade` writes 1 for complete
 shadow and 0 only for nodata - measured on a 3 km wall face, 199 cells, every
 one a 1 - so transparent-at-zero is its own meaning.
 
-**Not done, by choice.** R22, the published DEM as tiles around the working
-set with a visible seam, needs `data.opengeofiction.net` to serve the DEM
-tiled and belongs with the server's phase 3 changes. Windows packaging of the
-editor with GDAL and `libisofill` is phase 7's polish; the MSYS2 job proves
-both build there, which is what phase 0 wanted proven early.
+**Not done, by choice.** R22, the published DEM as tiles around the working set
+with a visible seam, needs `data.opengeofiction.net` to serve the DEM tiled and
+belongs with the server's phase 3 changes. Windows packaging of the editor with
+GDAL and `libisofill` is the release phase's polish; the MSYS2 job proves both
+build there, which is what phase 0 wanted proven early.
 
 **The `danu.cli` question, re-evaluated as promised.** The second way was
 taken because rewriting the build would have pulled the rug from under phase
