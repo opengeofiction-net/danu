@@ -783,23 +783,51 @@ magnify, autosave and crash recovery, session files.
 
 ### Phase 7
 
-**Phase 7 - the out-of-core second pass.** `isofill`'s banded pass 2 is an
-approximation, and the error is a streak on every band join: measured on the
-gobras 3x3 at 1 arcsecond, every one of the 964 cells wrong by more than 100 m
-sits within thirty rows of a join, and the worst is a trench a hundred metres
-below the contours enclosing it. A mapper would read it as terrain. The cause
-is that each band's margin rows are pinned to the coarse answer, so a free
-interior meets a boundary carrying 1-in-4 detail; widening the margin moves
-that boundary rather than removing it, and has been tried. The candidate is a
-reconciliation across each join once the bands are written. Ends when a raster
-forced out of core matches the same raster solved whole to the interval, not to
-hundreds of metres. See `isofill`'s README.
+**Phase 7 - the surface while editing.** Three things about building a
+surface with a mapper waiting on it, held together because they are the same
+subject and separately because none of them blocks anything.
 
-Why it is a phase and not a bug: nothing Danu does today depends on it. The
-committed surface is built whole, and the preview's local second pass is a
-different path that F3 measured separately. It becomes real when a zone will
-not fit - which is a question of raster size, not of anything the editor
-chooses - so it is worth carrying explicitly rather than rediscovering.
+**When a rebuild happens.** R19 says the surface is rebuilt exactly on idle,
+and phase 4 made that work: fresh ground triggers a rebuild and the timer
+covers the rest. What using it has shown is that automatic is the wrong default
+for a long editing session. A mapper drawing for an hour does not want a
+seventy-second build starting every time they pause to think, and a build that
+starts on its own is a build they did not choose the moment for. On demand is
+the better shape there - the preview is exact enough to draw against, and the
+mapper says when to settle it. What that leaves open is the detection the other
+half of phase 4's item 4 was for: something still has to notice when the
+preview has stopped being trustworthy and say so, rather than quietly showing
+ground that is out of date.
+
+**The first build's head start.** Opening a working set and building at 1
+arcsecond draws nothing for a minute and a half, because a first build has no
+previous surface to leave on screen. Solving the ground the view covers between
+the cheap stages and the fill puts it up in about three and a half seconds - a
+window costs the window, and the fill is 92.5% of the build. Written and
+measured, and parked here rather than merged: it belongs with the rebuild
+question above, since what it is really doing is deciding what to show while a
+build a mapper did not ask for is running.
+
+**The out-of-core second pass.** `isofill`'s banded pass 2 is an approximation,
+and the error is a streak on every band join: measured on the gobras 3x3 at 1
+arcsecond, every one of the 964 cells wrong by more than 100 m sits within
+thirty rows of a join, and the worst is a trench a hundred metres below the
+contours enclosing it. A mapper would read it as terrain. The cause is that
+each band's margin rows are pinned to the coarse answer, so a free interior
+meets a boundary carrying 1-in-4 detail; widening the margin moves that
+boundary rather than removing it, and has been tried. The candidate is a
+reconciliation across each join once the bands are written. See `isofill`'s
+README.
+
+Nothing Danu does today depends on that last one: the committed surface is
+built whole, and the preview's local second pass is a different path that F3
+measured separately. It becomes real when a zone will not fit - a question of
+raster size, not of anything the editor chooses.
+
+Ends when a long editing session never waits for a build it did not ask for,
+never draws a surface it cannot vouch for without saying so, and a raster
+forced out of core matches the same raster solved whole to the interval rather
+than to hundreds of metres.
 
 ### Phase 8
 
@@ -811,7 +839,9 @@ and draw a contour.
 ### Phase scheduling
 
 Phases 1 to 4 are the spine; 5 onward are separable and could ship in any
-order. Phase 7 is the odd one, being work in `isofill` rather than here.
+order. Phase 7 is the odd one: it is partly work in `isofill`, and it is the
+only phase whose contents arrived by using the thing rather than by planning
+it.
 
 Because Danu is meant for other OGF mappers rather than for one machine,
 packaging is not deferred to the release phase - only the *polish* is. A
