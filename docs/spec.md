@@ -783,24 +783,46 @@ magnify, autosave and crash recovery, session files.
 
 ### Phase 7
 
-**Phase 7 - release.** Installers for Linux and Windows, GDAL and Qt bundled,
+**Phase 7 - the out-of-core second pass.** `isofill`'s banded pass 2 is an
+approximation, and the error is a streak on every band join: measured on the
+gobras 3x3 at 1 arcsecond, every one of the 964 cells wrong by more than 100 m
+sits within thirty rows of a join, and the worst is a trench a hundred metres
+below the contours enclosing it. A mapper would read it as terrain. The cause
+is that each band's margin rows are pinned to the coarse answer, so a free
+interior meets a boundary carrying 1-in-4 detail; widening the margin moves
+that boundary rather than removing it, and has been tried. The candidate is a
+reconciliation across each join once the bands are written. Ends when a raster
+forced out of core matches the same raster solved whole to the interval, not to
+hundreds of metres. See `isofill`'s README.
+
+Why it is a phase and not a bug: nothing Danu does today depends on it. The
+committed surface is built whole, and the preview's local second pass is a
+different path that F3 measured separately. It becomes real when a zone will
+not fit - which is a question of raster size, not of anything the editor
+chooses - so it is worth carrying explicitly rather than rediscovering.
+
+### Phase 8
+
+**Phase 8 - release.** Installers for Linux and Windows, GDAL and Qt bundled,
 `isofill` built for both, a settings UI, first-run help, and somewhere for a
 crash to go. Ends when someone who has never opened a terminal can install it
 and draw a contour.
 
 ### Phase scheduling
 
-Phases 1 to 4 are the spine; 5 onward are separable and could ship in any order.
+Phases 1 to 4 are the spine; 5 onward are separable and could ship in any
+order. Phase 7 is the odd one, being work in `isofill` rather than here.
 
 Because Danu is meant for other OGF mappers rather than for one machine,
-packaging is not deferred to phase 7 - only the *polish* is. A Windows build of
-`core` plus `isofill`, produced by CI and installable, was meant to be a phase 0
-deliverable that stayed green from then on; it was not delivered, and CI hid
-that - see *What phase 0 actually did* in `implementation.md`. It is owed by
-phase 1. The alternative is discovering in phase 7 that a choice made in phase
-2 cannot be shipped, which is the usual way this goes wrong. Being a tool for other people also means their machines are not yours:
-no terminal, no `PYTHONPATH`, no system GDAL, and an error message that says
-what to do rather than what failed.
+packaging is not deferred to the release phase - only the *polish* is. A
+Windows build of `core` plus `isofill`, produced by CI and installable, was
+meant to be a phase 0 deliverable that stayed green from then on; it was not
+delivered, and CI hid that - see *What phase 0 actually did* in
+`implementation.md`. It is owed by phase 1. The alternative is discovering at
+release that a choice made in phase 2 cannot be shipped, which is the usual way
+this goes wrong. Being a tool for other people also means their machines are
+not yours: no terminal, no `PYTHONPATH`, no system GDAL, and an error message
+that says what to do rather than what failed.
 
 ## Sequencing
 
