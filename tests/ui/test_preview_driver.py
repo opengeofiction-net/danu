@@ -1233,7 +1233,11 @@ def test_one_preview_is_solved_at_one_cover_throughout(qtbot, monkeypatch):
     d.edited(at_cell(20, 20, wid=1), {1})
     d.edited(at_cell(GRID - 40, GRID - 40, wid=2), {2})
     d._run()
-    assert len(d._queue) + 1 == 2, 'this preview does not have two pieces'
+    # counted from what was asked for, not from the queue's length: the merge
+    # is the thing under change here, and a queue length would fail for the
+    # unrelated reason that the two corners merged into one piece
+    assert len(asked) + len(d._queue) == 2, \
+        f'this preview has {len(asked) + len(d._queue)} pieces, not two'
 
     d.edited(Square([], {}), {1})              # way 1, drawn above, now gone
     assert d._removing, 'the deletion was not noticed'
@@ -1243,3 +1247,38 @@ def test_one_preview_is_solved_at_one_cover_throughout(qtbot, monkeypatch):
     # and the deletion is not lost - it is the preview that follows, at the
     # wider cover, which is the whole point of not reading the flag per piece
     assert asked[2:] == [True], f'the deletion got its own preview or not: {asked}'
+
+
+def test_the_merge_and_the_solve_use_one_cover(qtbot, monkeypatch):
+    """`_merged` decides whether joining two boxes is free by what they cost to
+    solve, which is a different question at the two covers. If it asked at one
+    and the solve ran at the other, it would join boxes it was meant to keep
+    apart - the case it exists to prevent.
+
+    They agreed because nothing can land between two statements, which is not
+    a thing to rely on. The cover is taken once and handed to both.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    merged_at, solved_at = [], []
+    real_grown, real_prepared = surface_preview.grown_by, surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'grown_by',
+                        lambda p, **kw: (merged_at.append(kw.get('removing')),
+                                         real_grown(p, **kw))[1])
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (solved_at.append(kw.get('removing')),
+                                                    real_prepared(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d.edited(at_cell(60, 60, wid=2), {2})
+    d._run()
+    assert merged_at and solved_at, 'neither the merge nor the solve was reached'
+    assert set(merged_at) == set(solved_at) == {False}, \
+        f'a drag merged at {set(merged_at)} and solved at {set(solved_at)}'
+
+    merged_at.clear(); solved_at.clear()
+    d.edited(Square([], {}), {1})              # way 1, drawn above, now gone
+    d._run()
+    assert set(merged_at) == set(solved_at) == {True}, \
+        f'a deletion merged at {set(merged_at)} and solved at {set(solved_at)}'

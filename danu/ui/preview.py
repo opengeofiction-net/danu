@@ -495,7 +495,15 @@ class PreviewDriver(QObject):
             # and neither arriving sooner.
             return
         pending, self._pending = self._pending, []
-        boxes = self._merged(pending)
+        # Taken before the merge, and handed to it. Both the merge test and
+        # the solve have to use one cover - the merge decides whether two
+        # boxes are worth joining by what they *cost to solve*, and that is a
+        # different question at the two sizes - and the two were agreeing only
+        # because nothing can land between two statements. Passed, so a
+        # reordering cannot quietly separate them.
+        self._solving_wide = self._removing
+        self._removing = False
+        boxes = self._merged(pending, self._solving_wide)
         if boxes is None:
             # too many pieces to solve between two keystrokes. Nothing is
             # drawn and nothing is claimed: the surface on screen is still the
@@ -508,13 +516,11 @@ class PreviewDriver(QObject):
         self._started = time.perf_counter()
         self._written = []
         self._queue = list(boxes)
-        # taken once, here, and not read again per piece. An edit can arrive
-        # while this preview is still solving and set `_removing` for the
-        # *next* one; reading it per piece would give the later pieces of this
-        # preview a wider cover than the earlier ones, for edits they were not
-        # solved for. The boxes were merged under this value too.
-        self._solving_wide = self._removing
-        self._removing = False
+        # `_solving_wide` is taken once, above, and not read again per piece.
+        # An edit can arrive while this preview is still solving and set
+        # `_removing` for the *next* one; reading it per piece would give the
+        # later pieces of this preview a wider cover than the earlier ones,
+        # for edits they were not solved for.
         self._solve_next()
 
     def _solve_next(self):
@@ -606,7 +612,7 @@ class PreviewDriver(QObject):
             # preview, which is what the gesture timer would have done.
             self._run()
 
-    def _merged(self, boxes: list) -> list:
+    def _merged(self, boxes: list, wide: bool = False) -> list:
         """The gesture's boxes, joined where joining is cheaper than not.
 
         Not one box around all of them. Two edits at opposite corners of a
@@ -619,7 +625,7 @@ class PreviewDriver(QObject):
         looks like.
         """
         shape = self._kept.shape
-        grow = preview.grown_by(self._params, removing=self._removing)
+        grow = preview.grown_by(self._params, removing=wide)
 
         def solved(b):
             # what a piece actually costs: patch() grows a box by the cover and
