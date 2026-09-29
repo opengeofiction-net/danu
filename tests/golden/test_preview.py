@@ -211,11 +211,11 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     got[good.slice] = patch
     err = np.abs(got.astype(np.float64) - whole)
     # This asserted exactly zero while the slack was two radii. At one it is
-    # 0.000061 m - a float32 last bit, nine orders below the 25 m contour
-    # interval the surface is drawn against and below anything a hillshade can
-    # show. The tolerance is a millimetre, which is still far tighter than the
-    # 0.268 m F3 measured over eighteen edits, so a real regression in the
-    # solve fails here as loudly as it ever did.
+    # 0.000061 m - a float32 last bit, about two parts in a million of the
+    # 25 m contour interval the surface is drawn against, and below anything a
+    # hillshade can show. The tolerance is a millimetre, which is still far
+    # tighter than the 0.268 m F3 measured over eighteen edits, so a real
+    # regression in the solve fails here as loudly as it ever did.
     assert float(err[good.slice].max()) < 0.001, \
         f'the previewed patch is {float(err[good.slice].max()):.6f} m out'
     stale = err.copy()

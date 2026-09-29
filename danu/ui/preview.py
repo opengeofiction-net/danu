@@ -511,6 +511,11 @@ class PreviewDriver(QObject):
             # the pending boxes, which is edits and not pieces: pieces are
             # what MAX_PIECES counts, post-merge, and "nine pieces" means
             # nothing to a mapper who made twenty edits
+            # and the cover with them: `_solving_wide` was taken for a
+            # preview that is not going to run, and describes nothing while it
+            # stays set. The edits go too, so there is nothing left that wanted
+            # the wider cover - the idle rebuild is what answers for them now.
+            self._solving_wide = False
             self.skipped.emit(len(pending))
             return
         self._started = time.perf_counter()

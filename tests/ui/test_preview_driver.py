@@ -1282,3 +1282,64 @@ def test_the_merge_and_the_solve_use_one_cover(qtbot, monkeypatch):
     d._run()
     assert set(merged_at) == set(solved_at) == {True}, \
         f'a deletion merged at {set(merged_at)} and solved at {set(solved_at)}'
+
+
+def test_a_deletion_and_a_drag_in_one_gesture_both_get_the_wider_cover(qtbot, monkeypatch):
+    """Deliberate, and the safe direction to be wrong in.
+
+    A gesture can delete a contour and drag another before any preview runs.
+    The flag stays set until a preview consumes it, so both are solved at two
+    radii - the drag more widely than it needs. The alternative is to decide
+    per box, and a box cannot say which edits it came from: they are merged
+    before anything is solved. Wider is slower and right; narrower would leave
+    the deletion's ground showing the surface from before.
+    """
+    from danu.surface import preview as surface_preview
+
+    d = driver_over(monkeypatch)
+    asked = []
+    real = surface_preview.prepared
+    monkeypatch.setattr(surface_preview, 'prepared',
+                        lambda kept, box, p, **kw: (asked.append(kw.get('removing')),
+                                                    real(kept, box, p, **kw))[1])
+
+    d.edited(at_cell(30, 30, wid=1), {1})      # drawn, so it can be deleted
+    d._run()
+    asked.clear()
+
+    d.edited(Square([], {}), {1})              # deleted
+    d.edited(at_cell(60, 60, wid=2), {2})      # and a drag, same gesture
+    assert d._removing, 'the deletion was forgotten before the preview ran'
+    d._run()
+    assert asked and all(asked), \
+        f'a gesture containing a deletion was solved narrow: {asked}'
+
+    # and it does not outlive that preview
+    asked.clear()
+    d.edited(at_cell(70, 70, wid=3), {3})
+    d._run()
+    assert asked == [False], f'the wider cover outlived the gesture: {asked}'
+
+
+def test_a_skipped_gesture_takes_the_wider_cover_with_it(qtbot, monkeypatch):
+    """`_solving_wide` describes the preview in flight, and a gesture split
+    into too many pieces has none.
+
+    The cover is taken before the merge, and the merge is what decides there
+    are too many pieces - so on that path it has been taken for a preview that
+    will not run, and describes nothing while it stays set. The edits go too,
+    so nothing is left that wanted it; the idle rebuild answers for them.
+    """
+    d = driver_over(monkeypatch, gesture_ms=1)
+    d.edited(at_cell(30, 30, wid=1), {1})
+    d._run()
+
+    d.edited(Square([], {}), {1})                    # a deletion
+    assert d._removing
+    monkeypatch.setattr(d, '_merged', lambda boxes, wide=False: None)
+    skipped = []
+    d.skipped.connect(skipped.append)
+    d._run()
+
+    assert skipped, 'the gesture was not skipped, so this tests nothing'
+    assert not d._solving_wide, 'the wider cover outlived a preview that never ran'

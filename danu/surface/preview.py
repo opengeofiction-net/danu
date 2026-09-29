@@ -396,7 +396,10 @@ def radii(params: Params, cover: int | None = None, slack: int | None = None,
     is F3's own finding reproduced, and it is why the two radii stay exactly
     where the risk was found rather than everywhere.
 
-    A drag is the common edit, and it goes from 2,950 ms to 1,244.
+    A drag is the common edit. Its row in that table goes from 2,950 ms to
+    1,244; on one box of the gobras set at 1 arcsecond, where the whole
+    before-and-after is measured rather than the best of a set, it is 1,854 ms
+    to 720.
     """
     fill = params.fill_cells
     return ((2 * fill if removing else fill) if cover is None else cover,

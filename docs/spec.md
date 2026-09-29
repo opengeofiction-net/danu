@@ -1200,7 +1200,8 @@ global do not differ by a single grey level.
 Those are the two-radii figures, and the radii moved when the margin was
 measured for time as well - see *And last, the margin*. On that same hardest
 case the patch is 0.000061 m out now rather than exact: a float32 last bit,
-nine orders below the contour interval it is drawn against. Everything else
+about two parts in a million of the contour interval it is drawn against, and
+below anything a hillshade can show. Everything else
 here stands.
 
 Two numbers control it and they answer different questions, which is worth
@@ -2157,8 +2158,9 @@ Nothing about the design. What is left is what building it will answer:
    hardest case found. Those radii have since changed, and so has that last
    figure - the hardest case is 0.000061 m out now rather than exact, which
    leaves the answer to the question the same. Local and global hillshades do
-   not differ by a grey level. The seam does not show, and the coarser global preview the fallback
-   plan called for is not needed. See *F3, the local solve*.
+   not differ by a grey level. The seam does not show, and the coarser global
+   preview the fallback plan called for is not needed. See *F3, the local
+   solve*.
 3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library
    built for it. The phase 0 CI build is there to find out early rather than at
    the end.
