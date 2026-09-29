@@ -1294,7 +1294,13 @@ named in the panel, which is now a distinction only visible while a build is
 running - but it is the right one either way, since what a preview needs
 settling at is the ground it was drawn over.
 
-**F5d, the first build's head start.** The optimisation work above is all
+**F5d, the first build's head start.** Not phase 4's, in the end: it is the
+same question as the rebuild trigger's other half, which is whether a long
+editing session wants builds starting on their own at all, and both are phase
+7. What follows is what it does and what it is worth, so that taking it up
+again starts from the measurements rather than from the idea.
+
+The optimisation work above is all
 about a *rebuild*, where there is a surface on screen and the previews patch
 it. The first build of a working set has neither. `_loaded` clears the surface
 and writes "no surface built for this set yet", and nothing is drawn until the
