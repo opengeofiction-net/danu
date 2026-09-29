@@ -1294,6 +1294,83 @@ named in the panel, which is now a distinction only visible while a build is
 running - but it is the right one either way, since what a preview needs
 settling at is the ground it was drawn over.
 
+**F5d, the first build's head start.** Not phase 4's, in the end: it is the
+same question as the rebuild trigger's other half, which is whether a long
+editing session wants builds starting on their own at all, and both are phase
+7. What follows is what it does and what it is worth, so that taking it up
+again starts from the measurements rather than from the idea.
+
+The optimisation work above is all
+about a *rebuild*, where there is a surface on screen and the previews patch
+it. The first build of a working set has neither. `_loaded` clears the surface
+and writes "no surface built for this set yet", and nothing is drawn until the
+fill returns - a minute and a half of blank canvas at 1 arcsecond, before a
+mapper has seen anything at all.
+
+The fill is 92.5% of that build and everything above it is cheap, so between
+the two there is a moment where the constraints, the drawn mask and the water
+mask all exist and the surface does not. `build_dem` now calls `ready` there.
+The editor's callback solves the ground the view covers, shades it, and hands
+it back to be shown while the raster fills.
+
+Measured end to end on the gobras 3x3 at 1 arcsecond, from the request to the
+frame:
+
+| the view is | on screen at | the whole build at |
+|---|---|---|
+| 0.04 degrees, about z15 - 145 cells | **3.5 s** | 86.8 s |
+| 0.3 degrees, about z12 - 1,079 cells | **19.9 s** | 135.9 s |
+
+About 3.2 s of the first figure is the stages above the fill, which have to run
+either way; the window itself is 0.3 s. The second row's build is slower partly
+because it did 17 seconds of extra work and partly because the machine was hot
+by then, and the two are not separated here - what the row is for is the shape
+of the cost, which is the window and not the raster.
+
+**What it does not do.** It is asked for only when there is nothing on screen -
+`_head_start` returns None whenever the layer holds a surface. A build with one
+already up would be replacing a whole exact surface with a viewport-sized one,
+which downgrades everything outside the view to say something about the inside
+that the preview is already saying better.
+
+**The rim, which this does not have.** `local.resolve` is exact because it
+holds its rim at the last whole-raster answer, and here there is no such
+answer. So `resolve_fresh` solves the window as if it were the raster - no rim,
+both passes - and relies on the margin. That is the shape of the mistake
+`isofill`'s out-of-core second pass makes, where a band's edge is pinned to a
+coarse answer and the join shows as a trench, so it was measured before it was
+relied on. Against the same raster solved whole, worst cell over the drawn
+ground, by how far the answer is cut back from the window's own edge:
+
+| cut back by | 128 | 256 | 512 | 1024 | 2048 |
+|---|---|---|---|---|---|
+| one radius | 0.00 m | 0.08 | 0.37 | 10.09 | 1.00 |
+| two radii | 0.00 | 0.00 | 0.15 | 0.85 | 1.00 |
+| four radii | - | - | 0.00 | 0.37 | 1.00 |
+
+One radius is what the first pass needs and it is not enough: the second pass
+is diffusion and carries further. Two radii holds the worst under a metre
+against a 10 m contour interval, and is the default.
+
+The golden square cannot show any of this - there a window with no margin at
+all is exact, because its unanswered regions are small enough to sit inside any
+window worth solving and the edge never cuts one. What it can show is that the
+window is the whole raster's own answer where it overlaps it, and
+`tests/golden/test_fresh_window.py` asserts that, along with the thing that
+makes the assertion mean something: the same patch read fifty cells from where
+it belongs is 451 m out. The first version of that test passed on flat ground
+and would have passed on anything.
+
+**And the clamp, which it cannot do properly.** Deciding which cells are sea is
+global - the clamp polygonizes the candidates and keeps the regions that reach
+open water - so a window cannot do it. What `view_window` does instead is the
+clamp's other two rules with the drawn mask standing in for the decision:
+inside the drawn area land is never zero, outside it the fill's zeros are left
+alone, and the burned constraints go back untouched. Sea inside the drawn
+envelope shows as a metre of land rather than as nothing until the build lands.
+It is the same bargain as `clamp_patch`'s, which reads the decision off the
+last build instead, and there is no last build here.
+
 **What is not F5c.** Persisting the display settings, and the contour tools a
 mapper wants next - split, merge, join - are phase 5 and 6 work that using the
 editor surfaced early.

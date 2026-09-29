@@ -33,6 +33,7 @@ FID order, which matches the whole-raster burn exactly at every box size tried.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -185,6 +186,83 @@ class Contours:
         finally:
             self.layer.SetSpatialFilter(None)
         return band.ReadAsArray()
+
+
+def view_box(grid, viewport: tuple, shape: tuple[int, int]) -> Box | None:
+    """The cells of ``grid`` a lon/lat viewport covers, or None if it covers
+    none of them - which is what looking away from the working set does."""
+    west, south, east, north = viewport
+    w, _s, _e, n = grid.te
+    res = grid.res
+    rows, cols = shape
+    x0, x1 = int(math.floor((west - w) / res)), int(math.ceil((east - w) / res))
+    y0, y1 = int(math.floor((n - north) / res)), int(math.ceil((n - south) / res))
+    if x1 < 0 or y1 < 0 or x0 > cols - 1 or y0 > rows - 1:
+        return None
+    box = Box(max(0, x0), max(0, y0), min(cols - 1, x1), min(rows - 1, y1))
+    # a viewport handed over back to front clips to a box with a negative side,
+    # which slices to nothing and reaches isofill as a zero-width raster -
+    # rejected as bad arguments, several frames after the mistake was made.
+    # ``resolve_fresh`` guards the same door from the other side
+    if box.x1 < box.x0 or box.y1 < box.y0:
+        return None
+    return box
+
+
+def view_window(cont: Path, mask: Path, water: Path | None, grid, viewport: tuple,
+                params: Params):
+    """The viewport's own ground, solved and shaded before the raster is
+    filled, as a ``shade.Shaded``. None when the view does not overlap the
+    working set.
+
+    This is what a first build has that a rebuild does not need. A rebuild
+    leaves the previous surface on screen and patches it as the edits land;
+    the first build of a working set draws nothing at all until the fill
+    returns, and at 1 arcsecond that is a minute and a half of blank canvas.
+    The fill is 92.5% of the build and a window costs the window, so the ground
+    under the cursor can be on screen in about a second. What a window with
+    nothing behind it is worth is measured in ``local.resolve_fresh``.
+
+    The clamp is the one stage not done properly here. Deciding which cells are
+    sea is global - it floods from open water - so this does the clamp's other
+    two rules with the drawn mask standing in for that decision: inside the
+    drawn area land is never zero, outside it the fill's zeros are left alone,
+    and the burned constraints go back untouched. Sea inside the drawn envelope
+    therefore shows as a metre of land rather than as nothing, until the build
+    lands and the real clamp replaces the lot.
+    """
+    from . import shade
+    cons_band = Band.open(cont, np.float32)
+    box = view_box(grid, viewport, cons_band.shape)
+    if box is None:
+        return None
+    grown = local.fresh_grown(box, params, cons_band.shape)
+    nodata = cons_band.band.GetNoDataValue()
+    mask_band = Band.open(mask, np.uint8)
+    water_band = Band.open(water, np.uint8) if water is not None else None
+    cons = cons_band.read(grown)
+    m = mask_band.read(grown)
+    patch, good = local.fresh_window(
+        cons, m, water_band.read(grown) if water_band is not None else None,
+        box, grown, params, nodata=nodata)
+
+    sl = (slice(good.y0 - grown.y0, good.y1 - grown.y0 + 1),
+          slice(good.x0 - grown.x0, good.x1 - grown.x0 + 1))
+    inside = m[sl] != 0
+    burned = cons[sl] != nodata
+    dem = patch.astype(np.float32)
+    dem[inside] = np.maximum(dem[inside], np.float32(1))
+    # the constraints last, and a coastline burned at zero stays at zero even
+    # though it is inside the drawn mask. That is not the rule leaking: it is
+    # what ``clamp_patch`` and the real clamp both do, for the reason
+    # ``clamp_patch`` gives - a burned cell is evidence and not a guess, so it
+    # is written back over whatever was decided about it
+    dem[burned] = cons[sl][burned]
+
+    gt = cons_band.ds.GetGeoTransform()
+    box_gt = (gt[0] + good.x0 * gt[1], gt[1], gt[2],
+              gt[3] + good.y0 * gt[5], gt[4], gt[5])
+    return shade.Shaded(*shade.shade_window(dem, box_gt, cons_band.ds.GetProjection(), params))
 
 
 def clamp_patch(surface: np.ndarray, constraints: np.ndarray,

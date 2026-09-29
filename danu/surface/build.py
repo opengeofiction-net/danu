@@ -909,12 +909,22 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
               water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
-              keep_pass1: bool = False) -> Result:
+              keep_pass1: bool = False,
+              ready: Callable[[Path, Path, Path | None, Grid], None] | None = None) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     constraints (off unless asked), water mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
     called with each stage's name as it starts, which is where the timings come
-    from. The DEM is None when there was nothing to build."""
+    from. The DEM is None when there was nothing to build.
+
+    ``ready`` is called with the constraints, the drawn mask, the water mask
+    and the grid, once they exist and before the fill that reads them. Every
+    stage above the fill is cheap and the fill is 92.5% of a 1 arcsecond build,
+    so this is the one moment where a caller can do something useful with a
+    surface that does not exist yet - the editor solves the window under the
+    cursor and shows it. Whatever it does happens on the build's own thread and
+    delays the fill by however long it takes, so it is for something small. An
+    exception from it is the caller's problem, not the build's."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
@@ -954,6 +964,9 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     else:
         stage('water from the coastline direction')
         wmask = water_mask(gpkg, cont, work, log)
+    if ready is not None:
+        stage('the view under the cursor, while the rest of the raster waits')
+        ready(cont, mask, wmask, grid)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
     pass1 = _pass1_file(work)
     if pass1.exists():
