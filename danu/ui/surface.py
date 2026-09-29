@@ -21,6 +21,7 @@ import time
 import traceback
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, Signal
@@ -87,18 +88,35 @@ class Rasters:
 class _Signals(QObject):
     finished = Signal(object)        # Built
     failed = Signal(str)
+    partial = Signal(object)         # Shaded: the view, before the fill
 
 
-def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Built:
+def build_surface(zone_dir: Path, names: list, params: Params, work: Path,
+                  viewport: tuple | None = None,
+                  early: Callable[[shade.Shaded], None] | None = None) -> Built:
     """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
-    touches no Qt object, so it is also the seam the queue's tests replace."""
+    touches no Qt object, so it is also the seam the queue's tests replace.
+
+    ``viewport`` and ``early`` together are the first build's head start: given
+    both, the ground the view covers is solved and handed to ``early`` before
+    the fill starts. A failure there is swallowed - a provisional view is a
+    courtesy and must not be able to fail the surface the user asked for."""
     # here and not at import: building needs GDAL, looking does not
     from ..surface import build
+
+    def ready(cont, mask, water, grid):
+        try:
+            shaded = preview.view_window(cont, mask, water, grid, viewport, params)
+        except Exception:      # noqa: BLE001
+            return
+        if shaded is not None:
+            early(shaded)
     # keep_pass1: the overlay wants what the first pass could not answer, and
     # the first pass is nearly all of the fill. Asking for it here is the
     # difference between an edit costing one fill and two - 95 s of the 208 s
     # at 1 arcsecond on a three by three set
-    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True)
+    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True,
+                             ready=ready if viewport is not None and early is not None else None)
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
     classes = build.first_pass_classes(result.constraints, result.drawn_mask, params, work)
@@ -175,10 +193,11 @@ class Nothing(Exception):
 
 class _Job(QRunnable):
     def __init__(self, fn, zone_dir: Path, names: list, params: Params, work: Path,
-                 signals: _Signals):
+                 signals: _Signals, viewport: tuple | None = None):
         super().__init__()
         self.fn, self.zone_dir, self.names = fn, zone_dir, names
         self.params, self.work, self.signals = params, work, signals
+        self.viewport = viewport
         # set when run() returns, however it returns. What makes it safe to
         # remove the working directory is that the build has stopped writing,
         # which is this - not the delivery of a signal, which is queued to
@@ -192,8 +211,12 @@ class _Job(QRunnable):
             self.done.set()
 
     def _run(self):
+        # only when there is a viewport to solve, so a build_fn double that
+        # takes the four arguments this always had keeps working
+        head_start = {} if self.viewport is None else {
+            'viewport': self.viewport, 'early': self._early}
         try:
-            built = self.fn(self.zone_dir, self.names, self.params, self.work)
+            built = self.fn(self.zone_dir, self.names, self.params, self.work, **head_start)
         except Nothing as e:
             self._say(str(e))
             return
@@ -205,6 +228,12 @@ class _Job(QRunnable):
             return
         try:
             self.signals.finished.emit(built)
+        except RuntimeError:
+            pass                    # see _say
+
+    def _early(self, shaded):
+        try:
+            self.signals.partial.emit(shaded)
         except RuntimeError:
             pass                    # see _say
 
@@ -250,6 +279,7 @@ class SurfaceBuilder(QObject):
     started = Signal()
     finished = Signal(object, bool, float)   # Built, stale, seconds
     failed = Signal(str)
+    partial = Signal(object)                 # Shaded: the view, before the fill
 
     def __init__(self, parent=None, build_fn=build_surface, runner=None):
         super().__init__(parent)
@@ -268,21 +298,28 @@ class SurfaceBuilder(QObject):
     def busy(self) -> bool:
         return self._running
 
-    def request(self, ws: WorkingSet, params: Params, dirty=()) -> int:
+    def request(self, ws: WorkingSet, params: Params, dirty=(),
+                viewport: tuple | None = None) -> int:
         """Ask for a surface, and get the serial the request was given.
 
         Always accepted. If a build is running this displaces any request
         already waiting behind it; the working set is read when the build
         starts, so what gets built is the newest state either way.
+
+        ``viewport`` is a (west, south, east, north) the caller wants solved
+        and shown before the fill - see ``view_window``. It is the caller's
+        job to ask for it only when there is nothing on screen to lose, since
+        the view arrives as a surface of its own and replaces whatever is
+        there.
         """
         self._serial += 1
-        self._wanted = (ws, params, tuple(dirty))
+        self._wanted = (ws, params, tuple(dirty), viewport)
         if not self._running:
             self._start()
         return self._serial
 
     def _start(self):
-        ws, params, dirty = self._wanted
+        ws, params, dirty, viewport = self._wanted
         self._wanted = None
         self._started = self._serial
         self._started_at = time.monotonic()
@@ -295,7 +332,8 @@ class SurfaceBuilder(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig)
+        sig.partial.connect(self.partial)
+        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig, viewport)
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit()

@@ -134,6 +134,79 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
                           nodata=nodata, lib=lib)
 
 
+def resolve_fresh(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
+                  box: Box, params: Params, slack: int | None = None,
+                  nodata: float | None = None, lib=None) -> tuple[np.ndarray, Box]:
+    """A window solved with nothing behind it, and the box it is good for.
+
+    ``resolve`` holds its rim at the last whole-raster answer, which is what
+    makes a patch exact. On the first build of a working set there is no such
+    answer: the screen is blank until the whole raster is filled, which at 1
+    arcsecond is a minute and a half. So this solves the window as if it were
+    the raster - no rim, both passes - and relies on the margin alone.
+
+    That sounds like the mistake ``isofill``'s out-of-core second pass makes,
+    where a band's edge is pinned to a coarse answer and the join shows as a
+    trench. It is the opposite one: nothing is pinned, the window's edge is
+    simply an edge, and the error is whatever treating real ground as the
+    raster's boundary costs. Measured on the gobras 3x3 at 1 arcsecond against
+    the same raster solved whole, worst cell over the drawn ground, by how far
+    the answer is cut back from the window's own edge:
+
+    | cut back by | 128 | 256 | 512 | 1024 | 2048 |
+    |---|---|---|---|---|---|
+    | one radius   | 0.00 m | 0.08 | 0.37 | 10.09 | 1.00 |
+    | two radii    | 0.00   | 0.00 | 0.15 |  0.85 | 1.00 |
+    | four radii   | -      | -    | 0.00 |  0.37 | 1.00 |
+
+    One radius is what the first pass needs and it is not enough: the second
+    pass is diffusion and carries further, and the 1024 window's edge happens
+    to cut awkward ground. Two radii - ``slack`` of one on top of the radius,
+    as ``reach`` counts it - holds the worst under a metre against a 10 m
+    contour interval, and is the default here.
+
+    The cost is the window, not the raster. At 1 arcsecond, including the
+    margin: 0.54 s for 128 cells, 1.17 for 256, 3.26 for 512, against 92.9 for
+    the whole 10801x7201. A viewport at the z15 to z19 where contours are
+    drawn is under 140 cells across.
+    """
+    # clipped first: a view can hang off the corner of the working set, and a
+    # box with a negative side slices to nothing and reaches isofill as a
+    # zero-width raster - which it rejects as bad arguments, several frames
+    # after the mistake was made
+    box = box.grown(0, constraints.shape)
+    grown = fresh_grown(box, params, constraints.shape, slack)
+    sl = grown.slice
+    return fresh_window(constraints[sl], mask[sl],
+                        water[sl] if water is not None else None,
+                        box, grown, params, nodata=nodata, lib=lib)
+
+
+def fresh_grown(box: Box, params: Params, shape: tuple[int, int],
+                slack: int | None = None) -> Box:
+    """The window ``resolve_fresh`` solves to answer ``box``: two radii of
+    margin around it by default, clipped to the raster. Named so a caller that
+    reads windows rather than holding the raster - which is what the editor
+    does on a first build - can cut the same one."""
+    return box.grown(reach(params, params.fill_cells if slack is None else slack), shape)
+
+
+def fresh_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
+                 good: Box, grown: Box, params: Params, nodata: float | None = None,
+                 lib=None) -> tuple[np.ndarray, Box]:
+    """``resolve_fresh`` once the windows have been cut, as ``resolve_window``
+    is to ``resolve``: the arrays are already ``grown``, and what comes back is
+    ``good``."""
+    lib = lib or isofill_lib.Isofill.load()
+    cons = np.ascontiguousarray(constraints, dtype=np.float32)
+    sub_mask = np.ascontiguousarray(mask, dtype=np.uint8)
+    sub_water = (np.ascontiguousarray(water, dtype=np.uint8)
+                 if water is not None else None)
+    solved, _ = lib.run(cons, params, mask=sub_mask, water=sub_water, nodata=nodata)
+    return solved[good.y0 - grown.y0:good.y1 - grown.y0 + 1,
+                  good.x0 - grown.x0:good.x1 - grown.x0 + 1], good
+
+
 def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
                    previous: np.ndarray, good: Box, grown: Box, shape: tuple[int, int],
                    params: Params, nodata: float | None = None,

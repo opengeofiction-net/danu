@@ -120,8 +120,10 @@ class MainWindow(QMainWindow):
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
+        self.builder.partial.connect(self._surface_view)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
+        self._view_for = None       # the working set the head start was asked for
         self.squares = SquaresItem()
         self.map.scene().addItem(self.squares)
         self.contours = ContourLayer()
@@ -513,13 +515,40 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f'building at {p.arcsec:g}″, which the resolution list does not offer')
         queued = self.builder.busy
-        self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
+        self.builder.request(self.working_set, p, self.editor.history.dirty_squares(),
+                             viewport=self._head_start())
         if queued:
             # the running build is already superseded; it finishes and is shown
             # as stale while this one runs
             self.surface_panel.building(f'queued at {p.arcsec:g}″…')
             self.statusBar().showMessage('queued behind the build already running')
         return True
+
+    def _head_start(self) -> tuple | None:
+        """The view to solve before the fill, or None to go straight to it.
+
+        Only when there is no surface on screen. A build with one already up
+        leaves it there and the preview patches it as the edits land, so a
+        provisional window would replace a whole exact surface with a
+        viewport-sized one - a downgrade of everything outside the view, to
+        say something about the inside that is already being said better.
+
+        It is the first build of a working set that has nothing: ``_loaded``
+        clears the surface, and until the fill returns the canvas is blank -
+        a minute and a half of it at 1 arcsecond.
+        """
+        self._view_for = None
+        if self.surface.shaded is not None:
+            return None
+        r = self.map.visible_scene_rect()
+        west, north = m.scene_to_lonlat(r.left(), r.top())
+        east, south = m.scene_to_lonlat(r.right(), r.bottom())
+        # which set it is of. The view arrives from a worker, and a build that
+        # takes a minute and a half is long enough to open another square in -
+        # which clears the surface, so the guard below would let the old set's
+        # ground onto the new set's canvas
+        self._view_for = self.working_set
+        return (west, south, east, north)
 
     @staticmethod
     def _loaded_params(fallback: float | None = None):
@@ -534,6 +563,22 @@ class MainWindow(QMainWindow):
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
+
+    def _surface_view(self, shaded):
+        """The viewport's own ground, while the rest of the raster fills.
+
+        Shown as a preview, because that is what it is: solved without the
+        whole-raster answer behind it and clamped without the sea decision. The
+        build replaces it wholesale when it lands.
+        """
+        if self.surface.shaded is not None:
+            return          # a build landed while this was in flight; it wins
+        if self.working_set is not self._view_for:
+            return          # and this is a view of a set nobody is looking at
+        self.surface.set_shaded(shaded)
+        self.surface.set_preview(True)
+        self.statusBar().showMessage(
+            f'the view, solved while the rest of the {self._arcsec:g}″ raster fills')
 
     def _preview_unavailable(self, why: str):
         """Said in the status bar, not over the panel's own line.
