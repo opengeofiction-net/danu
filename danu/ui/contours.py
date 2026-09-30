@@ -83,7 +83,13 @@ class _Piece:
     measured at both ends in tests/ui/test_contours.py rather than assumed.
 
     It carries its elevation and its label so that an edit can take one way
-    out without looking at the others - see ``_drop_way``."""
+    out without looking at the others - see ``_drop_way``. The elevation is
+    what makes that cheap, being the key into ``paths``. What makes identity
+    *necessary* is that two ways drawing the same line hold equal paths, equal
+    rectangles and equal labels, so equality cannot tell them apart; and what
+    makes it *sufficient* is that ``_label`` builds a new object per call, so
+    a piece and its label each belong to one way. A cached or shared ``Label``
+    would break ``_drop_way``, not merely change what is drawn."""
     path: QPainterPath
     rect: QRectF
     ele: float
@@ -302,19 +308,33 @@ class ContourLayer(QGraphicsItem):
         piece = self._pieces.pop(key, None)
         if piece is None:
             return
-        pieces = self.paths.get(piece.ele)
-        if pieces is not None:
-            for i, p in enumerate(pieces):
-                if p is piece:
-                    del pieces[i]
-                    break
-            if not pieces:
-                del self.paths[piece.ele]
-                self._levels_moved = True
+        # not pieces.remove(piece): list.remove takes the first element that
+        # compares equal, and only checks identity per element on the way past
+        # - so an earlier way drawing the same line would go instead of this
+        # one, which is the whole hazard the loop below exists to avoid
+        pieces = self.paths[piece.ele]
+        for i, p in enumerate(pieces):
+            if p is piece:
+                del pieces[i]
+                break
+        else:
+            # _add_way writes both and this pops _pieces first, so the two
+            # cannot disagree - and if they ever do, the quiet failure is a
+            # level that has emptied without _levels_moved being set, which
+            # leaves every index contour from there up misnumbered and says
+            # nothing. Loud instead
+            raise AssertionError(f'{key} is in _pieces but not in paths[{piece.ele}]')
+        if not pieces:
+            del self.paths[piece.ele]
+            self._levels_moved = True
         for i, lab in enumerate(self.labels):
             if lab is piece.label:
                 del self.labels[i]
                 break
+        else:
+            # the same disagreement as above and just as quiet: a label left
+            # behind is drawn at a level with no piece under it
+            raise AssertionError(f'{key} has a label that is not in labels')
 
     def _reindex(self) -> None:
         """Every fifth level is an index contour, counted over the levels that

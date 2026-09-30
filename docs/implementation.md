@@ -1353,8 +1353,21 @@ on exactly the behaviour being removed. The first version of that test compared
 and the replacement landed on its address.
 
 What the change does not do is end the phase. It takes 21 ms off a 110 ms edit
-at 3 arcseconds and 22 off 1,400 at 1; the rest is the coalescing window and
-the solve. Restating the criterion as the two clocks it now has belongs with
+at 3 arcseconds and 22 off 1,400 at 1. What is left, at 3 arcseconds, is:
+
+| | |
+|---|---|
+| `layer.refresh` | 4 ms |
+| the signals `do` emits, run on the spot | 4 ms |
+| `GESTURE_MS`, the coalescing window | 30 ms |
+| the solve, on a worker | 52 ms |
+| the frame | ~1 ms |
+
+The eight milliseconds of `editor.do` are per-edit work on the UI thread and
+belong to the responsiveness clock, not to the coalescing one; the thirty is a
+deliberate wait for the rest of a gesture, and the fifty-two is the answer
+being worked out. Three different things, which is why one number over the sum
+of them does not say anything useful about any of them. Restating the criterion as the two clocks it now has belongs with
 the rebuild question in phase 7.
 
 **What is not F5c.** Persisting the display settings, and the contour tools a

@@ -15,7 +15,7 @@ from danu.surface.ramp import traditional
 from danu.ui import mercator as m
 from danu.ui.app import MainWindow
 from danu.ui.config import load_layers
-from danu.ui.contours import ZOOM_ALL, ZOOM_INDEX, ZOOM_LABELS, ContourLayer
+from danu.ui.contours import INDEX_EVERY_N, ZOOM_ALL, ZOOM_INDEX, ZOOM_LABELS, ContourLayer
 from danu.ui.mapview import MapView
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
@@ -742,9 +742,13 @@ def test_a_way_that_loses_its_level_takes_the_level_with_it(ws):
 
     layer = ContourLayer()
     layer.set_working_set(ws)
-    sq = ws.squares[SquareName(125, -24)]
     alone = next(ele for ele, pieces in layer.paths.items() if len(pieces) == 1)
-    wid = next(w.id for w in sq.contours() if w.ele == alone)
+    # the way that owns the piece, not the first way at that elevation: a way
+    # with fewer than two placed nodes is not projected and draws nothing, so
+    # asking the square would be asking a different question
+    piece = layer.paths[alone][0]
+    name, wid = next(k for k, p in layer._pieces.items() if p is piece)
+    sq = ws.squares[name]
 
     edits.DeleteWay(wid).apply(sq)
     layer.refresh(sq, {wid})
@@ -756,7 +760,12 @@ def test_a_new_level_moves_the_index_contours(ws):
     """`index_levels` is every fifth drawn level, so a level appearing renumbers
     the rest. An edit works it out again only when a level appeared or emptied -
     which is the only thing that can change it - so this is what says the
-    condition is right rather than merely cheap."""
+    condition is right rather than merely cheap.
+
+    Asserted as which levels are index contours, not as the set having changed:
+    a set that differs would also pass for a `_reindex` that had simply added
+    the new level to the old answer, which is the plausible wrong version.
+    """
     from danu.core import edits
 
     layer = ContourLayer()
@@ -774,5 +783,9 @@ def test_a_new_level_moves_the_index_contours(ws):
     layer.refresh(sq, {wid})
 
     assert new in layer.paths
-    assert set(layer.index_levels) != before, (
-        'a level appeared below every other one and the index contours did not move')
+    # the new level sorts first, so it takes the place the old lowest had and
+    # every index contour above it steps down one
+    assert lowest in before, 'the fixture\'s lowest level was not an index contour'
+    assert new in layer.index_levels, 'the level that now sorts first is not an index contour'
+    assert lowest not in layer.index_levels, 'the index contours did not renumber'
+    assert layer.index_levels == set(sorted(layer.paths)[::INDEX_EVERY_N])
