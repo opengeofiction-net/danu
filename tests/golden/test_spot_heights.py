@@ -227,7 +227,15 @@ def test_a_spot_height_outside_the_contours_joins_the_envelope(tmp_path):
 
 def test_the_scan_counts_an_ele_outside_a_way(tmp_path):
     """The guard that says a square had spot heights and contributed none. The
-    real fixture has no such node, so the count is exercised here."""
+    real fixture has no such node, so the count is exercised here.
+
+    Note which nodes are counted: ``-1`` and ``-2`` carry ``ele`` and are also
+    referenced by the way, and they still count. The scanner asks whether an
+    ``ele`` is inside a ``way`` element, and a node is written before the way
+    that uses it - so every node-level ``ele`` lands here, whether the node is
+    loose or part of a contour. That is right for the guard, since such a node
+    is reported in the points layer too and contributes.
+    """
     from danu.surface.build import _way_counts
 
     path = tmp_path / 'square.osm'
@@ -238,8 +246,7 @@ def test_the_scan_counts_an_ele_outside_a_way(tmp_path):
         '<node id="-3" lat="-23.3" lon="125.5"/>'
         '<way id="-9"><nd ref="-1"/><nd ref="-2"/><tag k="ele" v="100"/></way>'
         '</osm>')
-    over, drop, longest, ele_ways, ele_nodes = _way_counts(path)
-    assert (over, drop, longest, ele_ways, ele_nodes) == (0, 0, 2, 1, 2)
+    assert _way_counts(path) == (0, 0, 2, 1, 2)
     for chunk in (7, 13, 64):
         assert _way_counts(path, chunk=chunk) == (0, 0, 2, 1, 2), f'lost a token at chunk {chunk}'
 

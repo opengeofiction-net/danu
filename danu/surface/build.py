@@ -319,7 +319,8 @@ _SCAN_OVERLAP = 16
 
 def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, int]:
     """(ways over 2,000 nodes, ways over 10,000, the longest, ways tagged ele,
-    ``ele`` tags outside any way), by scanning the XML rather than parsing it.
+    ``ele`` tags that are not inside a ``way`` element), by scanning the XML
+    rather than parsing it.
 
     Scanned, because this runs on every square of every zone every night and on
     every working set the editor opens. Parsing a square into objects to count
@@ -345,7 +346,7 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
     relation tagged ``ele`` would be counted, which these squares do not hold;
     what it would cost is a warning that need not have been printed, which is
     why the guard warns rather than stops."""
-    over = drop = longest = ele_ways = ele_nodes = 0
+    over = drop = longest = ele_ways = ele_loose = 0
     nodes = 0
     in_way = has_ele = False
     carry = b''
@@ -375,15 +376,15 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
                 elif in_way:
                     has_ele = True
                 else:
-                    ele_nodes += 1
+                    ele_loose += 1
             carry = buf[max(limit, 0):]
-    return over, drop, longest, ele_ways, ele_nodes
+    return over, drop, longest, ele_ways, ele_loose
 
 
 def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tuple[int, int]:
     """How many ways in the square carry an ``ele``, and how many ``ele`` tags
-    sit outside a way, having refused the square if any way is too long for
-    GDAL to read. Takes the expanded square, which
+    sit outside its ``way`` elements, having refused the square if any way is
+    too long for GDAL to read. Takes the expanded square, which
     ``collect`` has written out for GDAL anyway, and ``name`` for the messages -
     the expanded file is called square.osm and saying so would tell an operator
     nothing about which square to go and fix.
@@ -398,14 +399,14 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tup
     would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
     both."""
     name = name or square_path.name
-    over, drop, longest, ele_ways, ele_nodes = _way_counts(square_path)
+    over, drop, longest, ele_ways, ele_loose = _way_counts(square_path)
     if drop:
         raise ValueError(f'{name} has {drop} way(s) over 10,000 nodes (longest {longest}); '
                          f'GDAL drops these silently. Run danu.core.split_long_ways')
     if over:
         log(f'  WARNING: {name} has {over} way(s) over 2,000 nodes (longest {longest}), '
             f'which the OSM API would reject on upload')
-    return ele_ways, ele_nodes
+    return ele_ways, ele_loose
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> Path | None:
@@ -464,7 +465,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                 source = square
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
-            ele_ways, ele_nodes = check_long_ways(source, log, name=path.name)
+            ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
             spots_before = _feature_count(gpkg, 'spot')
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
@@ -498,9 +499,10 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # one is translated, counted here, and deleted afterwards by the
             # cleanup, which says so in a line of its own - without naming the
             # square, because by then the squares are one GeoPackage
-            if ele_nodes and spots_now == spots_before:
-                log(f'  WARNING: {path.name} has {ele_nodes} ele tag(s) outside a way '
-                    f'but contributed no spot height')
+            if ele_loose and spots_now == spots_before:
+                log(f'  WARNING: {path.name} has {ele_loose} ele tag(s) outside its way '
+                    f'elements - spot heights, on a square with no relations - but '
+                    f'contributed no spot height')
             if not expanded:
                 square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver

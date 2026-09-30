@@ -1488,8 +1488,9 @@ turns on.
 scanner behind `check_long_ways` already told an `ele` inside a way from one
 outside it - it had to, or a spot height before a way made that way look tagged
 - and threw the second count away. It now returns it, and `collect` says so
-when a square holds `ele` outside a way and contributes no spot height, which
-is the failure that cost liberian 81% of its constraint lines silently. A
+when a square holds `ele` outside its `way` elements and contributes no spot
+height, which is the failure that cost liberian 81% of its constraint lines
+silently. A
 warning and not a refusal, because the count is of `ele` outside a *way* rather
 than on a *node*: telling those apart means matching `<node` as well, and there
 are two and a half million of those in the largest square, which is the whole
@@ -1501,7 +1502,7 @@ log rather than a zone build stopped.
 committed reference surface is unmoved and `test_golden_surface` is
 unaffected - though the golden *suite* is not untouched, since the scanner's
 count is now a five-tuple and the test that holds it to a parse of the fixture
-counts the fixture's spot heights too, of which it has none. Of the
+counts the fixture's node-level `ele` tags too, of which it has none. Of the
 squares on this machine exactly one carries one - `gobras/N20E086`, a node at
 225 m - so what a rebuild changes is one hilltop. Elsewhere it is whatever the
 zones hold, and the change is a DEM rebuild rather than a packaging one: same
