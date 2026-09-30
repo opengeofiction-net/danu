@@ -1472,6 +1472,15 @@ preview now carries the `spot` layer too, read-only, burned after the contours
 in the same order the build uses. Editing a spot height is G2, and that layer
 is where it will go.
 
+**The burn order is ours and not GDAL's.** `rasterise` first passed both
+layers in one `Rasterize` call with `layers=['contour', 'spot']`, which leaves
+the order to whether GDAL iterates the list or the datasource - the
+GeoPackage's internal layer order, possibly differently between versions. The
+preview burns layer by layer in a Python loop, so it has no such doubt, and the
+two paths disagreeing about which constraint wins a cell is the failure the
+preview architecture exists to avoid. It is one call per layer now, in order,
+which is the same mechanism at both ends.
+
 **The silent-loss guard extends to them, and warns rather than stops.** The
 scanner behind `check_long_ways` already told an `ele` inside a way from one
 outside it - it had to, or a spot height before a way made that way look tagged

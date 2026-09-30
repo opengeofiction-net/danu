@@ -152,6 +152,8 @@ class Contours:
                 self.spots.CreateFeature(g)
 
     def __len__(self) -> int:
+        """The contours. Not the spot heights, which are a layer of their own
+        and are not what a caller counting this is asking about."""
         return self.layer.GetFeatureCount()
 
     def remove(self, way_id) -> bool:

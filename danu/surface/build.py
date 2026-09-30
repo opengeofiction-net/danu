@@ -334,10 +334,14 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
     The last count is the other half of that distinction, which used to be
     thrown away: an ``ele`` outside a way is a spot height, and the guard wants
     to know a square has some before deciding that finding none is normal. It
-    is *outside a way* and not *on a node*, because telling those apart means
-    matching ``<node`` too and there are two and a half million of them in the
-    largest square - the whole reason this scans rather than parses. A relation
-    tagged ``ele`` would be counted here and is not a thing these squares hold;
+    It is *outside a way* rather than *on a node*, because telling those apart
+    means matching ``<node`` too and there are two and a half million of them
+    in the largest square - the whole reason this scans rather than parses. Two
+    things fall on the loose side of that and both are harmless here. A node
+    that a contour way goes on to reference is written before the way, so its
+    ``ele`` lands in this count as well - which is right for the guard, since
+    such a node is reported in the points layer too and contributes. And a
+    relation tagged ``ele`` would be counted, which these squares do not hold;
     what it would cost is a warning that need not have been printed, which is
     why the guard warns rather than stops."""
     over = drop = longest = ele_ways = ele_nodes = 0
@@ -475,6 +479,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             spot_opts = dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
                              layerName='spot', accessMode='append')
             if not spots_made:
+                # saying what the layer is, not making it exist: an append
+                # creates it either way, as the test for a spot height in a
+                # later square shows by still passing without this
                 spot_opts['geometryType'] = 'POINT'
             gdal.VectorTranslate(str(gpkg), str(source),
                                  options=gdal.VectorTranslateOptions(**spot_opts))
@@ -588,8 +595,8 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     line leaves diagonal gaps, and the fill's sight test threads them - a ray
     reaches the ground behind a coastline without crossing it.
 
-    The spot heights go in after the contours, so a spot height standing on a
-    contour wins the cell. That is the right way round: a contour says the
+    The spot heights go in after the contours - one Rasterize call each, in
+    that order - so a spot height standing on a contour wins the cell. That is the right way round: a contour says the
     ground reaches this height somewhere along here, a spot height says the
     ground is exactly this high at this point, and where they disagree the
     point is the more specific statement. It is also the case R37 exists for -
@@ -602,16 +609,33 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
               if ds.GetLayerByName(name) is not None]
     ds = None
     if not layers:
-        # gdal.Rasterize reads an empty layer list as *every* layer on some
-        # versions and as none on others, so neither is worth finding out on.
-        # collect() returns None rather than an empty GeoPackage, so the only
-        # way here is a caller that did not come through it
+        # a GeoPackage with a contour layer and no spot layer is the ordinary
+        # case and burns fine; one with neither is not something collect()
+        # produces, since it returns None rather than an empty GeoPackage. It
+        # is refused rather than passed on because gdal.Rasterize reads an
+        # empty layer list as *every* layer on some versions and as none on
+        # others, and neither is worth finding out on
         raise ValueError(f'{gpkg} holds neither a contour nor a spot layer')
-    gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
-        format='GTiff', allTouched=True, attribute='ele', noData=NODATA, initValues=[NODATA],
-        layers=layers,
-        outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te),
-        creationOptions=CREATE))
+    # One call per layer, in order, rather than one call with a layer list.
+    # The order is the whole of the rule above, and a list argument leaves it
+    # to whether GDAL iterates the list or the datasource - which would decide
+    # it by the GeoPackage's internal layer order, and differently between
+    # versions. The preview burns layer by layer in a Python loop for the same
+    # reason, and the two paths disagreeing about which constraint wins a cell
+    # is the failure the whole preview architecture is built to avoid.
+    for i, name in enumerate(layers):
+        if i == 0:
+            gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
+                format='GTiff', allTouched=True, attribute='ele', noData=NODATA,
+                initValues=[NODATA], layers=[name],
+                outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res,
+                outputBounds=list(grid.te), creationOptions=CREATE))
+            continue
+        into = gdal.Open(str(out), gdal.GA_Update)
+        gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
+            allTouched=True, attribute='ele', layers=[name]))
+        into.FlushCache()
+        into = None
     return out
 
 

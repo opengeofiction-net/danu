@@ -280,3 +280,66 @@ def test_a_preview_over_a_spot_height_burns_what_the_build_burns(tmp_path, where
     assert burned[y - box.y0, x - box.x0] == ele, (
         'the preview burned a box over the spot height and lost it')
     assert (burned == whole[box.slice]).all(), 'the preview and the build disagree over this box'
+
+
+def test_a_spot_height_in_a_later_square_still_makes_the_layer(tmp_path):
+    """The spot layer is created by whichever square first contributes one,
+    which need not be the first square read - and that square's translate is an
+    append to a GeoPackage that has no such layer yet. The contour path never
+    exercises this, because it creates its layer on square one whatever that
+    square holds.
+
+    What this holds is that the later square's spot height reaches the raster.
+    It does not hold the ``geometryType='POINT'`` that ``collect`` passes on
+    that translate: removing it leaves this passing, because an append creates
+    the layer regardless. That option is there to say what the layer is rather
+    than to make it exist.
+    """
+    from danu.core import edits
+    from danu.core.square import Node, SquareName, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    # S24E125 first, by name, with contours and no spot height
+    write_square(a_hill(), zone / 'S24E125.osm.xz')
+    # and its eastern neighbour, which has one
+    east = a_hill(rings=[(0.10, 300)])
+    east.name = SquareName(126, -24)
+    for node in east.nodes.values():
+        node.lon += 1.0
+    nid = edits.IdAllocator(east).take()
+    east.nodes[nid] = Node(id=nid, lon=LON + 1.0, lat=LAT, tags={'ele': '400'})
+    write_square(east, zone / 'S24E126.osm.xz')
+
+    result = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3))
+    assert result.dem is not None
+    ds = gdal.Open(str(result.constraints))
+    cons = ds.GetRasterBand(1).ReadAsArray()
+    gt = ds.GetGeoTransform()
+    del ds
+    x = int((LON + 1.0 - gt[0]) / gt[1])
+    y = int((LAT - gt[3]) / gt[5])
+    assert cons[y, x] == 400, (
+        f"the second square's spot height reads {cons[y, x]}: the layer was never made")
+
+
+def test_dropping_a_nodes_bad_ele_is_said_out_loud(tmp_path):
+    """The guard that warns when a square holds ``ele`` outside a way and
+    contributes no spot height runs before the non-numeric rows are dropped, so
+    a square whose only spot height is ``ele=tbd`` passes it. That is not a
+    silent loss, because the cleanup says so itself - which is what this holds,
+    since the two together are the whole of what a mapper gets told.
+    """
+    from danu.core.square import write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(a_hill((LON, LAT, 'tbd')), zone / 'S24E125.osm.xz')
+    said = []
+    build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3), log=said.append)
+    assert any('ignoring nodes whose ele is not a number' in line and 'tbd' in line
+               for line in said), f'nothing said that the node was dropped: {said}'
