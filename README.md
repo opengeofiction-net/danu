@@ -66,7 +66,11 @@ opens a square from a mirror of `osm-squares/`, shows it over the OGF tiles
 with its contours coloured and labelled (phase 1), and builds and shades the
 surface those contours describe with the same code the server runs, held to
 the server's output cell for cell (phase 2) - and says where the contours
-describe no ground at all. No editing yet. See
+describe no ground at all. Contours are drawn, continued, moved and deleted,
+with snapping, undo, and a save the server builds unchanged (phase 3). The
+ground under an edit is re-solved as it is drawn, in a box around the edit
+rather than by rebuilding the raster, and settles exactly when the hand stops
+(phase 4). See
 [`docs/spec.md`](docs/spec.md) for the requirements, the architecture and the
 plan, and [`docs/implementation.md`](docs/implementation.md) for how each phase
 went against it.

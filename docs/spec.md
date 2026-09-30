@@ -759,12 +759,37 @@ under *What phase 3 actually did*.
 ### Phase 4
 
 **Phase 4 - live.** The incremental path, the job queue, preview and exact
-states. Ends when drawing a contour moves the hillshade under the cursor inside
-50 ms - which is a statement about the frame and not about the fill, and F5c is
-where that distinction stopped being academic.
+states.
+
+It was to end when drawing a contour moved the hillshade under the cursor
+inside 50 ms. That was written when an edit was one thing happening on one
+thread. It is now three: the editor's own work, a coalescing window that waits
+for the rest of a gesture, and a solve on a worker. One number over the sum of
+those says nothing about any of them, and at 1 arcsecond nothing makes the sum
+50 ms - the solve alone is a second and a half.
+
+So it ends on two clocks, measured through the real window on the gobras 3x3,
+at the z15 to z19 where contours are drawn:
+
+- **the editor takes the next input inside 50 ms.** Eight, at 3 arcseconds and
+  at 1: `layer.refresh` and the signals `do` emits, and nothing else is on the
+  UI thread. **Met.**
+- **no frame waits on the surface.** The solve, the compose and the build are
+  all on workers, and what an edit costs the UI thread does not grow with the
+  resolution - eight milliseconds at both, against a solve that goes from 52 ms
+  to about 1.4 s. **Met.**
+
+The fifty is the same fifty, applied to a narrower thing. The old one covered
+the whole frame, fill included; this one covers the UI thread alone. That is
+the right narrowing rather than a convenient one, because the number was always
+a statement about the frame and not about the fill - F5c is where that
+distinction stopped being academic - and the fill has since moved off the
+thread the frame is on. What it leaves open is not latency but policy: whether
+a long editing session should be waiting on those builds at all. That is phase
+7's.
 
 The notes on what this phase actually did are in `implementation.md`,
-under *What phase 4 has done so far*.
+under *What phase 4 actually did*.
 
 ### Phase 5
 

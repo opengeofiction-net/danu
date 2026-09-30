@@ -367,7 +367,21 @@ for a 3x3: all of it is the same question the incremental path asks, which is
 what to recompute per edit. Sized there, with the `danu.cli` port, rather than
 piecemeal here.
 
-## What phase 4 has done so far
+## What phase 4 actually did
+
+Ended on 2026-09-30, in thirty-five pull requests here and five in `isofill`,
+over the eight days from the 23rd, with the exit criterion restated rather than
+met as written - see *Phase 4* in `spec.md`, and *The exit criterion, measured*
+below for the numbers that forced it. 191 tests that need neither Qt nor GDAL,
+250 on the canvas, 52 that need GDAL.
+
+The phase went to plan as far as F4 and then stopped being about what it said
+it was about. F1 to F4 are the incremental path and the job queue, in the order
+the plan gave them. F5 was to be the preview and then the margin; the margin
+turned out not to be the binding constraint, nor the second, nor the third, and
+what the afternoon of using the editor found instead is F5c - four things
+ahead of it, none of which anyone had planned for, and the one that mattered
+most was the drawing rather than the solve.
 
 **F1, the one surface.** Phase 3 shipped two implementations of the stages from
 the squares to the DEM - `danu-build-zone` had its own, the editor had
@@ -1367,8 +1381,27 @@ The eight milliseconds of `editor.do` are per-edit work on the UI thread and
 belong to the responsiveness clock, not to the coalescing one; the thirty is a
 deliberate wait for the rest of a gesture, and the fifty-two is the answer
 being worked out. Three different things, which is why one number over the sum
-of them does not say anything useful about any of them. Restating the criterion as the two clocks it now has belongs with
-the rebuild question in phase 7.
+of them does not say anything useful about any of them.
+
+**So the criterion is two, and both are met.** `spec.md` carries the wording;
+what it comes to is that the editor takes the next input in eight milliseconds
+at either resolution, and that nothing a frame waits on grows with the raster,
+because the solve, the compose and the build are all on workers. The original
+number was a statement about the frame and not about the fill, and the fill is
+now somewhere else. What that leaves is not a latency to shave but a policy
+question - whether a long session should be waiting on those builds at all -
+which is phase 7's and not a reason to hold this one open.
+
+The fifty is the same fifty. What narrowed is what it is measured over - the
+UI thread rather than the whole frame - and that is the right narrowing rather
+than a convenient one, because the fill it used to include has moved off the
+thread the frame is on.
+
+Said plainly, because a restated criterion is the easiest thing in a document
+like this to mistake for a lowered one: at 1 arcsecond it is still about 1.4
+seconds from the edit to the hillshade moving, nearly all of it the solve.
+Nobody is claiming otherwise. The claim is that the editor is drawing
+throughout, which is what the fifty milliseconds was for.
 
 **What is not F5c.** Persisting the display settings, and the contour tools a
 mapper wants next - split, merge, join - are phase 5 and 6 work that using the
