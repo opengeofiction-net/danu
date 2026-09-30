@@ -501,8 +501,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # square, because by then the squares are one GeoPackage
             if ele_loose and spots_now == spots_before:
                 log(f'  WARNING: {path.name} has {ele_loose} ele tag(s) outside its way '
-                    f'elements - spot heights, on a square with no relations - but '
-                    f'contributed no spot height')
+                    f'elements, which on a square holding no relations are spot '
+                    f'heights, but contributed no spot height')
             if not expanded:
                 square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver

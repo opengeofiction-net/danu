@@ -350,3 +350,34 @@ def test_dropping_a_nodes_bad_ele_is_said_out_loud(tmp_path):
     build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3), log=said.append)
     assert any('ignoring nodes whose ele is not a number' in line and 'tbd' in line
                for line in said), f'nothing said that the node was dropped: {said}'
+
+
+def test_burning_the_spot_heights_does_not_wipe_the_contours(tmp_path):
+    """``rasterise`` burns the two layers in two calls, the second into the
+    raster the first created. It passes no ``initValues`` there, which is what
+    makes that an addition rather than a fresh start - and if it were ever a
+    fresh start the contours would vanish and only the spot heights remain.
+
+    The hill tests would catch that too, by the ground no longer falling away
+    from the summit, but they would catch it as a strange-looking surface. This
+    catches it as the thing it is.
+    """
+
+    from danu.surface.build import NODATA
+
+    _, _, _, plain = built(a_hill(), tmp_path, name='plain')
+    _, _, _, spotted = built(a_hill((LON, LAT, 240)), tmp_path, name='spotted')
+
+    def constraints(result):
+        ds = gdal.Open(str(result.constraints))
+        a = ds.GetRasterBand(1).ReadAsArray()
+        del ds
+        return a
+
+    before, after = constraints(plain), constraints(spotted)
+    kept = (before != NODATA)
+    assert int(kept.sum()) > 1000, 'the rings burned nothing to keep'
+    assert (after[kept] == before[kept]).all(), (
+        'the second burn changed cells the contours had written')
+    added = int((after != NODATA).sum()) - int(kept.sum())
+    assert added == 1, f'the spot height added {added} constraint cells, not one'

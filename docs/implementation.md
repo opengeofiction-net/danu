@@ -1479,10 +1479,13 @@ GeoPackage's internal layer order, possibly differently between versions. The
 preview burns layer by layer in a Python loop, so it has no such doubt, and the
 two paths disagreeing about which constraint wins a cell is the failure the
 preview architecture exists to avoid. It is one call per layer now, in order.
-Not the same mechanism at both ends - the build's first call still creates the
-raster and initialises it to nodata, where the preview fills its window by hand
-- but the same *order*, decided by us in both, which is the part a cell's value
-turns on.
+Not the same mechanism at both ends - the build's first call creates the raster
+and initialises it to nodata, the second adds to it, and the preview fills its
+window by hand before burning either layer - but the same *order*, decided by
+us in both, which is the part a cell's value turns on. That the second call
+adds rather than starts again is the other half of it, and has a test of its
+own: the contours still read what they read, and a spot height adds exactly one
+constraint cell.
 
 **The silent-loss guard extends to them, and warns rather than stops.** The
 scanner behind `check_long_ways` already told an `ele` inside a way from one
