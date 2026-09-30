@@ -117,8 +117,9 @@ the tools for everything else.
 
 ### Water
 
-- **R23** Import rivers, streams and water bodies for the working set from
-  Overpass, cached locally.
+- **R23** Rivers, streams and water bodies are imported from Overpass into the
+  square, not held beside it. A square stays self-contained: opened, edited and
+  built from its own file, with or without a network.
 - **R24** Set an elevation on a water body or a waterway, by hand or from the
   contours it touches.
 - **R25** Burn a river into the terrain: grade it between the contours it
@@ -127,10 +128,14 @@ the tools for everything else.
 - **R26** Flatten a water body at a chosen level, likewise.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
+- **R40** A second import reconciles rather than duplicates. A feature the
+  square already holds is matched by its OSM identity, takes its geometry from
+  upstream and keeps the elevation set on it here; a feature gone from upstream
+  is reported rather than deleted. An import is one undoable step.
 - **R28** Water anchors inside the squares are first-class and editable. The
-  separate `water/<zone>.osm` overlay is not: only `roantra` has one, 54 MB of
-  it, against 32 zones, and every other zone's water lives in its squares where
-  Danu already edits it. Reading roantra's overlay for context is cheap and
+  separate `water/<zone>.osm` overlay is a legacy artefact to read, never a
+  store to write: only `roantra` has one, 54 MB of it, against 32 zones, and
+  every other zone's water lives in its squares where Danu already edits it. Reading roantra's overlay for context is cheap and
   worth doing; editing it is a separate job with no second user.
 
 ### Spot heights
@@ -317,8 +322,10 @@ tree is 2.0 GB, and 1.3 GB of that is `build/`. What cannot be regenerated is
 so an existing `/opt/opengeofiction/elevation` can be left alone by setting one
 line, but there is no size argument for doing so.
 
-On the desktop, XDG: `~/.config/danu/`, `~/.cache/danu/` for the tile and
-Overpass caches, `~/.local/share/danu/` for sessions and recovery.
+On the desktop, XDG: `~/.config/danu/`, `~/.cache/danu/` for the tiles and for
+whatever an Overpass reply is worth keeping between one import and the next,
+`~/.local/share/danu/` for sessions and recovery. An imported feature does not
+live there - it lives in the square, per *R23*.
 
 There is no service tier. Danu is a desktop application plus a set of batch
 entry points. If a long `isofill` run wants its own process so a crash cannot
@@ -332,7 +339,8 @@ Three, and no more.
 - **Compute** owns the constraint grid, isofill and the ramp. One worker, a
   queue of jobs, newest wins - a stroke in progress supersedes the job the last
   stroke queued.
-- **Network** fetches map tiles and Overpass, both cached on disk.
+- **Network** fetches map tiles, cached on disk, and Overpass, whose answer is
+  written into the square.
 
 ### Why the preview can be exact locally
 
@@ -793,18 +801,83 @@ under *What phase 4 actually did*.
 
 ### Phase 5
 
-**Phase 5 - the anchors that are not contours.** Overpass import and cache,
-elevations on water, burn and flatten with accept and roll back, profile tool;
-spot heights as constraints. Measure first: `barrier_cells` widens a constraint
-for the sight test, so a one-cell spot height becomes a five-by-five occluder.
-A contour is a line and hardly notices; a point is not. Ends when the gobras
-experiment is reproducible by hand in the editor and a hill with a spot height
-on it comes out pointed.
+**Phase 5 - the anchors that are not contours.** Water and spot heights - the
+two things that say where the ground is and are not contours.
+
+**G1, spot heights are constraints.** R36 says a node with `ele` is a
+constraint the same as a contour way, and nothing has ever read one: `collect`
+gathers only the lines layer and `rasterise` burns that alone. So this is a
+change to the pipeline the server runs, not an editor feature, and it goes
+first and by itself. It moves the published DEM for any square holding such a
+node, which is a deployment to plan rather than a surprise to discover.
+
+What it is, concretely: `osmconf.ini`'s `[points]` lists `ele` under
+`unsignificant`, so GDAL's OSM driver does not report a node carrying only an
+elevation at all, and `attributes` there does not name it either. So `ele`
+moves into `[points] attributes`, `collect` emits a points layer beside the
+lines, and `rasterise` burns both. Same input files, no new dependency and no
+new data file - what it costs on deployment is a rebuild of any zone whose
+squares hold such a node, which is a DEM change and not a packaging one.
+
+Measure before building on it. `barrier_cells` widens a constraint for the
+sight test, so a one-cell spot height becomes a five-by-five occluder. A
+contour is a line and hardly notices; a point is not.
+
+**G2, the editor edits them.** Place, move, delete, set `ele`; the elevation
+keys and the ladder working on a spot height as they do on a contour; and the
+preview burning them, which means `preview.Contours` gains the points layer it
+does not have. `Node.tags` already survives a read and a save, so the data
+round-trips today and only the two ends are missing.
+
+**G3, water is imported into the square.** R23, and the reason it is an import
+and not a cache: a square is opened, edited and built from its own file, and a
+working set that needs the network to describe its own rivers is not
+self-contained. Features arrive carrying the OSM id they had, positive, which
+is what a later import matches on; `IdAllocator` mints below the lowest id in
+use and takes 0 as its ceiling, so positive ids never move it and nothing
+collides.
+
+**What G3 has to settle first is relations.** A square carries nodes and ways
+and nothing else - `read_square` skips a relation deliberately - and a water
+body is as likely to be a multipolygon as a closed way: gobras has 120 water
+relations, Lake Kinser among them. So either the square model grows relations,
+or a body arrives as the closed way its rings assemble into and loses the
+identity R40 matches on for exactly the features that matter most. Neither is
+obviously right and the choice belongs here rather than in G4, which is where
+it would otherwise be discovered.
+
+**G4, a second import reconciles.** R40, and the hard half of G3. A feature the
+square holds already takes its geometry from upstream and keeps the elevation
+set on it here - upstream owns where the river is, the mapper owns how high it
+is - and a feature gone from upstream is reported rather than deleted, because
+a square is somebody's work and an import is not entitled to throw it away. One
+undoable step, so the answer to a bad import is Ctrl+Z.
+
+**G5, elevations on water.** R24: a level on a body or a waterway, by hand or
+from the contours it touches. The grading is `danu/water/constraints.py`'s -
+a waterway takes each contour's value where it crosses one, graded between and
+forced to descend; a body takes its outlet - made per-feature and interactive
+rather than per-zone and unattended.
+
+**G6, burn and flatten, as a proposal.** R25 to R27: grade a river and rewrite
+the contours to match, flatten a body at its level, never flatten flowing
+water. Accept and roll back go through the undo stack rather than a mechanism
+of their own - a burn is an edit to contour ways, and Ctrl+Z is what a mapper
+will reach for.
+
+Ends on two measurements. The editor's burn produces the same constraints
+raster as `danu/water/constraints.py` does over the same input, cell for cell -
+the gobras experiment reproduced by hand rather than described. And a hill with
+a spot height on it comes out pointed, with the spot height's own value at the
+summit.
+
+The profile tool was named here and is phase 6's, with measure and difference:
+it is how you read a surface, not how you anchor one.
 
 ### Phase 6
 
-**Phase 6 - checks and polish.** The validation panel, measure, difference,
-magnify, autosave and crash recovery, session files.
+**Phase 6 - checks and polish.** The validation panel, measure, profile,
+difference, magnify, autosave and crash recovery, session files.
 
 ### Phase 7
 
@@ -917,8 +990,11 @@ as a change can, and renaming while the rebuild is still in preparation costs a
 - **The local second pass** is an approximation, and if its seam is visible the
   preview loses its value. Measurable early: solve locally, solve globally,
   compare. Do it in phase 4 before building the rest on it.
-- **Overpass** is a dependency the editor cannot control. Everything it provides
-  is cached and the editor works, degraded, without it.
+- **Overpass** is a dependency the editor cannot control. What it provides is
+  imported into the square rather than held beside it, so a square that has
+  been imported into once needs it no further and the editor works without it -
+  see *R23*. What is exposed to an outage is the import itself, which is a
+  thing a mapper chooses to do rather than something every open waits on.
 
 ## Decided
 
