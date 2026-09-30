@@ -333,7 +333,8 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
 
     The last count is the other half of that distinction, which used to be
     thrown away: an ``ele`` outside a way is a spot height, and the guard wants
-    to know a square has some before deciding that finding none is normal. It
+    to know a square has some before deciding that finding none is normal.
+
     It is *outside a way* rather than *on a node*, because telling those apart
     means matching ``<node`` too and there are two and a half million of them
     in the largest square - the whole reason this scans rather than parses. Two
@@ -487,10 +488,16 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                                  options=gdal.VectorTranslateOptions(**spot_opts))
             spots_now = _feature_count(gpkg, 'spot')
             spots_made = spots_made or spots_now > 0
-            # the same silent loss the lines guard below is for, said rather
-            # than raised: the count is of ele tags outside a way, so a
-            # relation carrying one would make this print for nothing, and a
-            # zone build stopped by a false alarm is worse than a line in a log
+            # the same silent loss the lines guard below is for - GDAL handing
+            # back an empty layer rather than an error - said rather than
+            # raised: the count is of ele tags outside a way, so a relation
+            # carrying one would make this print for nothing, and a zone build
+            # stopped by a false alarm is worse than a line in a log.
+            #
+            # It does not cover a spot height whose ele is not a number. That
+            # one is translated, counted here, and deleted afterwards by the
+            # cleanup, which says so in a line of its own - without naming the
+            # square, because by then the squares are one GeoPackage
             if ele_nodes and spots_now == spots_before:
                 log(f'  WARNING: {path.name} has {ele_nodes} ele tag(s) outside a way '
                     f'but contributed no spot height')
@@ -611,10 +618,10 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     if not layers:
         # a GeoPackage with a contour layer and no spot layer is the ordinary
         # case and burns fine; one with neither is not something collect()
-        # produces, since it returns None rather than an empty GeoPackage. It
-        # is refused rather than passed on because gdal.Rasterize reads an
-        # empty layer list as *every* layer on some versions and as none on
-        # others, and neither is worth finding out on
+        # produces, since it returns None rather than an empty GeoPackage. Said
+        # here because the loop below would otherwise write no raster at all
+        # and hand the caller a path to a file that does not exist - a failure
+        # several stages downstream of the thing that was wrong
         raise ValueError(f'{gpkg} holds neither a contour nor a spot layer')
     # One call per layer, in order, rather than one call with a layer list.
     # The order is the whole of the rule above, and a list argument leaves it

@@ -1478,8 +1478,11 @@ the order to whether GDAL iterates the list or the datasource - the
 GeoPackage's internal layer order, possibly differently between versions. The
 preview burns layer by layer in a Python loop, so it has no such doubt, and the
 two paths disagreeing about which constraint wins a cell is the failure the
-preview architecture exists to avoid. It is one call per layer now, in order,
-which is the same mechanism at both ends.
+preview architecture exists to avoid. It is one call per layer now, in order.
+Not the same mechanism at both ends - the build's first call still creates the
+raster and initialises it to nodata, where the preview fills its window by hand
+- but the same *order*, decided by us in both, which is the part a cell's value
+turns on.
 
 **The silent-loss guard extends to them, and warns rather than stops.** The
 scanner behind `check_long_ways` already told an `ele` inside a way from one
