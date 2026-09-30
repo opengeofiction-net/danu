@@ -1406,3 +1406,88 @@ throughout, which is what the fifty milliseconds was for.
 **What is not F5c.** Persisting the display settings, and the contour tools a
 mapper wants next - split, merge, join - are phase 5 and 6 work that using the
 editor surfaced early.
+
+## What phase 5 has done so far
+
+**G1, spot heights are constraints.** R36 says a node carrying `ele` is a
+constraint the same as a contour way. Nothing had ever read one, and the reason
+turned out to be one line of configuration rather than a missing feature:
+`osmconf.ini`'s `[points]` lists `ele` among its `unsignificant` keys, which is
+GDAL's own default, and a node tagged with nothing else is then not reported in
+the points layer at all. So `ele` moves into `[points] attributes` and out of
+`unsignificant`, `collect` gathers the points into a `spot` layer beside
+`contour`, and `rasterise` burns both.
+
+**What it is worth, on four rings and nothing else.** Contours can only bracket
+a summit - the ground inside the top ring is above it and below a ring nobody
+drew - so the fill has nothing to aim at and leaves a plateau:
+
+| | peak | cells at the peak | centre |
+|---|---|---|---|
+| rings alone | 175.0 m | 6,400 | 175.0 m |
+| with a spot height at 240 | 240.0 m | 1 | 240.0 m |
+
+That is R37 in two rows. The test asserts the pointedness as well as the
+summit, because a test that only read the centre cell would pass on a spot
+height burned into an otherwise flat plateau.
+
+**The spot heights burn after the contours**, so one standing on a contour wins
+the cell. A contour says the ground reaches this height somewhere along here; a
+spot height says it is exactly this high at this point, and the point is the
+more specific statement. It is also the case R37 exists for: a contour burned
+over a summit flattens the thing the spot height is there to raise.
+
+**The barrier measurement the phase asked for first.** `barrier_cells` widens a
+constraint for the sight test, so a one-cell spot height becomes a five by five
+occluder where a contour is a line and hardly notices. Measured on the same
+hill, three placements - a spot on the summit, one standing between two rings
+where rays have to pass it, and one outside every contour - **no cell loses its
+reach in any of them**, and the summit one gains reach for the 1,257 cells of
+the disc that can now see something. The fear was reasonable and the answer is
+no.
+
+Counting that required naming the classes rather than comparing them: 1 is
+nothing in reach, 3 is a single level in sight, 0 is answered, and a first pass
+at this read the numbers as a severity ranking and reported 1,256 cells getting
+"worse" when what had happened was 1,257 cells getting better.
+
+**A spot height beyond the contours stretches the envelope**, and that is now a
+decision rather than an accident. `drawn_area` takes the convex hull of the
+constraints raster per degree square and a spot height is in that raster, so
+one placed outside grows the drawn area - 519,841 cells to 649,621 on this hill
+- and the ground between gets filled. It follows from R36 reading a spot height
+as a constraint *the same as a contour way*, since a contour way out there
+would stretch the hull too. The alternative is coherent as well - the envelope
+being the lines' alone, with spot heights constraining inside it and never
+extending it, which isofill supports either way because a constraint outside
+the mask still counts as evidence - and a test now says which one is in force
+so that changing it is a decision someone makes.
+
+**The preview had to follow, which was not the plan.** G1 was to be the
+pipeline alone. But `preview.Contours` burns its box from a layer of contours
+after clearing the box to nodata, so a preview over a hilltop would have rubbed
+the spot height out and handed the solve a raster the build would never have
+produced - the hill flattening under the cursor until the exact rebuild. The
+preview now carries the `spot` layer too, read-only, burned after the contours
+in the same order the build uses. Editing a spot height is G2, and that layer
+is where it will go.
+
+**The silent-loss guard extends to them, and warns rather than stops.** The
+scanner behind `check_long_ways` already told an `ele` inside a way from one
+outside it - it had to, or a spot height before a way made that way look tagged
+- and threw the second count away. It now returns it, and `collect` says so
+when a square holds `ele` outside a way and contributes no spot height, which
+is the failure that cost liberian 81% of its constraint lines silently. A
+warning and not a refusal, because the count is of `ele` outside a *way* rather
+than on a *node*: telling those apart means matching `<node` as well, and there
+are two and a half million of those in the largest square, which is the whole
+reason this scans rather than parses. A relation tagged `ele` would be counted
+and is not a thing these squares hold; the cost of being wrong is a line in a
+log rather than a zone build stopped.
+
+**What it costs on deployment.** The golden square holds no such node, so the
+committed reference is unmoved and the golden test passes untouched. Of the
+squares on this machine exactly one carries one - `gobras/N20E086`, a node at
+225 m - so what a rebuild changes is one hilltop. Elsewhere it is whatever the
+zones hold, and the change is a DEM rebuild rather than a packaging one: same
+input files, no new dependency, no new data file.

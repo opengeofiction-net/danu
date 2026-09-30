@@ -198,7 +198,10 @@ def test_the_long_way_scan_answers_what_parsing_the_square_answers(tmp_path):
     expected = (sum(1 for w in ways if len(w.refs) > 2000),
                 sum(1 for w in ways if len(w.refs) > 10000),
                 max((len(w.refs) for w in ways), default=0),
-                sum(1 for w in ways if 'ele' in w.tags))
+                sum(1 for w in ways if 'ele' in w.tags),
+                # the last is ele tags outside a way, which on a square holding
+                # no relations is ele on a node - a spot height
+                sum(1 for n in square.nodes.values() if 'ele' in n.tags))
     assert expected[2] > 0 and expected[3] > 0, 'the fixture has to have ways to count'
     assert _way_counts(expanded) == expected
     # and the same however the reads happen to fall, since a token split across

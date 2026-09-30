@@ -1,0 +1,275 @@
+"""Spot heights as constraints - G1.
+
+R36 says a node carrying ``ele`` is a constraint the same as a contour way, and
+until now nothing had ever read one: ``collect`` gathered only the lines layer,
+and GDAL's own default lists ``ele`` among ``[points]``'s ``unsignificant``
+keys, so a node tagged with nothing else was not reported at all.
+
+R37 is why it matters. Contours can only bracket a hilltop - the ground inside
+the top ring is somewhere above that ring and below the next one that was never
+drawn - so a fill has no reason to put a summit anywhere in that band and does
+not. It leaves a plateau. A spot height is the only thing that can say how high
+the hill goes.
+
+The hill here is four concentric rings and nothing else, which is the smallest
+case that shows it.
+"""
+
+import math
+import shutil
+
+import pytest
+
+gdal = pytest.importorskip('osgeo.gdal', reason='GDAL not available')
+pytestmark = pytest.mark.skipif(shutil.which('isofill') is None, reason='isofill not on PATH')
+
+LON, LAT = 125.5, -23.5                      # the middle of square S24E125
+RINGS = [(0.30, 100), (0.22, 125), (0.14, 150), (0.06, 175)]   # radius in degrees, metres
+TOP = RINGS[-1][1]
+
+
+def a_hill(spot=None, rings=RINGS):
+    """Concentric contour rings, and optionally one node carrying ``ele``.
+
+    ``spot`` is (lon, lat, ele) - a string ele is written as given, so a test
+    can put something that is not a number there.
+    """
+    import numpy as np
+
+    from danu.core import edits
+    from danu.core.square import Node, Square, SquareName
+
+    sq = Square(name=SquareName(125, -24), present=True,
+                attrs={'version': '0.6', 'upload': 'never'})
+    alloc = edits.IdAllocator(sq)
+    for r, ele in rings:
+        pts = [(LON + r * math.cos(t), LAT + r * math.sin(t))
+               for t in np.linspace(0, 2 * math.pi, 73)]
+        pts[-1] = pts[0]
+        ids = [alloc.take() for _ in pts[:-1]]
+        edits.AddWay(alloc.take(), ids + [ids[0]], pts[:-1] + [pts[0]],
+                     {'ele': str(ele)}).apply(sq)
+    if spot is not None:
+        lon, lat, ele = spot
+        nid = alloc.take()
+        sq.nodes[nid] = Node(id=nid, lon=lon, lat=lat, tags={'ele': str(ele)})
+    return sq
+
+
+def built(sq, tmp_path, name='b', keep_pass1=False):
+    """The square built, as (dem, drawn mask, geotransform, result)."""
+    from danu.core.square import write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    zone = tmp_path / name / 'zone'
+    zone.mkdir(parents=True)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    result = build.build_dem(zone, tmp_path / name / 'w', sp.load().with_arcsec(3),
+                             keep_pass1=keep_pass1)
+    assert result.dem is not None, 'the hill built nothing'
+    ds = gdal.Open(str(result.dem))
+    dem = ds.GetRasterBand(1).ReadAsArray()
+    gt = ds.GetGeoTransform()
+    del ds
+    mds = gdal.Open(str(result.drawn_mask))
+    mask = mds.GetRasterBand(1).ReadAsArray() > 0
+    del mds
+    return dem, mask, gt, result
+
+
+def summit(dem, gt, cells=40):
+    """The highest ground near the middle of the hill, and the flat top's size
+    - how many cells there read the same as the peak."""
+    import numpy as np
+    cx = int((LON - gt[0]) / gt[1])
+    cy = int((LAT - gt[3]) / gt[5])
+    win = dem[cy - cells:cy + cells, cx - cells:cx + cells]
+    peak = float(win.max())
+    return peak, int(np.isclose(win, peak).sum()), float(dem[cy, cx])
+
+
+def test_contours_alone_leave_a_hill_flat_on_top(tmp_path):
+    """R37's premise, and the reason the rest of this file exists. The fill
+    has nothing above the top ring to aim at, so the whole inside of it comes
+    out at the ring's own value."""
+    dem, _, gt, _ = built(a_hill(), tmp_path)
+    peak, flat, centre = summit(dem, gt)
+    assert peak == pytest.approx(TOP, abs=0.5), f'the hill peaks at {peak}, not at the top ring'
+    assert centre == pytest.approx(TOP, abs=0.5)
+    assert flat > 500, f'only {flat} cells are at the peak; this hill is not flat-topped'
+
+
+def test_a_spot_height_puts_the_summit_at_its_own_value(tmp_path):
+    """G1's exit criterion: a hill with a spot height on it comes out pointed,
+    with the spot height's own value at the summit."""
+    dem, _, gt, _ = built(a_hill((LON, LAT, 240)), tmp_path)
+    peak, flat, centre = summit(dem, gt)
+    assert centre == pytest.approx(240, abs=0.5), f'the summit reads {centre}, not the spot height'
+    assert peak == pytest.approx(240, abs=0.5), 'something is higher than the spot height'
+    assert flat < 20, f'{flat} cells are at the peak; the summit is a plateau, not a point'
+
+
+def test_the_ground_falls_away_from_the_spot_height(tmp_path):
+    """Pointed means more than one high cell: the ground has to descend from
+    the summit to the ring it stands inside. A test that only read the summit
+    would pass on a spot height burned into an otherwise flat plateau."""
+    import numpy as np
+    dem, _, gt, _ = built(a_hill((LON, LAT, 240)), tmp_path)
+    cx = int((LON - gt[0]) / gt[1])
+    cy = int((LAT - gt[3]) / gt[5])
+    out = dem[cy, cx:cx + 60]                     # due east, from the summit
+    assert out[0] == pytest.approx(240, abs=0.5)
+    drops = np.diff(out.astype(float))
+    assert (drops <= 0.001).all(), 'the ground rises somewhere on the way down the hill'
+    assert out[-1] < 200, f'sixty cells out it is still at {out[-1]}'
+
+
+def test_a_spot_height_wins_the_cell_it_shares_with_a_contour(tmp_path):
+    """The rasterise order. A contour says the ground reaches this height
+    somewhere along here; a spot height says it is exactly this high at this
+    point, and the point is the more specific statement."""
+    on_the_ring = (LON + RINGS[-1][0], LAT, 400)
+    _, _, _, result = built(a_hill(on_the_ring), tmp_path)
+    ds = gdal.Open(str(result.constraints))
+    cons = ds.GetRasterBand(1).ReadAsArray()
+    gt = ds.GetGeoTransform()
+    del ds
+    x = int((on_the_ring[0] - gt[0]) / gt[1])
+    y = int((on_the_ring[1] - gt[3]) / gt[5])
+    assert cons[y, x] == 400, (
+        f'the cell reads {cons[y, x]}: the contour was burned over the spot height')
+
+
+def test_a_node_whose_ele_is_not_a_number_is_dropped(tmp_path):
+    """Squares carry ``ele=TBD`` on lake outlines and ``ele=tbd`` on peaks, and
+    rasterising coerces each of them to 0 - a sea level constraint planted on a
+    hilltop, which is worse than no constraint at all. The ways have been
+    cleaned since the pipeline moved; the nodes are new and need the same."""
+    dem, _, gt, result = built(a_hill((LON, LAT, 'tbd')), tmp_path)
+    ds = gdal.Open(str(result.constraints))
+    cons = ds.GetRasterBand(1).ReadAsArray()
+    cgt = ds.GetGeoTransform()
+    del ds
+    x = int((LON - cgt[0]) / cgt[1])
+    y = int((LAT - cgt[3]) / cgt[5])
+    from danu.surface.build import NODATA
+    assert cons[y, x] == NODATA, f'ele=tbd was burned as {cons[y, x]}'
+    peak, _, centre = summit(dem, gt)
+    assert centre == pytest.approx(TOP, abs=0.5), 'the hill is not the one contours alone give'
+
+
+def test_the_point_barrier_costs_no_reach(tmp_path):
+    """The spec said measure this first. ``barrier_cells`` widens a constraint
+    for the sight test, so a one-cell spot height becomes a five by five
+    occluder - a contour is a line and hardly notices, a point is not.
+
+    Measured three ways on this hill: a spot on the summit, one standing alone
+    between two rings where rays have to pass it, and one outside every contour.
+    No cell loses its reach in any of them, and the summit one *gains* reach for
+    the disc of cells that can now see something. Class 1 is 'nothing in reach',
+    and the classes are not a severity ranking - 3 is 'a single level in sight',
+    0 is answered - so this counts the class it means rather than comparing
+    numbers.
+    """
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    p = sp.load().with_arcsec(3)
+
+    def classes(sq, name):
+        dem, mask, gt, result = built(sq, tmp_path, name=name, keep_pass1=True)
+        path = build.first_pass_classes(result.constraints, result.drawn_mask, p,
+                                        tmp_path / name / 'w')
+        ds = gdal.Open(str(path))
+        c = ds.GetRasterBand(1).ReadAsArray()
+        del ds
+        return c, mask
+
+    base, base_mask = classes(a_hill(), 'base')
+    for name, spot in (('summit', (LON, LAT, 200)),
+                       ('between', (LON + 0.18, LAT, 140)),
+                       ('outside', (LON + 0.45, LAT, 60))):
+        c, mask = classes(a_hill(spot), name)
+        both = base_mask & mask
+        lost = int(((base != 1) & (c == 1) & both).sum())
+        assert lost == 0, f'{name}: {lost} cells lost every constraint in reach to the occluder'
+
+
+def test_a_spot_height_outside_the_contours_joins_the_envelope(tmp_path):
+    """Pinned because it is a decision, not an accident. ``drawn_area`` takes
+    the convex hull of the constraints raster per degree square, and a spot
+    height is in that raster - so one placed beyond the contours stretches the
+    hull and the ground between is filled.
+
+    That follows from R36 reading a spot height as a constraint *the same as a
+    contour way*, and a contour way out there would stretch the hull too. The
+    alternative - the envelope being the contour lines' alone, with spot heights
+    constraining inside it but never extending it - is coherent as well, since
+    isofill counts constraints outside the mask as evidence either way. This
+    says which one is in force.
+    """
+    _, inside, _, _ = built(a_hill((LON, LAT, 200)), tmp_path, name='in')
+    _, outside, _, _ = built(a_hill((LON + 0.45, LAT, 60)), tmp_path, name='out')
+    _, plain, _, _ = built(a_hill(), tmp_path, name='plain')
+    assert int(inside.sum()) == int(plain.sum()), (
+        'a spot height inside the contours changed the envelope')
+    assert int(outside.sum()) > int(plain.sum()) * 1.1, (
+        'a spot height beyond the contours did not stretch the envelope')
+
+
+def test_the_scan_counts_an_ele_outside_a_way(tmp_path):
+    """The guard that says a square had spot heights and contributed none. The
+    real fixture has no such node, so the count is exercised here."""
+    from danu.surface.build import _way_counts
+
+    path = tmp_path / 'square.osm'
+    path.write_text(
+        '<?xml version="1.0"?>\n<osm version="0.6">'
+        '<node id="-1" lat="-23.5" lon="125.5"><tag k="ele" v="225"/></node>'
+        '<node id="-2" lat="-23.4" lon="125.5"><tag k="ele" v="230"/></node>'
+        '<node id="-3" lat="-23.3" lon="125.5"/>'
+        '<way id="-9"><nd ref="-1"/><nd ref="-2"/><tag k="ele" v="100"/></way>'
+        '</osm>')
+    over, drop, longest, ele_ways, ele_nodes = _way_counts(path)
+    assert (over, drop, longest, ele_ways, ele_nodes) == (0, 0, 2, 1, 2)
+    for chunk in (7, 13, 64):
+        assert _way_counts(path, chunk=chunk) == (0, 0, 2, 1, 2), f'lost a token at chunk {chunk}'
+
+
+@pytest.mark.parametrize('where,ele', [
+    ('summit', 240),                      # clear of every contour
+    ('on the ring', 400),                 # sharing a cell with one, so the burn order shows
+])
+def test_a_preview_over_a_spot_height_burns_what_the_build_burns(tmp_path, where, ele):
+    """The preview burns a box from its own layer, clearing it to nodata first
+    - so a box over a hilltop would hand the solve a raster with no summit in
+    it, and the hill would flatten under the cursor until the exact rebuild.
+
+    Asserted as the whole box matching the build's constraints, not just the
+    one cell: that covers the burn order too, which is why one of these cases
+    puts the spot height on a contour. The preview agreeing with the build is
+    the preview's whole premise.
+
+    Spot heights are not editable yet - that is G2 - so the layer is read-only
+    here.
+    """
+    from danu.surface import preview
+    from danu.surface.build import NODATA
+    from danu.surface.local import Box
+
+    lon = LON if where == 'summit' else LON + RINGS[-1][0]
+    _, _, _, result = built(a_hill((lon, LAT, ele)), tmp_path)
+    ds = gdal.Open(str(result.constraints))
+    cgt = ds.GetGeoTransform()
+    whole = ds.GetRasterBand(1).ReadAsArray()
+    del ds
+    x = int((lon - cgt[0]) / cgt[1])
+    y = int((LAT - cgt[3]) / cgt[5])
+    assert whole[y, x] == ele, 'the build did not put the spot height there'
+
+    box = Box(x - 30, y - 30, x + 30, y + 30)
+    burned = preview.Contours(result.contours_gpkg).burn(cgt, box, NODATA)
+    assert burned[y - box.y0, x - box.x0] == ele, (
+        'the preview burned a box over the spot height and lost it')
+    assert (burned == whole[box.slice]).all(), 'the preview and the build disagree over this box'

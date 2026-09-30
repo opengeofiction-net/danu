@@ -874,6 +874,9 @@ summit.
 The profile tool was named here and is phase 6's, with measure and difference:
 it is how you read a surface, not how you anchor one.
 
+The notes on what this phase has done so far are in `implementation.md`, under
+*What phase 5 has done so far*.
+
 ### Phase 6
 
 **Phase 6 - checks and polish.** The validation panel, measure, profile,

@@ -43,6 +43,7 @@ from .local import Box
 from .params import Params
 
 LAYER = 'contour'
+SPOTS = 'spot'
 
 
 def box_extent(gt: tuple, box: Box) -> tuple[float, float, float, float]:
@@ -127,6 +128,29 @@ class Contours:
                 self._fid[str(osm_id)] = f.GetFID()
         self._next = top + 1
 
+        # The spot heights, read and never written. They are constraints as
+        # much as the contours are - R36 - and ``burn`` clears its box to
+        # nodata before re-burning, so a preview over a hilltop would rub one
+        # out and hand the solve a raster the build would never have produced.
+        # Read-only because nothing edits a spot height yet; that is G2, and
+        # this layer is where it will go.
+        self.spots = None
+        spot_lyr = src.GetLayer(SPOTS)
+        if spot_lyr is not None:
+            self.spots = self._mem.CreateLayer(SPOTS, srs=spot_lyr.GetSpatialRef(),
+                                               geom_type=ogr.wkbPoint)
+            self.spots.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+            sdefn = self.spots.GetLayerDefn()
+            for f in spot_lyr:
+                ele = f.GetField('ele')
+                if ele is None:
+                    continue
+                g = ogr.Feature(sdefn)
+                g.SetFID(f.GetFID())
+                g.SetGeometry(f.GetGeometryRef().Clone())
+                g.SetField('ele', float(ele))
+                self.spots.CreateFeature(g)
+
     def __len__(self) -> int:
         return self.layer.GetFeatureCount()
 
@@ -166,7 +190,8 @@ class Contours:
 
     def burn(self, gt: tuple, box: Box, nodata: float) -> np.ndarray:
         """The constraints for ``box`` alone, burned as the build burns them:
-        all touched, last writer wins, in FID order.
+        all touched, last writer wins, in FID order, and the spot heights after
+        the contours so a spot height standing on one wins its cell.
 
         All touched, as ``rasterise()`` does - a thin line otherwise leaves
         diagonal gaps, and the fill's sight test threads them."""
@@ -178,12 +203,17 @@ class Contours:
         band = out.GetRasterBand(1)
         band.SetNoDataValue(nodata)
         band.Fill(nodata)
-        self.layer.SetSpatialFilterRect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-        try:
-            gdal.RasterizeLayer(out, [1], self.layer,
-                                options=['ATTRIBUTE=ele', 'ALL_TOUCHED=TRUE'])
-        finally:
-            self.layer.SetSpatialFilter(None)
+        west, south = min(x0, x1), min(y0, y1)
+        east, north = max(x0, x1), max(y0, y1)
+        for layer in (self.layer, self.spots):
+            if layer is None:
+                continue
+            layer.SetSpatialFilterRect(west, south, east, north)
+            try:
+                gdal.RasterizeLayer(out, [1], layer,
+                                    options=['ATTRIBUTE=ele', 'ALL_TOUCHED=TRUE'])
+            finally:
+                layer.SetSpatialFilter(None)
         return band.ReadAsArray()
 
 
