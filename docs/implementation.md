@@ -1504,8 +1504,11 @@ log rather than a zone build stopped.
 **What it costs on deployment.** The golden square holds no such node, so the
 committed reference surface is unmoved and `test_golden_surface` is
 unaffected - though the golden *suite* is not untouched, since the scanner's
-count is now a five-tuple and the test that holds it to a parse of the fixture
-counts the fixture's node-level `ele` tags too, of which it has none. Of the
+count is now a five-tuple and the test holding it to a parse of that same
+square counts its node-level `ele` tags too, of which it has none. Both tests
+read `S24E125_Los_Pizarrales.osm.xz`, and both now assert the absence rather
+than assume it, so a fixture that grew a spot height would say so before the
+reference moved under anybody. Of the
 squares on this machine exactly one carries one - `gobras/N20E086`, a node at
 225 m - so what a rebuild changes is one hilltop. Elsewhere it is whatever the
 zones hold, and the change is a DEM rebuild rather than a packaging one: same

@@ -297,10 +297,11 @@ def test_a_spot_height_in_a_later_square_still_makes_the_layer(tmp_path):
     square holds.
 
     What this holds is that the later square's spot height reaches the raster.
-    It does not hold the ``geometryType='POINT'`` that ``collect`` passes on
-    that translate: removing it leaves this passing, because an append creates
-    the layer regardless. That option is there to say what the layer is rather
-    than to make it exist.
+    ``collect`` passes no ``geometryType`` on that translate; it used to, and
+    the option came out again when removing it changed no test - including this
+    one, and including the single-square cases above, which are the first
+    square contributing. An append creates the layer with the geometry the OSM
+    driver's points layer has.
     """
     from danu.core import edits
     from danu.core.square import Node, SquareName, write_square

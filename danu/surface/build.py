@@ -433,7 +433,6 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     conf = lines_osmconf(work)
     square = work / 'square.osm'
     first = True
-    spots_made = False
     before = 0
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
                               # A square whose in-memory database exceeds
@@ -478,17 +477,17 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # writes one layer. A square with no spot heights writes nothing and
             # costs a second parse of a file GDAL has just read, which against
             # the fill is not a cost worth arranging around
+            # always an append, and no geometryType: the layer does not exist
+            # until some square has a spot height, and that square need not be
+            # the first one read - but an append creates it either way, with
+            # the geometry the OSM driver's points layer has. A POINT hint here
+            # was tried and taken out again, because removing it changed no
+            # test: it looked like the thing that made the layer and was not
             spot_opts = dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
                              layerName='spot', accessMode='append')
-            if not spots_made:
-                # saying what the layer is, not making it exist: an append
-                # creates it either way, as the test for a spot height in a
-                # later square shows by still passing without this
-                spot_opts['geometryType'] = 'POINT'
             gdal.VectorTranslate(str(gpkg), str(source),
                                  options=gdal.VectorTranslateOptions(**spot_opts))
             spots_now = _feature_count(gpkg, 'spot')
-            spots_made = spots_made or spots_now > 0
             # the same silent loss the lines guard below is for - GDAL handing
             # back an empty layer rather than an error - said rather than
             # raised: the count is of ele tags outside a way, so a relation
@@ -501,8 +500,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # square, because by then the squares are one GeoPackage
             if ele_loose and spots_now == spots_before:
                 log(f'  WARNING: {path.name} has {ele_loose} ele tag(s) outside its way '
-                    f'elements, which on a square holding no relations are spot '
-                    f'heights, but contributed no spot height')
+                    f'elements - a spot height, or a contour node that also carries '
+                    f'one - and contributed no spot height')
             if not expanded:
                 square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver
