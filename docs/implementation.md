@@ -1296,6 +1296,67 @@ named in the panel, which is now a distinction only visible while a build is
 running - but it is the right one either way, since what a preview needs
 settling at is the ground it was drawn over.
 
+**The exit criterion, measured.** Phase 4 ends when drawing a contour moves
+the hillshade under the cursor inside 50 ms, and the zoom that matters is z15
+to z19 because that is where contours are drawn. Driven through the real
+window - `editor.do`, then the preview driver's `patched`, then the next paint
+of the surface layer - on the gobras 3x3, one node moved:
+
+| ms, 3 arcseconds | z13 | z15 | z17 | z19 |
+|---|---|---|---|---|
+| `editor.do` | 30.2 | 30.1 | 28.6 | 30.0 |
+| - of which `layer.refresh` | 27.3 | 28.2 | 26.8 | 27.6 |
+| to the patch | 123.6 | 111.0 | 109.3 | 111.7 |
+| to the frame | 124.3 | 111.8 | 109.9 | 112.8 |
+
+At 1 arcsecond: `editor.do` 22 to 30 ms, the patch at 1,388 to 1,546 ms with
+the solve 1,318 to 1,479 of it, the frame at 1,388 to 2,761.
+
+**Zoom no longer matters**, which is the first thing the measurement says and
+not what it was taken to find out. Flat from z13 to z19 at both resolutions:
+F5c item 1 took the zoom dependence out of the repaint, and there is nothing
+left that scales with what is on screen. The question the criterion was waiting
+on had already been answered by something else.
+
+**The criterion is missed**, by about twice at 3 arcseconds and thirty times at
+1. But the UI thread is free in about 30 ms either way, so the editor is
+responsive throughout and what is slow is the hillshade catching up. Those are
+two clocks and one number cannot describe both. The budget at 3 arcseconds is
+30 ms of `editor.do`, 30 of `GESTURE_MS` - the coalescing window that turns a
+fast hand's run of edits into one preview, and deliberate - and 52 of the
+solve. At 1 arcsecond the solve is everything.
+
+**The one thing left on the UI thread was the contour layer, again.** Moving
+one node re-projected 723 ways and 28,618 points, because `refresh` rebuilt
+every way at the elevations the edited ways were and are at: a piece was
+reachable only through the level that held it, so there was no way to replace
+one. F5c item 1 had fixed `paint` and left `refresh` alone.
+
+A piece now carries its own elevation and label, so dropping one is a list
+removal by identity and adding one is a single path:
+
+| ms, 3 arcseconds | z13 | z15 | z17 | z19 |
+|---|---|---|---|---|
+| `layer.refresh` | 3.9 | 4.2 | 5.4 | 4.8 |
+| `editor.do` | 8.2 | 8.1 | 9.4 | 8.7 |
+| to the frame | 96.4 | 89.0 | 91.2 | 97.1 |
+
+`index_levels` is worked out again only when a level appeared or emptied,
+which is the only thing that can move an index contour. Sorting every drawn
+level is small against re-projecting 723 ways, but it still grows with the
+working set, and that shape is what the change is for.
+
+By identity and not by equality, in both the code and the test that holds it:
+the pieces are rebuilt to the same coordinates, so an equality test would pass
+on exactly the behaviour being removed. The first version of that test compared
+`id()` values and passed for a worse reason still - a dropped `Label` is freed,
+and the replacement landed on its address.
+
+What the change does not do is end the phase. It takes 21 ms off a 110 ms edit
+at 3 arcseconds and 22 off 1,400 at 1; the rest is the coalescing window and
+the solve. Restating the criterion as the two clocks it now has belongs with
+the rebuild question in phase 7.
+
 **What is not F5c.** Persisting the display settings, and the contour tools a
 mapper wants next - split, merge, join - are phase 5 and 6 work that using the
 editor surfaced early.

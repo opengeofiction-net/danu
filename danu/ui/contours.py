@@ -80,9 +80,14 @@ class _Piece:
     What it costs is a drawPath and a rectangle test per way rather than per
     level. The test is nothing; the call has some overhead, and at a zoom
     where everything is visible it is paid for no saving - which is why it is
-    measured at both ends in tests/ui/test_contours.py rather than assumed."""
+    measured at both ends in tests/ui/test_contours.py rather than assumed.
+
+    It carries its elevation and its label so that an edit can take one way
+    out without looking at the others - see ``_drop_way``."""
     path: QPainterPath
     rect: QRectF
+    ele: float
+    label: 'Label'
 
 
 @dataclass
@@ -155,6 +160,11 @@ class ContourLayer(QGraphicsItem):
         self.index_levels: set[float] = set()
         self.active: float | None = None          # the active elevation, drawn heavier
         self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
+        # the piece each way contributes, so an edit can replace one of them
+        self._pieces: dict[tuple[SquareName, int], _Piece] = {}
+        # whether a level has appeared or emptied since index_levels was last
+        # worked out, which is the only thing that can move an index contour
+        self._levels_moved = False
         # every segment of every contour, and every node of every contour and
         # coastline, as parallel arrays: the nearest of a hundred thousand,
         # or the crossings of a new segment with all of them, is one
@@ -183,7 +193,8 @@ class ContourLayer(QGraphicsItem):
         # working set to the next. It grows with the distinct pairs ever shown,
         # which is bounded and small - and the font being in the key is what
         # makes not clearing safe, since there is otherwise no eviction.
-        self.paths, self.labels, self.index_levels, self._geoms = {}, [], set(), {}
+        self.paths, self.labels, self.index_levels = {}, [], set()
+        self._geoms, self._pieces = {}, {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -200,7 +211,11 @@ class ContourLayer(QGraphicsItem):
                 geom = self._project(square, way)
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
-        self._rebuild_levels({g.ele for g in self._geoms.values() if g.ele is not None})
+        for key, geom in self._geoms.items():
+            if geom.ele is not None:
+                self._add_way(key, geom)
+        self._reindex()
+        self._levels_moved = False
         self._arrays_stale = True
         self.update()
 
@@ -223,47 +238,92 @@ class ContourLayer(QGraphicsItem):
 
     def refresh(self, square: Square, way_ids: set[int]):
         """Some ways of a square changed - an edit, or its undo. Re-project
-        them, rebuild the levels they were and are at, and the arrays."""
-        levels: set[float] = set()
+        them, replace what they draw, and mark the arrays stale.
+
+        Only those ways. This used to rebuild every way at the elevations they
+        were and are at, because the pieces were reachable only through the
+        level that held them: moving one node of a 175 m contour on the gobras
+        3x3 re-projected 723 ways and 28,618 points, and cost 27 ms of a 50 ms
+        budget on every edit at every zoom - the largest thing left on the UI
+        thread once F5c had finished with the painting. A piece now knows its
+        own level and label, so taking one out is a list removal by identity
+        and putting one back is one path.
+        """
         for wid in way_ids:
-            old = self._geoms.pop((square.name, wid), None)
-            if old is not None and old.ele is not None:
-                levels.add(old.ele)
+            key = (square.name, wid)
+            self._drop_way(key)
+            self._geoms.pop(key, None)
             way = square.ways.get(wid)
             geom = self._project(square, way) if way is not None else None
             if geom is not None:
-                self._geoms[(square.name, wid)] = geom
+                self._geoms[key] = geom
                 if geom.ele is not None:
-                    levels.add(geom.ele)
-        self._rebuild_levels(levels)
+                    self._add_way(key, geom)
+        if self._levels_moved:
+            self._reindex()
+            self._levels_moved = False
         self._arrays_stale = True
         self.update()
 
-    def _rebuild_levels(self, levels: set[float]):
-        for ele in levels:
-            self.paths.pop(ele, None)
-        self.labels = [lab for lab in self.labels if lab.ele not in levels]
-        for g in self._geoms.values():
-            if g.ele is None or g.ele not in levels:
-                continue
-            # tolist() first: stepping a numpy (n, 2) array row by row in
-            # Python builds an array scalar per coordinate, and there are
-            # 342,000 of them in the gobras 3x3. The same path building over
-            # plain floats is 66 ms against 400 ms, measured on that set
-            pts = g.pts.tolist()
-            path = QPainterPath()
-            path.moveTo(pts[0][0], pts[0][1])
-            for x, y in pts[1:]:
-                path.lineTo(x, y)
-            xs, ys = g.pts[:, 0], g.pts[:, 1]
-            # grown by a unit, so a straight east-west contour - whose rect has
-            # no height - still intersects anything
-            rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
-                          float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-            self.paths.setdefault(g.ele, []).append(_Piece(path, rect))
-            self.labels.append(self._label(g.ele, pts))
-        all_levels = sorted(self.paths)
-        self.index_levels = set(all_levels[::INDEX_EVERY_N])
+    def _add_way(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+        """One way's path, rectangle and label, into the level it draws at."""
+        # tolist() first: stepping a numpy (n, 2) array row by row in
+        # Python builds an array scalar per coordinate, and there are
+        # 342,000 of them in the gobras 3x3. The same path building over
+        # plain floats is 66 ms against 400 ms, measured on that set
+        pts = g.pts.tolist()
+        path = QPainterPath()
+        path.moveTo(pts[0][0], pts[0][1])
+        for x, y in pts[1:]:
+            path.lineTo(x, y)
+        xs, ys = g.pts[:, 0], g.pts[:, 1]
+        # grown by a unit, so a straight east-west contour - whose rect has
+        # no height - still intersects anything
+        rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
+                      float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
+        piece = _Piece(path, rect, g.ele, self._label(g.ele, pts))
+        self._pieces[key] = piece
+        if g.ele not in self.paths:
+            self._levels_moved = True
+        self.paths.setdefault(g.ele, []).append(piece)
+        self.labels.append(piece.label)
+
+    def _drop_way(self, key: tuple[SquareName, int]) -> None:
+        """Whatever that way was drawing, out - and nothing else.
+
+        By identity rather than by equality: two ways at one elevation can
+        hold equal paths, equal rectangles and equal labels, and a fixture
+        where 39 of 94 contours are an exact copy of another is not
+        hypothetical here. What makes identity enough for the label, which is
+        not keyed on anything, is that ``_label`` builds a new one per call -
+        so a ``Label`` belongs to exactly one piece and appears in ``labels``
+        exactly once.
+        """
+        piece = self._pieces.pop(key, None)
+        if piece is None:
+            return
+        pieces = self.paths.get(piece.ele)
+        if pieces is not None:
+            for i, p in enumerate(pieces):
+                if p is piece:
+                    del pieces[i]
+                    break
+            if not pieces:
+                del self.paths[piece.ele]
+                self._levels_moved = True
+        for i, lab in enumerate(self.labels):
+            if lab is piece.label:
+                del self.labels[i]
+                break
+
+    def _reindex(self) -> None:
+        """Every fifth level is an index contour, counted over the levels that
+        are drawn - so a level appearing or emptying moves the rest, and
+        nothing else does. Called on an edit only when one of those happened:
+        sorting every drawn level is small against re-projecting 723 ways, but
+        it is still a cost that grows with the working set, which is the shape
+        this whole change is for."""
+        self.index_levels = set(sorted(self.paths)[::INDEX_EVERY_N])
 
     def _ensure_arrays(self):
         """The flat arrays, if an edit has been made since they were last

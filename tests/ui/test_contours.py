@@ -425,11 +425,11 @@ def test_refreshing_a_way_twice_does_not_draw_it_twice(view, ws):
     clear the level first would append every way again - every contour drawn
     twice, at twice the cost, looking only slightly heavier.
 
-    `_rebuild_levels` pops each level before refilling it, and `refresh` puts
-    both the elevation a way had and the one it has into that set. This is what
-    says so, because the shape that would break it is one line away: the
-    previous structure was a path per level and appending to it had the same
-    hazard, so neither spelling protects itself."""
+    `refresh` drops the way's own piece before adding the new one, so the way
+    it had is gone from the level whether or not it stays at that elevation.
+    This is what says so, because the shape that would break it is one line
+    away: two structures before this one appended to a shared list and had the
+    same hazard, so no spelling of it protects itself."""
     layer = ContourLayer()
     layer.set_working_set(ws)
     sq = ws.squares[SquareName(125, -24)]
@@ -687,3 +687,92 @@ def test_labels_start_at_z14_and_above_where_every_contour_does():
     assert ZOOM_LABELS > ZOOM_ALL + 1, (
         f'labels start at z{ZOOM_LABELS} and every contour at z{ZOOM_ALL}; they '
         f'were adjacent when labels cost a third of a repaint at both')
+
+
+def test_refreshing_one_way_leaves_every_other_way_alone(ws):
+    """The point of a piece per way, rather than per level.
+
+    `refresh` used to rebuild every way at the elevations the edited ways were
+    and are at, because a piece was reachable only through the level that held
+    it. On the gobras 3x3 that was 723 ways and 28,618 points re-projected to
+    move one node - 27 ms of phase 4's 50 ms budget, on every edit, at every
+    zoom.
+
+    Asserted by identity, which is the only way to see it: the pieces are
+    rebuilt to the same coordinates, so equality would pass on the behaviour
+    this exists to prevent.
+    """
+    from danu.core import edits
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(w for w in sq.contours() if w.ele is not None)
+
+    # the objects, not their ids: a dropped Label is freed and the next
+    # allocation can land on its address, so a set of ids compares equal to
+    # itself after a replacement. Holding the old ones keeps that honest
+    before_pieces = list(layer.paths[way.ele])
+    before_labels = list(layer.labels)
+    assert len(before_pieces) > 1, 'the edited way is the only one at its level; this proves nothing'
+    mine = layer._pieces[(sq.name, way.id)]
+
+    ref = way.refs[len(way.refs) // 2]
+    node = sq.nodes[ref]
+    edits.MoveNode(ref, (node.lon, node.lat), (node.lon + 0.001, node.lat)).apply(sq)
+    layer.refresh(sq, {way.id})
+
+    now = layer.paths[way.ele]
+    assert len(now) == len(before_pieces)
+    kept = [p for p in before_pieces if p is not mine]
+    for p in kept:
+        assert any(q is p for q in now), 'refreshing one way replaced another piece at its level'
+    assert not any(q is mine for q in now), 'the edited way kept its old piece'
+
+    # and the labels follow the pieces: one replaced, the rest untouched
+    gone = [lab for lab in before_labels if not any(lab is x for x in layer.labels)]
+    assert len(gone) == 1 and gone[0] is mine.label
+
+
+def test_a_way_that_loses_its_level_takes_the_level_with_it(ws):
+    """A level with no ways left is removed rather than left empty, because
+    `index_levels` counts every fifth *drawn* level and an empty one would
+    shift the index contours - and `paint` would iterate it for nothing."""
+    from danu.core import edits
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    alone = next(ele for ele, pieces in layer.paths.items() if len(pieces) == 1)
+    wid = next(w.id for w in sq.contours() if w.ele == alone)
+
+    edits.DeleteWay(wid).apply(sq)
+    layer.refresh(sq, {wid})
+    assert alone not in layer.paths
+    assert alone not in layer.index_levels
+
+
+def test_a_new_level_moves_the_index_contours(ws):
+    """`index_levels` is every fifth drawn level, so a level appearing renumbers
+    the rest. An edit works it out again only when a level appeared or emptied -
+    which is the only thing that can change it - so this is what says the
+    condition is right rather than merely cheap."""
+    from danu.core import edits
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    before = set(layer.index_levels)
+    lowest = min(layer.paths)
+    new = lowest - 1.0
+    assert new not in layer.paths
+
+    alloc = edits.IdAllocator(sq)
+    wid = alloc.take()
+    edits.AddWay(wid, [alloc.take(), alloc.take()],
+                 [(125.2, -23.5), (125.8, -23.5)], {'ele': f'{new:g}'}).apply(sq)
+    layer.refresh(sq, {wid})
+
+    assert new in layer.paths
+    assert set(layer.index_levels) != before, (
+        'a level appeared below every other one and the index contours did not move')
