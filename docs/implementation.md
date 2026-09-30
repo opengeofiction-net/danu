@@ -1486,7 +1486,10 @@ and is not a thing these squares hold; the cost of being wrong is a line in a
 log rather than a zone build stopped.
 
 **What it costs on deployment.** The golden square holds no such node, so the
-committed reference is unmoved and the golden test passes untouched. Of the
+committed reference surface is unmoved and `test_golden_surface` is
+unaffected - though the golden *suite* is not untouched, since the scanner's
+count is now a five-tuple and the test that holds it to a parse of the fixture
+counts the fixture's spot heights too, of which it has none. Of the
 squares on this machine exactly one carries one - `gobras/N20E086`, a node at
 225 m - so what a rebuild changes is one hilltop. Elsewhere it is whatever the
 zones hold, and the change is a DEM rebuild rather than a packaging one: same

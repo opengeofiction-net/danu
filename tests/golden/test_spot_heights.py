@@ -187,13 +187,20 @@ def test_the_point_barrier_costs_no_reach(tmp_path):
         return c, mask
 
     base, base_mask = classes(a_hill(), 'base')
-    for name, spot in (('summit', (LON, LAT, 200)),
-                       ('between', (LON + 0.18, LAT, 140)),
-                       ('outside', (LON + 0.45, LAT, 60))):
+    # least the spot is expected to *gain*, where it stands on ground that had
+    # nothing in reach: a disc of the fill's radius is 1,257 cells at 20. The
+    # one outside the contours is on ground the base build never masked in, so
+    # there is nothing of it to compare and its floor is 0
+    for name, spot, least_gain in (('summit', (LON, LAT, 200), 1000),
+                                   ('between', (LON + 0.18, LAT, 140), 1000),
+                                   ('outside', (LON + 0.45, LAT, 60), 0)):
         c, mask = classes(a_hill(spot), name)
         both = base_mask & mask
         lost = int(((base != 1) & (c == 1) & both).sum())
+        gained = int(((base == 1) & (c != 1) & both).sum())
         assert lost == 0, f'{name}: {lost} cells lost every constraint in reach to the occluder'
+        assert gained >= least_gain, (
+            f'{name}: the spot height gave reach to {gained} cells, not the disc it should')
 
 
 def test_a_spot_height_outside_the_contours_joins_the_envelope(tmp_path):
