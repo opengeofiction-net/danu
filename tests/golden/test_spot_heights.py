@@ -382,3 +382,23 @@ def test_burning_the_spot_heights_does_not_wipe_the_contours(tmp_path):
         'the second burn changed cells the contours had written')
     added = int((after != NODATA).sum()) - int(kept.sum())
     assert added == 1, f'the spot height added {added} constraint cells, not one'
+
+
+def test_the_preview_copies_the_spot_layers_own_geometry_type(tmp_path):
+    """The preview re-creates the build's layers in memory to burn from, and a
+    copy that declares a different geometry from the source is a preview
+    burning a different shape - the one divergence this arrangement exists to
+    prevent. Taken from the source rather than named again."""
+    from osgeo import ogr
+
+    from danu.surface import preview
+
+    _, _, _, result = built(a_hill((LON, LAT, 240)), tmp_path)
+    src = ogr.Open(str(result.contours_gpkg))
+    want = src.GetLayer('spot').GetGeomType()
+    del src
+    contours = preview.Contours(result.contours_gpkg)
+    assert contours.spots is not None, 'the preview did not pick the spot layer up'
+    assert contours.spots.GetGeomType() == want, (
+        f'the preview calls the spot layer {contours.spots.GetGeomType()} '
+        f'where the build has {want}')

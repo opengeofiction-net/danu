@@ -137,8 +137,13 @@ class Contours:
         self.spots = None
         spot_lyr = src.GetLayer(SPOTS)
         if spot_lyr is not None:
+            # the source's own geometry type, not wkbPoint named again: the
+            # layer is whatever VectorTranslate made of the OSM driver's points,
+            # and a copy that declares something else is a preview burning a
+            # different shape from the build - which is the one divergence this
+            # whole arrangement exists to prevent
             self.spots = self._mem.CreateLayer(SPOTS, srs=spot_lyr.GetSpatialRef(),
-                                               geom_type=ogr.wkbPoint)
+                                               geom_type=spot_lyr.GetGeomType())
             self.spots.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
             sdefn = self.spots.GetLayerDefn()
             for f in spot_lyr:
