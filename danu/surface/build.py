@@ -624,6 +624,11 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
         # several stages downstream of the thing that was wrong
         raise ValueError(f'{gpkg} holds neither a contour nor a spot layer')
     # One call per layer, in order, rather than one call with a layer list.
+    # The first creates the raster and the rest add to it, and the first is the
+    # contour layer whenever collect() made this file: the lines translate runs
+    # for every square and creates that layer on the first one, holding no
+    # features if no square had any. A set of nothing but spot heights still
+    # arrives here as ['contour', 'spot'].
     # The order is the whole of the rule above, and a list argument leaves it
     # to whether GDAL iterates the list or the datasource - which would decide
     # it by the GeoPackage's internal layer order, and differently between

@@ -1506,9 +1506,10 @@ committed reference surface is unmoved and `test_golden_surface` is
 unaffected - though the golden *suite* is not untouched, since the scanner's
 count is now a five-tuple and the test holding it to a parse of that same
 square counts its node-level `ele` tags too, of which it has none. Both tests
-read `S24E125_Los_Pizarrales.osm.xz`, and both now assert the absence rather
-than assume it, so a fixture that grew a spot height would say so before the
-reference moved under anybody. Of the
+read `S24E125_Los_Pizarrales.osm.xz`, and the scanner's one now asserts the
+absence rather than assuming it - so a fixture that grew a spot height says so
+there, loudly and by name, rather than in a reference surface moving under
+somebody. Of the
 squares checked out on this machine on 2026-10-01 exactly one carried one -
 `gobras/N20E086`, a node at 225 m - so what a rebuild changed there was one
 hilltop. That is a reading of a working tree on a day and not a property of

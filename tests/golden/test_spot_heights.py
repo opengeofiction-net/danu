@@ -422,3 +422,48 @@ def test_the_preview_copies_the_spot_layers_own_geometry_type(tmp_path):
     assert contours.spots.GetGeomType() == want, (
         f'the preview calls the spot layer {contours.spots.GetGeomType()} '
         f'where the build has {want}')
+
+
+def test_a_square_of_nothing_but_spot_heights_builds(tmp_path):
+    """``collect`` returns a GeoPackage when either layer has features, so a
+    set with spot heights and no contour ways is a thing that reaches
+    ``rasterise``. It arrives as both layers even so - the lines translate runs
+    for every square and creates ``contour`` on the first, empty if that square
+    had none - which is what makes ``rasterise``'s first call the contour one
+    whatever the squares hold.
+    """
+    from osgeo import ogr
+
+    from danu.core import edits
+    from danu.core.square import Node, Square, SquareName, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    sq = Square(name=SquareName(125, -24), present=True,
+                attrs={'version': '0.6', 'upload': 'never'})
+    alloc = edits.IdAllocator(sq)
+    for lon, lat, ele in ((LON - 0.1, LAT - 0.1, 300), (LON + 0.1, LAT + 0.1, 350)):
+        nid = alloc.take()
+        sq.nodes[nid] = Node(id=nid, lon=lon, lat=lat, tags={'ele': str(ele)})
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(sq, zone / 'S24E125.osm.xz')
+
+    said = []
+    result = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3), log=said.append)
+    assert result.dem is not None, f'a square of spot heights built nothing: {said}'
+    assert any('2 spot heights' in line for line in said)
+
+    ds = ogr.Open(str(result.contours_gpkg))
+    names = [ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
+    del ds
+    assert names[0] == 'contour' and 'spot' in names, (
+        f'{names}: rasterise would not be creating the raster from the contour layer')
+
+    cds = gdal.Open(str(result.constraints))
+    cons = cds.GetRasterBand(1).ReadAsArray()
+    gt = cds.GetGeoTransform()
+    del cds
+    x = int((LON - 0.1 - gt[0]) / gt[1])
+    y = int((LAT - 0.1 - gt[3]) / gt[5])
+    assert cons[y, x] == 300, f'the spot height reads {cons[y, x]}'
