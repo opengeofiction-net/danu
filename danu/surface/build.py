@@ -604,10 +604,11 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     reaches the ground behind a coastline without crossing it.
 
     The spot heights go in after the contours - one Rasterize call each, in
-    that order - so a spot height standing on a contour wins the cell. That is the right way round: a contour says the
-    ground reaches this height somewhere along here, a spot height says the
-    ground is exactly this high at this point, and where they disagree the
-    point is the more specific statement. It is also the case R37 exists for -
+    that order - so a spot height standing on a contour wins the cell. That is
+    the right way round: a contour says the ground reaches this height
+    somewhere along here, a spot height says the ground is exactly this high at
+    this point, and where they disagree the point is the more specific
+    statement. It is also the case R37 exists for -
     a summit inside the top ring is higher than the ring, and a contour burned
     over it would flatten the thing the spot height is there to raise.
     """

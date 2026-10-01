@@ -304,6 +304,13 @@ def test_a_spot_height_in_a_later_square_still_makes_the_layer(tmp_path):
     exercises this, because it creates its layer on square one whatever that
     square holds.
 
+    Which square is read first is not incidental here, and it is not left to a
+    dict either: ``collect`` walks ``sorted(squares.items())`` and ``SquareName``
+    is ordered, so S24E125 goes before S24E126 and the spot layer cannot be
+    created until the second translate. The assertion below says so rather than
+    trusting the comment, because a test that silently stopped exercising this
+    path would keep passing.
+
     What this holds is that the later square's spot height reaches the raster.
     ``collect`` passes no ``geometryType`` on that translate; it used to, and
     the option came out again when removing it changed no test - including this
@@ -328,6 +335,11 @@ def test_a_spot_height_in_a_later_square_still_makes_the_layer(tmp_path):
     nid = edits.IdAllocator(east).take()
     east.nodes[nid] = Node(id=nid, lon=LON + 1.0, lat=LAT, tags={'ele': '400'})
     write_square(east, zone / 'S24E126.osm.xz')
+
+    # the order collect will read them in, and that the spot height is in the
+    # second one: both halves of what this test is for
+    assert sorted(result_names := [SquareName(125, -24), SquareName(126, -24)]) == result_names
+    assert not any('ele' in n.tags for n in a_hill().nodes.values())
 
     result = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3))
     assert result.dem is not None
