@@ -629,6 +629,14 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     # for every square and creates that layer on the first one, holding no
     # features if no square had any. A set of nothing but spot heights still
     # arrives here as ['contour', 'spot'].
+    #
+    # The second call passes no initValues, no noData, no bounds, no resolution
+    # and no type, and every one of those omissions is the point: it writes
+    # into the raster the first call made, on that grid, adding to it. Give it
+    # initValues and the contours vanish and the spot heights alone remain -
+    # which has a test, because it is the half of this a later edit would break
+    # while the order went on looking right.
+    #
     # The order is the whole of the rule above, and a list argument leaves it
     # to whether GDAL iterates the list or the datasource - which would decide
     # it by the GeoPackage's internal layer order, and differently between
