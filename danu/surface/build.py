@@ -317,9 +317,10 @@ _SCAN = re.compile(rb"""<way\b|</way>|<nd\b|k=["']ele["']""")
 _SCAN_OVERLAP = 16
 
 
-def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int]:
-    """(ways over 2,000 nodes, ways over 10,000, the longest, ways tagged ele),
-    by scanning the XML rather than parsing it.
+def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, int]:
+    """(ways over 2,000 nodes, ways over 10,000, the longest, ways tagged ele,
+    ``ele`` tags that are not inside a ``way`` element), by scanning the XML
+    rather than parsing it.
 
     Scanned, because this runs on every square of every zone every night and on
     every working set the editor opens. Parsing a square into objects to count
@@ -329,8 +330,23 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int]:
 
     Unlike that ``awk``, an ``ele`` is only credited to a way when it is inside
     one: the old pass counted a tag anywhere, so an ``ele`` on a node before a
-    way made that way look tagged."""
-    over = drop = longest = ele_ways = 0
+    way made that way look tagged.
+
+    The last count is the other half of that distinction, which used to be
+    thrown away: an ``ele`` outside a way is a spot height, and the guard wants
+    to know a square has some before deciding that finding none is normal.
+
+    It is *outside a way* rather than *on a node*, because telling those apart
+    means matching ``<node`` too and there are two and a half million of them
+    in the largest square - the whole reason this scans rather than parses. Two
+    things fall on the loose side of that and both are harmless here. A node
+    that a contour way goes on to reference is written before the way, so its
+    ``ele`` lands in this count as well - which is right for the guard, since
+    such a node is reported in the points layer too and contributes. And a
+    relation tagged ``ele`` would be counted, which these squares do not hold;
+    what it would cost is a warning that need not have been printed, which is
+    why the guard warns rather than stops."""
+    over = drop = longest = ele_ways = ele_loose = 0
     nodes = 0
     in_way = has_ele = False
     carry = b''
@@ -359,13 +375,16 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int]:
                     in_way = False
                 elif in_way:
                     has_ele = True
+                else:
+                    ele_loose += 1
             carry = buf[max(limit, 0):]
-    return over, drop, longest, ele_ways
+    return over, drop, longest, ele_ways, ele_loose
 
 
-def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> int:
-    """How many ways in the square carry an ``ele``, having refused it if any
-    way is too long for GDAL to read. Takes the expanded square, which
+def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tuple[int, int]:
+    """How many ways in the square carry an ``ele``, and how many ``ele`` tags
+    sit outside its ``way`` elements, having refused the square if any way is
+    too long for GDAL to read. Takes the expanded square, which
     ``collect`` has written out for GDAL anyway, and ``name`` for the messages -
     the expanded file is called square.osm and saying so would tell an operator
     nothing about which square to go and fix.
@@ -380,23 +399,31 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> int
     would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
     both."""
     name = name or square_path.name
-    over, drop, longest, ele_ways = _way_counts(square_path)
+    over, drop, longest, ele_ways, ele_loose = _way_counts(square_path)
     if drop:
         raise ValueError(f'{name} has {drop} way(s) over 10,000 nodes (longest {longest}); '
                          f'GDAL drops these silently. Run danu.core.split_long_ways')
     if over:
         log(f'  WARNING: {name} has {over} way(s) over 2,000 nodes (longest {longest}), '
             f'which the OSM API would reject on upload')
-    return ele_ways
+    return ele_ways, ele_loose
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> Path | None:
-    """Every square's contour ways into one GeoPackage layer, ``contour``, with
-    a numeric ``ele``. None when there are no contours at all.
+    """Every square's constraints into one GeoPackage: the ways with a numeric
+    ``ele`` as ``contour``, the nodes with one as ``spot``. None when there are
+    neither.
 
     Every way carrying a numeric ``ele`` is a constraint: contours, and the
     water edges at ele 0. Ways without one - the frame, stray tagging - are
     ignored.
+
+    So is every node carrying one - R36, a spot height, the only thing that
+    can say how high a hill goes, since contours can only bracket it. Reading
+    them is new: the packaged ``osmconf.ini`` had ``ele`` among ``[points]``'s
+    ``unsignificant`` keys, which is GDAL's own default, and a node tagged with
+    nothing else is then not reported in the points layer at all. Nothing in
+    this pipeline had ever seen one.
 
     A zone's squares are held compressed; a staging directory's edited ones are
     not. Either is read, and an expanded one is read where it lies."""
@@ -437,7 +464,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                 source = square
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
-            ele_ways = check_long_ways(source, log, name=path.name)
+            ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
+            spots_before = _feature_count(gpkg, 'spot')
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
@@ -445,6 +473,35 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                 opts['accessMode'] = 'append'
             gdal.VectorTranslate(str(gpkg), str(source), options=gdal.VectorTranslateOptions(**opts))
             first = False
+            # the same square again for its points, because one VectorTranslate
+            # writes one layer. A square with no spot heights writes nothing and
+            # costs a second parse of a file GDAL has just read, which against
+            # the fill is not a cost worth arranging around
+            # always an append, and no geometryType: the layer does not exist
+            # until some square has a spot height, and that square need not be
+            # the first one read - but an append creates it either way, with
+            # the geometry the OSM driver's points layer has. A POINT hint here
+            # was tried and taken out again, because removing it changed no
+            # test: it looked like the thing that made the layer and was not
+            spot_opts = dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
+                             layerName='spot', accessMode='append')
+            gdal.VectorTranslate(str(gpkg), str(source),
+                                 options=gdal.VectorTranslateOptions(**spot_opts))
+            spots_now = _feature_count(gpkg, 'spot')
+            # the same silent loss the lines guard below is for - GDAL handing
+            # back an empty layer rather than an error - said rather than
+            # raised: the count is of ele tags outside a way, so a relation
+            # carrying one would make this print for nothing, and a zone build
+            # stopped by a false alarm is worse than a line in a log.
+            #
+            # It does not cover a spot height whose ele is not a number. That
+            # one is translated, counted here, and deleted afterwards by the
+            # cleanup, which says so in a line of its own - without naming the
+            # square, because by then the squares are one GeoPackage
+            if ele_loose and spots_now == spots_before:
+                log(f'  WARNING: {path.name} has {ele_loose} ele tag(s) outside its way '
+                    f'elements - a spot height, or a contour node that also carries '
+                    f'one - and contributed no spot height')
             if not expanded:
                 square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver
@@ -472,12 +529,16 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     # the line. Cleaned here rather than filtered on the way in: the where above
     # goes to the OSM driver, whose OGR SQL has no pattern test this needs, and
     # the GeoPackage is SQLite and does
-    dropped = ds.ExecuteSQL(f'SELECT DISTINCT ele FROM contour WHERE {NONNUM}', dialect='SQLite')
-    bad = [f.GetField(0) for f in dropped]
-    ds.ReleaseResultSet(dropped)
-    if bad:
-        log(f'  ignoring ways whose ele is not a number: {" ".join(map(str, bad))}')
-        ds.ExecuteSQL(f'DELETE FROM contour WHERE {NONNUM}', dialect='SQLite')
+    for table, what in (('contour', 'ways'), ('spot', 'nodes')):
+        if ds.GetLayerByName(table) is None:
+            continue
+        dropped = ds.ExecuteSQL(f'SELECT DISTINCT ele FROM {table} WHERE {NONNUM}', dialect='SQLite')
+        bad = [f.GetField(0) for f in dropped]
+        ds.ReleaseResultSet(dropped)
+        if bad:
+            log(f'  ignoring {what} whose ele is not a number: {" ".join(map(str, bad))}')
+            ds.ExecuteSQL(f'DELETE FROM {table} WHERE {NONNUM}', dialect='SQLite')
+    spots = _layer_count(ds, 'spot')
     layer = ds.GetLayer('contour')
     features = layer.GetFeatureCount()
     layer.SetAttributeFilter('ele = 0')
@@ -485,13 +546,15 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     layer.SetAttributeFilter(None)
     layer = None                # before the datasource, not by refcount luck
     ds = None
-    if features == 0:
+    if features == 0 and spots == 0:
         # Not a failure. A zone's directory holds the blank templates handed out
         # to mappers - one frame way, no contours - and a zone which is all
         # templates has nothing to build yet rather than something wrong with it
-        log('  no contours in any square, nothing to build yet')
+        log('  no constraints in any square, nothing to build yet')
         return None
     log(f'  {features} constraint lines')
+    if spots:
+        log(f'  {spots} spot heights')
     # Water with nothing holding it at sea level is the largest error this
     # pipeline can produce - 46 m RMS over the water in the one roantra square
     # the water file did not reach - and it is silent, because the result looks
@@ -504,6 +567,15 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
     return gpkg
 
 
+def _layer_count(ds, layer_name: str) -> int:
+    """A layer's feature count on an open datasource, or 0 where it is not
+    there - which is a GeoPackage no square contributed that layer to."""
+    layer = ds.GetLayerByName(layer_name)
+    n = layer.GetFeatureCount() if layer is not None else 0
+    layer = None
+    return int(n)
+
+
 def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
     """A layer's feature count, or 0 where the file or the layer is not there
     yet - which is the state a square that converted to nothing leaves."""
@@ -512,11 +584,9 @@ def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
     ds = ogr.Open(str(gpkg))
     if ds is None:
         return 0
-    layer = ds.GetLayerByName(layer_name)
-    n = layer.GetFeatureCount() if layer is not None else 0
-    layer = None
+    n = _layer_count(ds, layer_name)
     ds = None
-    return int(n)
+    return n
 
 
 # ------------------------------------------------------------- rasterise
@@ -529,12 +599,63 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
 
     All touched, not only the cells a line passes through the middle of: a thin
     line leaves diagonal gaps, and the fill's sight test threads them - a ray
-    reaches the ground behind a coastline without crossing it."""
+    reaches the ground behind a coastline without crossing it.
+
+    The spot heights go in after the contours - one Rasterize call each, in
+    that order - so a spot height standing on a contour wins the cell. That is
+    the right way round: a contour says the ground reaches this height
+    somewhere along here, a spot height says the ground is exactly this high at
+    this point, and where they disagree the point is the more specific
+    statement. It is also the case R37 exists for -
+    a summit inside the top ring is higher than the ring, and a contour burned
+    over it would flatten the thing the spot height is there to raise.
+    """
     out = work / 'cont.tif'
-    gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
-        format='GTiff', allTouched=True, attribute='ele', noData=NODATA, initValues=[NODATA],
-        outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te),
-        creationOptions=CREATE))
+    ds = ogr.Open(str(gpkg))
+    layers = [name for name in ('contour', 'spot')
+              if ds.GetLayerByName(name) is not None]
+    ds = None
+    if not layers:
+        # a GeoPackage with a contour layer and no spot layer is the ordinary
+        # case and burns fine; one with neither is not something collect()
+        # produces, since it returns None rather than an empty GeoPackage. Said
+        # here because the loop below would otherwise write no raster at all
+        # and hand the caller a path to a file that does not exist - a failure
+        # several stages downstream of the thing that was wrong
+        raise ValueError(f'{gpkg} holds neither a contour nor a spot layer')
+    # One call per layer, in order, rather than one call with a layer list.
+    # The first creates the raster and the rest add to it, and the first is the
+    # contour layer whenever collect() made this file: the lines translate runs
+    # for every square and creates that layer on the first one, holding no
+    # features if no square had any. A set of nothing but spot heights still
+    # arrives here as ['contour', 'spot'].
+    #
+    # The second call passes no initValues, no noData, no bounds, no resolution
+    # and no type, and every one of those omissions is the point: it writes
+    # into the raster the first call made, on that grid, adding to it. Give it
+    # initValues and the contours vanish and the spot heights alone remain -
+    # which has a test, because it is the half of this a later edit would break
+    # while the order went on looking right.
+    #
+    # The order is the whole of the rule above, and a list argument leaves it
+    # to whether GDAL iterates the list or the datasource - which would decide
+    # it by the GeoPackage's internal layer order, and differently between
+    # versions. The preview burns layer by layer in a Python loop for the same
+    # reason, and the two paths disagreeing about which constraint wins a cell
+    # is the failure the whole preview architecture is built to avoid.
+    for i, name in enumerate(layers):
+        if i == 0:
+            gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
+                format='GTiff', allTouched=True, attribute='ele', noData=NODATA,
+                initValues=[NODATA], layers=[name],
+                outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res,
+                outputBounds=list(grid.te), creationOptions=CREATE))
+            continue
+        into = gdal.Open(str(out), gdal.GA_Update)
+        gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
+            allTouched=True, attribute='ele', layers=[name]))
+        into.FlushCache()
+        into = None
     return out
 
 
