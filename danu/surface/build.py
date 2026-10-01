@@ -584,11 +584,9 @@ def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
     ds = ogr.Open(str(gpkg))
     if ds is None:
         return 0
-    layer = ds.GetLayerByName(layer_name)
-    n = layer.GetFeatureCount() if layer is not None else 0
-    layer = None
+    n = _layer_count(ds, layer_name)
     ds = None
-    return int(n)
+    return n
 
 
 # ------------------------------------------------------------- rasterise
