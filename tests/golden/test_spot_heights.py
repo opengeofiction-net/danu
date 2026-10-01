@@ -225,16 +225,20 @@ def test_a_spot_height_outside_the_contours_joins_the_envelope(tmp_path):
         'a spot height beyond the contours did not stretch the envelope')
 
 
-def test_the_scan_counts_an_ele_outside_a_way(tmp_path):
-    """The guard that says a square had spot heights and contributed none. The
-    real fixture has no such node, so the count is exercised here.
+def test_the_scan_counts_every_ele_outside_a_way_element(tmp_path):
+    """What the guard's count is, exactly, because it is looser than its name
+    and the looseness is the thing to be clear about.
 
-    Note which nodes are counted: ``-1`` and ``-2`` carry ``ele`` and are also
-    referenced by the way, and they still count. The scanner asks whether an
-    ``ele`` is inside a ``way`` element, and a node is written before the way
-    that uses it - so every node-level ``ele`` lands here, whether the node is
-    loose or part of a contour. That is right for the guard, since such a node
-    is reported in the points layer too and contributes.
+    It counts ``ele`` tags not inside a ``way`` element. The fixture holds both
+    kinds that land there: ``-4``, which no way references and is a spot height
+    in anybody's reading; and ``-1`` and ``-2``, which carry ``ele`` and are
+    also nodes of the contour way, written before it as OSM XML always writes
+    them. All three count. That is right for the guard, which is only asking
+    whether a square had anything the points layer should have reported - and
+    all three are reported, since ``ele`` is significant there now.
+
+    The real fixture has no node carrying ``ele`` at all, so this is the only
+    place the count is exercised.
     """
     from danu.surface.build import _way_counts
 
@@ -244,11 +248,15 @@ def test_the_scan_counts_an_ele_outside_a_way(tmp_path):
         '<node id="-1" lat="-23.5" lon="125.5"><tag k="ele" v="225"/></node>'
         '<node id="-2" lat="-23.4" lon="125.5"><tag k="ele" v="230"/></node>'
         '<node id="-3" lat="-23.3" lon="125.5"/>'
+        '<node id="-4" lat="-23.2" lon="125.5"><tag k="ele" v="240"/></node>'
         '<way id="-9"><nd ref="-1"/><nd ref="-2"/><tag k="ele" v="100"/></way>'
         '</osm>')
-    assert _way_counts(path) == (0, 0, 2, 1, 2)
+    assert _way_counts(path) == (0, 0, 2, 1, 3)
+    # and the same however the reads fall, since a token split across a block
+    # boundary is the way a scan like this goes wrong
     for chunk in (7, 13, 64):
-        assert _way_counts(path, chunk=chunk) == (0, 0, 2, 1, 2), f'lost a token at chunk {chunk}'
+        assert _way_counts(path, chunk=chunk) == (0, 0, 2, 1, 3), f'lost a token at chunk {chunk}'
+
 
 
 @pytest.mark.parametrize('where,ele', [
