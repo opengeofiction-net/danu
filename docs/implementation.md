@@ -1509,7 +1509,9 @@ square counts its node-level `ele` tags too, of which it has none. Both tests
 read `S24E125_Los_Pizarrales.osm.xz`, and both now assert the absence rather
 than assume it, so a fixture that grew a spot height would say so before the
 reference moved under anybody. Of the
-squares on this machine exactly one carries one - `gobras/N20E086`, a node at
-225 m - so what a rebuild changes is one hilltop. Elsewhere it is whatever the
+squares checked out on this machine on 2026-10-01 exactly one carried one -
+`gobras/N20E086`, a node at 225 m - so what a rebuild changed there was one
+hilltop. That is a reading of a working tree on a day and not a property of
+anything; what a zone costs is whatever its squares hold. Elsewhere it is whatever the
 zones hold, and the change is a DEM rebuild rather than a packaging one: same
 input files, no new dependency, no new data file.
