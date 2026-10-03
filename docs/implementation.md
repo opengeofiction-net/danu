@@ -1580,13 +1580,24 @@ directory can still be handed.
 **G2b, the canvas.** The other half: a mapper can now see a spot height, put
 one down, pick it up, move it and take it away.
 
-**Drawn at every zoom the layer draws at**, index levels or not. A spot height
-is not a level - there is one of it - so hiding it with the intermediate
-contours would hide the only thing that says how high the hill goes, which is
-the whole of R37. The marker is a ring in the elevation's own colour, sized in
-pixels rather than scene units: it marks a point, and a marker that scales with
-the zoom is a dot at z9 and a blot at z19. The value sits beside it from
-`ZOOM_LABELS`, where the contour labels start.
+**Drawn from z12 up**, which is not where they started. The first version drew
+them at every zoom this layer draws at, index levels or not, on the argument
+that a spot height is not a level - there is one of it - so hiding it with the
+intermediate contours would hide the only thing that says how high a hill goes.
+That is still true about *levels* and was the wrong conclusion about *zooms*: a
+working set holds a spot height per hilltop, and at z8 to z11 they are a
+scatter of dots over index contours too coarse to place them against. `ZOOM_SPOTS`
+is 12, where a hill is a hill rather than a smudge.
+
+**And picking follows painting**, with the rule in the layer rather than at the
+call site so the two cannot drift. A click that selects something invisible is
+worse than one that selects nothing, because the next keystroke goes somewhere
+the mapper cannot see.
+
+The marker is a ring in the elevation's own colour, sized in pixels rather than
+scene units: it marks a point, and a marker that scales with the zoom is a dot
+at z12 and a blot at z19. The value sits beside it from `ZOOM_LABELS`, where
+the contour labels start.
 
 **Picked before the contours.** It is a few pixels across and sits on ground a
 contour runs through, so a click that could mean either means the small thing.

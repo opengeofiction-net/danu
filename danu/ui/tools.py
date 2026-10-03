@@ -57,6 +57,15 @@ class Selection:
 
     @property
     def spot(self) -> bool:
+        """A node selected with no way around it.
+
+        Which is a spot height by convention rather than by construction: it
+        answers *is there no way* and is read as *is this a spot height*, and
+        those are the same question only while nothing else builds a way-less
+        selection. Nothing does - the two places that clear a way clear the
+        whole selection with it - and a third way-less case would have to say
+        what it is rather than lean on this.
+        """
         return self.way is None and self.node is not None
 
 
@@ -191,7 +200,7 @@ class EditController(QObject):
         # contour runs through, so a click that could mean either means the
         # small thing. Shift is the line, as below, and skips this too
         if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-            hit = self.layer.pick_spot(pos.x(), pos.y(), self._px(SNAP_PX))
+            hit = self.layer.pick_spot(pos.x(), pos.y(), self._px(SNAP_PX), self.view.zoom)
             if hit is not None:
                 square, nid, _ = hit
                 self.selection = Selection(square, None, nid)

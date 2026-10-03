@@ -884,3 +884,30 @@ def test_deleting_a_spot_height_that_is_already_gone_says_so(w):
     w.edit_actions['edit.delete'].trigger()
     assert 'already gone' in w.statusBar().currentMessage()
     assert w.editor.selection is None
+
+
+def test_a_spot_height_is_not_picked_where_it_is_not_drawn(w):
+    """Below the zoom they appear at, a click that could mean a contour means
+    the contour: selecting something invisible is worse than selecting
+    nothing, because the next keystroke goes somewhere the mapper cannot
+    see."""
+    from danu.ui.contours import ZOOM_SPOTS
+
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    node = square.nodes[forty.refs[0]]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, node.lon, node.lat)
+
+    w.editor.set_tool('select')
+    w.editor.selection = None
+    w.map.set_zoom(ZOOM_SPOTS - 1)
+    click(w, node.lon, node.lat)
+    sel = w.editor.selection
+    assert sel is None or not sel.spot, 'an invisible spot height was selected'
+
+    w.map.set_zoom(ZOOM_SPOTS)
+    w.editor.selection = None
+    click(w, node.lon, node.lat)
+    assert w.editor.selection is not None and w.editor.selection.spot

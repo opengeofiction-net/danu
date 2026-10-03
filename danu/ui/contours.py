@@ -61,6 +61,12 @@ ZOOM_ALL = 11
 # is two repaints on top of a solve, so the 7.2 ms at z13 is about 14 of some
 # 145, which is worth having and is not the same claim.
 ZOOM_LABELS = 14
+# spot heights appear here. Not at every zoom this layer draws at, which is
+# what they did first: a working set holds as many of them as it holds
+# hilltops, and at z8 to z11 they are a scatter of dots over index contours
+# that say nothing at that scale - the value beside one does not appear until
+# z14 either way. Twelve is where a hill is a hill rather than a smudge
+ZOOM_SPOTS = 12
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9
@@ -586,16 +592,20 @@ class ContourLayer(QGraphicsItem):
         """The spot heights: a ring in the elevation's own colour, and the
         value beside it once there is room for it.
 
-        Drawn at every zoom this layer draws at, index levels or not. A spot
-        height is not a level - there is one of it - so hiding it with the
-        intermediate contours would hide the only thing that says how high the
-        hill goes, which is the whole of R37.
+        From ``ZOOM_SPOTS`` up, and not with the index contours. They were
+        drawn at every zoom this layer draws at first, on the argument that a
+        spot height is not a level - there is one of it - so hiding it with the
+        intermediate contours would hide the only thing that says how high a
+        hill goes. That is still true about *levels* and was the wrong
+        conclusion about *zooms*: a working set holds a spot height per
+        hilltop, and at z8 to z11 they are a scatter of dots over index
+        contours too coarse to place them against.
 
         In pixels, not scene units: a marker that scales with the zoom is a dot
-        at z9 and a blot at z19, and what it marks is a point either way.
+        at z12 and a blot at z19, and what it marks is a point either way.
         """
         self.drawn_spots = 0
-        if not self.spots:
+        if not self.spots or zoom < ZOOM_SPOTS:
             return
         font = QFont()
         font.setPointSize(FONT_PT)
@@ -625,9 +635,18 @@ class ContourLayer(QGraphicsItem):
             painter.restore()
             self.drawn_spots += 1
 
-    def pick_spot(self, x: float, y: float, tolerance: float):
+    def pick_spot(self, x: float, y: float, tolerance: float, zoom: float):
         """The nearest spot height within ``tolerance``, as (square, node id,
-        distance), or None."""
+        distance), or None.
+
+        Nothing below ``ZOOM_SPOTS``, where they are not drawn. The rule lives
+        here rather than at the call site so that picking cannot drift from
+        painting: a click that selects something invisible is worse than one
+        that selects nothing, because the next keystroke goes somewhere the
+        mapper cannot see.
+        """
+        if zoom < ZOOM_SPOTS:
+            return None
         best = None
         for spot in self.spots.values():
             d = math.hypot(spot.x - x, spot.y - y)

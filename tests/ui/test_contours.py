@@ -15,7 +15,7 @@ from danu.surface.ramp import traditional
 from danu.ui import mercator as m
 from danu.ui.app import MainWindow
 from danu.ui.config import load_layers
-from danu.ui.contours import INDEX_EVERY_N, ZOOM_ALL, ZOOM_INDEX, ZOOM_LABELS, ContourLayer
+from danu.ui.contours import INDEX_EVERY_N, ZOOM_ALL, ZOOM_INDEX, ZOOM_LABELS, ZOOM_SPOTS, ContourLayer
 from danu.ui.mapview import MapView
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
@@ -791,10 +791,10 @@ def test_a_new_level_moves_the_index_contours(ws):
     assert layer.index_levels == set(sorted(layer.paths)[::INDEX_EVERY_N])
 
 
-def test_a_spot_height_is_drawn_at_every_zoom_the_layer_draws_at(view, ws):
-    """A spot height is not a level - there is one of it - so hiding it with
-    the intermediate contours would hide the only thing that says how high the
-    hill goes, which is the whole of R37."""
+def test_a_spot_height_is_drawn_from_its_own_zoom_up(view, ws):
+    """Not with the index contours, which is where these went first: a working
+    set holds a spot height per hilltop, and at z8 to z11 they are a scatter of
+    dots over contours too coarse to place them against."""
     from danu.core import edits
     from danu.core.square import Node
 
@@ -809,7 +809,12 @@ def test_a_spot_height_is_drawn_at_every_zoom_the_layer_draws_at(view, ws):
     layer.refresh_spots(sq, {nid})
     assert (sq.name, nid) in layer.spots
 
-    for zoom in (ZOOM_INDEX, ZOOM_ALL, ZOOM_LABELS, 16):
+    for zoom in (ZOOM_INDEX, ZOOM_ALL, ZOOM_SPOTS - 1):
+        view.set_zoom(zoom)
+        view.center_on_lonlat(lon, lat)
+        render(view)
+        assert layer.drawn_spots == 0, f'a spot height was drawn at z{zoom}'
+    for zoom in (ZOOM_SPOTS, ZOOM_LABELS, 16):
         view.set_zoom(zoom)
         view.center_on_lonlat(lon, lat)
         r = view.mapToScene(view.viewport().rect()).boundingRect()
@@ -871,6 +876,11 @@ def test_the_nearest_spot_height_is_the_one_picked(view, ws):
     layer.refresh_spots(sq, {near, far})
 
     x, y = m.lonlat_to_scene(125.51, -23.5)
-    hit = layer.pick_spot(x, y, m.lonlat_to_scene(125.6, -23.5)[0] - m.lonlat_to_scene(125.5, -23.5)[0])
+    wide = m.lonlat_to_scene(125.6, -23.5)[0] - m.lonlat_to_scene(125.5, -23.5)[0]
+    hit = layer.pick_spot(x, y, wide, ZOOM_SPOTS)
     assert hit is not None and hit[1] == near
-    assert layer.pick_spot(x, y, 0.001) is None, 'a spot height was picked from far outside the tolerance'
+    assert layer.pick_spot(x, y, 0.001, ZOOM_SPOTS) is None, (
+        'a spot height was picked from far outside the tolerance')
+    # and nothing at all below the zoom they are drawn at
+    assert layer.pick_spot(x, y, wide, ZOOM_SPOTS - 1) is None, (
+        'a spot height was picked where it is not drawn')
