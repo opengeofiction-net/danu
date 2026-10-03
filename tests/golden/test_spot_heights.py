@@ -298,11 +298,14 @@ def test_a_preview_over_a_spot_height_burns_what_the_build_burns(tmp_path, where
 
 
 def test_a_spot_height_in_a_later_square_still_makes_the_layer(tmp_path):
-    """The spot layer is created by whichever square first contributes one,
-    which need not be the first square read - and that square's translate is an
-    append to a GeoPackage that has no such layer yet. The contour path never
-    exercises this, because it creates its layer on square one whatever that
-    square holds.
+    """A spot height in a square read after the first reaches the raster.
+
+    This was written believing the spot layer is created by whichever square
+    first contributes one, and it is not: the points translate makes the layer
+    on square one whatever that square holds, empty if it holds nothing, which
+    is what the contour translate does too. The test is kept because the path
+    it walks - a later square appending to a layer that already exists and is
+    empty - is still the one a zone build takes, and nothing else covers it.
 
     Which square is read first is not incidental here, and it is not left to a
     dict either: ``collect`` walks ``sorted(squares.items())`` and ``SquareName``
@@ -467,3 +470,94 @@ def test_a_square_of_nothing_but_spot_heights_builds(tmp_path):
     x = int((LON - 0.1 - gt[0]) / gt[1])
     y = int((LAT - 0.1 - gt[3]) / gt[5])
     assert cons[y, x] == 300, f'the spot height reads {cons[y, x]}'
+
+
+def box_round(cgt, lon, lat, half=30):
+    """A box of cells around a lon/lat, on the constraints' grid."""
+    from danu.surface.local import Box
+    x = int((lon - cgt[0]) / cgt[1])
+    y = int((lat - cgt[3]) / cgt[5])
+    return Box(x - half, y - half, x + half, y + half)
+
+
+def test_placing_a_spot_height_previews_what_a_rebuild_would_burn(tmp_path):
+    """The preview's whole premise, for R36's node. A mapper puts a spot height
+    on a hilltop the contours only bracket; what the preview burns has to be
+    what the build would burn, or the hill rises under the cursor and falls
+    back on the rebuild.
+
+    The working set here has no spot heights at all - which is the case this
+    most needs to get right, since it is the one a mapper is in the first time
+    they place one. Its GeoPackage still holds an empty ``spot`` layer, because
+    the points translate makes one on the first square whatever that square
+    holds.
+    """
+    from danu.surface import preview
+    from danu.surface.build import NODATA
+
+    _, _, _, plain = built(a_hill(), tmp_path, name='plain')
+    _, _, _, with_spot = built(a_hill((LON, LAT, 240)), tmp_path, name='spotted')
+
+    ds = gdal.Open(str(plain.constraints))
+    cgt = ds.GetGeoTransform()
+    del ds
+    rebuilt = gdal.Open(str(with_spot.constraints))
+    want = rebuilt.GetRasterBand(1).ReadAsArray()
+    del rebuilt
+
+    contours = preview.Contours(plain.contours_gpkg)
+    assert contours.spots is not None and contours.spots.GetFeatureCount() == 0
+    contours.apply_spot(-1, LON, LAT, 240.0)
+    box = box_round(cgt, LON, LAT)
+    burned = contours.burn(cgt, box, NODATA)
+    assert (burned == want[box.slice]).all(), (
+        'the preview and a rebuild disagree about the ground around a new spot height')
+    assert (burned == 240).sum() == 1, 'the spot height is not one cell of the preview'
+
+
+def test_moving_a_spot_height_previews_where_it_went_and_where_it_was(tmp_path):
+    from danu.surface import preview
+    from danu.surface.build import NODATA
+
+    _, _, _, here = built(a_hill((LON, LAT, 240)), tmp_path, name='here')
+    moved_to = (LON + 0.01, LAT + 0.01)
+    _, _, _, there = built(a_hill((*moved_to, 240)), tmp_path, name='there')
+
+    ds = gdal.Open(str(here.constraints))
+    cgt = ds.GetGeoTransform()
+    del ds
+    rebuilt = gdal.Open(str(there.constraints))
+    want = rebuilt.GetRasterBand(1).ReadAsArray()
+    del rebuilt
+
+    contours = preview.Contours(here.contours_gpkg)
+    assert contours.spots is not None and contours.spots.GetFeatureCount() == 1
+    nid = next(iter(contours._spot_fid))
+    contours.apply_spot(nid, *moved_to, 240.0)
+    box = box_round(cgt, LON, LAT, half=60)
+    burned = contours.burn(cgt, box, NODATA)
+    assert (burned == want[box.slice]).all(), (
+        'a moved spot height left its old cell behind, or landed in the wrong one')
+
+
+def test_removing_a_spot_height_previews_the_hill_without_it(tmp_path):
+    from danu.surface import preview
+    from danu.surface.build import NODATA
+
+    _, _, _, spotted = built(a_hill((LON, LAT, 240)), tmp_path, name='spotted')
+    _, _, _, plain = built(a_hill(), tmp_path, name='plain')
+
+    ds = gdal.Open(str(spotted.constraints))
+    cgt = ds.GetGeoTransform()
+    del ds
+    rebuilt = gdal.Open(str(plain.constraints))
+    want = rebuilt.GetRasterBand(1).ReadAsArray()
+    del rebuilt
+
+    contours = preview.Contours(spotted.contours_gpkg)
+    nid = next(iter(contours._spot_fid))
+    assert contours.remove_spot(nid) is True
+    assert contours.remove_spot(nid) is False, 'removing it twice should say it was already gone'
+    box = box_round(cgt, LON, LAT)
+    burned = contours.burn(cgt, box, NODATA)
+    assert (burned == want[box.slice]).all(), 'the spot height is still in the preview'

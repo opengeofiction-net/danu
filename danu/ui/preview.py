@@ -179,6 +179,7 @@ class PreviewDriver(QObject):
         self._projection = ''
         self._pending: list = []        # boxes of ways edited since the last preview
         self._drawn: dict = {}          # each way's geometry as last burned
+        self._spots: dict = {}          # each spot height's position, likewise
         self._said = ''
         self._gesture = QTimer(self)
         self._gesture.setSingleShot(True)
@@ -205,6 +206,7 @@ class PreviewDriver(QObject):
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
         self._drawn.clear()
+        self._spots.clear()
         self._gesture.stop()
         self._idle.stop()
 
@@ -259,8 +261,10 @@ class PreviewDriver(QObject):
         self._shaded = built.shaded
         self._params = params
         # the layer is the build's again, so what it holds for each way is the
-        # build's geometry and not the last preview's
+        # build's geometry and not the last preview's - and the same for each
+        # spot height, which the build burned where the build found it
         self._drawn.clear()
+        self._spots.clear()
         self._projection = r.projection
         self._said = ''
 
@@ -271,18 +275,24 @@ class PreviewDriver(QObject):
 
     # ------------------------------------------------------------- edits
 
-    def edited(self, square, way_ids):
+    def edited(self, square, way_ids, spot_ids=()):
         """One editor command's worth of change: the ids of the ways it
-        touched, in the square it touched them in.
+        touched, and of the nodes whose standing as a spot height it may have
+        changed, in the square it touched them in.
 
         Ids, not ways: ``Command.ways()`` returns ``set[int]``, and it is asked
         before apply and after undo alike, so a way it names may not be in the
-        square at all. That is how a deletion arrives.
+        square at all. That is how a deletion arrives. ``Command.spots()`` says
+        *may* for the same reason and one more: a command that moves a node
+        does not know whether that node carries an elevation, so the question
+        is settled here, against the square.
         """
         self._idle.start()
         if not self.ready:
             return
         fresh: list = []
+        for nid in spot_ids:
+            self._spot_edited(square, nid)
         for wid in way_ids:
             way = square.ways.get(wid)
             points = ([(square.nodes[r].lon, square.nodes[r].lat)
@@ -318,6 +328,54 @@ class PreviewDriver(QObject):
             self.exact_wanted.emit()
         if self._pending:
             self._gesture.start()
+
+    def _spot_edited(self, square, node_id) -> None:
+        """A node that is, or was, a spot height.
+
+        The same three cases a way has, decided the same way. It carries an
+        elevation now: put it in the layer and box it, and the cells it used to
+        be at as well, since a spot height moved leaves ground behind it. It
+        carried one and does not now - deleted, or re-tagged - take it out and
+        box where it was. It never did: nothing to do, and no box, because a
+        node with no elevation constrains nothing and boxing it would solve
+        ground the edit cannot have changed.
+        """
+        node = square.nodes.get(node_id)
+        ele = None
+        if node is not None:
+            try:
+                ele = float(node.tags['ele'])
+            except (KeyError, TypeError, ValueError):
+                # ele=TBD on a lake outlet, ele=tbd on a peak, the odd typo:
+                # the build drops these rather than burning them as zero, and
+                # so does this - a node reading nothing is a node with no
+                # elevation, not a node at sea level
+                ele = None
+        was = self._spots.get(node_id)
+        if ele is None:
+            if was is None:
+                return
+            self._kept.contours.remove_spot(node_id)
+            del self._spots[node_id]
+            self._mark_points([was])
+            # as for a contour taken away: whatever it was holding up has to be
+            # resolved over the wider cover, and the boxes are merged so it is
+            # set for the preview rather than for the piece
+            self._removing = True
+            return
+        now = (node.lon, node.lat)
+        self._kept.contours.apply_spot(node_id, now[0], now[1], ele)
+        moved = [now] if was is None or was == now else [now, was]
+        self._spots[node_id] = now
+        self._mark_points(moved)
+
+    def _mark_points(self, points) -> None:
+        """Box a handful of lon/lat points. ``_mark`` is for a way, whose box
+        is the part of it that moved; a spot height is one point and there is
+        no part of it."""
+        box = self._box(points, self._kept.geotransform, self._kept.shape)
+        if box is not None:
+            self._pending.append(box)
 
     def _on_fresh_ground(self, points) -> bool:
         """Is this contour on ground the build's drawn mask does not cover?

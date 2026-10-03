@@ -1519,3 +1519,60 @@ hilltop. That is a reading of a working tree on a day and not a property of
 anything; what a zone costs is whatever its squares hold. Elsewhere it is whatever the
 zones hold, and the change is a DEM rebuild rather than a packaging one: same
 input files, no new dependency, no new data file.
+
+**G2a, a spot height is an edit the preview can show.** G2 is the editor
+editing them, and it splits where F5a and F5b split: what an edit *is* and how
+the preview follows it, then the canvas. This is the first half. Nothing in the
+editor places a spot height yet; everything underneath one is here.
+
+**`Command.spots()`, beside `ways()`.** A command says which ways a view has to
+redraw; it now also says which nodes may have stopped or started being
+constraints. *May*, and the word is doing work: `MoveNode` does not know
+whether the node it moves is a spot height, a vertex of a contour or neither,
+and it answers from its own fields because it is asked before apply and after
+undo alike. So it names the node and the driver asks the square - which is
+exactly what `ways()` already makes the driver do with a way that may or may
+not carry an elevation. The default is empty, because most commands are about
+ways and the two that are not say so.
+
+`AddNode` is new and is not `InsertNode`: one puts a vertex into a way, the
+other is a node that belongs to nothing, which is the only kind of node that
+means anything on its own. `SetNodeTags` is `SetTags` for a node, and is how a
+node becomes a spot height or stops being one. `MoveNode`, `DeleteNode` and
+`Compound` name their nodes; `InsertNode` and `SetTags` do not, and a test says
+so rather than leaving it to the reader of a default.
+
+**The preview's spot layer stops being read-only.** G1 put it there to keep the
+preview and the build burning the same raster. It now takes `apply_spot` and
+`remove_spot`, mirroring `apply` and `remove` down to keeping each feature's
+FID - for the same reason, which is that within a layer the last feature to
+touch a cell wins it, and a spot height moved or re-valued should land on the
+side of a tie the build would have put it.
+
+**And the driver follows a node the way it follows a way.** Three cases,
+settled against the square rather than against the command: it carries an
+elevation now, so put it in the layer and box it - and the cell it came from as
+well, since a spot height moved leaves ground behind it; it carried one and
+does not now, so take it out, box where it was, and ask for the wider cover
+that a constraint taken away needs; or it never did, so do nothing and box
+nothing, because a node with no elevation constrains nothing and boxing it
+would solve ground the edit cannot have touched. An `ele` that is not a number
+is the third case, not a constraint at zero - `ele=TBD` on a lake outlet and
+`ele=tbd` on a peak are both real, and the build drops them.
+
+**Held against a rebuild, which is the only claim worth making.** Placing,
+moving and removing a spot height in the preview's layer, then burning a box
+from it, gives cell for cell what a build of the square that edit describes
+puts there. The placing case starts from a working set with no spot height in
+it, which is the one a mapper is in the first time.
+
+**One thing G1 got wrong and this corrects.** G1's `collect` comment said the
+`spot` layer does not exist until some square contributes a spot height, and
+its test was written to cover the append that creates it. Both translates make
+their layer on the first square whatever that square holds, so an empty `spot`
+layer is there from the start, exactly as an empty `contour` layer would be.
+The test is kept - a later square appending to an existing empty layer is still
+the path a zone build takes - and it says what it actually covers. The
+preview's make-the-layer-on-demand branch is kept too, and now says what it is
+for: a GeoPackage written before G1, which an editor started on an old working
+directory can still be handed.

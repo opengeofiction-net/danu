@@ -81,6 +81,21 @@ class Command:
         from the command's own fields, not from what the square holds."""
         raise NotImplementedError
 
+    def spots(self, square: Square) -> set[int]:
+        """The nodes whose standing as a constraint this command may change -
+        R36's spot heights, a node carrying ``ele``.
+
+        *May*, and not *does*: like ``ways`` this is answered from the
+        command's own fields, and a command that moves a node does not know
+        whether that node is a spot height, a vertex of a contour or neither.
+        It names the node and the caller asks the square, which is what
+        ``ways`` already makes the preview do with a way that may or may not
+        carry an elevation.
+
+        Empty by default, because most commands are about ways and the ones
+        that are not say so."""
+        return set()
+
 
 def ways_holding(square: Square, node_id: int) -> set[int]:
     """The ways of a square that reference a node."""
@@ -162,6 +177,62 @@ class ExtendWayWithExisting(Command):
 
 
 @dataclass
+class AddNode(Command):
+    """A node of its own, tagged - a spot height, which is the only kind of
+    node that means anything without a way around it.
+
+    Not ``InsertNode``, which puts a vertex into an existing way. This one
+    belongs to nothing: R37 says a spot height is the only thing that can say
+    how high a hill goes, and the hill's contours are already drawn."""
+    node_id: int
+    coord: Coord
+    tags: dict[str, str] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return set()
+
+    def spots(self, square: Square) -> set[int]:
+        return {self.node_id}
+
+    def apply(self, square: Square) -> None:
+        lon, lat = self.coord
+        square.nodes[self.node_id] = Node(id=self.node_id, lat=lat, lon=lon,
+                                          tags=dict(self.tags))
+
+    def undo(self, square: Square) -> None:
+        del square.nodes[self.node_id]
+
+    def describe(self) -> str:
+        ele = self.tags.get('ele')
+        return f'spot height at {ele} m' if ele else 'add node'
+
+
+@dataclass
+class SetNodeTags(Command):
+    """A node's tags replaced - a spot height's elevation changed, most
+    often, and the way a node becomes or stops being one."""
+    node_id: int
+    before: dict[str, str]
+    after: dict[str, str]
+
+    def ways(self, square: Square) -> set[int]:
+        return ways_holding(square, self.node_id)
+
+    def spots(self, square: Square) -> set[int]:
+        return {self.node_id}
+
+    def apply(self, square: Square) -> None:
+        square.nodes[self.node_id].tags = dict(self.after)
+
+    def undo(self, square: Square) -> None:
+        square.nodes[self.node_id].tags = dict(self.before)
+
+    def describe(self) -> str:
+        a, b = self.before.get('ele'), self.after.get('ele')
+        return f'{a} m -> {b} m' if a != b else 'retag node'
+
+
+@dataclass
 class InsertNode(Command):
     """A new node inserted into a way at an index, between two existing."""
     way_id: int
@@ -196,6 +267,9 @@ class MoveNode(Command):
     def ways(self, square: Square) -> set[int]:
         return ways_holding(square, self.node_id)
 
+    def spots(self, square: Square) -> set[int]:
+        return {self.node_id}
+
     def apply(self, square: Square) -> None:
         n = square.nodes[self.node_id]
         n.lon, n.lat = self.after
@@ -221,6 +295,9 @@ class DeleteNode(Command):
 
     def ways(self, square: Square) -> set[int]:
         return ways_holding(square, self.node_id) | set(self.positions) | set(self.removed_ways)
+
+    def spots(self, square: Square) -> set[int]:
+        return {self.node_id}
 
     def apply(self, square: Square) -> None:
         self.node = square.nodes.pop(self.node_id)
@@ -388,6 +465,9 @@ class Compound(Command):
 
     def ways(self, square: Square) -> set[int]:
         return set().union(*(c.ways(square) for c in self.commands)) if self.commands else set()
+
+    def spots(self, square: Square) -> set[int]:
+        return set().union(*(c.spots(square) for c in self.commands)) if self.commands else set()
 
     def apply(self, square: Square) -> None:
         for c in self.commands:
