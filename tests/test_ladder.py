@@ -119,6 +119,22 @@ def test_format_ele():
     assert L.format_ele(0.1 + 0.2) == '0.3' and L.format_ele(1e-05) == '0'
 
 
+@given(st.floats(min_value=-12000, max_value=9000, allow_nan=False, allow_infinity=False))
+@settings(max_examples=300)
+def test_what_format_ele_writes_reads_back_as_a_number(value):
+    """Load-bearing across two modules, and lenient at the far end.
+
+    ``format_ele`` writes the ``ele`` tag; the contour layer and the preview
+    driver both read one back with ``float()`` inside a ``try``, because a
+    square may carry ``ele=TBD`` on a lake outlet and the right answer there is
+    *this is not a constraint*. That leniency is what would turn a formatting
+    change into a spot height silently not drawn and not pickable, rather than
+    into an error - so what this holds is that the editor's own pen never
+    writes a tag its own readers will decline.
+    """
+    assert float(L.format_ele(value)) == pytest.approx(value, abs=5e-4)
+
+
 # ----------------------------------------------------------- overrides
 
 TOML = '''

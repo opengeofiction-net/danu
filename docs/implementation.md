@@ -1576,3 +1576,55 @@ the path a zone build takes - and it says what it actually covers. The
 preview's make-the-layer-on-demand branch is kept too, and now says what it is
 for: a GeoPackage written before G1, which an editor started on an old working
 directory can still be handed.
+
+**G2b, the canvas.** The other half: a mapper can now see a spot height, put
+one down, pick it up, move it and take it away.
+
+**Drawn at every zoom the layer draws at**, index levels or not. A spot height
+is not a level - there is one of it - so hiding it with the intermediate
+contours would hide the only thing that says how high the hill goes, which is
+the whole of R37. The marker is a ring in the elevation's own colour, sized in
+pixels rather than scene units: it marks a point, and a marker that scales with
+the zoom is a dot at z9 and a blot at z19. The value sits beside it from
+`ZOOM_LABELS`, where the contour labels start.
+
+**Picked before the contours.** It is a few pixels across and sits on ground a
+contour runs through, so a click that could mean either means the small thing.
+Shift still reaches the line, as it already did for a contour's nodes, and for
+the same reason.
+
+**`Selection.way` becomes optional**, which is the whole of what R36 costs the
+selection: a node that is its own constraint rather than a vertex of something.
+Every reader of it has to ask, and `Selection.spot` is the question. The one
+place it changes behaviour rather than just guarding is undo: a contour's node
+undone away leaves the contour selected with no node picked, where a spot
+height undone away leaves nothing selected, because there is nothing left.
+
+**The tool is `Z`**, under `Q` for select and `A` for draw. The tools are a
+column under the left hand for the same reason the elevation keys are, and
+there was a third row free beneath them.
+
+**What it does not do: change the elevation of one that is already placed.**
+The way to is to delete it and put another down. That is parity rather than a
+gap - there is no action that re-tags a *contour* either, and the editor has
+shipped three phases without one - but it is felt more here, because a spot
+height's value is the whole of its content where a contour's line is most of
+its. An action that re-tags whatever is selected would serve both and belongs
+with the rest of phase 6's polish.
+
+**The `ele` tag has to read back, and now says so.** The elevation goes into
+the tag through `format_ele` and comes out through `float()` - in another
+module, inside a `try` that reads a failure as *this is not a constraint*,
+which is right for the `ele=TBD` a square really carries on a lake outlet. That
+leniency is what would turn a change to `format_ele` into a spot height
+silently not drawn and not pickable rather than into an error. `format_ele`
+says what it owes its readers, and the round trip is held twice: over a few
+hundred values in `tests/test_ladder.py`, and through the editor at 0, 12.5,
+-3, 1234 and `0.1 + 0.2`.
+
+**One thing worth recording about the tests.** The first version of the
+drawing test set the zoom inside its loop and the centre outside it, so each
+step zoomed away from the spot height and found nothing drawn. It read as a
+layer that stops drawing above z9. The test was wrong and the code was right,
+which is worth saying because the opposite conclusion was one line away and
+would have had me 'fixing' a paint that works.

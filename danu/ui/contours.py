@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from itertools import chain, pairwise
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
@@ -64,6 +64,9 @@ ZOOM_LABELS = 14
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9
+# the spot height marker's radius, in pixels: a point on the ground, so it
+# does not grow with the zoom
+SPOT_PX = 3.5
 
 
 @dataclass
@@ -94,6 +97,21 @@ class _Piece:
     rect: QRectF
     ele: float
     label: 'Label'
+
+
+@dataclass
+class Spot:
+    """A node carrying an elevation, projected - R36's spot height.
+
+    It is not a `WayGeom` of one point. A way is a line and everything about
+    drawing, picking and culling one is about the line; a spot height is a
+    place and a number, and the only thing it shares with a contour is the
+    colour its elevation gives it."""
+    square: Square
+    node_id: int
+    ele: float
+    x: float          # scene
+    y: float
 
 
 @dataclass
@@ -168,6 +186,11 @@ class ContourLayer(QGraphicsItem):
         self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
         # the piece each way contributes, so an edit can replace one of them
         self._pieces: dict[tuple[SquareName, int], _Piece] = {}
+        # and the spot heights, by square and node. Drawn over the contours and
+        # picked before them: a spot height is a few pixels across and sits on
+        # ground a contour runs through, so a click that could mean either
+        # means the small thing
+        self.spots: dict[tuple[SquareName, int], Spot] = {}
         # whether a level has appeared or emptied since index_levels was last
         # worked out, which is the only thing that can move an index contour
         self._levels_moved = False
@@ -189,6 +212,7 @@ class ContourLayer(QGraphicsItem):
         # count the same ways twice
         self.drawn_ways = 0
         self.drawn_labels = 0
+        self.drawn_spots = 0
 
     # ------------------------------------------------------------ data
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
@@ -200,7 +224,7 @@ class ContourLayer(QGraphicsItem):
         # which is bounded and small - and the font being in the key is what
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
-        self._geoms, self._pieces = {}, {}
+        self._geoms, self._pieces, self.spots = {}, {}, {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -217,6 +241,8 @@ class ContourLayer(QGraphicsItem):
                 geom = self._project(square, way)
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
+            for nid in square.nodes:
+                self._project_spot(square, nid)
         for key, geom in self._geoms.items():
             if geom.ele is not None:
                 self._add_way(key, geom)
@@ -241,6 +267,36 @@ class ContourLayer(QGraphicsItem):
             return None
         pts = m.lonlat_to_scene_array([n.lon for _, n in placed], [n.lat for _, n in placed])
         return WayGeom(square, way, ele, pts, [r for r, _ in placed])
+
+    def _project_spot(self, square: Square, node_id: int) -> None:
+        """Put a node in the spot dict if it carries a usable elevation, and
+        take it out if it does not. Called for every node a command names, so
+        it is also how one stops being a spot height."""
+        key = (square.name, node_id)
+        node = square.nodes.get(node_id)
+        ele = None
+        if node is not None:
+            try:
+                ele = float(node.tags['ele'])
+            except (KeyError, TypeError, ValueError):
+                # ele=TBD on a lake outlet, ele=tbd on a peak: the build drops
+                # these rather than burning them as zero, and a mapper should
+                # not see one drawn on the map as if it were ground at 0 m
+                ele = None
+        if ele is None:
+            self.spots.pop(key, None)
+            return
+        x, y = m.lonlat_to_scene(node.lon, node.lat)
+        self.spots[key] = Spot(square, node_id, ele, x, y)
+
+    def refresh_spots(self, square: Square, node_ids) -> None:
+        """Some nodes of a square changed - re-project the ones that are spot
+        heights and drop the ones that are not."""
+        if not node_ids:
+            return
+        for nid in node_ids:
+            self._project_spot(square, nid)
+        self.update()
 
     def refresh(self, square: Square, way_ids: set[int]):
         """Some ways of a square changed - an edit, or its undo. Re-project
@@ -522,8 +578,62 @@ class ContourLayer(QGraphicsItem):
                 painter.setPen(pen)
                 for piece in active:
                     painter.drawPath(piece.path)
+        self._paint_spots(painter, rect, scale, zoom)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
+
+    def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
+        """The spot heights: a ring in the elevation's own colour, and the
+        value beside it once there is room for it.
+
+        Drawn at every zoom this layer draws at, index levels or not. A spot
+        height is not a level - there is one of it - so hiding it with the
+        intermediate contours would hide the only thing that says how high the
+        hill goes, which is the whole of R37.
+
+        In pixels, not scene units: a marker that scales with the zoom is a dot
+        at z9 and a blot at z19, and what it marks is a point either way.
+        """
+        self.drawn_spots = 0
+        if not self.spots:
+            return
+        font = QFont()
+        font.setPointSize(FONT_PT)
+        for spot in self.spots.values():
+            if not rect.contains(QPointF(spot.x, spot.y)):
+                continue
+            colour = self.colour(spot.ele)
+            painter.save()
+            painter.translate(spot.x, spot.y)
+            painter.scale(1.0 / scale, 1.0 / scale)
+            pen = QPen(QColor(255, 255, 255, 220), 3.0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(0, 0), SPOT_PX, SPOT_PX)
+            pen = QPen(colour.darker(130), 1.8)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(colour)
+            painter.drawEllipse(QPointF(0, 0), SPOT_PX, SPOT_PX)
+            if zoom >= ZOOM_LABELS:
+                tp = self._text_path(f'{spot.ele:g}', font)
+                painter.translate(SPOT_PX + 3.0, 4.0)
+                painter.setPen(QPen(QColor(255, 255, 255, 220), 3.0))
+                painter.drawPath(tp)
+                painter.fillPath(tp, colour.darker(150))
+            painter.restore()
+            self.drawn_spots += 1
+
+    def pick_spot(self, x: float, y: float, tolerance: float):
+        """The nearest spot height within ``tolerance``, as (square, node id,
+        distance), or None."""
+        best = None
+        for spot in self.spots.values():
+            d = math.hypot(spot.x - x, spot.y - y)
+            if d <= tolerance and (best is None or d < best[2]):
+                best = (spot.square, spot.node_id, d)
+        return best
 
     def _text_path(self, text: str, font: QFont) -> QPainterPath:
         """The outline of a label's text, centred on the origin, kept.

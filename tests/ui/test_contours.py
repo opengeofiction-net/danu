@@ -789,3 +789,88 @@ def test_a_new_level_moves_the_index_contours(ws):
     assert new in layer.index_levels, 'the level that now sorts first is not an index contour'
     assert lowest not in layer.index_levels, 'the index contours did not renumber'
     assert layer.index_levels == set(sorted(layer.paths)[::INDEX_EVERY_N])
+
+
+def test_a_spot_height_is_drawn_at_every_zoom_the_layer_draws_at(view, ws):
+    """A spot height is not a level - there is one of it - so hiding it with
+    the intermediate contours would hide the only thing that says how high the
+    hill goes, which is the whole of R37."""
+    from danu.core import edits
+    from danu.core.square import Node
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    alloc = edits.IdAllocator(sq)
+    nid = alloc.take()
+    lon, lat = 125.5, -23.5
+    sq.nodes[nid] = Node(id=nid, lon=lon, lat=lat, tags={'ele': '243'})
+    layer.refresh_spots(sq, {nid})
+    assert (sq.name, nid) in layer.spots
+
+    for zoom in (ZOOM_INDEX, ZOOM_ALL, ZOOM_LABELS, 16):
+        view.set_zoom(zoom)
+        view.center_on_lonlat(lon, lat)
+        r = view.mapToScene(view.viewport().rect()).boundingRect()
+        spot = layer.spots[(sq.name, nid)]
+        render(view)
+        assert layer.drawn_spots == 1, (
+            f'not drawn at z{zoom}: spot ({spot.x:.0f},{spot.y:.0f}) in {r}')
+
+
+def test_a_spot_height_outside_the_view_is_not_drawn(view, ws):
+    from danu.core import edits
+    from danu.core.square import Node
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    nid = edits.IdAllocator(sq).take()
+    sq.nodes[nid] = Node(id=nid, lon=125.1, lat=-23.1, tags={'ele': '243'})
+    layer.refresh_spots(sq, {nid})
+
+    view.set_zoom(16)
+    view.center_on_lonlat(125.9, -23.9)
+    render(view)
+    assert layer.drawn_spots == 0, 'a spot height off the screen was drawn'
+
+
+def test_a_node_that_stops_carrying_an_elevation_stops_being_drawn(view, ws):
+    from danu.core import edits
+    from danu.core.square import Node
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    nid = edits.IdAllocator(sq).take()
+    sq.nodes[nid] = Node(id=nid, lon=125.5, lat=-23.5, tags={'ele': '243'})
+    layer.refresh_spots(sq, {nid})
+    assert (sq.name, nid) in layer.spots
+
+    sq.nodes[nid].tags = {}
+    layer.refresh_spots(sq, {nid})
+    assert (sq.name, nid) not in layer.spots
+    del sq.nodes[nid]
+    layer.refresh_spots(sq, {nid})               # and a node that is gone entirely
+    assert (sq.name, nid) not in layer.spots
+
+
+def test_the_nearest_spot_height_is_the_one_picked(view, ws):
+    from danu.core import edits
+    from danu.core.square import Node
+
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    sq = ws.squares[SquareName(125, -24)]
+    alloc = edits.IdAllocator(sq)
+    near, far = alloc.take(), alloc.take()
+    sq.nodes[near] = Node(id=near, lon=125.5, lat=-23.5, tags={'ele': '243'})
+    sq.nodes[far] = Node(id=far, lon=125.6, lat=-23.5, tags={'ele': '250'})
+    layer.refresh_spots(sq, {near, far})
+
+    x, y = m.lonlat_to_scene(125.51, -23.5)
+    hit = layer.pick_spot(x, y, m.lonlat_to_scene(125.6, -23.5)[0] - m.lonlat_to_scene(125.5, -23.5)[0])
+    assert hit is not None and hit[1] == near
+    assert layer.pick_spot(x, y, 0.001) is None, 'a spot height was picked from far outside the tolerance'

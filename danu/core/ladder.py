@@ -40,7 +40,15 @@ DEFAULT_TOP = 200.0
 def format_ele(value: float) -> str:
     """The ``ele`` tag for a value: ``125`` not ``125.0``, ``12.5`` when it is.
     Rounded to the millimetre first, so a value that came out of arithmetic
-    - a rung stepped along the ladder - never carries a float's tail into a tag."""
+    - a rung stepped along the ladder - never carries a float's tail into a tag.
+
+    Whatever this writes has to read back through ``float()``. Two readers take
+    the tag that way inside a ``try`` - the contour layer, to draw a spot
+    height, and the preview driver, to burn one - and both treat a failure as
+    *this is not a constraint*, which is right for the ``ele=TBD`` a square
+    really carries and would quietly swallow a tag of our own that it could not
+    parse. ``tests/test_ladder.py`` holds the round trip rather than the
+    spelling."""
     v = round(float(value), 3)
     return str(int(v)) if v.is_integer() else repr(v)
 

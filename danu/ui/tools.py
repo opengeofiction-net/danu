@@ -20,7 +20,7 @@ band, the snap mark and the selection; the window owns the menu.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 
 import numpy as np
@@ -45,9 +45,18 @@ SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within th
 
 @dataclass
 class Selection:
+    """What is selected: a way, or a node of one, or a spot height.
+
+    ``way`` is None for a spot height, which belongs to no way - so every
+    reader of it has to ask. That is the whole of what R36 costs the selection:
+    a node that is its own constraint rather than a vertex of something."""
     square: Square
-    way: Way
+    way: Way | None
     node: int | None = None
+
+    @property
+    def spot(self) -> bool:
+        return self.way is None and self.node is not None
 
 
 class EditController(QObject):
@@ -96,13 +105,14 @@ class EditController(QObject):
         self.edited.emit()
 
     def set_tool(self, name: str):
-        if name not in ('select', 'draw'):
+        if name not in ('select', 'draw', 'spot'):
             raise ValueError(name)
         if name != self.tool:
             self._stop_drawing()
             self.tool = name
             self.view.setDragMode(MapView.DragMode.ScrollHandDrag if name == 'select' else MapView.DragMode.NoDrag)
-            self.view.viewport().setCursor(Qt.CursorShape.CrossCursor if name == 'draw' else Qt.CursorShape.ArrowCursor)
+            self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor if name == 'select'
+                                           else Qt.CursorShape.CrossCursor)
             self.toolChanged.emit(name)
             self.overlay.update()
 
@@ -114,6 +124,7 @@ class EditController(QObject):
         self.history.do(square, cmd)
         ways, spots = cmd.ways(square), cmd.spots(square)
         self.layer.refresh(square, ways)
+        self.layer.refresh_spots(square, spots)
         self.editedWays.emit(square, ways, spots)
         self.edited.emit()
 
@@ -123,6 +134,7 @@ class EditController(QObject):
             square, cmd = step
             ways, spots = cmd.ways(square), cmd.spots(square)
             self.layer.refresh(square, ways)
+            self.layer.refresh_spots(square, spots)
             self._after_history_move(square, ways, spots)
             self.message.emit(f'undid {cmd.describe()}')
 
@@ -132,6 +144,7 @@ class EditController(QObject):
             square, cmd = step
             ways, spots = cmd.ways(square), cmd.spots(square)
             self.layer.refresh(square, ways)
+            self.layer.refresh_spots(square, spots)
             self._after_history_move(square, ways, spots)
             self.message.emit(f'redid {cmd.describe()}')
 
@@ -140,10 +153,12 @@ class EditController(QObject):
             self.editedWays.emit(square, ways, spots)
         if self.drawing and (self.drawing[0] is square) and self.drawing[1] not in square.ways:
             self.drawing = None                      # the way being drawn was undone away
-        if self.selection and self.selection.way.id not in self.selection.square.ways:
+        if self.selection and self.selection.way is not None and self.selection.way.id not in self.selection.square.ways:
             self.selection = None
         elif self.selection and self.selection.node is not None and self.selection.node not in self.selection.square.nodes:
-            self.selection.node = None
+            # a spot height undone away is nothing at all; a node of a way is
+            # the way with no node picked
+            self.selection = None if self.selection.spot else replace(self.selection, node=None)
         self.overlay.update()
         self.edited.emit()
 
@@ -168,6 +183,24 @@ class EditController(QObject):
             return False
         if event.button() != Qt.MouseButton.LeftButton:
             return False
+        if self.tool == 'spot':
+            self._place_spot(pos)
+            return True
+        # a spot height first: it is a few pixels across and sits on ground a
+        # contour runs through, so a click that could mean either means the
+        # small thing. Shift is the line, as below, and skips this too
+        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            hit = self.layer.pick_spot(pos.x(), pos.y(), self._px(SNAP_PX))
+            if hit is not None:
+                square, nid, _ = hit
+                self.selection = Selection(square, None, nid)
+                self.elevation.pick_up(self.layer.spots[(square.name, nid)].ele)
+                n = square.nodes[nid]
+                self._drag = (square, nid, (n.lon, n.lat))
+                self._press = pos
+                self._dragged = False
+                self.overlay.update()
+                return True
         # shift means the line, not a node of it. A contour's nodes are some
         # 87 m apart in Gobras, which is under the snap radius at every zoom
         # that shows a whole contour, so without this the way itself could
@@ -246,8 +279,38 @@ class EditController(QObject):
             return True
         n.lon, n.lat = before                      # the command does the move, so undo has it exact
         self.do(square, edits.MoveNode(nid, before, after))
-        self.message.emit(f'moved a node of the {format_ele(self.selection.way.ele)} m contour' if self.selection and self.selection.way.ele is not None else 'moved a node')
+        self.message.emit(self._moved_what())
         return True
+
+    def _moved_what(self) -> str:
+        sel = self.selection
+        if sel is not None and sel.spot:
+            spot = self.layer.spots.get((sel.square.name, sel.node))
+            return f'moved the {format_ele(spot.ele)} m spot height' if spot else 'moved a spot height'
+        if sel is not None and sel.way is not None and sel.way.ele is not None:
+            return f'moved a node of the {format_ele(sel.way.ele)} m contour'
+        return 'moved a node'
+
+    def _place_spot(self, pos: QPointF) -> None:
+        """A spot height at the active elevation, where the click landed.
+
+        R37: the only thing that can say how high a hill goes, since its
+        contours can only bracket it. So the elevation this takes is the one
+        the panel is holding - the mapper sets the height and then says where
+        - and an off-ladder value is expected rather than suspect here, which
+        is what a summit is.
+        """
+        lon, lat = m.scene_to_lonlat(pos.x(), pos.y())
+        square = self.working_set.at(lon, lat) if self.working_set else None
+        if square is None:
+            self.message.emit('outside the working set')
+            return
+        ele = self.elevation.value
+        nid = self.history.alloc(square).take()
+        self.do(square, edits.AddNode(nid, (lon, lat), {'ele': format_ele(ele)}))
+        self.selection = Selection(square, None, nid)
+        self.message.emit(f'spot height at {format_ele(ele)} m')
+        self.overlay.update()
 
     def mouse_double_click(self, event, pos: QPointF) -> bool:
         if self.working_set is None or event.button() != Qt.MouseButton.LeftButton:
@@ -673,6 +736,11 @@ class EditController(QObject):
         if sel is None:
             self.message.emit('nothing selected')
             return
+        if sel.way is None:
+            # a spot height is selected: Delete takes it, and this is the
+            # action for being rid of a whole contour
+            self.message.emit('that is a spot height, not a contour')
+            return
         if sel.way.id not in sel.square.ways:
             self.selection = None
             self.message.emit('that contour is already gone')
@@ -689,7 +757,13 @@ class EditController(QObject):
         if sel is None:
             self.message.emit('nothing selected')
             return
-        if sel.node is not None:
+        if sel.spot:
+            spot = self.layer.spots.get((sel.square.name, sel.node))
+            what = format_ele(spot.ele) if spot else None
+            self.do(sel.square, edits.DeleteNode(sel.node))
+            self.selection = None
+            self.message.emit(f'deleted the {what} m spot height' if what else 'deleted a spot height')
+        elif sel.node is not None:
             self.do(sel.square, edits.DeleteNode(sel.node))
             self.selection = Selection(sel.square, sel.way) if sel.way.id in sel.square.ways else None
             self.message.emit('deleted a node')
@@ -747,7 +821,14 @@ class EditOverlay(QGraphicsItem):
         rect = visible_rect(painter, option, self.boundingRect())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         sel = ctl.selection
-        if sel is not None and sel.way.id in sel.square.ways:
+        if sel is not None and sel.spot and sel.node in sel.square.nodes:
+            node = sel.square.nodes[sel.node]
+            x, y = m.lonlat_to_scene(node.lon, node.lat)
+            pen = QPen(QColor(255, 140, 0), 2.5); pen.setCosmetic(True)
+            painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
+            h = 7 * px
+            painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if sel is not None and sel.way is not None and sel.way.id in sel.square.ways:
             pts = [m.lonlat_to_scene(lon, lat) for lon, lat in sel.square.coords(sel.way)]
             if len(pts) >= 2:
                 path = QPainterPath(QPointF(*pts[0]))
