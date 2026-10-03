@@ -476,3 +476,60 @@ def test_a_deleted_relation_takes_its_fill_with_it(water_ws):
     assert (sq.name, 'rel', -900) not in layer.water_fills, (
         'a deleted relation kept its fill'
     )
+
+
+def test_a_relation_goes_stale_on_an_edit_that_touches_no_water_at_all(water_ws):
+    """The staleness check has to be reachable. It used to sit behind a guard
+    asking whether one of the changed ways had a fill or a line - false for an
+    ordinary contour edit, which is precisely the edit that can have rewritten
+    a member list and named no water way."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    sq.ways[-700].tags = {}
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'},
+                                  members=[Member('way', -700, 'outer')])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'rel', -900) in layer.water_fills
+
+    contour = next(w for w in sq.ways.values() if w.ele is not None)
+    sq.relations[-900].members = []
+    layer.refresh(sq, {contour.id})
+    assert (sq.name, 'rel', -900) not in layer.water_fills, (
+        'a relation that lost its ring kept the fill, because the edit that '
+        'reported it touched no water'
+    )
+
+
+def test_a_closed_member_is_filled_though_the_rest_of_its_lake_is_cut(water_ws):
+    """A member is skipped by `_way_fill` because its ring is in the
+    relation's path. A review read that as losing the fill when the relation
+    straddles the square edge and cannot be stitched - but a closed member
+    *is* a ring, so `closed_rings` returns it whatever happens to the cut
+    pieces around it, and the relation's path holds it. This is the test that
+    was written to show the gap and showed the lake filled instead."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700, lon=125.3, lat=-23.6)
+    sq.ways[-700].tags = {'natural': 'water'}
+    nodes = [Node(id=-500 - i, lon=125.5 + 0.02 * i, lat=-23.3 + 0.01 * (i % 2))
+             for i in range(5)]
+    sq.nodes.update({n.id: n for n in nodes})
+    sq.ways[-550] = Way(id=-550, refs=[n.id for n in nodes], tags={})
+    sq.relations[-900] = Relation(
+        id=-900, tags={'type': 'multipolygon', 'natural': 'water'},
+        members=[Member('way', -700, 'outer'), Member('way', -550, 'outer'),
+                 Member('way', -551, 'outer')])       # -551 is in the next square
+    layer.set_working_set(water_ws)
+
+    key = (sq.name, 'rel', -900)
+    assert key in layer.water_fills, 'the ring that did close was not filled'
+    assert layer.water_fills[key].path.contains(QPointF(*m.lonlat_to_scene(125.32, -23.58))), (
+        'the closed member is not in the relation path that is meant to hold it'
+    )
+    assert (sq.name, 'way', -700) not in layer.water_fills, (
+        'and it is not filled a second time on its own'
+    )
+    # the cut chain got nothing, which is the straddling answer
+    assert (sq.name, 'way', -550) not in layer.water_fills
+    assert (sq.name, -550) in layer.water, 'the cut piece lost its outline'

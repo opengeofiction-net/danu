@@ -2161,3 +2161,25 @@ of its own, the one thing the docstring warns against. It is required now.
 The review also asked for the ordering test to compare rings rather than node
 sets - two stitchings can group the same nodes in a different order, and the
 order is the shape - so it compares them up to rotation and reversal.
+
+**The second review: one real, one that dissolved.**
+
+The real one was a guard that made its own check unreachable. `refresh` only
+called `_refresh_water_fills` when one of the changed ways already had a fill
+or a line - and the one thing in there that an *ordinary* edit can have broken
+is a relation's member list, which names no changed way at all. So the
+staleness check added in the round before could never fire on the only path
+where it was the only thing that could. The guard is gone. It costs 0.25 ms on
+N20E086, six thousand ways and seventy-eight relations, which against the 8 ms
+an edit has is worth paying to make a check true rather than decorative. The
+test that pins it edits a contour and nothing else.
+
+The second dissolved when the test for it was written, which is the useful
+thing about writing the test first. The claim was that a closed way which is a
+member of a relation the square cannot stitch loses its fill: skipped by
+`_way_fill` for being a member, and not drawn by the relation because the
+relation drew nothing. But a closed member *is* a ring - `closed_rings` lifts
+it out whatever happens to the cut pieces around it - so the relation always
+has a path and the member's ring is in it. The test written to show the gap
+showed the lake filled, and is kept saying so, with the cut piece beside it
+getting an outline and no fill.

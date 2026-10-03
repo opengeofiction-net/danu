@@ -408,13 +408,6 @@ class ContourLayer(QGraphicsItem):
         # once for the call, not once per way: the same reason set_working_set
         # gathers it once per square
         members = _water_members(square)
-        # a way that was water, or is now, can have made or broken a ring -
-        # including one of a relation's - so the square's fills are redone.
-        # Asked before and after the edit, because a way that stopped being
-        # water has to take its fill with it
-        touched_water = any((square.name, k) in self.water
-                            or (square.name, 'way', k) in self.water_fills
-                            for k in way_ids)
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
@@ -429,9 +422,14 @@ class ContourLayer(QGraphicsItem):
                     self._add_way(key, geom)
                 elif geom.way.tags.get('natural') != 'coastline':
                     self._add_water(key, geom)
-                    touched_water = True
-        if touched_water:
-            self._refresh_water_fills(square, way_ids)
+        # unguarded, and the 0.25 ms it costs on the gobras square that holds
+        # six thousand ways is worth it. The guard was "did one of these ways
+        # have a fill or a line", which is false for an ordinary contour edit
+        # - and the one thing in here that an ordinary edit can have broken is
+        # a relation's member list, which names no changed way at all. The
+        # check for it was unreachable on the only path where it is the only
+        # thing that could fire
+        self._refresh_water_fills(square, way_ids)
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
@@ -472,6 +470,15 @@ class ContourLayer(QGraphicsItem):
         self._put_fill(key, [p for p in paths if p])
 
     def _way_fill(self, square: Square, way: Way, members) -> None:
+        """A closed water way's own fill, unless a water relation names it.
+
+        The skip is safe even when the relation straddles the square edge and
+        most of it cannot be stitched: a closed member *is* a ring, so
+        `closed_rings` returns it whatever happens to the cut pieces around
+        it, and the relation's path holds it. A review read the skip as
+        dropping such a member's fill on the floor; the test that was written
+        to show it instead showed the relation filled.
+        """
         key = (square.name, 'way', way.id)
         self.water_fills.pop(key, None)
         if way.id in members or not _water_tags(way.tags) or not is_closed(way):
@@ -522,13 +529,6 @@ class ContourLayer(QGraphicsItem):
         relations and not of the four thousand ways.
         """
         changed = set(way_ids)
-        members = _water_members(square)
-        for wid in changed:
-            way = square.ways.get(wid)
-            if way is None:
-                self.water_fills.pop((square.name, 'way', wid), None)
-            else:
-                self._way_fill(square, way, members)
         for rel in square.relations.values():
             key = (square.name, 'rel', rel.id)
             # a way it names changed, or the names themselves did. The second
@@ -542,6 +542,13 @@ class ContourLayer(QGraphicsItem):
                     if k[0] == square.name and k[2] not in square.relations]:
             self.water_fills.pop(key, None)
             del self._rel_members[key]
+        members = _water_members(square)
+        for wid in changed:
+            way = square.ways.get(wid)
+            if way is None:
+                self.water_fills.pop((square.name, 'way', wid), None)
+            else:
+                self._way_fill(square, way, members)
 
     def _add_water(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A water way's path and rectangle, in the pass that draws under the
