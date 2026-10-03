@@ -11,7 +11,10 @@ import pytest
 
 pytest.importorskip('PySide6')
 
+from PySide6.QtCore import QPointF
+
 from danu.core.square import Member, Node, Relation, SquareName, Way, WorkingSet
+from danu.ui import mercator as m
 from danu.ui.contours import ContourLayer
 from danu.ui.mapview import MapView
 from danu.ui.water import WaterImporter, commands
@@ -250,3 +253,159 @@ def test_the_status_line_names_the_bounds_being_fetched(window):
     w._water_starting(asked)
     west = f'{asked.bounds[0]:g}'
     assert west in w.statusBar().currentMessage()
+
+
+# --------------------------------------------------------------- the fill
+
+def a_lake(sq, wid=-700, base=-700, lon=125.3, lat=-23.6, size=0.04):
+    """A square lake as one closed way."""
+    corners = [(lon, lat), (lon + size, lat), (lon + size, lat + size), (lon, lat + size)]
+    ids = [base - i for i in range(4)]
+    for nid, (x, y) in zip(ids, corners, strict=True):
+        sq.nodes[nid] = Node(id=nid, lon=x, lat=y)
+    sq.ways[wid] = Way(id=wid, refs=ids + [ids[0]], tags={'natural': 'water'})
+    return wid
+
+
+def test_a_closed_water_way_is_filled_and_a_river_is_not(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq)
+    river = a_river(9001, 125.5, -23.5)
+    sq.nodes.update(river.nodes)
+    sq.ways.update(river.ways)
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) in layer.water_fills, 'a lake was left as an outline'
+    assert (sq.name, 'way', 9001) not in layer.water_fills, 'a river has no inside'
+    # and it keeps its shore: the fill is a second pass, not a replacement
+    assert (sq.name, -700) in layer.water
+
+
+def test_an_island_in_a_lake_is_a_hole_and_not_a_blue_island(water_ws):
+    """The case relations were grown for. Both rings go in one path with an
+    odd-even fill, so the island is where the lake is not."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700, lon=125.3, lat=-23.6, size=0.06)
+    a_lake(sq, wid=-710, base=-720, lon=125.32, lat=-23.58, size=0.02)
+    sq.ways[-710].tags = {}                       # the island ring carries nothing
+    sq.ways[-700].tags = {}
+    sq.relations[-730] = Relation(
+        id=-730, tags={'type': 'multipolygon', 'natural': 'water'},
+        members=[Member('way', -700, 'outer'), Member('way', -710, 'inner')])
+    layer.set_working_set(water_ws)
+
+    key = (sq.name, 'rel', -730)
+    assert key in layer.water_fills, 'the lake was not filled'
+    assert (sq.name, 'way', -700) not in layer.water_fills, (
+        'the outer ring was filled a second time on its own'
+    )
+    path = layer.water_fills[key].path
+    mid = m.lonlat_to_scene(125.33, -23.57)       # inside the island
+    shore = m.lonlat_to_scene(125.305, -23.595)   # inside the lake, outside the island
+    assert not path.contains(QPointF(*mid)), 'the island was painted as water'
+    assert path.contains(QPointF(*shore)), 'the lake was not painted as water'
+
+
+def test_a_lake_cut_by_the_square_edge_is_outlined_and_not_filled(water_ws):
+    """Half a ring is not a ring. Closing it would draw a shore along the
+    square edge that nobody mapped."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    # five nodes, so it fails the test for coming back and not the one for
+    # being long enough to be a shape at all
+    nodes = [Node(id=-600 - i, lon=125.2 + 0.02 * i, lat=-23.3 + 0.01 * (i % 2))
+             for i in range(5)]
+    sq.nodes.update({n.id: n for n in nodes})
+    sq.ways[-650] = Way(id=-650, refs=[n.id for n in nodes], tags={})
+    sq.relations[-660] = Relation(
+        id=-660, tags={'type': 'multipolygon', 'natural': 'water'},
+        members=[Member('way', -650, 'outer'), Member('way', -651, 'outer')])
+    layer.set_working_set(water_ws)
+    assert not [k for k in layer.water_fills if k[1] == 'rel'], (
+        'a ring the square edge cut was closed and filled'
+    )
+    assert (sq.name, -650) in layer.water, 'and it lost its outline as well'
+
+
+def test_an_edit_that_closes_a_way_fills_it(water_ws):
+    """The fill has to follow the edit, and the unit is the square: a way can
+    be a relation's ring, and one way's change remakes that relation's path."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    wid = a_lake(sq, wid=-700, base=-700)
+    sq.ways[wid].refs = sq.ways[wid].refs[:-1]            # opened
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', wid) not in layer.water_fills
+
+    sq.ways[wid].refs.append(sq.ways[wid].refs[0])        # closed again
+    layer.refresh(sq, {wid})
+    assert (sq.name, 'way', wid) in layer.water_fills, 'closing a lake did not fill it'
+
+
+def test_the_fill_is_fainter_than_the_shore(water_ws, map_view):
+    """Water is drawn over the surface preview and over the tiles. A body
+    filled at the edge's own alpha blanks the ground the mapper is working
+    against."""
+    from danu.ui.contours import WATER, WATER_FILL
+    assert WATER_FILL.alpha() < WATER.alpha() / 2
+    assert (WATER_FILL.red(), WATER_FILL.green(), WATER_FILL.blue()) == \
+           (WATER.red(), WATER.green(), WATER.blue()), 'it should be the same water'
+
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, lon=125.4, lat=-23.5)
+    layer.set_working_set(water_ws)
+    map_view.scene().addItem(layer)
+    map_view.set_zoom(12)
+    map_view.center_on_lonlat(125.42, -23.48)
+    render(map_view)
+    assert layer.drawn_water_fills == 1, 'the lake was not filled when painted'
+
+
+def test_an_edit_rebuilds_only_the_fills_its_ways_can_have_changed(water_ws):
+    """Redoing the square costs 50 ms on the gobras square that holds seventy
+    per cent of the water - a frame, on the UI thread, on every edit near a
+    river. A way can only change its own fill and the relations that name it."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700, lon=125.3, lat=-23.6)
+    a_lake(sq, wid=-800, base=-800, lon=125.6, lat=-23.2)
+    sq.ways[-800].tags = {}
+    sq.relations[-810] = Relation(id=-810, tags={'natural': 'water'},
+                                  members=[Member('way', -800, 'outer')])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) in layer.water_fills
+    assert (sq.name, 'rel', -810) in layer.water_fills
+
+    redone = []
+    layer._relation_fill = lambda square, rel: redone.append(rel.id)
+    layer.refresh(sq, {-700})
+    assert redone == [], 'an edit to a lone lake rebuilt a relation that does not name it'
+
+    layer.refresh(sq, {-800})
+    assert redone == [-810], 'the relation holding the edited way was not rebuilt'
+
+
+def test_a_way_that_stops_being_water_takes_its_fill_with_it(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) in layer.water_fills
+
+    sq.ways[-700].tags = {'ele': '120'}          # retagged as a contour
+    layer.refresh(sq, {-700})
+    assert (sq.name, 'way', -700) not in layer.water_fills, (
+        'a lake retagged as a contour kept its blue fill'
+    )
+
+
+def test_a_deleted_lake_takes_its_fill_with_it(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    layer.set_working_set(water_ws)
+    del sq.ways[-700]
+    layer.refresh(sq, {-700})
+    assert (sq.name, 'way', -700) not in layer.water_fills
