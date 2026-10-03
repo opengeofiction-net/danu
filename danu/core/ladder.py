@@ -22,6 +22,7 @@ keys in ``danu.ui`` drive an ``Elevation`` and read a ``Ladder``.
 
 from __future__ import annotations
 
+import math
 import os
 import tomllib
 from collections import Counter
@@ -50,6 +51,12 @@ def format_ele(value: float) -> str:
     parse. ``tests/test_ladder.py`` holds the round trip rather than the
     spelling."""
     v = round(float(value), 3)
+    if not math.isfinite(v):
+        # 'inf' and 'nan' are what this would otherwise write, and `float`
+        # reads both back - so a square would carry an elevation that every
+        # reader accepts and nothing downstream survives. Refused at the pen
+        # as well as at the page: parse_ele declines to read one
+        raise ValueError(f'{value!r} is not an elevation')
     return str(int(v)) if v.is_integer() else repr(v)
 
 

@@ -202,3 +202,14 @@ def test_a_new_ladder_keeps_the_value():
     ev = L.Elevation(L.regular_ladder(25, 0, 100), value=60)
     ev.set_ladder(L.regular_ladder(10, 0, 50))
     assert ev.value == 60 and ev.ladder.high == 60 and ev.ladder.interval == 10
+
+
+def test_format_ele_refuses_a_value_that_is_not_a_number():
+    """Refused at the pen as well as at the page. ``parse_ele`` declines to
+    read 'inf' back; this is what stops one being written in the first
+    place, which matters because the elevation reaching it comes from a
+    spin box, from arithmetic along the ladder, and from a tag picked up off
+    whatever a square holds."""
+    for bad in (float('inf'), float('-inf'), float('nan')):
+        with pytest.raises(ValueError, match='not an elevation'):
+            L.format_ele(bad)

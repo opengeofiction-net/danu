@@ -1643,6 +1643,26 @@ says what it owes its readers, and the round trip is held twice: over a few
 hundred values in `tests/test_ladder.py`, and through the editor at 0, 12.5,
 -3, 1234 and `0.1 + 0.2`.
 
+**An elevation that is not a number, in the other sense.** The round trip
+above is about a tag our own readers would *decline*; review found the hole on
+the other side, a tag they **accept**. `float` reads `inf` and `nan` back
+happily, so `parse_ele` returned them, and an infinite elevation reaches a
+colour ramp, a ladder, a label and a rasteriser, each of which does something
+different and silent with it. That is not new with spot heights - a contour
+tagged `ele=inf` has always got through - but a spot height's whole content is
+its number, and placing one is how the editor would write such a tag itself.
+
+Refused at both ends now. `parse_ele` declines a non-finite value exactly as it
+declines `tbd`, which is the one place a tag becomes a number for contours and
+spot heights alike; and `format_ele` raises rather than write one, because the
+elevation reaching it comes from a spin box, from arithmetic along the ladder,
+and from a value picked up off whatever a square holds.
+
+The two new readers stopped having their own copy of the rule as part of it:
+`_project_spot` and the preview driver both call `parse_ele` now, where each
+had its own `float()` in a `try`. Three spellings of *is this tag an
+elevation* was two too many.
+
 **One thing worth recording about the tests.** The first version of the
 drawing test set the zoom inside its loop and the centre outside it, so each
 step zoomed away from the spot height and found nothing drawn. It read as a

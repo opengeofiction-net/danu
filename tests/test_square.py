@@ -344,3 +344,19 @@ def test_the_golden_square_round_trips_in_its_own_order(tmp_path):
     back = read_square(write_square(original, tmp_path / 'S24E125.osm.xz'))
     assert list(back.ways) == list(original.ways)
     assert list(back.nodes) == list(original.nodes)
+
+
+def test_an_elevation_that_is_not_finite_is_not_an_elevation():
+    """``float`` reads 'inf' and 'nan' back happily, so a square carrying one
+    would have an elevation every reader accepts and nothing downstream
+    survives: a colour ramp, a ladder, a label and a rasteriser each do
+    something different and silent with it."""
+    from danu.core.square import parse_ele
+    assert parse_ele('inf') is None
+    assert parse_ele('-inf') is None
+    assert parse_ele('nan') is None
+    assert parse_ele('NaN') is None
+    assert parse_ele('Infinity') is None
+    # and the ordinary cases are untouched
+    assert parse_ele('125') == 125.0 and parse_ele(' 12.5 ') == 12.5
+    assert parse_ele('tbd') is None and parse_ele(None) is None

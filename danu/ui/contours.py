@@ -40,7 +40,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import geometry
-from ..core.square import Square, SquareName, Way, WorkingSet
+from ..core.square import Square, SquareName, Way, WorkingSet, parse_ele
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -64,8 +64,8 @@ ZOOM_LABELS = 14
 # spot heights appear here. Not at every zoom this layer draws at, which is
 # what they did first: a working set holds as many of them as it holds
 # hilltops, and at z8 to z11 they are a scatter of dots over index contours
-# that say nothing at that scale - the value beside one does not appear until
-# z14 either way. Twelve is where a hill is a hill rather than a smudge
+# too coarse to place them against. The value beside one waits for
+# ZOOM_LABELS either way
 ZOOM_SPOTS = 12
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
@@ -280,15 +280,11 @@ class ContourLayer(QGraphicsItem):
         it is also how one stops being a spot height."""
         key = (square.name, node_id)
         node = square.nodes.get(node_id)
-        ele = None
-        if node is not None:
-            try:
-                ele = float(node.tags['ele'])
-            except (KeyError, TypeError, ValueError):
-                # ele=TBD on a lake outlet, ele=tbd on a peak: the build drops
-                # these rather than burning them as zero, and a mapper should
-                # not see one drawn on the map as if it were ground at 0 m
-                ele = None
+        # the same rule a way's elevation is read by, and the same function:
+        # ele=TBD on a lake outlet and ele=tbd on a peak are not elevations,
+        # and neither is inf. A mapper should not see one of those drawn as
+        # ground at 0 m, or at all
+        ele = parse_ele(node.tags.get('ele')) if node is not None else None
         if ele is None:
             self.spots.pop(key, None)
             return
@@ -297,7 +293,16 @@ class ContourLayer(QGraphicsItem):
 
     def refresh_spots(self, square: Square, node_ids) -> None:
         """Some nodes of a square changed - re-project the ones that are spot
-        heights and drop the ones that are not."""
+        heights and drop the ones that are not.
+
+        Only the ids given, where ``set_working_set`` walks every node. What
+        makes that safe is ``Command.spots()``: a command names every node
+        whose standing as a constraint it may change, and the only command
+        that writes a node's tags - ``SetNodeTags`` - names its own. A command
+        added later that mutates tags without declaring them would leave the
+        canvas showing something the build does not, which is the divergence
+        the whole arrangement exists to prevent.
+        """
         if not node_ids:
             return
         for nid in node_ids:
@@ -615,6 +620,10 @@ class ContourLayer(QGraphicsItem):
             colour = self.colour(spot.ele)
             painter.save()
             painter.translate(spot.x, spot.y)
+            # undoing the view's scale is what makes the radius below a count
+            # of device pixels. It is not redundant beside the cosmetic pens:
+            # those fix the stroke width, this fixes the size of the thing
+            # being stroked
             painter.scale(1.0 / scale, 1.0 / scale)
             pen = QPen(QColor(255, 255, 255, 220), 3.0)
             pen.setCosmetic(True)
