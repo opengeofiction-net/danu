@@ -402,10 +402,17 @@ def test_an_import_goes_on_the_history_and_off_it(ws):
                                      new_relations=placed.relations))
     assert history.dirty(sq)
     assert len(sq.ways) > 0
+    # round and round: apply re-snapshots on each redo, and what it snapshots
+    # is the square the undo just put back - so the second undo restores the
+    # original and not the import. Walked here rather than reasoned about,
+    # because review read it the other way and the reading was plausible
+    for _ in range(3):
+        history.undo()
+        assert edits.snapshot(sq) == before, 'an undo did not restore the square'
+        history.redo()
+        assert set(sq.ways) == set(placed.ways), 'a redo did not put the import back'
     history.undo()
     assert edits.snapshot(sq) == before
-    history.redo()
-    assert set(sq.ways) == set(placed.ways)
 
 
 def test_a_square_an_import_brought_into_being_saves(tmp_path, ws):

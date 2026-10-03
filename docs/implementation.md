@@ -1940,7 +1940,15 @@ raster - except the real zone already spans 86..90 by 18..22 because of
 `N18E089`, so they fall inside it and the grid does not move at all. Measured
 rather than asserted, and the assertion was wrong.
 
-And the pair match needed a wider window than the scan had. `k='natural'
+And the pair is matched either way round, with anything between, as long as
+both halves are inside the one tag element. The first version wanted them
+adjacent and `k` first, which is what JOSM writes and what `write_square`
+writes - and this file is read from wherever a mapper got it, so a reversed or
+separated pair would have gone unseen and a water-only square been read as a
+blank template. `[^>]` is what keeps the two halves in one tag: allowed to run
+past it, `natural=wood` followed by `landuse=water` answers yes.
+
+The pair match needed a wider window than the scan had. `k='natural'
 v='water'` is twenty-one bytes where the longest token before was ten, and the
 tail kept was the last sixteen bytes *of the block just read* - so a chunk
 smaller than the token leaves the window shorter than the thing being looked
@@ -1948,3 +1956,11 @@ for, and a pair spanning three reads is never whole in any one of them. It is a
 rolling tail now. Written the old way the test fails at chunk sizes 8 to 11 and
 15 and passes everywhere else, which is the kind of bug that waits for a file
 of an awkward size.
+
+**One thing review found that was not there.** `ImportWater.apply` re-snapshots
+`before` on every call, and a redo calls it again - which reads as recording
+the *imported* state and losing the original, so that a second undo would
+restore the import. It does not: the undo puts the square back before the redo
+snapshots it, so the second snapshot equals the first. Walked round the cycle
+three times rather than argued about, and the test does the walking now,
+because the misreading was a fair one.

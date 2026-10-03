@@ -551,14 +551,20 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 # coastline-only squares have always counted.
 #
 # The pair matched together for natural, because `v='water'` on its own would
-# answer for anything. JOSM writes the two attributes adjacent and in that
-# order, and so does write_square.
+# answer for anything - a landuse, a name, a note. Either order and with
+# anything between, as long as both are inside the one tag element, which
+# `[^>]` is what keeps: JOSM and write_square put them adjacent and k first,
+# and this file is read from wherever a mapper got it.
+_NATURAL = rb"""k=["']natural["']"""
+_WATERY = rb"""v=["'](?:water|coastline)["']"""
 _HAS_CONSTRAINT = re.compile(
     rb"""k=["']ele["']"""
     rb"""|k=["']waterway["']"""
-    rb"""|k=["']natural["']\s+v=["'](?:water|coastline)["']""")
-# enough to hold the longest token above across a chunk boundary
-_SCAN_OVERLAP = 64
+    + rb"""|""" + _NATURAL + rb"""[^>]{0,60}""" + _WATERY
+    + rb"""|""" + _WATERY + rb"""[^>]{0,60}""" + _NATURAL)
+# enough to hold the longest of those across a chunk boundary: the two halves
+# of a pair, plus the sixty bytes this allows between them
+_SCAN_OVERLAP = 128
 
 
 # xz's magic bytes. A square is read by what it is rather than by what it is

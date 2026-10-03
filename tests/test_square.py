@@ -491,6 +491,36 @@ def test_a_square_of_nothing_but_water_is_not_a_blank_template(tmp_path):
     assert not has_constraints(str(square({'highway': 'track'}, 'S24E125_E.osm')))
     assert not has_constraints(str(square({'natural': 'wood'}, 'S24E125_F.osm')))
     assert not has_constraints(str(square({}, 'S24E125_G.osm')))
+    # `v='water'` on its own answers for anything, and must not
+    assert not has_constraints(str(square({'landuse': 'water'}, 'S24E125_H.osm')))
+    assert not has_constraints(str(square({'name': 'coastline'}, 'S24E125_I.osm')))
+
+
+def test_the_natural_pair_is_found_whichever_way_round_it_is_written(tmp_path):
+    """JOSM writes ``k`` then ``v``, adjacent, and so does ``write_square``.
+    This file is read from wherever a mapper got it, and a pair that is
+    reversed or has something between would otherwise go unseen - which for a
+    water-only square means being read as a blank template."""
+    from danu.core.square import has_constraints
+
+    def tag(text, name):
+        path = tmp_path / name
+        path.write_text(
+            "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+            f"  <way id='-9'>\n    <tag {text} />\n  </way>\n</osm>\n")
+        return str(path)
+
+    assert has_constraints(tag("k='natural' v='water'", 'S24E125_P.osm'))
+    assert has_constraints(tag("v='water' k='natural'", 'S24E125_Q.osm'))
+    assert has_constraints(tag("k='natural' version='3' v='water'", 'S24E125_R.osm'))
+    assert has_constraints(tag('k="natural" v="coastline"', 'S24E125_S.osm'))
+    # but not across two different tags, which is two different statements
+    path = tmp_path / 'S24E125_T.osm'
+    path.write_text(
+        "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+        "  <way id='-9'>\n    <tag k='natural' v='wood' />\n"
+        "    <tag k='landuse' v='water' />\n  </way>\n</osm>\n")
+    assert not has_constraints(str(path))
 
 
 def test_the_constraint_scan_sees_a_tag_split_across_a_read(tmp_path):

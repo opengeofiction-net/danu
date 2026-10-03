@@ -474,6 +474,11 @@ class ImportWater(Command):
     a dataclass field named ``ways`` would shadow the ``ways()`` every command
     owes its caller - the instance attribute wins the lookup, and
     ``cmd.ways(square)`` becomes an attempt to call a dict.
+
+    There is no ``relations()`` beside ``ways()`` and ``spots()`` because
+    nothing asks for one: the preview burns contours and spot heights, and the
+    canvas draws them. A relation is carried and saved and not yet drawn, so
+    adding the accessor now would be guessing at what its caller wants.
     """
     new_nodes: dict[int, Node] = field(default_factory=dict)
     new_ways: dict[int, Way] = field(default_factory=dict)
@@ -509,6 +514,9 @@ class ImportWater(Command):
         self.before = {}
 
     def describe(self) -> str:
+        # ways and relations, not nodes, which is what a feature is here and
+        # in ``overpass.Water.__len__``: a river of a thousand vertices is one
+        # thing a mapper imported, and saying 158,633 would be true and useless
         return f'{self.name}: {len(self.new_ways) + len(self.new_relations)} features'
 
 
