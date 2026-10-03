@@ -330,3 +330,140 @@ def test_an_imported_id_cannot_collide_with_one_a_mapper_draws():
     alloc = edits.IdAllocator(sq)
     assert alloc.take() == -1, 'a square of positive ids should still mint from -1'
     assert alloc.take() == -2
+
+
+# ------------------------------------------------------------ the command
+
+def a_square():
+    from danu.core.square import Square
+    return Square(name=SquareName(125, -24), present=True,
+                  attrs={'version': '0.6', 'upload': 'never'})
+
+
+def test_an_import_is_one_step_and_takes_itself_back(ws):
+    """R40 in as many words. An import writes hundreds of features at once
+    over somebody's file, so the answer to a bad one has to be Ctrl+Z."""
+    from danu.core import edits
+
+    water = overpass.parse(ANSWER.encode())
+    # a named spring on the lake's rim, which is the rare node an import
+    # brings that is a constraint and not just geometry
+    water.nodes[102].tags = {'natural': 'spring', 'ele': '118'}
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    sq = a_square()
+    before = edits.snapshot(sq)
+
+    cmd = edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+                            new_relations=placed.relations)
+    assert cmd.ways(sq) == set(placed.ways)
+    # the nodes that carry an elevation, not every node imported: a river
+    # network is a hundred and fifty thousand vertices and the driver walks
+    # this on the UI thread
+    assert cmd.spots(sq) == {102}, 'every vertex was offered as a spot height'
+    assert len(placed.nodes) > len(cmd.spots(sq))
+    assert 'features' in cmd.describe()
+
+    cmd.apply(sq)
+    assert set(sq.ways) == set(placed.ways)
+    assert set(sq.relations) == set(placed.relations)
+    assert set(sq.nodes) == set(placed.nodes)
+    assert sq.ways[301].tags['name'] == 'Lake Kinser'
+
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before, 'the undo left something behind'
+
+
+def test_a_second_import_replaces_and_still_undoes_exactly(ws):
+    """What to write when the square already holds the feature is
+    reconciliation, which is G5. What this owes is that whatever it does
+    write can be taken back - the floor G5 builds on."""
+    from danu.core import edits
+    from danu.core.square import Way
+
+    water = overpass.parse(ANSWER.encode())
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    sq = a_square()
+    # the square already holds a way of that id, differently
+    sq.ways[301] = Way(id=301, refs=[9, 8], tags={'name': 'as it was'})
+    before = edits.snapshot(sq)
+
+    cmd = edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+                            new_relations=placed.relations)
+    cmd.apply(sq)
+    assert sq.ways[301].tags['name'] == 'Lake Kinser', 'the import did not land'
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+    assert sq.ways[301].tags['name'] == 'as it was', 'the old way did not come back'
+
+
+def test_an_import_goes_on_the_history_and_off_it(ws):
+    from danu.core import edits
+
+    water = overpass.parse(ANSWER.encode())
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    sq = a_square()
+    history = edits.SetUndoStack()
+    before = edits.snapshot(sq)
+
+    history.do(sq, edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+                                     new_relations=placed.relations))
+    assert history.dirty(sq)
+    assert len(sq.ways) > 0
+    # round and round: apply re-snapshots on each redo, and what it snapshots
+    # is the square the undo just put back - so the second undo restores the
+    # original and not the import. Walked here rather than reasoned about,
+    # because review read it the other way and the reading was plausible
+    for _ in range(3):
+        history.undo()
+        assert edits.snapshot(sq) == before, 'an undo did not restore the square'
+        history.redo()
+        assert set(sq.ways) == set(placed.ways), 'a redo did not put the import back'
+    history.undo()
+    assert edits.snapshot(sq) == before
+
+
+def test_a_square_an_import_brought_into_being_saves(tmp_path, ws):
+    """R5 has blank templates created deliberately and #87 settled that an
+    import may create a square all the same. Nothing special is needed for it:
+    ``save_square`` frames a square that is not present, writes it and marks
+    it so."""
+    from danu.core import edits, save
+    from danu.core.square import Square, read_square
+
+    water = overpass.parse(ANSWER.encode())
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    absent = Square(name=SquareName(125, -24))          # no file, not present
+    assert not absent.present and absent.path is None
+
+    history = edits.SetUndoStack()
+    history.do(absent, edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+                                         new_relations=placed.relations))
+    report = save.save_square(absent, history, tmp_path / 'S24E125.osm.xz')
+    assert report.framed, 'a square brought into being was not framed'
+    assert absent.present and absent.path is not None
+
+    back = read_square(tmp_path / 'S24E125.osm.xz')
+    assert set(back.ways) >= set(placed.ways)
+    assert set(back.relations) == set(placed.relations)
+    assert back.relations[401].ele == 120.0
+
+
+def test_applying_twice_without_an_undo_keeps_the_original(ws):
+    """``before`` is captured once. The stack's undo-then-redo puts the square
+    back before ``apply`` runs again, so re-snapshotting would give the same
+    answer - but only because of the order the caller happens to use, and a
+    command owns its own invariant."""
+    from danu.core import edits
+    from danu.core.square import Way
+
+    water = overpass.parse(ANSWER.encode())
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    sq = a_square()
+    sq.ways[301] = Way(id=301, refs=[9, 8], tags={'name': 'as it was'})
+    before = edits.snapshot(sq)
+
+    cmd = edits.ImportWater(new_ways=placed.ways)
+    cmd.apply(sq)
+    cmd.apply(sq)                      # no undo between
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before, 'the second apply ate the original'

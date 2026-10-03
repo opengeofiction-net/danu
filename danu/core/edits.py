@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .square import Member, Node, Square, Way
+from .square import Member, Node, Relation, Square, Way
 
 Coord = tuple[float, float]            # lon, lat
 
@@ -453,6 +453,91 @@ class SetTags(Command):
     def describe(self) -> str:
         a, b = self.before.get('ele'), self.after.get('ele')
         return f'{a} m -> {b} m' if a != b else 'retag'
+
+
+@dataclass
+class ImportWater(Command):
+    """One import's features into one square, as one step on the history.
+
+    R40 asks for that in as many words - *an import is one undoable step* -
+    and the reason is not tidiness. An import writes hundreds of features at
+    once over somebody's file; the answer to a bad one has to be Ctrl+Z and
+    not an afternoon.
+
+    What it writes is what it is given. Deciding *what* to write when the
+    square already holds a feature of the same id is reconciliation, which is
+    G5 - this records whatever was there and puts it back on the undo, so a
+    second import replaces and takes itself back exactly, which is the floor
+    G5 builds on rather than the rule it will apply.
+
+    The fields are ``new_*`` and not ``nodes``/``ways``/``relations`` because
+    a dataclass field named ``ways`` would shadow the ``ways()`` every command
+    owes its caller - the instance attribute wins the lookup, and
+    ``cmd.ways(square)`` becomes an attempt to call a dict.
+
+    There is no ``relations()`` beside ``ways()`` and ``spots()`` because
+    nothing asks for one: the preview burns contours and spot heights, and the
+    canvas draws them. A relation is carried and saved and not yet drawn, so
+    adding the accessor now would be guessing at what its caller wants.
+    """
+    new_nodes: dict[int, Node] = field(default_factory=dict)
+    new_ways: dict[int, Way] = field(default_factory=dict)
+    new_relations: dict[int, Relation] = field(default_factory=dict)
+    name: str = 'import water'
+    # what the square held at each id before, or None where it held nothing
+    before: dict = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return set(self.new_ways)
+
+    def spots(self, square: Square) -> set[int]:
+        """The nodes that carry an elevation, not every node imported.
+
+        ``spots`` is answered from the command's own fields, and here those
+        fields *are* the nodes - so unlike ``MoveNode``, which names a node
+        and lets the driver ask the square, this one can tell. It has to: a
+        river network is 158,633 vertices on the gobras set and the driver
+        walks this on the UI thread, where a hundred and fifty thousand
+        no-ops is a stall rather than a saving.
+        """
+        return {i for i, n in self.new_nodes.items() if 'ele' in n.tags}
+
+    def apply(self, square: Square) -> None:
+        if self.before:
+            # captured once. The stack's undo-then-redo puts the square back
+            # before this runs again, so re-snapshotting would give the same
+            # answer - but only because of the order the caller happens to
+            # use, and a command owns its own invariant: applied twice with
+            # no undo between, a second snapshot would record the import and
+            # the original would be gone
+            square.nodes.update(self.new_nodes)
+            square.ways.update(self.new_ways)
+            square.relations.update(self.new_relations)
+            return
+        self.before = {
+            'nodes': {i: square.nodes.get(i) for i in self.new_nodes},
+            'ways': {i: square.ways.get(i) for i in self.new_ways},
+            'relations': {i: square.relations.get(i) for i in self.new_relations},
+        }
+        square.nodes.update(self.new_nodes)
+        square.ways.update(self.new_ways)
+        square.relations.update(self.new_relations)
+
+    def undo(self, square: Square) -> None:
+        for kind, holder in (('nodes', square.nodes), ('ways', square.ways),
+                             ('relations', square.relations)):
+            for i, was in self.before.get(kind, {}).items():
+                if was is None:
+                    holder.pop(i, None)
+                else:
+                    holder[i] = was
+        self.before = {}
+
+    def describe(self) -> str:
+        # ways and relations, not nodes, which is what a feature is here and
+        # in ``overpass.Water.__len__``: a river of a thousand vertices is one
+        # thing a mapper imported, and saying 158,633 would be true and useless
+        return f'{self.name}: {len(self.new_ways) + len(self.new_relations)} features'
 
 
 @dataclass

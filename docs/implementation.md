@@ -1897,3 +1897,87 @@ land in squares that have no file**: N19E086 and N19E087 are not present in
 this set and are given 261 and 94 features between them. Whether an import may
 bring a square into being, when R5 has blank templates created deliberately,
 is a question for G4b and not one the import gets to answer by writing a file.
+
+**G4b, an import is one undoable step.** `ImportWater` writes one import's
+features into one square and takes them all back. R40 asks for that in as many
+words, and the reason is not tidiness: an import writes hundreds of features at
+once over somebody's file, so the answer to a bad one has to be Ctrl+Z and not
+an afternoon.
+
+What it writes is what it is given. Deciding what to write when the square
+already holds a feature of that id is reconciliation, which is G5; this records
+whatever was there and puts it back on the undo, so a second import replaces
+and takes itself back exactly - the floor G5 builds on rather than the rule it
+will apply.
+
+Its fields are `new_nodes`, `new_ways`, `new_relations` and not the obvious
+names, because a dataclass field called `ways` **shadows the `ways()` every
+command owes its caller**: the instance attribute wins the lookup and
+`cmd.ways(square)` becomes an attempt to call a dict. Written the obvious way
+first, and ruff said nothing - the clue was a `noqa: F811` I had added to quiet
+the redefinition without asking what it was telling me.
+
+**Bringing a square into being needs nothing.** #87 settled that an import may,
+and `save_square` already frames a square that is not present, writes it and
+marks it so - the same path a mapper's first contour in a blank square takes.
+The import puts features into the in-memory `Square`; the save does the rest.
+
+**R42, measured first.** `has_constraints` now takes an elevation, a coastline
+or water, where before it took an `ele` tag and nothing else. Three things the
+measurement said that the decision could not:
+
+The widening changes less than it looks. A square whose water carries an
+elevation was already caught by the `ele` scan - which is why coastline-only
+squares have always counted, a coastline being tagged `ele=0` - and one whose
+water carries none contributes no ground anyway, because `collect` gathers
+lines with an `ele` and nothing else. What it stops is such a square being read
+as a blank template, which is what it is not.
+
+The cost I predicted did not appear. A water-only square outside the zone's
+current bounding box would enlarge the raster, and the two squares an import of
+the gobras set would create are at lat 19, which looked like a third more
+raster - except the real zone already spans 86..90 by 18..22 because of
+`N18E089`, so they fall inside it and the grid does not move at all. Measured
+rather than asserted, and the assertion was wrong.
+
+And the pair is matched either way round, with anything between, as long as
+both halves are inside the one tag element. The first version wanted them
+adjacent and `k` first, which is what JOSM writes and what `write_square`
+writes - and this file is read from wherever a mapper got it, so a reversed or
+separated pair would have gone unseen and a water-only square been read as a
+blank template. `[^>]` is what keeps the two halves in one tag: allowed to run
+past it, `natural=wood` followed by `landuse=water` answers yes.
+
+The pair match needed a wider window than the scan had. `k='natural'
+v='water'` is twenty-one bytes where the longest token before was ten, and the
+tail kept was the last sixteen bytes *of the block just read* - so a chunk
+smaller than the token leaves the window shorter than the thing being looked
+for, and a pair spanning three reads is never whole in any one of them. It is a
+rolling tail now. Written the old way the test fails at chunk sizes 8 to 11 and
+15 and passes everywhere else, which is the kind of bug that waits for a file
+of an awkward size.
+
+**And three the review was right about, after one it was not.** `apply`
+re-snapshotting `before` on every call reads as losing the original on a redo.
+It does not - the undo puts the square back before the redo snapshots it, so
+the second snapshot equals the first - and the test walks that cycle three
+times rather than arguing about it. But the invariant was the caller's and not
+the command's: applied twice with no undo between, a second snapshot records
+the import and the original is gone. `before` is captured once now, and a test
+applies it twice.
+
+`spots()` named every node it imported, and the driver walks that list on the
+UI thread. A river network is 158,633 vertices on the gobras set; each one
+would have been looked up, read for an `ele` it does not have, and dropped -
+a hundred and fifty thousand no-ops between two keystrokes. It names the nodes
+that carry an elevation, which it can do because unlike `MoveNode` it holds
+the nodes rather than their ids. That is the rare node an import brings that
+is a constraint and not geometry: a named spring on a river line.
+
+And the coastline claim was stated as if it were about OSM. It is about *these
+files*: a coastline in the gobras squares carries `ele=0` as well as
+`natural=coastline`, checked rather than assumed, which is why coastline-only
+squares have always counted under the `ele` scan alone. A coastline from
+anywhere else carries no elevation, so the coastline branch of the pair match
+is not the redundancy it looked - it is what catches one drawn elsewhere, or
+by a mapper who did not add the zero.

@@ -457,3 +457,88 @@ def test_a_square_with_no_relations_writes_none(golden, tmp_path):
     assert golden.relations == {}
     text = write_square(golden, tmp_path / 'S24E125_Out.osm').read_text()
     assert '<relation' not in text
+
+
+def test_a_square_of_nothing_but_water_is_not_a_blank_template(tmp_path):
+    """R42. An import can bring a square into being holding nothing but
+    rivers, and that is a square somebody has drawn - not one of the blanks
+    handed out to mappers.
+
+    It changes less than it looks. A square whose water carries an elevation
+    was already caught by the ``ele`` scan; one whose water carries none
+    contributes no ground until something gives it one, because ``collect``
+    gathers lines with an ``ele`` and nothing else. What this stops is the
+    square being read as a template.
+    """
+    from danu.core.square import has_constraints
+
+    def square(tags, name='S24E125_W.osm'):
+        path = tmp_path / name
+        path.write_text(
+            "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+            "  <node id='-1' lat='-23.5' lon='125.5' />\n"
+            "  <node id='-2' lat='-23.4' lon='125.6' />\n"
+            "  <way id='-9'>\n    <nd ref='-1' />\n    <nd ref='-2' />\n"
+            + ''.join(f"    <tag k='{k}' v='{v}' />\n" for k, v in tags.items())
+            + '  </way>\n</osm>\n')
+        return path
+
+    assert has_constraints(str(square({'waterway': 'river'}, 'S24E125_A.osm')))
+    assert has_constraints(str(square({'natural': 'water'}, 'S24E125_B.osm')))
+    assert has_constraints(str(square({'natural': 'coastline'}, 'S24E125_C.osm')))
+    assert has_constraints(str(square({'ele': '125'}, 'S24E125_D.osm')))
+    # and still no, for a square of something else entirely
+    assert not has_constraints(str(square({'highway': 'track'}, 'S24E125_E.osm')))
+    assert not has_constraints(str(square({'natural': 'wood'}, 'S24E125_F.osm')))
+    assert not has_constraints(str(square({}, 'S24E125_G.osm')))
+    # `v='water'` on its own answers for anything, and must not
+    assert not has_constraints(str(square({'landuse': 'water'}, 'S24E125_H.osm')))
+    assert not has_constraints(str(square({'name': 'coastline'}, 'S24E125_I.osm')))
+
+
+def test_the_natural_pair_is_found_whichever_way_round_it_is_written(tmp_path):
+    """JOSM writes ``k`` then ``v``, adjacent, and so does ``write_square``.
+    This file is read from wherever a mapper got it, and a pair that is
+    reversed or has something between would otherwise go unseen - which for a
+    water-only square means being read as a blank template."""
+    from danu.core.square import has_constraints
+
+    def tag(text, name):
+        path = tmp_path / name
+        path.write_text(
+            "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+            f"  <way id='-9'>\n    <tag {text} />\n  </way>\n</osm>\n")
+        return str(path)
+
+    assert has_constraints(tag("k='natural' v='water'", 'S24E125_P.osm'))
+    assert has_constraints(tag("v='water' k='natural'", 'S24E125_Q.osm'))
+    assert has_constraints(tag("k='natural' version='3' v='water'", 'S24E125_R.osm'))
+    assert has_constraints(tag('k="natural" v="coastline"', 'S24E125_S.osm'))
+    # but not across two different tags, which is two different statements
+    path = tmp_path / 'S24E125_T.osm'
+    path.write_text(
+        "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+        "  <way id='-9'>\n    <tag k='natural' v='wood' />\n"
+        "    <tag k='landuse' v='water' />\n  </way>\n</osm>\n")
+    assert not has_constraints(str(path))
+
+
+def test_the_constraint_scan_sees_a_tag_split_across_a_read(tmp_path):
+    """``k='natural' v='water'`` is matched as a pair, twenty-one bytes of it,
+    where the longest token before was ten. The overlap carries it - and it
+    has to be a *rolling* tail rather than the last block's bytes, or a chunk
+    smaller than the token leaves the window shorter than the thing being
+    looked for and a pair spanning three reads is never whole in any one of
+    them. Written with the old ``block[-n:]`` this fails at chunk sizes 8 to
+    11 and 15 and passes everywhere else, which is the kind of bug that waits
+    for a file of an awkward size."""
+    from danu.core.square import has_constraints
+
+    path = tmp_path / 'S24E125_Split.osm'
+    path.write_text(
+        "<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+        "  <node id='-1' lat='-23.5' lon='125.5' />\n"
+        "  <way id='-9'>\n    <nd ref='-1' />\n"
+        "    <tag k='natural' v='water' />\n  </way>\n</osm>\n")
+    for chunk in range(1, 80):
+        assert has_constraints(str(path), chunk=chunk), f'missed at chunk {chunk}'

@@ -545,7 +545,35 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 
 
 # any way carrying an elevation is a constraint, contour or water edge alike
-_HAS_ELE = re.compile(rb"""k=["']ele["']""")
+# R42: what makes a square one somebody has drawn rather than one of the
+# blanks. An elevation, a coastline, or water.
+#
+# A coastline in *these* squares is tagged ele=0 as well as natural=coastline
+# - checked against the gobras set, where every one carries both - which is
+# why coastline-only squares have always counted under the ele scan alone.
+# That is a fact about this pipeline's files and not about OSM, where a
+# coastline carries no elevation at all, so the coastline branch below is not
+# the redundancy it looks: it is what catches one drawn somewhere else, or by
+# a mapper who did not add the zero.
+#
+# The pair matched together for natural, because `v='water'` on its own would
+# answer for anything - a landuse, a name, a note. Either order and with
+# anything between, as long as both are inside the one tag element, which
+# `[^>]` is what keeps: JOSM and write_square put them adjacent and k first,
+# and this file is read from wherever a mapper got it.
+_NATURAL = rb"""k=["']natural["']"""
+_WATERY = rb"""v=["'](?:water|coastline)["']"""
+_HAS_CONSTRAINT = re.compile(
+    rb"""k=["']ele["']"""
+    rb"""|k=["']waterway["']"""
+    + rb"""|""" + _NATURAL + rb"""[^>]{0,60}""" + _WATERY
+    + rb"""|""" + _WATERY + rb"""[^>]{0,60}""" + _NATURAL)
+# enough to hold the longest of those across a chunk boundary. The longest the
+# alternation can match is a pair the wide way round - `v='coastline'` at 13
+# bytes, sixty between, `k='natural'` at 11 - which is 84, and a little more
+# with double quotes. 128 leaves room to widen the gap without coming back
+# here, which is the only reason it is not 96
+_SCAN_OVERLAP = 128
 
 
 # xz's magic bytes. A square is read by what it is rather than by what it is
@@ -564,9 +592,22 @@ def open_square_file(path: str | os.PathLike):
 
 
 def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
-    """True if the square has any ``ele`` tag - which is what separates a
-    square somebody has drawn from one of the blank templates handed out to
-    mappers, and so which squares a zone is built over.
+    """True if the square carries an elevation, a coastline or water - R42,
+    and what separates a square somebody has drawn from one of the blank
+    templates handed out to mappers, and so which squares a zone is built
+    over.
+
+    Water joined that list when an import could bring a square into being
+    holding nothing else. It changes less than it looks: a square whose water
+    has an elevation was already caught by the ``ele`` scan, and one whose
+    water has none contributes no ground until G6 gives it one - ``collect``
+    gathers lines with an ``ele`` and nothing else. What it does is stop such
+    a square being read as a blank template, which is what it is not.
+
+    The coastline branch is not redundant either, though a coastline in these
+    squares carries ``ele=0`` and would be caught without it. That is a fact
+    about this pipeline's files; a coastline from anywhere else carries no
+    elevation.
 
     Reads in chunks and stops at the first, since a filled square can be 87 MB
     and most are answered by the first page. Decompressing as it goes, where
@@ -579,6 +620,9 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
             block = f.read(chunk)
             if not block:
                 return False
-            if _HAS_ELE.search(tail + block):
+            if _HAS_CONSTRAINT.search(tail + block):
                 return True
-            tail = block[-16:]
+            # the rolling tail, not this block's: a chunk smaller than the
+            # token leaves `block[-n:]` shorter than the token, and a pair
+            # spanning three small reads is never whole in any one window
+            tail = (tail + block)[-_SCAN_OVERLAP:]
