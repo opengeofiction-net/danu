@@ -89,3 +89,32 @@ def test_a_closed_way_is_its_own_ring_and_a_line_is_not():
     assert rings.is_closed(lake)
     assert not rings.is_closed(river)
     assert not rings.is_closed(sliver), 'a way doubling back on itself is not an area'
+
+
+def test_a_closed_member_is_a_ring_and_not_something_to_chain_onto():
+    """A lake whose outer boundary is one closed way and whose island is two
+    open ones. Splicing the closed way into the open chain would graft a loop
+    onto a line and make a shape that is neither."""
+    # the island's ring is picked to be the piece a greedy scan reaches
+    # first, so the test fails if the closed one is left in the pile
+    got = rings.closed_rings([[1, 2, 3], [3, 0, 7, 3], [3, 4, 1]])
+    assert len(got) == 2, got
+    assert all(r[0] == r[-1] for r in got)
+    assert {tuple(sorted(set(r))) for r in got} == {(1, 2, 3, 4), (0, 3, 7)}
+
+
+def test_the_rings_do_not_depend_on_the_order_the_members_arrive_in():
+    """Where a node is shared by more than two members the greedy join is
+    ambiguous, and the editor and the server read the same relation: they have
+    to fill the same shape, not whichever shape the member order suggested."""
+    import random
+    pieces = [[1, 2, 3], [3, 4, 1], [3, 5, 6], [6, 7, 3]]
+    first = rings.closed_rings(pieces)
+    rng = random.Random(20261003)
+    for _ in range(25):
+        shuffled = [list(reversed(p)) if rng.random() < 0.5 else list(p) for p in pieces]
+        rng.shuffle(shuffled)
+        got = rings.closed_rings(shuffled)
+        assert {tuple(sorted(set(r))) for r in got} == {tuple(sorted(set(r))) for r in first}, (
+            f'{shuffled} stitched differently from {pieces}'
+        )

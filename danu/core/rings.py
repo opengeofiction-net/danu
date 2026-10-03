@@ -27,14 +27,35 @@ from .square import Square
 def _chains(ways: list[list[int]]) -> list[list[int]]:
     """Node-id sequences joined end to end, as far as each will go.
 
-    Greedy and order-independent: a piece is taken off the pile whenever
-    either of its ends meets either end of the chain being built, reversed if
-    that is the end that matched. A relation lists its members in no
-    particular order and a way is drawn in no particular direction, so both
-    have to be allowed for.
+    A piece is taken off the pile whenever either of its ends meets either end
+    of the chain being built, reversed if that is the end that matched: a
+    relation lists its members in no particular order and a way is drawn in no
+    particular direction, so both have to be allowed for.
+
+    Two things keep the answer from depending on the order the pieces arrive
+    in. A piece that is already a ring is lifted out first and kept whole -
+    spliced into an open chain it would graft a closed loop onto a line and
+    make a shape that is in neither. And the rest are sorted by their own node
+    ids, so where a node is shared by more than two members and the greedy
+    choice is genuinely ambiguous, the choice still falls the same way every
+    time. The editor and the server read the same relation and must fill the
+    same shape; "whichever order the members were listed in" is not good
+    enough for that.
     """
-    pile = [list(w) for w in ways if len(w) >= 2]
-    out: list[list[int]] = []
+    rings, pile = [], []
+    for w in ways:
+        piece = list(w)
+        if len(piece) < 2:
+            continue
+        if piece[0] == piece[-1]:
+            # a ring already, or a sliver doubling back on itself; either way
+            # it is not something to chain other pieces onto
+            if len(piece) > 3:
+                rings.append(piece)
+            continue
+        pile.append(piece)
+    pile.sort()
+    out = list(rings)
     while pile:
         chain = pile.pop(0)
         joined = True
@@ -42,9 +63,9 @@ def _chains(ways: list[list[int]]) -> list[list[int]]:
             joined = False
             for i, piece in enumerate(pile):
                 if piece[0] == chain[-1]:
-                    chain += piece[1:]
+                    chain = chain + piece[1:]
                 elif piece[-1] == chain[-1]:
-                    chain += piece[-2::-1]
+                    chain = chain + piece[-2::-1]
                 elif piece[-1] == chain[0]:
                     chain = piece[:-1] + chain
                 elif piece[0] == chain[0]:

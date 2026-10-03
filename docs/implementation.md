@@ -2102,6 +2102,17 @@ greedy and takes a piece off the pile when either of its ends meets either end
 of the chain. It is core rather than ui because it is topology and the `tests`
 job can run it without Qt.
 
+Two things keep the stitch from depending on the order the members arrive in,
+and the local review found both. A piece that is already a ring is lifted out
+first and kept whole: spliced into an open chain it grafts a loop onto a line
+and makes a shape that is in neither, and on the real gobras import that was
+one lake drawn wrong - the relation fills went from 92 to 93 when it was
+fixed. And the rest are sorted by their own node ids, so where a node is
+shared by more than two members and the greedy choice is genuinely ambiguous,
+it still falls the same way every time. The editor and the server read the
+same relation and have to fill the same shape; "whichever order the members
+happened to be listed in" does not give that.
+
 What does not close is not filled. A square holds its own degree, so a lake
 crossing the edge arrives cut, and those pieces chain into an open line. It
 keeps its outline and gets no fill. Closing it would draw a shore along the
