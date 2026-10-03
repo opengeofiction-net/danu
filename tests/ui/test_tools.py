@@ -869,3 +869,18 @@ def test_a_spot_height_placed_at_an_awkward_value_is_still_drawn(w, value):
     drawn = spots_in(w, square)
     assert len(drawn) == 1, f'{value} m was placed and not drawn'
     assert next(iter(drawn.values())).ele == pytest.approx(value, abs=5e-4)
+
+
+def test_deleting_a_spot_height_that_is_already_gone_says_so(w):
+    """The contour action checks its way before deleting it; this checks its
+    node, because a menu item is reachable without a history move in between
+    and ``DeleteNode`` pops the node it is given."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, 126.5, -23.7)
+    nid = next(iter(spots_in(w, square)))
+    del square.nodes[nid]                     # out from under the selection
+    w.edit_actions['edit.delete'].trigger()
+    assert 'already gone' in w.statusBar().currentMessage()
+    assert w.editor.selection is None

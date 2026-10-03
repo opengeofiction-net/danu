@@ -45,11 +45,12 @@ SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within th
 
 @dataclass
 class Selection:
-    """What is selected: a way, or a node of one, or a spot height.
+    """What is selected: a way, a node of one, or a spot height.
 
-    ``way`` is None for a spot height, which belongs to no way - so every
-    reader of it has to ask. That is the whole of what R36 costs the selection:
-    a node that is its own constraint rather than a vertex of something."""
+    A spot height is the one with no way, since it belongs to none - so every
+    reader of ``way`` has to ask, and ``spot`` is the question. That is the
+    whole of what R36 costs the selection: a node that is its own constraint
+    rather than a vertex of something."""
     square: Square
     way: Way | None
     node: int | None = None
@@ -758,6 +759,14 @@ class EditController(QObject):
             self.message.emit('nothing selected')
             return
         if sel.spot:
+            if sel.node not in sel.square.nodes:
+                # as the contour action checks its way: DeleteNode pops the
+                # node and a menu item is reachable without a history move in
+                # between, so this is the difference between a message and a
+                # KeyError out of a menu
+                self.selection = None
+                self.message.emit('that spot height is already gone')
+                return
             spot = self.layer.spots.get((sel.square.name, sel.node))
             what = format_ele(spot.ele) if spot else None
             self.do(sel.square, edits.DeleteNode(sel.node))

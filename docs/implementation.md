@@ -1612,6 +1612,16 @@ height's value is the whole of its content where a contour's line is most of
 its. An action that re-tags whatever is selected would serve both and belongs
 with the rest of phase 6's polish.
 
+**And a button on the map**, under select and draw, because a hand on a map
+looks for the tools on the map - which is what the phase 3 review said about
+zoom and the mode beside it. The icon is a triangle with a dot in it, the
+surveyor's mark for a measured height. Four were drawn and looked at: a dot
+beside two short rules, meaning *a point with a value written next to it*,
+reads as a dot beside an equals sign; a dot under an up arrow reads as *move
+up*; a ringed crosshair reads as *aim*. The triangle says height without a
+digit, and a digit at eighteen pixels says nothing. Looked at, because the
+first one drawn passed every test and read as a musical note.
+
 **The `ele` tag has to read back, and now says so.** The elevation goes into
 the tag through `format_ele` and comes out through `float()` - in another
 module, inside a `try` that reads a failure as *this is not a constraint*,

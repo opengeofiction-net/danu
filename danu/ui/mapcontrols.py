@@ -2,7 +2,8 @@
 
 The keys and the menus have them, but a hand on a map looks for them on the
 map - the phase 3 review asked for zoom there, and for the mode beside it.
-Four buttons down the top left of the view: in, out, select, draw.
+Five buttons down the top left of the view: in, out, select, draw, spot
+height.
 
 A child of the **view**, not of its viewport, for the reason
 ``danu.ui.legend`` records: a scroll takes a viewport's children with it.
@@ -54,6 +55,25 @@ def _polyline(p: QPainter, colour: QColor):
         p.drawRect(QRectF(q.x() - 1.6, q.y() - 1.6, 3.2, 3.2))
 
 
+def _spot(p: QPainter, colour: QColor):
+    """A triangle with a dot in it - the surveyor's mark for a measured
+    height, and the one shape here that could not be read as either of the
+    other two tools.
+
+    Four were drawn and looked at before this one was kept. A dot beside two
+    short rules, meaning *a point with a value written next to it*, reads as a
+    dot beside an equals sign. A dot under an up arrow reads as *move up*. A
+    ringed crosshair reads as *aim*. The triangle says height, and says it
+    without a digit, which at eighteen pixels is the only way to say it.
+    """
+    p.setPen(QPen(colour, 1.5))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPolygon([QPointF(9, 4.0), QPointF(15.5, 14.5), QPointF(2.5, 14.5)])
+    p.setBrush(colour)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(QPointF(9, 11.2), 1.9, 1.9)
+
+
 class MapControls(QWidget):
     def __init__(self, view, editor=None):
         super().__init__(view)
@@ -70,9 +90,12 @@ class MapControls(QWidget):
                                    checkable=True, icon=_icon(_pointer, ink))
         self.draw = self._button('', 'Draw a contour (A)', column,
                                  checkable=True, icon=_icon(_polyline, ink))
+        self.spot = self._button('', 'Place a spot height at the active elevation (Z)', column,
+                                 checkable=True, icon=_icon(_spot, ink))
         self.modes = QButtonGroup(self)
         self.modes.addButton(self.select)
         self.modes.addButton(self.draw)
+        self.modes.addButton(self.spot)
         self.select.setChecked(True)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
@@ -81,6 +104,7 @@ class MapControls(QWidget):
         if editor is not None:
             self.select.clicked.connect(lambda: editor.set_tool('select'))
             self.draw.clicked.connect(lambda: editor.set_tool('draw'))
+            self.spot.clicked.connect(lambda: editor.set_tool('spot'))
             editor.toolChanged.connect(self.tool_changed)
         # the viewport's resize, held by name: see danu.ui.legend
         self._viewport = view.viewport()
@@ -122,3 +146,4 @@ class MapControls(QWidget):
     def tool_changed(self, name: str):
         self.select.setChecked(name == 'select')
         self.draw.setChecked(name == 'draw')
+        self.spot.setChecked(name == 'spot')
