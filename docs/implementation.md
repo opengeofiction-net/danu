@@ -2131,3 +2131,33 @@ box's water - a whole frame, on the UI thread, which is exactly the cost phase
 the fills of the relations that name it, so only those are rebuilt: **0.5 ms**,
 and finding which relations name it is a walk of 112 relations rather than of
 four thousand ways.
+
+**What the PR review changed.** Three, and all three are about a fill that
+stops being true rather than one that never was.
+
+A ring missing a node was filled across the gap. `_project` allows a way in a
+square whose nodes are not all in it, and draws the part it knows, which is
+right for a line - but a line may stop short where a shape may not, and
+joining the two sides of a missing node draws a shore nobody mapped. It is the
+straddling case by another road, and gets the same answer: outline, no fill.
+`_ring_path` now wants every ref placed, not merely four of them. On the real
+import it costs nothing - 2,073 fills before and after - which is the
+reassuring result, because it means the invariant usually holds and the guard
+is for when it does not.
+
+A relation that stopped *naming* a ring kept the ring. The rebuild was keyed on
+"a changed way is a member of this relation", and a relation that loses its
+outer ring names no changed way at all. That is exactly what G5 does -
+reconciliation rewrites member lists - so the fill a relation was built from is
+remembered and compared, and a relation whose members moved is redone whatever
+the changed ids say. The first attempt at a test for this passed without the
+fix, because the edit it made happened to name the new member; the one that
+bites reports a river nearby and nothing else.
+
+And `_add_water_fills(square, members=frozenset())` had a default that was a
+lie: called without `members`, every ring of every relation gets a second fill
+of its own, the one thing the docstring warns against. It is required now.
+
+The review also asked for the ordering test to compare rings rather than node
+sets - two stitchings can group the same nodes in a different order, and the
+order is the shape - so it compares them up to rotation and reversal.

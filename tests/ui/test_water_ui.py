@@ -409,3 +409,70 @@ def test_a_deleted_lake_takes_its_fill_with_it(water_ws):
     del sq.ways[-700]
     layer.refresh(sq, {-700})
     assert (sq.name, 'way', -700) not in layer.water_fills
+
+
+def test_a_ring_missing_a_node_is_not_filled_across_the_gap(water_ws):
+    """A way can be in a square whose nodes are not all in it. A line may stop
+    short where a shape may not: joining the two sides of the gap draws a
+    shore nobody mapped."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    del sq.nodes[-702]                            # one corner is in the next square
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) not in layer.water_fills, (
+        'a lake was filled across a node the square does not hold'
+    )
+    assert (sq.name, -700) in layer.water, 'and it lost its outline as well'
+
+
+def test_a_relation_that_stops_naming_a_ring_loses_the_fill(water_ws):
+    """G5's reconciliation replaces superseded features, which rewrites member
+    lists. A relation that loses its outer ring names no changed way id at
+    all, so the changed ids alone cannot say the fill is stale."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    a_lake(sq, wid=-800, base=-800, lon=125.6, lat=-23.2)
+    sq.ways[-700].tags = sq.ways[-800].tags = {}
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'},
+                                  members=[Member('way', -700, 'outer')])
+    layer.set_working_set(water_ws)
+    key = (sq.name, 'rel', -900)
+    assert key in layer.water_fills
+
+    # the relation drops its ring, and the edit that is reported names
+    # neither the ring it lost nor any ring it gained - a river nearby. The
+    # changed way ids cannot say the fill is stale; only the member list can
+    river = a_river(9001, 125.5, -23.5)
+    sq.nodes.update(river.nodes)
+    sq.ways.update(river.ways)
+    sq.relations[-900].members = []
+    layer.refresh(sq, {9001})
+    assert key not in layer.water_fills, (
+        'the relation still fills a ring it no longer names'
+    )
+
+    # and it takes one up again the same way
+    sq.relations[-900].members = [Member('way', -800, 'outer')]
+    layer.refresh(sq, {9001})
+    assert key in layer.water_fills, 'a ring the relation gained was not taken up'
+    assert layer.water_fills[key].path.contains(
+        QPointF(*m.lonlat_to_scene(125.62, -23.18)))
+
+
+def test_a_deleted_relation_takes_its_fill_with_it(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    sq.ways[-700].tags = {}
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'},
+                                  members=[Member('way', -700, 'outer')])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'rel', -900) in layer.water_fills
+
+    del sq.relations[-900]
+    layer.refresh(sq, {-700})
+    assert (sq.name, 'rel', -900) not in layer.water_fills, (
+        'a deleted relation kept its fill'
+    )

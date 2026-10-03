@@ -123,6 +123,11 @@ def _water_tags(tags: dict) -> bool:
     return tags.get('natural') == 'water' or 'waterway' in tags
 
 
+def _member_ways(rel) -> tuple:
+    """The way ids a relation names, in order - what a fill was built from."""
+    return tuple(mem.ref for mem in rel.members if mem.type == 'way')
+
+
 def _water_members(square: Square) -> frozenset:
     """The ways a square's water relations are made of. A multipolygon's rings
     carry no tagging of their own, so this is what says they are water.
@@ -247,6 +252,10 @@ class ContourLayer(QGraphicsItem):
         # and the bodies among it, as filled shapes: by relation where one
         # holds the rings, by way where a way is its own ring
         self.water_fills: dict[tuple, _Piece] = {}
+        # the member ways each relation fill was built from, so an edit that
+        # rewrote a member list is noticed - the changed way ids alone cannot
+        # say that a relation stopped naming one
+        self._rel_members: dict[tuple, tuple] = {}
         # whether a level has appeared or emptied since index_levels was last
         # worked out, which is the only thing that can move an index contour
         self._levels_moved = False
@@ -283,7 +292,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
-        self.water_fills = {}
+        self.water_fills, self._rel_members = {}, {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -429,7 +438,7 @@ class ContourLayer(QGraphicsItem):
         self._arrays_stale = True
         self.update()
 
-    def _add_water_fills(self, square: Square, members=frozenset()) -> None:
+    def _add_water_fills(self, square: Square, members) -> None:
         """Every water body of one square, as a filled shape - the open path.
 
         A relation first, as one path holding every ring it stitched, with an
@@ -456,6 +465,7 @@ class ContourLayer(QGraphicsItem):
     def _relation_fill(self, square: Square, rel) -> None:
         key = (square.name, 'rel', rel.id)
         self.water_fills.pop(key, None)
+        self._rel_members[key] = _member_ways(rel)
         if not _water_tags(rel.tags):
             return
         paths = [self._ring_path(square, r) for r in relation_rings(square, rel)]
@@ -471,11 +481,19 @@ class ContourLayer(QGraphicsItem):
 
     @staticmethod
     def _ring_path(square: Square, refs) -> list:
-        """A ring's nodes in scene units, or nothing if the square is missing
-        enough of them to leave a shape."""
+        """A ring's nodes in scene units, or nothing at all.
+
+        Every node, not merely enough of them. A way can be in a square whose
+        nodes are not all in it - ``_project`` allows for exactly that, and
+        draws the part it knows - but a line may stop short where a shape may
+        not: joining the two sides of a missing node fills across a gap and
+        draws a shore nobody mapped, which is the straddling case again by
+        another road. A body we cannot draw truthfully keeps its outline and
+        gets no fill.
+        """
         nodes = square.nodes
         placed = [nodes[r] for r in refs if r in nodes]
-        if len(placed) < 4:
+        if len(placed) != len(refs) or len(placed) < 4:
             return []
         pts = m.lonlat_to_scene_array([n.lon for n in placed], [n.lat for n in placed])
         return pts.tolist()
@@ -512,8 +530,18 @@ class ContourLayer(QGraphicsItem):
             else:
                 self._way_fill(square, way, members)
         for rel in square.relations.values():
-            if any(mem.type == 'way' and mem.ref in changed for mem in rel.members):
+            key = (square.name, 'rel', rel.id)
+            # a way it names changed, or the names themselves did. The second
+            # half is what G5 needs: reconciliation replaces superseded
+            # features, which rewrites member lists, and a relation that lost
+            # its outer ring that way names no changed id at all
+            if (any(mem.type == 'way' and mem.ref in changed for mem in rel.members)
+                    or self._rel_members.get(key) != _member_ways(rel)):
                 self._relation_fill(square, rel)
+        for key in [k for k in self._rel_members
+                    if k[0] == square.name and k[2] not in square.relations]:
+            self.water_fills.pop(key, None)
+            del self._rel_members[key]
 
     def _add_water(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A water way's path and rectangle, in the pass that draws under the

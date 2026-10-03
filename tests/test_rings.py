@@ -19,6 +19,19 @@ def with_way(sq: Square, wid: int, refs: list[int], tags=None) -> Way:
     return sq.ways[wid]
 
 
+def _canonical(ring: list[int]) -> tuple:
+    """A ring as the same tuple whichever node it was started from and
+    whichever way round it was walked - which is the comparison the ordering
+    test wants. Comparing node *sets* would pass two stitchings that put the
+    same nodes in the same groups in a different order, and the order is the
+    shape."""
+    body = ring[:-1]
+    turns = [tuple(body[i:] + body[:i]) for i in range(len(body))]
+    back = body[::-1]
+    turns += [tuple(back[i:] + back[:i]) for i in range(len(back))]
+    return min(turns)
+
+
 def test_two_halves_make_one_ring():
     assert rings.closed_rings([[1, 2, 3], [3, 4, 1]]) == [[1, 2, 3, 4, 1]]
 
@@ -109,12 +122,10 @@ def test_the_rings_do_not_depend_on_the_order_the_members_arrive_in():
     to fill the same shape, not whichever shape the member order suggested."""
     import random
     pieces = [[1, 2, 3], [3, 4, 1], [3, 5, 6], [6, 7, 3]]
-    first = rings.closed_rings(pieces)
+    first = {_canonical(r) for r in rings.closed_rings(pieces)}
     rng = random.Random(20261003)
     for _ in range(25):
         shuffled = [list(reversed(p)) if rng.random() < 0.5 else list(p) for p in pieces]
         rng.shuffle(shuffled)
-        got = rings.closed_rings(shuffled)
-        assert {tuple(sorted(set(r))) for r in got} == {tuple(sorted(set(r))) for r in first}, (
-            f'{shuffled} stitched differently from {pieces}'
-        )
+        got = {_canonical(r) for r in rings.closed_rings(shuffled)}
+        assert got == first, f'{shuffled} stitched differently from {pieces}'
