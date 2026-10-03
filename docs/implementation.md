@@ -1981,3 +1981,88 @@ squares have always counted under the `ele` scan alone. A coastline from
 anywhere else carries no elevation, so the coastline branch of the pair match
 is not the redundancy it looked - it is what catches one drawn elsewhere, or
 by a mapper who did not add the zero.
+
+**G4c, the editor does it.** Ctrl+I, a worker, one step on the history, and
+water on the canvas.
+
+**A step can span squares now, which is what R40 needed.** `SetUndoStack` kept
+one `(square, command)` per entry, and an import of a working set lands in up
+to nine files at once; one Ctrl+Z had to take all of them. An entry is a
+*list* of pairs - `do_across` puts them on together, `undo_across` takes them
+off in reverse, and `do`/`undo`/`redo` are the one-pair case of each. `dirty`
+counts a step once for each square it names, which is what offers every
+touched file to the save.
+
+**The importer is the builder's queue with a different job.** Newest wins: a
+mapper who presses import twice gets one import. The one already out cannot be
+stopped - `urlopen` is a blocking read with no cancellation hook - so it
+finishes and its answer is dropped by serial, which costs a few seconds of
+somebody else's bandwidth and no correctness.
+
+**Water is drawn under the contours**, in one colour rather than the ramp's,
+because none of it has an elevation to take a colour from until G6 - a river
+is where the valley floor is and not how high it is. Under, because it is the
+context a contour is drawn against and not the work.
+
+**And a lake nearly drew as nothing.** A multipolygon's rings carry no tagging
+of their own; the relation holds it. A layer that asked the way alone would
+keep 1,434 tagged `natural=water` ways and silently drop every ring of the 112
+relations - which on this data is most of the lakes. `_project` takes the
+square's water-relation members as an argument, gathered once per square
+rather than searched per way: 112 relations against four thousand ways is the
+difference between a lookup and a scan.
+
+The test for that failed first for a better reason than the one it was written
+for. `_project` returns None for a way that is neither contour, coastline nor
+tagged water, so an untagged ring never became a geometry at all and the later
+"is it a member" check had nothing to ask about. The decision belongs in the
+projection, where both the open path and the edit path go through it, and not
+in the two callers afterwards.
+
+**Caught during the work, not in it.** Three `str.replace` calls were written
+without asserting their anchor, against a file whose anchors were on the parked
+`viewport-first` branch rather than on main - so they did nothing, and
+`ruff --fix` then tidied away the imports for code that had never landed. The
+menu entry appeared and the method behind it did not. It was redone with
+`assert old in s` and the branch carries the mended version; the note is here
+because asserting the anchor is the difference between a failed edit and a
+silent one, and this file has said so since the splice that deleted two tests.
+
+**What the two reviews changed.** Four of their findings were real and three
+were worth the change anyway.
+
+The real one was the working set. `_water_imported` read `self.working_set`,
+which is the set open when the fetch *returns* and not the one whose names
+chose the squares. The names of two grids can match and the `Square` objects
+behind them cannot, so moving in that second and a half put the features into
+squares nobody asked about, silently. The answer carries its set out with it
+now and the window refuses one that is no longer open. `started` carries it
+too, for the same reason one step down: a queued request begins when the one
+before it answers, so the status line could name bounds nobody was fetching.
+
+`self.water` was initialised in `set_working_set` and not in `__init__`, which
+`_paint_water` reads to decide there is none - a layer painted before it had a
+set raised `AttributeError`. The `spots` dict had always been in `__init__`;
+this was the odd member out, and the test that catches it builds a bare layer
+and renders it.
+
+`do_across([])` went on the history. The Ctrl+Z that reached it popped the
+empty step, undid nothing, and answered `None` - which every caller reads as
+"the history is empty" - so the keypress was swallowed and the edit before it
+stayed done. Nothing is not a step.
+
+The predicates disagreed. `_is_water` took any `waterway` on a way;
+`_water_members` took only `natural=water` on a relation. The import cannot
+produce the difference, because the query asks for `relation["natural"="water"]`
+and nothing else, but a `type=waterway` relation can be drawn or already be in
+a square, and its members carry no tagging of their own exactly as a lake's
+rings do. Both now call one `_water_tags`, so they cannot answer differently.
+
+The tooltips named keys rather than bindings - `(Q)`, `(A)`, `(Z)`, `(Ctrl+I)`
+written out, while every one of those four is in `DEFAULT_KEYS` and reboundable
+from the settings. `MapControls` takes the settings and builds the tooltip from
+`key(action)`.
+
+The rest of the second review was the diff read without the files around it:
+`ImportWater`, `dirty_squares` and `Water.__len__` were all reported as
+possibly missing and all three are on the branch.

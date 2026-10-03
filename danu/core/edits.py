@@ -709,8 +709,13 @@ class SetUndoStack:
     its own file to save."""
 
     def __init__(self):
-        self._done: list[tuple[Square, Command]] = []
-        self._undone: list[tuple[Square, Command]] = []
+        # each entry is a *step*: the pairs that go and come back together.
+        # One pair for an ordinary edit; several where one action touches
+        # more than one square, which R40 asks for by name - an import is one
+        # undoable step, and an import of a working set lands in up to nine
+        # files at once. The answer to a bad one has to be one Ctrl+Z.
+        self._done: list[list[tuple[Square, Command]]] = []
+        self._undone: list[list[tuple[Square, Command]]] = []
         self._squares: dict[int, Square] = {}      # every square touched, by identity
         self._clean: dict[int, int] = {}           # id(square) -> steps done at the last save
         self._alloc: IdAllocator | None = None
@@ -728,26 +733,56 @@ class SetUndoStack:
         return self._alloc
 
     def do(self, square: Square, cmd: Command) -> None:
-        cmd.apply(square)
-        self._squares[id(square)] = square
-        self._done.append((square, cmd))
+        self.do_across([(square, cmd)])
+
+    def do_across(self, steps) -> None:
+        """One step over several squares - applied in order, undone in
+        reverse, and taken off the history together.
+
+        Nothing is not a step. An empty list used to go on the history all the
+        same, and the Ctrl+Z that reached it popped it, undid nothing, and
+        answered None - which every caller reads as "there was nothing to
+        undo", so the keypress was swallowed and the edit before it stayed
+        done. The redo stack was cleared for it too.
+        """
+        steps = list(steps)
+        if not steps:
+            return
+        for square, cmd in steps:
+            cmd.apply(square)
+            self._squares[id(square)] = square
+        self._done.append(steps)
         self._undone.clear()
 
     def undo(self) -> tuple[Square, Command] | None:
+        """The last step undone, and the pair it was. A step over several
+        squares answers with its first pair, which is what a caller wanting
+        one thing to describe is asking for; ``undo_across`` gives all of
+        them."""
+        step = self.undo_across()
+        return step[0] if step else None
+
+    def undo_across(self) -> list | None:
         if not self._done:
             return None
-        square, cmd = self._done.pop()
-        cmd.undo(square)
-        self._undone.append((square, cmd))
-        return square, cmd
+        step = self._done.pop()
+        for square, cmd in reversed(step):
+            cmd.undo(square)
+        self._undone.append(step)
+        return step
 
     def redo(self) -> tuple[Square, Command] | None:
+        step = self.redo_across()
+        return step[0] if step else None
+
+    def redo_across(self) -> list | None:
         if not self._undone:
             return None
-        square, cmd = self._undone.pop()
-        cmd.apply(square)
-        self._done.append((square, cmd))
-        return square, cmd
+        step = self._undone.pop()
+        for square, cmd in step:
+            cmd.apply(square)
+        self._done.append(step)
+        return step
 
     @property
     def can_undo(self) -> bool:
@@ -758,13 +793,17 @@ class SetUndoStack:
         return bool(self._undone)
 
     def describe_undo(self) -> str:
-        return self._done[-1][1].describe() if self._done else ''
+        return self._done[-1][0][1].describe() if self._done else ''
 
     def describe_redo(self) -> str:
-        return self._undone[-1][1].describe() if self._undone else ''
+        return self._undone[-1][0][1].describe() if self._undone else ''
 
     def _steps(self, square: Square) -> int:
-        return sum(1 for sq, _ in self._done if sq is square)
+        """How many steps have touched this square. A step over several
+        squares counts once for each of them it names, and once only however
+        many commands it carries for that square - what this feeds is
+        ``dirty``, which asks whether the file differs from the last save."""
+        return sum(1 for step in self._done if any(sq is square for sq, _ in step))
 
     def dirty(self, square: Square) -> bool:
         return self._steps(square) != self._clean.get(id(square), 0)
