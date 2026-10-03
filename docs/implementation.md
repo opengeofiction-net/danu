@@ -2116,8 +2116,15 @@ happened to be listed in" does not give that.
 What does not close is not filled. A square holds its own degree, so a lake
 crossing the edge arrives cut, and those pieces chain into an open line. It
 keeps its outline and gets no fill. Closing it would draw a shore along the
-square edge that nobody mapped. On the gobras 3x3 that is 92 of the 112
-relations filled and 20 left open at the set edge.
+square edge that nobody mapped.
+
+The gobras 3x3 does not exercise that, and an earlier draft of this paragraph
+said it did. Of the 112 relations in the Overpass answer, 19 are placed into
+N19E086, which the set does not hold, so they are never drawn; the other 93
+land in present squares and all 93 stitch. Nothing in this box fails to close.
+The count here was 92 before the closed-member lift, and the one it recovered
+is the only evidence this data gives: the straddling case is covered by tests
+rather than by the import.
 
 **The cost, measured.** Painting: +2.2 ms at z10, +0.5 ms at z13 and z15, on
 773 fills drawn of 2,072 - the per-piece rectangle cull was already there and

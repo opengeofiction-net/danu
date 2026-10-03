@@ -489,6 +489,13 @@ class ContourLayer(QGraphicsItem):
         it, and the relation's path holds it. A review read the skip as
         dropping such a member's fill on the floor; the test that was written
         to show it instead showed the relation filled.
+
+        ``members`` must be the union of what the square's water relations
+        name *now*, and never the set of ways whose membership moved. The two
+        look interchangeable because a way that joined a relation is in both.
+        A way that *left* one is in the moved set and is not a member, and
+        handed the moved set it would be skipped here and drawn by nobody -
+        which is the fault this argument was widened to fix.
         """
         key = (square.name, 'way', way.id)
         self.water_fills.pop(key, None)
