@@ -2207,3 +2207,37 @@ everything else that is drawn. The second is that I had seen this myself, in
 the z15 render made while settling the fill alphas, and set it aside as a
 follow-up to raise rather than a fault to fix. It was in front of me and it
 was this change's business.
+
+**The water pass filled the contours.** Reported from the editor on N20E086,
+a square that had never seen an import, with the surface at zero opacity: the
+whole terrain drawn in water.
+
+```python
+painter.setPen(Qt.PenStyle.NoPen)
+painter.setBrush(WATER_FILL)      # set before anything is known about there being any
+for piece in self.water_fills.values(): ...
+if not self.water:
+    return                        # and left on the painter
+```
+
+The contour pass below sets a pen per level and no brush. It always relied on
+`_paint_water` leaving `NoBrush` behind, which the version before this change
+did - it returned before touching either when there was no water, and ended
+with `setBrush(NoBrush)` when there was. The fill pass broke that silently: on
+a square with no water it sets the brush, draws nothing, returns early, and
+every closed contour is then filled with it.
+
+Fixed at both ends, because the fault was the implicit dependency and not the
+one line. `_paint_water` wraps itself in `save`/`restore`, so it cannot leak
+whatever it does; and `paint` sets `NoBrush` before the contour loop, so that
+pass says what it needs instead of inheriting it.
+
+The lesson is not about brushes. The counter said `fills drawn 0`, which was
+true - no fill was drawn, the brush did the filling - and I offered that
+number to the mapper as evidence that nothing was filled, twice, without
+opening the image it came from. A rendering fault is settled by looking at the
+rendering. This file has said so since the pass-2 streaks, and the rule has
+now caught me from the other side: there, a statistic hid a fault that was
+obvious on sight; here, a counter did. The test that pins this reads a pixel
+inside a contour ring, and the second one hands the pass a magenta brush and
+requires it back.

@@ -11,7 +11,8 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QColor
 
 from danu.core.square import Member, Node, Relation, SquareName, Way, WorkingSet
 from danu.ui import mercator as m
@@ -573,3 +574,125 @@ def test_the_water_is_a_blue_the_ramp_cannot_make(water_ws):
 
 def _rgb(c):
     return (c.red(), c.green(), c.blue()) if hasattr(c, 'red') else tuple(c)[:3]
+
+
+def test_a_lake_that_leaves_a_relation_keeps_its_fill(water_ws):
+    """It had no fill of its own - _way_fill skips a member, because the
+    relation's path held its ring. When the relation lets it go, nothing is
+    drawing it, and the way itself did not change so nothing asks."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'},
+                                  members=[Member('way', -700, 'outer')])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'rel', -900) in layer.water_fills
+    assert (sq.name, 'way', -700) not in layer.water_fills   # the relation draws it
+
+    river = a_river(9001, 125.5, -23.5)
+    sq.nodes.update(river.nodes)
+    sq.ways.update(river.ways)
+    sq.relations[-900].members = []
+    layer.refresh(sq, {9001})
+    assert (sq.name, 'rel', -900) not in layer.water_fills
+    assert (sq.name, 'way', -700) in layer.water_fills, (
+        'a lake let go by its relation is now drawn by nobody'
+    )
+
+
+def test_a_lake_that_joins_a_relation_is_not_filled_twice(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'}, members=[])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) in layer.water_fills
+
+    river = a_river(9001, 125.5, -23.5)
+    sq.nodes.update(river.nodes)
+    sq.ways.update(river.ways)
+    sq.relations[-900].members = [Member('way', -700, 'outer')]
+    layer.refresh(sq, {9001})
+    assert (sq.name, 'rel', -900) in layer.water_fills
+    assert (sq.name, 'way', -700) not in layer.water_fills, (
+        'the lake is filled by its relation and again on its own'
+    )
+
+
+def test_a_deleted_relation_hands_its_rings_back(water_ws):
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    a_lake(sq, wid=-700, base=-700)
+    sq.relations[-900] = Relation(id=-900, tags={'natural': 'water'},
+                                  members=[Member('way', -700, 'outer')])
+    layer.set_working_set(water_ws)
+    assert (sq.name, 'way', -700) not in layer.water_fills
+
+    river = a_river(9001, 125.5, -23.5)
+    sq.nodes.update(river.nodes)
+    sq.ways.update(river.ways)
+    del sq.relations[-900]
+    layer.refresh(sq, {9001})
+    assert (sq.name, 'way', -700) in layer.water_fills, (
+        "a deleted relation took its members' rings with it"
+    )
+
+
+def test_a_contour_is_not_filled_on_a_square_with_no_water(water_ws, map_view):
+    """Reported from the editor, on a square that had never seen an import:
+    the whole terrain drawn in water. `_paint_water` set the fill brush before
+    its early return, and the contour pass sets a pen and no brush, so every
+    closed contour was filled with it. The counters said nothing - no fill was
+    *drawn* - which is why this test reads pixels."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    ids = [-400 - i for i in range(4)]
+    box = [(125.30, -23.60), (125.40, -23.60), (125.40, -23.50), (125.30, -23.50)]
+    for nid, (lon, lat) in zip(ids, box, strict=True):
+        sq.nodes[nid] = Node(id=nid, lon=lon, lat=lat)
+    sq.ways[-450] = Way(id=-450, refs=ids + [ids[0]], tags={'ele': '100'})
+    layer.set_working_set(water_ws)
+    assert layer.water_fills == {} and layer.water == {}, 'this square has no water'
+
+    map_view.scene().addItem(layer)
+    map_view.set_zoom(13)
+    map_view.center_on_lonlat(125.35, -23.55)
+    img = render(map_view)
+    middle = img.pixelColor(img.width() // 2, img.height() // 2)
+    blank = _blank(map_view)
+    assert (middle.red(), middle.green(), middle.blue()) == \
+           (blank.red(), blank.green(), blank.blue()), (
+        f'the inside of a contour is {middle.name()}, not the background '
+        f'{blank.name()} - something filled it'
+    )
+
+
+def test_the_water_pass_hands_the_painter_back_as_it_found_it(water_ws):
+    """The general form of the same fault. Only this pass sets a brush, so
+    only this pass can leave one behind."""
+    from PySide6.QtGui import QBrush, QImage, QPainter, QPen
+    layer = ContourLayer()
+    layer.set_working_set(water_ws)
+    img = QImage(80, 80, QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    mine = QBrush(QColor('magenta'))
+    painter.setBrush(mine)
+    painter.setPen(QPen(QColor('red'), 3))
+    layer._paint_water(painter, QRectF(-1e9, -1e9, 2e9, 2e9))
+    assert painter.brush().color() == QColor('magenta'), 'the brush was not handed back'
+    assert painter.pen().color() == QColor('red'), 'the pen was not handed back'
+    painter.end()
+
+
+def _blank(view):
+    from PySide6.QtGui import QImage, QPainter
+    img = QImage(view.viewport().size(), QImage.Format.Format_ARGB32)
+    img.fill(QColor('white'))
+    p = QPainter(img)
+    for item in view.scene().items():
+        item.setVisible(False)
+    view.render(p)
+    for item in view.scene().items():
+        item.setVisible(True)
+    p.end()
+    return img.pixelColor(img.width() // 2, img.height() // 2)

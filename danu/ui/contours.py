@@ -538,21 +538,31 @@ class ContourLayer(QGraphicsItem):
         relations and not of the four thousand ways.
         """
         changed = set(way_ids)
+        moved = set()           # ways that joined or left a relation
         for rel in square.relations.values():
             key = (square.name, 'rel', rel.id)
+            was, now = self._rel_members.get(key), _member_ways(rel)
             # a way it names changed, or the names themselves did. The second
             # half is what G5 needs: reconciliation replaces superseded
             # features, which rewrites member lists, and a relation that lost
             # its outer ring that way names no changed id at all
-            if (any(mem.type == 'way' and mem.ref in changed for mem in rel.members)
-                    or self._rel_members.get(key) != _member_ways(rel)):
+            if was != now or any(mem.type == 'way' and mem.ref in changed
+                                 for mem in rel.members):
+                moved |= set(was or ()) ^ set(now)
                 self._relation_fill(square, rel)
         for key in [k for k in self._rel_members
                     if k[0] == square.name and k[2] not in square.relations]:
+            moved |= set(self._rel_members[key])
             self.water_fills.pop(key, None)
             del self._rel_members[key]
         members = _water_members(square)
-        for wid in changed:
+        # the ways, and with them the ways whose *membership* moved. A closed
+        # lake that leaves a relation had its ring drawn by that relation's
+        # path and has none of its own - skipped by _way_fill for being a
+        # member - so without this it simply vanishes; one that joins a
+        # relation keeps a standalone fill under the relation's and is drawn
+        # twice. Neither way changed, so neither is in `changed`
+        for wid in changed | moved:
             way = square.ways.get(wid)
             if way is None:
                 self.water_fills.pop((square.name, 'way', wid), None)
@@ -797,6 +807,9 @@ class ContourLayer(QGraphicsItem):
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._paint_water(painter, rect)
+        # said rather than inherited: a contour is a line, and the pass below
+        # sets a pen per level and no brush
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
@@ -847,22 +860,33 @@ class ContourLayer(QGraphicsItem):
         following a stream wants to see the line they are drawing on top.
         """
         self.drawn_water = self.drawn_water_fills = 0
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(WATER_FILL)
-        for piece in self.water_fills.values():
-            if piece.rect.intersects(rect):
-                painter.drawPath(piece.path)
-                self.drawn_water_fills += 1
-        if not self.water:
-            return
-        pen = QPen(WATER, 1.4)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for piece in self.water.values():
-            if piece.rect.intersects(rect):
-                painter.drawPath(piece.path)
-                self.drawn_water += 1
+        # save and restore, because this is the only pass that sets a brush.
+        # Without it, a square with fills and no lines left WATER_FILL on the
+        # painter at the early return, and the contour pass - which sets a pen
+        # and nothing else - filled every closed contour with it. A square
+        # with no water at all drew its whole terrain in water: reported from
+        # the editor, on a square that had never seen an import. A pass that
+        # changes painter state hands it back.
+        painter.save()
+        try:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(WATER_FILL)
+            for piece in self.water_fills.values():
+                if piece.rect.intersects(rect):
+                    painter.drawPath(piece.path)
+                    self.drawn_water_fills += 1
+            if not self.water:
+                return
+            pen = QPen(WATER, 1.4)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for piece in self.water.values():
+                if piece.rect.intersects(rect):
+                    painter.drawPath(piece.path)
+                    self.drawn_water += 1
+        finally:
+            painter.restore()
 
     def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
         """The spot heights: a ring in the elevation's own colour, and the
