@@ -85,7 +85,9 @@ SPOT_PX = 3.5
 # said "contours are getting drawn as water", which is exactly what it looked
 # like. 80 units clear of the nearest ramp colour is what buys the difference,
 # and it has to come out of the darkness rather than the hue, because the hue
-# between blue and green is where the ramp spends its first two hundred metres
+# between blue and green is where the ramp spends its first two hundred metres.
+# The test asks for 60 and this gives 80: the floor is what must hold if the
+# ramp changes, and the margin above it is this colour's own
 WATER = QColor(20, 70, 140, 200)
 # the fill is far fainter than the edge it sits inside. Water is drawn in the
 # contour layer, which is over the surface preview and over the tiles, so a

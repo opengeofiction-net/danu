@@ -566,6 +566,8 @@ def test_the_water_is_a_blue_the_ramp_cannot_make(water_ws):
     nearest = min(
         sum((a - b) ** 2 for a, b in zip(water, _rgb(ramp.colour(ele)), strict=True)) ** 0.5
         for ele in range(0, 1062, 5))
+    # 60 is the floor the ramp must leave; the colour chosen clears 80. The
+    # floor is what a future ramp has to respect, not this colour's margin
     assert nearest > 60, (
         f'the water is {nearest:.0f} units from a contour colour; at this range '
         f'a low contour and a river are the same line'

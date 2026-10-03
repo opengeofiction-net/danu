@@ -129,3 +129,15 @@ def test_the_rings_do_not_depend_on_the_order_the_members_arrive_in():
         rng.shuffle(shuffled)
         got = {_canonical(r) for r in rings.closed_rings(shuffled)}
         assert got == first, f'{shuffled} stitched differently from {pieces}'
+
+
+def test_a_sliver_doubling_back_is_dropped_and_not_spliced_in():
+    """`[3, 4, 3]` is closed but is not a shape. It must not reach the pile:
+    spliced onto a chain it is a spur hanging off a ring. Two readers have now
+    read the lift-out as applying only to real rings and leaving the sliver
+    behind - it does not, the `continue` covers both - so this says so."""
+    got = rings.closed_rings([[1, 2, 3], [3, 4, 3], [3, 5, 1]])
+    assert got == [[1, 2, 3, 5, 1]], got
+    assert 4 not in got[0], 'the sliver was chained in as a spur'
+    # and alone it yields nothing at all
+    assert rings.closed_rings([[3, 4, 3]]) == []
