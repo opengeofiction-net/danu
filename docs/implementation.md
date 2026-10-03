@@ -1718,3 +1718,65 @@ assumption.
 command, no selection. A square round-trips one faithfully and the split keeps
 it whole; creating and changing them is G4's business, where the import is what
 produces them.
+
+**G4a, what an import is.** The mechanics, without the editor: the query, the
+fetch, the filter and which square each feature belongs to. Nothing writes a
+square yet - that is G4b, where an import becomes one undoable step.
+
+**It asks for the working set's bounds.** Not the centre square: a river is
+graded along its course and a lake flattened across its surface, and both are
+cut short by asking a degree at a time. Not the view, which moves.
+
+**It keeps `natural`, `water`, `waterway`, `name` and `ele`, and nothing
+else.** A square is somebody's file, and an import that drags in `source`,
+`wikidata` and a decade of someone's tagging is harder to reconcile and harder
+to read. The tags come out in the order `KEEP` names them, so that two imports
+of one feature write the same line and a diff of two versions of a square is
+worth reading.
+
+`waterway` is in that list and was not in the sentence that set it, which said
+`natural=water`, `water=*`, `name=*` and `ele`. It is here because R27 -
+*flowing water is never flattened* - cannot be honoured by a square that
+cannot tell a river from a lake, and R25 grades a river along its course.
+Dropping it would import rivers as untagged lines and leave G6 and G7 unable
+to do the thing they are for. Written down rather than slipped in, because it
+is a widening of what was asked.
+
+**A feature goes whole into one square**, the one holding its anchor - a way's
+first node, a relation's first member that resolves to one - and its nodes go
+with it even where they fall in a neighbour. Whole rather than clipped at the
+boundary, for two reasons that are the same reason: a clipped river is two
+ways with two ids and the next import has nothing to match the original
+against, which is R40 and the whole of G5; and a clipped ring is not a ring,
+so cutting a lake at a degree line turns an island into a peninsula.
+
+**Relations are placed before ways**, and a way that is a member goes where
+its relation goes rather than where its own first node falls. Otherwise a
+lake's outer ring is placed twice - once on its own account and once as a
+member - and a square two degrees away holds half its shape.
+
+That rule had a test which passed without it. For a relation of one way
+member the two anchors cannot differ, because the relation's anchor *is* that
+way's first node: the fixture had to grow a node member in another square
+before the test could tell the rule from its absence. Found by taking the rule
+out and watching the test go on passing, which happened twice in this file -
+the nested-relation test had the same shape and the same fault.
+
+**Relations nest, which review caught and the first version dropped.** A
+multipolygon's outer may itself be a relation, a shape OSM really holds; with
+only way and node members handled it imported as a shape with nothing in it.
+Three things make that work: `_put` follows a relation member, `_outermost_first`
+places a relation that nothing names before one that is named - or a child is
+placed on its own account first and then again by its parent, in two squares -
+and a `seen` set stops a relation that names itself, directly or round a ring
+of others, from walking for ever. Bad data rather than a shape, but bad data
+is what a public API returns.
+
+**Only a relation that was placed claims anything.** One anchored outside the
+set is dropped, and a member way of it that *is* inside has to be left for the
+standalone pass; claiming on behalf of a relation that never landed would have
+the way belong to nothing and vanish.
+
+**Nothing reaches the network.** The fetch takes its opener as an argument,
+as the tile and territory fetchers take theirs, and every test here hands it
+one.
