@@ -545,7 +545,20 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 
 
 # any way carrying an elevation is a constraint, contour or water edge alike
-_HAS_ELE = re.compile(rb"""k=["']ele["']""")
+# R42: what makes a square one somebody has drawn rather than one of the
+# blanks. An elevation, a coastline, or water - and a coastline is caught by
+# the first of those anyway, since one is tagged ele=0, which is why
+# coastline-only squares have always counted.
+#
+# The pair matched together for natural, because `v='water'` on its own would
+# answer for anything. JOSM writes the two attributes adjacent and in that
+# order, and so does write_square.
+_HAS_CONSTRAINT = re.compile(
+    rb"""k=["']ele["']"""
+    rb"""|k=["']waterway["']"""
+    rb"""|k=["']natural["']\s+v=["'](?:water|coastline)["']""")
+# enough to hold the longest token above across a chunk boundary
+_SCAN_OVERLAP = 64
 
 
 # xz's magic bytes. A square is read by what it is rather than by what it is
@@ -564,9 +577,17 @@ def open_square_file(path: str | os.PathLike):
 
 
 def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
-    """True if the square has any ``ele`` tag - which is what separates a
-    square somebody has drawn from one of the blank templates handed out to
-    mappers, and so which squares a zone is built over.
+    """True if the square carries an elevation, a coastline or water - R42,
+    and what separates a square somebody has drawn from one of the blank
+    templates handed out to mappers, and so which squares a zone is built
+    over.
+
+    Water joined that list when an import could bring a square into being
+    holding nothing else. It changes less than it looks: a square whose water
+    has an elevation was already caught by the ``ele`` scan, and one whose
+    water has none contributes no ground until G6 gives it one - ``collect``
+    gathers lines with an ``ele`` and nothing else. What it does is stop such
+    a square being read as a blank template, which is what it is not.
 
     Reads in chunks and stops at the first, since a filled square can be 87 MB
     and most are answered by the first page. Decompressing as it goes, where
@@ -579,6 +600,9 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
             block = f.read(chunk)
             if not block:
                 return False
-            if _HAS_ELE.search(tail + block):
+            if _HAS_CONSTRAINT.search(tail + block):
                 return True
-            tail = block[-16:]
+            # the rolling tail, not this block's: a chunk smaller than the
+            # token leaves `block[-n:]` shorter than the token, and a pair
+            # spanning three small reads is never whole in any one window
+            tail = (tail + block)[-_SCAN_OVERLAP:]
