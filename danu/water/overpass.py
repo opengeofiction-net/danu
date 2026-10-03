@@ -39,12 +39,31 @@ from xml.etree import ElementTree
 from ..core.square import Member, Node, Relation, Way
 
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
-TIMEOUT = 900
+
+# What the server is given to answer in, and what we wait. The batch grading
+# asks for 900 seconds because a quarter hour at 3am is nothing; an editor is
+# somebody sitting there, and a query that has not answered in a minute is one
+# to be told about rather than waited out. The read waits a little longer than
+# the server's own limit so that a timeout comes back as Overpass saying so,
+# with its reason, rather than as us cutting the connection and guessing.
+QUERY_TIMEOUT = 60
+READ_TIMEOUT = 75
 RETRIES = 3
 
-# the waterways worth importing. The same two the batch grading reads, for the
-# same reason: a drain or a ditch is not what the terrain is shaped around
+# The waterways worth importing. The same two the batch grading reads as
+# lines, for the same reason: a drain or a ditch is a dug channel, not what
+# the terrain is shaped around, and grading one as a valley floor would pull
+# the ground down along a thing somebody dug.
 LINE_KINDS = ('river', 'stream')
+
+# and the one that is an area rather than a line. `waterway=riverbank` is
+# deprecated in favour of natural=water + water=river, and the data has not
+# caught up: over the gobras 3x3 there are 115 of them, 114 closed, and not
+# one also carries natural=water - so without this the river *surfaces* are
+# missed entirely, 11,835 nodes of them. Measured rather than assumed, after
+# `waterway=riverbank` turned up in the batch grader's FLOWING list and
+# nowhere in the query.
+AREA_KINDS = ('riverbank',)
 
 # the tags a feature keeps. A key alone means every value of it
 KEEP = ('natural', 'water', 'waterway', 'name', 'ele')
@@ -54,19 +73,51 @@ def query(bounds: tuple[float, float, float, float]) -> str:
     """The Overpass QL for a working set's bounds, as (west, south, east,
     north).
 
-    ``>>`` pulls each way's nodes and each relation's members, because a
-    feature without its geometry is not something a square can hold. ``out
-    body`` rather than ``out geom``: the ids are the point, and a member's ref
-    is how a relation says what it is made of.
+    The box goes in the settings rather than on every statement, where each
+    one inherits it - the same query, written once.
+
+    The same answer, too, which was worth checking: a global ``[bbox:]``
+    applies to the selection statements and *not* to the recurse, so the
+    geometry of a feature straddling the edge still comes back whole. Review
+    read it the other way and called it the one thing to settle before merge,
+    which was the right instinct - a bounded recurse would hand a square a
+    river with its far bank missing. Run both ways over the gobras 3x3 the
+    two answers hold the same 158,633 nodes, 4,561 ways and 112 relations,
+    id for id, and **1,535 of those nodes are outside the box**, across the
+    39 ways that cross it. The files differ by one line: the global form
+    echoes a ``<bounds>`` element. And the waterways are
+    exact matches rather than one regex, because an exact tag value is an
+    index lookup where a pattern is a test run over what the index returned.
+
+    Named kinds rather than a bare ``way["waterway"]``, which was tried and
+    measured. Over the gobras 3x3 it brings 969 more ways and 17,262 more
+    nodes - 467 drains, 280 ditches, 44 canals, 32 docks, 24 dams, 5 weirs, a
+    pair of lock gates and a boatyard - none of which anything grades, all of
+    which a square would then hold and a re-import reconcile. A dam and a weir
+    are lines *across* water; a ditch graded as a valley floor is a dug
+    channel read as terrain. R23 names the scope: rivers, streams and water
+    bodies.
+
+    ``>>`` and not ``>``, which is the one place this costs anything.
+    ``recurse.cc`` has ``DOWN`` collecting a relation's member nodes, its
+    member ways and those ways' nodes, and ``DOWN_REL`` doing the same after
+    a ``relations_loop`` over member *relations*. A multipolygon whose outer
+    is itself a relation is a shape OSM holds, and under ``>`` it arrives as a
+    member id with nothing behind it - a feature without its geometry, which
+    is not something a square can hold. ``place`` follows nested relations
+    for the same reason.
+
+    ``out body`` rather than ``out geom``: the ids are the point, and a
+    member's ref is how a relation says what it is made of.
     """
     west, south, east, north = bounds
-    box = f'{south},{west},{north},{east}'
-    kinds = '|'.join(LINE_KINDS)
-    return (f'[out:xml][timeout:{TIMEOUT}];('
-            f'way["waterway"~"^({kinds})$"]({box});'
-            f'way["natural"="water"]({box});'
-            f'relation["natural"="water"]({box});'
-            f');(._;>>;);out body;')
+    kinds = '\n  '.join(f'way["waterway"="{kind}"];'
+                        for kind in LINE_KINDS + AREA_KINDS)
+    return (f'[out:xml][timeout:{QUERY_TIMEOUT}][bbox:{south},{west},{north},{east}];\n'
+            f'(\n  {kinds}\n'
+            f'  way["natural"="water"];\n'
+            f'  relation["natural"="water"];\n'
+            f');\n(._;>>;);\nout body;\n')
 
 
 def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES) -> bytes:
@@ -80,7 +131,7 @@ def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES) 
     last: Exception | None = None
     for _attempt in range(retries):
         try:
-            with opener(urllib.request.Request(url, data=data), timeout=TIMEOUT) as resp:
+            with opener(urllib.request.Request(url, data=data), timeout=READ_TIMEOUT) as resp:
                 return resp.read()
         except Exception as exc:      # noqa: BLE001 - every failure is the same failure
             last = exc

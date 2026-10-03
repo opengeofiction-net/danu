@@ -61,11 +61,43 @@ def ws(tmp_path):
 
 def test_the_query_asks_for_the_working_sets_bounds():
     q = overpass.query(BOUNDS)
-    assert '-24.0,125.0,-23.0,126.0' in q, 'the bbox is south,west,north,east'
-    assert 'way["waterway"~"^(river|stream)$"]' in q
-    assert 'way["natural"="water"]' in q and 'relation["natural"="water"]' in q
+    # the box in the settings, where every statement inherits it, rather than
+    # written out four times
+    assert '[bbox:-24.0,125.0,-23.0,126.0]' in q, 'the bbox is south,west,north,east'
+    assert q.count('125.0') == 1, 'the box is repeated on the statements'
+    # exact values, not a regex: a tag value is an index lookup where a
+    # pattern is a test run over what the index returned
+    assert 'way["waterway"="river"];' in q and 'way["waterway"="stream"];' in q
+    assert '~"' not in q, 'a regex came back'
+    # river areas, which the data still tags the deprecated way: 115 of them
+    # over the gobras 3x3, 114 closed, none also carrying natural=water
+    assert 'way["waterway"="riverbank"];' in q
+    # and nothing wider: a bare way["waterway"] brings drains, ditches, docks,
+    # dams and weirs, which nothing grades and a re-import must reconcile
+    assert 'way["waterway"];' not in q
+    assert 'way["natural"="water"];' in q and 'relation["natural"="water"];' in q
     # the geometry has to come with it, or a square has a feature it cannot draw
-    assert '(._;>>;);out body;' in q
+    assert '(._;>>;);' in q and 'out body;' in q
+
+
+def test_the_query_follows_relations_inside_relations():
+    """``>`` would not. ``recurse.cc`` has ``DOWN`` collecting a relation's
+    member nodes, its member ways and those ways' nodes; ``DOWN_REL`` does the
+    same after a ``relations_loop`` over member relations. A multipolygon
+    whose outer is itself a relation arrives under ``>`` as a member id with
+    nothing behind it, and ``place`` has code to follow exactly that."""
+    assert '(._;>>;);' in overpass.query(BOUNDS)
+    assert '(._;>;);' not in overpass.query(BOUNDS)
+
+
+def test_the_timeouts_are_an_editors_and_the_read_outlasts_the_server():
+    """The batch grading asks for 900 seconds because a quarter hour at 3am is
+    nothing. This is somebody sitting there. And the read waits a little
+    longer than the server's own limit, so a timeout comes back as Overpass
+    saying so rather than as us cutting the connection and guessing."""
+    assert f'[timeout:{overpass.QUERY_TIMEOUT}]' in overpass.query(BOUNDS)
+    assert overpass.QUERY_TIMEOUT <= 60
+    assert overpass.READ_TIMEOUT > overpass.QUERY_TIMEOUT
 
 
 def test_the_fetch_retries_and_then_gives_up():
