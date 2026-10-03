@@ -59,7 +59,7 @@ class WaterImporter(QObject):
     """One import at a time, newest wins."""
 
     started = Signal()
-    finished = Signal(object)          # {SquareName: Water}
+    finished = Signal(object, object)  # {SquareName: Water}, the set it was asked for
     failed = Signal(str)
 
     def __init__(self, parent=None, fetch=None, runner=None):
@@ -69,6 +69,7 @@ class WaterImporter(QObject):
         self._serial = 0
         self._running = False
         self._wanted = None
+        self._out = None               # the set the job now running was asked for
         self._signals = None
         self._job = None
 
@@ -92,6 +93,7 @@ class WaterImporter(QObject):
 
     def _start(self):
         working_set, self._wanted = self._wanted, None
+        self._out = working_set
         self._running = True
         sig = _Signals()
         sig.finished.connect(self._done)
@@ -107,7 +109,7 @@ class WaterImporter(QObject):
         # the answer to a request that has been superseded is dropped rather
         # than shown: its bounds are not the ones the mapper is looking at
         if serial == self._serial:
-            self.finished.emit(placed)
+            self.finished.emit(placed, self._out)
         self._next()
 
     def _fail(self, text: str, serial: int):
@@ -127,7 +129,10 @@ def commands(placed: dict, working_set) -> list[tuple[Square, object]]:
 
     A square the set has no file for is given its features all the same - #87
     settled that an import may bring one into being, and ``save_square``
-    frames and writes it when the mapper saves.
+    frames and writes it when the mapper saves. ``WorkingSet.open`` puts an
+    empty ``Square`` in for every name of the grid, so that square is here to
+    be written into; the skip below is for a name the grid does not hold at
+    all, which ``place`` cannot produce and a caller passing its own dict can.
     """
     from ..core import edits
     steps = []

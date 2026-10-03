@@ -72,3 +72,20 @@ def test_the_tools_are_drawn_not_named(window):
         assert marks, 'the icon is blank'
         assert min(abs(c.lightness() - ink.lightness()) for c in marks) < 40
     assert w.controls.zoom_in.text() == '+'                             # these read as symbols
+
+
+def test_the_import_is_a_button_and_not_a_tool(window):
+    """The one action in the column. It must not join the tool group: checking
+    it would uncheck the tool the mapper is using, and leave it unchecked when
+    the import finished."""
+    w = window
+    assert not w.controls.water.isCheckable()
+    assert w.controls.water not in w.controls.modes.buttons()
+    assert w.controls.water.text() == '' and not w.controls.water.icon().isNull()
+    assert w.controls.water.toolTip().startswith('Import water')
+    assert 'Ctrl+I' in w.controls.water.toolTip()
+
+    asked = []
+    w.water.request = lambda ws: asked.append(ws) or 1
+    w.controls.water.click()
+    assert asked == [w.working_set], 'the button did not ask for the import'

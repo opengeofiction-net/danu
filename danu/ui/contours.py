@@ -105,7 +105,7 @@ class _Piece:
     would break ``_drop_way``, not merely change what is drawn."""
     path: QPainterPath
     rect: QRectF
-    ele: float
+    ele: float | None     # None for water: it has no elevation until G6
     label: 'Label'
 
 
@@ -367,13 +367,16 @@ class ContourLayer(QGraphicsItem):
         own level and label, so taking one out is a list removal by identity
         and putting one back is one path.
         """
+        # once for the call, not once per way: the same reason set_working_set
+        # gathers it once per square
+        members = _water_members(square)
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
             self._geoms.pop(key, None)
             self.water.pop(key, None)
             way = square.ways.get(wid)
-            geom = (self._project(square, way, _water_members(square))
+            geom = (self._project(square, way, members)
                     if way is not None else None)
             if geom is not None:
                 self._geoms[key] = geom
@@ -398,7 +401,7 @@ class ContourLayer(QGraphicsItem):
         xs, ys = g.pts[:, 0], g.pts[:, 1]
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-        self.water[key] = _Piece(path, rect, 0.0, None)
+        self.water[key] = _Piece(path, rect, None, None)
 
     def _add_way(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """One way's path, rectangle and label, into the level it draws at."""

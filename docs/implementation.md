@@ -2019,10 +2019,11 @@ tagged water, so an untagged ring never became a geometry at all and the later
 projection, where both the open path and the edit path go through it, and not
 in the two callers afterwards.
 
-**Three things slipped past me into this one.** Three `str.replace` calls were
-written without asserting their anchor, against a file whose anchors were on
-the parked `viewport-first` branch rather than on main - so they did nothing,
-and `ruff --fix` then tidied away the imports for code that had never landed.
-The menu entry appeared and the method behind it did not. Asserting the anchor
-is the difference between a failed edit and a silent one, and this file has
-said so since the splice that deleted two tests.
+**Caught during the work, not in it.** Three `str.replace` calls were written
+without asserting their anchor, against a file whose anchors were on the parked
+`viewport-first` branch rather than on main - so they did nothing, and
+`ruff --fix` then tidied away the imports for code that had never landed. The
+menu entry appeared and the method behind it did not. It was redone with
+`assert old in s` and the branch carries the mended version; the note is here
+because asserting the anchor is the difference between a failed edit and a
+silent one, and this file has said so since the splice that deleted two tests.

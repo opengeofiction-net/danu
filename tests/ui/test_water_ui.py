@@ -5,6 +5,8 @@ test is the queue, the one-step history across several squares, and the
 drawing.
 """
 
+import copy
+
 import pytest
 
 pytest.importorskip('PySide6')
@@ -68,7 +70,7 @@ def a_river(wid=9001, lon=126.5, lat=-23.7):
 def test_the_importer_runs_one_at_a_time_and_the_newest_wins():
     jobs, got, started = [], [], []
     imp = WaterImporter(fetch=lambda bounds: b'<osm/>', runner=jobs.append)
-    imp.finished.connect(got.append)
+    imp.finished.connect(lambda placed, ws: got.append((placed, ws)))
     imp.started.connect(lambda: started.append(True))
 
     class Set:
@@ -117,7 +119,7 @@ def test_an_import_across_squares_is_one_undo(window):
     placed = {here: a_river(9001, 125.5), east: a_river(9002, 126.5)}
 
     before = {n: len(w.working_set.squares[n].ways) for n in (here, east)}
-    w._water_imported(placed)
+    w._water_imported(placed, w.working_set)
     assert len(w.working_set.squares[here].ways) == before[here] + 1
     assert len(w.working_set.squares[east].ways) == before[east] + 1
     assert 'imported 2 water features' in w.statusBar().currentMessage()
@@ -137,14 +139,31 @@ def test_an_import_across_squares_is_one_undo(window):
 def test_both_squares_are_dirty_after_an_import(window):
     w = window
     here, east = HERE, TEN
-    w._water_imported({here: a_river(9001, 125.5), east: a_river(9002, 126.5)})
+    w._water_imported({here: a_river(9001, 125.5), east: a_river(9002, 126.5)},
+                      w.working_set)
     dirty = {sq.name for sq in w.editor.history.dirty_squares()}
     assert {here, east} <= dirty, 'a square an import wrote is not offered for saving'
 
 
 def test_an_import_of_nothing_says_so(window):
-    window._water_imported({})
+    window._water_imported({}, window.working_set)
     assert 'no water' in window.statusBar().currentMessage()
+
+
+def test_an_answer_for_a_set_no_longer_open_is_refused(window):
+    """The fetch is a second and a half, and a mapper can move in it. The
+    names of another set's grid can match these, and its ``Square`` objects
+    cannot, so applying the features would write into squares nobody is
+    looking at."""
+    w = window
+    stale, w.working_set = w.working_set, copy.copy(w.working_set)
+    before = len(w.working_set.squares[HERE].ways)
+    w._water_imported({HERE: a_river(9001, 125.5)}, stale)
+    assert len(w.working_set.squares[HERE].ways) == before, (
+        'features from a set no longer open were applied'
+    )
+    assert w.editor.history.dirty_squares() == [], 'a refused import dirtied a square'
+    assert 'working set changed' in w.statusBar().currentMessage()
 
 
 def test_commands_skip_a_square_the_set_does_not_hold(window):

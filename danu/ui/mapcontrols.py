@@ -11,8 +11,8 @@ A child of the **view**, not of its viewport, for the reason
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QButtonGroup, QToolButton, QVBoxLayout, QWidget
 
 from . import mercator as m
@@ -74,7 +74,35 @@ def _spot(p: QPainter, colour: QColor):
     p.drawEllipse(QPointF(9, 11.2), 1.9, 1.9)
 
 
+def _water(p: QPainter, colour: QColor):
+    """Two waves with an arrow coming down into them - fetch water, not draw
+    it. The waves alone would read as a tool for drawing a river, which this
+    is not; the arrow is what says the water comes from somewhere else."""
+    pen = QPen(colour, 1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    for y in (11.5, 15.0):
+        path = QPainterPath(QPointF(2.5, y))
+        path.cubicTo(QPointF(5.2, y - 2.4), QPointF(6.8, y + 2.4), QPointF(9.0, y))
+        path.cubicTo(QPointF(11.2, y - 2.4), QPointF(12.8, y + 2.4), QPointF(15.5, y))
+        p.drawPath(path)
+    p.drawLine(QPointF(9, 2.0), QPointF(9, 7.6))
+    p.setBrush(colour)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawPolygon([QPointF(6.4, 6.2), QPointF(11.6, 6.2), QPointF(9, 9.4)])
+
+
 class MapControls(QWidget):
+    """The tools, and the one action that is not a tool.
+
+    ``importWater`` is a signal rather than a call on the editor: the import
+    reaches the network and lands on the window's history across the whole
+    working set, which is the window's business and not the canvas's.
+    """
+
+    importWater = Signal()
+
     def __init__(self, view, editor=None):
         super().__init__(view)
         self.view, self.editor = view, editor
@@ -97,6 +125,10 @@ class MapControls(QWidget):
         self.modes.addButton(self.draw)
         self.modes.addButton(self.spot)
         self.select.setChecked(True)
+        column.addSpacing(8)
+        self.water = self._button('', 'Import water from Overpass for the working set (Ctrl+I)',
+                                  column, icon=_icon(_water, ink))
+        self.water.clicked.connect(self.importWater)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
         self.zoom_out.clicked.connect(lambda: view.set_zoom(view.zoom - 1))

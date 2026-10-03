@@ -152,6 +152,7 @@ class MainWindow(QMainWindow):
         self.editor.toolChanged.connect(self._tool_changed)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
         self.controls = MapControls(self.map, self.editor)
+        self.controls.importWater.connect(self.import_water)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)
@@ -565,10 +566,21 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f'importing water for {w:g}..{e:g} by {s:g}..{n:g} from Overpass…')
 
-    def _water_imported(self, placed):
+    def _water_imported(self, placed, working_set):
         """One import, one step on the history - R40 - however many squares it
-        landed in."""
-        steps = water_commands(placed, self.working_set)
+        landed in.
+
+        Against the set it was asked for, not the one open now. The squares
+        were chosen by that set's names; if the mapper has opened another
+        while the fetch was out, the names may still match and the ``Square``
+        objects behind them will not, so the features would land in squares
+        nobody asked about. Importing again is a second and a half.
+        """
+        if working_set is not self.working_set:
+            self.statusBar().showMessage(
+                'the working set changed while the water was fetched - import again')
+            return
+        steps = water_commands(placed, working_set)
         if not steps:
             self.statusBar().showMessage('no water in this working set')
             return
