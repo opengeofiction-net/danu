@@ -221,6 +221,10 @@ class ContourLayer(QGraphicsItem):
         # ground a contour runs through, so a click that could mean either
         # means the small thing
         self.spots: dict[tuple[SquareName, int], Spot] = {}
+        # the water, drawn under everything. Here and not only in
+        # set_working_set because _paint_water reads it, and a layer can be
+        # painted before it is given a set
+        self.water: dict[tuple[SquareName, int], _Piece] = {}
         # whether a level has appeared or emptied since index_levels was last
         # worked out, which is the only thing that can move an index contour
         self._levels_moved = False

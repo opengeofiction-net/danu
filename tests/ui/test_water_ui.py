@@ -71,7 +71,7 @@ def test_the_importer_runs_one_at_a_time_and_the_newest_wins():
     jobs, got, started = [], [], []
     imp = WaterImporter(fetch=lambda bounds: b'<osm/>', runner=jobs.append)
     imp.finished.connect(lambda placed, ws: got.append((placed, ws)))
-    imp.started.connect(lambda: started.append(True))
+    imp.started.connect(started.append)
 
     class Set:
         bounds = (0.0, 0.0, 1.0, 1.0)
@@ -209,3 +209,25 @@ def test_a_multipolygons_rings_are_water_though_they_carry_no_tags(water_ws):
     layer.water.clear()
     layer.refresh(sq, {-950})
     assert (sq.name, -950) in layer.water
+
+
+def test_a_layer_can_be_painted_before_it_has_a_working_set(map_view):
+    """_paint_water reads self.water to decide there is none, so the empty
+    dict has to exist from construction and not from the first set."""
+    layer = ContourLayer()
+    assert layer.water == {}
+    map_view.scene().addItem(layer)
+    render(map_view)              # no AttributeError
+    assert layer.drawn_water == 0
+
+
+def test_the_status_line_names_the_bounds_being_fetched(window):
+    """A queued request starts when the one before it answers, by which time
+    the mapper may be looking at somewhere else."""
+    w = window
+    asked = w.working_set
+    w.working_set = copy.copy(asked)
+    w.working_set.centre = SquareName(99, 9)
+    w._water_starting(asked)
+    west = f'{asked.bounds[0]:g}'
+    assert west in w.statusBar().currentMessage()

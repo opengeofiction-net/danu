@@ -561,8 +561,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
 
-    def _water_starting(self):
-        w, s, e, n = self.working_set.bounds
+    def _water_starting(self, working_set):
+        # the set the fetch is for, which is not always the one open: a queued
+        # request starts when the one before it answers, and the mapper can
+        # have moved in between
+        w, s, e, n = working_set.bounds
         self.statusBar().showMessage(
             f'importing water for {w:g}..{e:g} by {s:g}..{n:g} from Overpass…')
 

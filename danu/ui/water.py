@@ -58,7 +58,7 @@ class _Job(QRunnable):
 class WaterImporter(QObject):
     """One import at a time, newest wins."""
 
-    started = Signal()
+    started = Signal(object)           # the set the fetch now out is for
     finished = Signal(object, object)  # {SquareName: Water}, the set it was asked for
     failed = Signal(str)
 
@@ -101,7 +101,7 @@ class WaterImporter(QObject):
         job = _Job(self._fetch, working_set.bounds, working_set, self._serial, sig)
         job.setAutoDelete(False)       # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
-        self.started.emit()
+        self.started.emit(working_set)
         self._runner(job)
 
     def _done(self, placed, serial: int):
