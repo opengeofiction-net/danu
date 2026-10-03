@@ -23,6 +23,15 @@
 # from closed rings ("Sides rather than rings", sea_mask.py), so a split
 # coastline seeds exactly as it did before. Direction is preserved.
 #
+# Safe for relations: a member naming a way that is split is replaced by one
+# member per piece, in order and with the same role. Without that a lake's
+# outer ring loses everything past its first two thousand nodes and the shape
+# has a hole in it, written back and nothing said. This works because a square
+# writes its relations after its ways, so the pieces are known by the time a
+# member is read; a file that puts them first is refused rather than half
+# mended. danu.core.edits._ReplaceWays is the same rule on the model, and
+# tests/test_edits.py holds the two together.
+#
 import argparse
 import lzma
 import os
@@ -32,6 +41,7 @@ import sys
 import tempfile
 
 WAY_RE = re.compile(r"<way\s+id='(-?\d+)'")
+MEMBER_RE = re.compile(r"<member\s+type='way'\s+ref='(-?\d+)'")
 ID_RE  = re.compile(r"<way\s+id='(-?\d+)'")
 
 def scan(path):
@@ -71,6 +81,8 @@ def split_file(path, limit, backup_dir, dry_run):
         shutil.copy2(path, os.path.join(dest, os.path.basename(path)))
 
     next_id = min_id - 1
+    pieces = {}                  # split way -> the ids its pieces took, in order
+    seen_relation = False
     # mkstemp creates at 0600. Carry the original's mode across, or the square
     # becomes unreadable to anyone but ogf - and danu-build publishes with
     # cp -p, so Apache then serves 403 for it
@@ -85,9 +97,31 @@ def split_file(path, limit, backup_dir, dry_run):
         for line in src:
             m = WAY_RE.search(line)
             if m:
+                if seen_relation:
+                    # the pieces a member names have to be known by the time
+                    # the member is read, so every way has to be written
+                    # before every relation. Checked as *no way after a
+                    # relation* rather than as *no relation before the first
+                    # way*, which a file that interleaves them would walk
+                    # straight past
+                    raise SystemExit(
+                        '%s: a way after a relation, which this cannot mend - a '
+                        'member naming a way split later in the file would keep '
+                        'the first piece and lose the rest' % path)
                 way = int(m.group(1)); header = line; nds = []; tags = []
                 continue
+            if '<relation ' in line:
+                seen_relation = True
             if way is None:
+                mem = MEMBER_RE.search(line)
+                if mem and int(mem.group(1)) in pieces:
+                    # one member per piece, in order, each keeping the role
+                    # the original member had - which is the whole of why
+                    # this is done here and not left to a later pass
+                    was = int(mem.group(1))
+                    for nid in pieces[was]:
+                        out.write(line.replace("ref='%d'" % was, "ref='%d'" % nid, 1))
+                    continue
                 out.write(line); continue
             if '<nd ' in line:
                 nds.append(line)
@@ -98,14 +132,17 @@ def split_file(path, limit, backup_dir, dry_run):
                     step = limit - 1
                     start = 0
                     first = True
+                    pieces[way] = []
                     while start < len(nds) - 1:
                         chunk = nds[start:start + limit]
                         if first:
                             out.write(header); first = False
+                            pieces[way].append(way)
                         else:
                             next_id -= 1; added += 1
                             out.write(header.replace("id='%d'" % way,
                                                      "id='%d'" % next_id, 1))
+                            pieces[way].append(next_id)
                         out.writelines(chunk)
                         out.writelines(tags)
                         out.write(line)
@@ -116,6 +153,9 @@ def split_file(path, limit, backup_dir, dry_run):
                 way = None
             else:
                 out.write(line)
+        # a second pass would be needed to mend members, except that the ways
+        # are all written by now and the relations come after them - which is
+        # checked above rather than assumed
     os.replace(tmp, path)
     return len(over), added
 

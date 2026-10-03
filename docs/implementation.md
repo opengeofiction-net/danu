@@ -1669,3 +1669,52 @@ step zoomed away from the spot height and found nothing drawn. It read as a
 layer that stops drawing above z9. The test was wrong and the code was right,
 which is worth saying because the opposite conclusion was one line away and
 would have had me 'fixing' a paint that works.
+
+**G3, the square carries relations.** R41. `read_square` skipped a relation
+and `write_square` wrote none, so a square was nodes and ways; it is now nodes,
+ways and relations, read in file order, written back in it, and minted from the
+allocator that already took one counter across two namespaces and now takes it
+across three.
+
+`Member` is its own frozen record of type, ref and role, because all three are
+data: a multipolygon's rings are told apart by the role, and an absent role is
+written absent rather than as an empty string, which is what the file means.
+Relations go last, as JOSM writes them - a member names a way by id, and
+putting the ways first means a reader meets the reference after the thing it
+refers to.
+
+**The thing that was actually going to break is the split.** `split_long_ways`
+cuts a way over two thousand nodes into pieces, the first keeping the id and
+the rest taking fresh ones. A relation naming that way would have kept the
+first piece and lost the rest - a lake's outer ring down to its first two
+thousand nodes, a hole in the shape, written on save, and nothing said. Both
+implementations of that rule mend it now: `_ReplaceWays` on the model replaces
+the member with one per piece, in order and with the same role, keeping the
+whole member list for the undo; and `danu/core/split_long_ways.py`, which
+rewrites the XML textually on the server every night, does the same during its
+single pass. It can, because a square writes its relations after its ways, so
+the pieces are known by the time a member is read - and a file that does not
+is refused rather than half mended. Checked as *no way after a relation*: the
+first version asked whether a relation came before the first way, which a file
+that interleaves them walks straight past, and interleaved is exactly what a
+hand-edited or third-party file does.
+
+The test that holds the two implementations together already compared them way
+for way. It compares them relation for relation now, by shape rather than by
+id: the two mint their fresh ids from different counters, which is why every
+comparison in that test was of sequence and not of identity in the first place.
+Writing it the obvious way - member refs equal on both sides - failed, and
+failed for the right reason.
+
+**And the build does not notice.** Nothing reads a relation yet; `collect`
+gathers lines and points. A square that grows one has to build exactly as it
+did before, which is not a given: GDAL's OSM driver assembles multipolygons
+into a layer of their own, and a driver that dropped member ways from `lines`
+while doing it would take a contour out of the constraints for no reason the
+file shows. It does not, and there is a golden test saying so rather than an
+assumption.
+
+**What G3 does not do** is let anything *edit* a relation - no tool, no
+command, no selection. A square round-trips one faithfully and the split keeps
+it whole; creating and changing them is G4's business, where the import is what
+produces them.

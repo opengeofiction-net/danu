@@ -107,6 +107,40 @@ class Node:
     tags: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(slots=True, frozen=True)
+class Member:
+    """One member of a relation: what it is, which one, and what part it
+    plays. ``role`` is ``outer`` or ``inner`` on a multipolygon and the empty
+    string on plenty of others, which OSM writes as an absent attribute."""
+    type: str          # 'node', 'way' or 'relation'
+    ref: int
+    role: str = ''
+
+
+@dataclass(slots=True)
+class Relation:
+    """A relation the square carries - R41.
+
+    Which is here for one shape above all: a lake with an island in it is a
+    multipolygon with an inner ring, and there is no way to hold one as closed
+    ways. Losing the island does not merely lose a shape, it puts it under
+    water, because a water body flattened at a level flattens everything it
+    encloses.
+
+    Members are kept in file order and with their roles, because both are
+    data: a multipolygon's rings are its outers and inners, and nothing here
+    may decide it knows better than the file what order they came in."""
+    id: int
+    members: list[Member] = field(default_factory=list)
+    tags: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def ele(self) -> float | None:
+        """The elevation, by the same rule a way's is read by. A water body
+        flattened at a level carries one."""
+        return parse_ele(self.tags.get('ele'))
+
+
 @dataclass(slots=True)
 class Way:
     id: int
@@ -155,6 +189,7 @@ class Square:
     present: bool = False
     nodes: dict[int, Node] = field(default_factory=dict)
     ways: dict[int, Way] = field(default_factory=dict)
+    relations: dict[int, Relation] = field(default_factory=dict)
     # the <osm> element's attributes - upload='never' above all, which a save
     # must carry forward unchanged, since it is what stops JOSM putting these
     # negative ids onto the live map
@@ -230,8 +265,14 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
                     refs=[int(nd.get('ref')) for nd in elem.iter('nd')],
                     tags=_tags(elem))
                 elem.clear()
-            # relations are not something a square carries; if one turns up it
-            # is left where it is and the checks can say so
+            elif elem.tag == 'relation':
+                square.relations[int(elem.get('id'))] = Relation(
+                    id=int(elem.get('id')),
+                    members=[Member(type=mem.get('type'), ref=int(mem.get('ref')),
+                                    role=mem.get('role') or '')
+                             for mem in elem.iter('member')],
+                    tags=_tags(elem))
+                elem.clear()
             #
             # clearing a child empties it but leaves it in the root's list, so
             # without this the root ends the parse holding one hollow Element
@@ -464,6 +505,24 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
         lines += [f"    <nd ref='{r}' />" for r in w.refs]
         lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in w.tags.items()]
         lines.append('  </way>')
+    # Relations last, as JOSM writes them and as the file has to be read: a
+    # member names a way by id, and a reader that meets the relation first has
+    # to hold the reference until the way arrives. Nothing here does - the
+    # parse keeps dictionaries and resolves nothing - but the file is read by
+    # other things, and the order a square is written in is the order it was
+    # read in for everything else in this function.
+    #
+    # Members in file order, with their roles, both of which are data: a
+    # multipolygon's outer and inner rings are told apart by the role, and an
+    # empty one is written as an absent attribute because that is what it is.
+    for rid in square.relations:
+        r = square.relations[rid]
+        lines.append(f"  <relation id='{rid}' action='modify'>")
+        for mem in r.members:
+            role = f" role={q(mem.role)}" if mem.role else ''
+            lines.append(f"    <member type={q(mem.type)} ref='{mem.ref}'{role} />")
+        lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in r.tags.items()]
+        lines.append('  </relation>')
     lines.append('</osm>')
     text = '\n'.join(lines) + '\n'
     fd, tmp = tempfile.mkstemp(suffix=path.suffix, dir=str(path.parent))

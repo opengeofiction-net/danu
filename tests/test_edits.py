@@ -191,13 +191,21 @@ def test_any_sequence_of_edits_undone_leaves_the_square_exactly_as_it_was(cmds):
 
 def test_splitting_matches_split_long_ways_on_the_file(tmp_path):
     """The command and the file tool are two implementations of one rule;
-    run both on the same square and compare the results way for way."""
+    run both on the same square and compare the results way for way - and,
+    since R41, relation for relation: a member naming a way that is split
+    becomes one member per piece in both, or a lake loses its ring in one of
+    them and not the other."""
     from danu.core import split_long_ways as tool
     sq = fresh_square()
     alloc = edits.IdAllocator(sq)
     wid = alloc.take()
     ids = [alloc.take() for _ in range(23)]
     edits.AddWay(wid, ids, [(10.0 + i * 0.01, 10.5) for i in range(23)], {'ele': '150', 'note': 'long'}).apply(sq)
+    # and a relation naming it, which both have to mend
+    from danu.core.square import Member, Relation
+    rid = alloc.take()
+    sq.relations[rid] = Relation(id=rid, members=[Member('way', wid, 'outer')],
+                                 tags={'type': 'multipolygon'})
     path = tmp_path / 'N10E010.osm.xz'
     write_square(sq, path)
     # the tool, on the file, limit 10
@@ -218,8 +226,27 @@ def test_splitting_matches_split_long_ways_on_the_file(tmp_path):
     assert seq_model == seq_tool
     joined = seq_model[:1] + [r for i, r in enumerate(seq_model[1:], 1) if r != seq_model[i - 1]]
     assert joined == ids
+    # The relation says the same thing on both sides. Not the same ids: the
+    # two mint their fresh ones from different counters, which is why every
+    # comparison in this test is of shape and sequence rather than of
+    # identity. What has to match is that the member list walks the original
+    # way, in order, in pieces
+    def ring(square, relation_id):
+        members = square.relations[relation_id].members
+        assert all(m.type == 'way' and m.role == 'outer' for m in members)
+        walked = []
+        for m in members:
+            refs = square.ways[m.ref].refs
+            walked += refs if not walked else refs[1:]
+        return len(members), walked
+
+    assert ring(sq, rid)[0] == 3, 'the command did not mend the relation'
+    assert ring(sq, rid) == ring(from_tool, rid)
+    assert ring(sq, rid)[1] == ids, 'the mended ring is not the way that was split'
+
     cmd.undo(sq)
     assert sq.ways[wid].refs == ids and len([w for w in sq.ways.values() if w.tags.get('note') == 'long']) == 1
+    assert [(m.type, m.ref, m.role) for m in sq.relations[rid].members] == [('way', wid, 'outer')]
 
 
 def test_nothing_to_split_is_none():
@@ -505,3 +532,129 @@ def test_a_compound_names_every_node_and_every_way():
     assert both.spots(sq) == {nid}
     assert both.ways(sq) == {way.id}
     assert edits.Compound([]).spots(sq) == set()
+
+
+def test_splitting_a_way_mends_the_relations_that_named_it():
+    """A lake's outer ring is one way and can be longer than the OSM API
+    accepts. Split without mending, the relation keeps the first piece and the
+    rest of the ring belongs to nothing - a hole in the shape, written on save,
+    and nothing said."""
+    from danu.core.square import Member, Relation, Way
+
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    long_id = alloc.take()
+    ids = [alloc.take() for _ in range(2500)]
+    for i, nid in enumerate(ids):
+        sq.nodes[nid] = Node(id=nid, lat=10.0 + i * 1e-5, lon=10.0)
+    sq.ways[long_id] = Way(id=long_id, refs=list(ids), tags={'natural': 'water'})
+    other = next(iter(sq.ways))
+    rid = alloc.take()
+    sq.relations[rid] = Relation(id=rid, members=[
+        Member('way', long_id, 'outer'), Member('way', other, 'inner')],
+        tags={'type': 'multipolygon'})
+
+    before = edits.snapshot(sq)
+    cmd = edits.split_long_ways(sq, alloc)
+    assert cmd is not None
+    cmd.apply(sq)
+
+    pieces = [m.ref for m in sq.relations[rid].members if m.role == 'outer']
+    assert len(pieces) > 1, 'the relation still names one way'
+    assert pieces[0] == long_id, 'the first piece keeps the id, as the split says'
+    assert all(p in sq.ways for p in pieces)
+    assert all(m.role == 'outer' for m in sq.relations[rid].members if m.ref in pieces)
+    # the inner is untouched and still in its place
+    assert sq.relations[rid].members[-1] == Member('way', other, 'inner')
+    # and every node of the original is still covered, in order, once the
+    # shared boundary nodes are allowed for
+    walked = []
+    for p in pieces:
+        refs = sq.ways[p].refs
+        walked += refs if not walked else refs[1:]
+    assert walked == ids
+
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before, 'the undo left something behind'
+
+
+def test_splitting_a_way_no_relation_names_touches_no_relation():
+    from danu.core.square import Member, Relation, Way
+
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    long_id = alloc.take()
+    ids = [alloc.take() for _ in range(2500)]
+    for i, nid in enumerate(ids):
+        sq.nodes[nid] = Node(id=nid, lat=10.0 + i * 1e-5, lon=10.0)
+    sq.ways[long_id] = Way(id=long_id, refs=list(ids), tags={})
+    other = next(iter(sq.ways))
+    rid = alloc.take()
+    sq.relations[rid] = Relation(id=rid, members=[Member('way', other, 'outer')],
+                                 tags={'type': 'multipolygon'})
+
+    was = list(sq.relations[rid].members)
+    cmd = edits.split_long_ways(sq, alloc)
+    cmd.apply(sq)
+    assert sq.relations[rid].members == was
+
+
+def test_the_file_tool_refuses_a_square_that_interleaves_ways_and_relations(tmp_path):
+    """The pieces a member names have to be known by the time the member is
+    read, so every way has to come before every relation.
+
+    Asked as *no way after a relation*. The first version asked whether a
+    relation came before the first way, which a file that interleaves them
+    walks straight past - and interleaved is what a hand-edited or third-party
+    file does, which is the only kind this guard is for. Nothing danu writes
+    can reach it.
+    """
+    import lzma
+
+    from danu.core import split_long_ways as tool
+
+    # one element per line, as write_square writes them: the tool is a
+    # line-oriented pass over the XML and a way squeezed onto one line is not
+    # a way it can see
+    def way(wid, ele):
+        return ([f"  <way id='{wid}' action='modify'>"]
+                + [f"    <nd ref='-{i + 1}' />" for i in range(23)]
+                + [f"    <tag k='ele' v='{ele}' />", '  </way>'])
+
+    lines = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6' upload='never'>"]
+    lines += [f"  <node id='-{i + 1}' action='modify' lat='10.{i:02d}' lon='10.0' />"
+              for i in range(23)]
+    lines += way(-30, 150)
+    lines += ["  <relation id='-40' action='modify'>",
+              "    <member type='way' ref='-30' role='outer' />",
+              "    <tag k='type' v='multipolygon' />", '  </relation>']
+    lines += way(-31, 160)                      # the way that comes too late
+    lines.append('</osm>')
+    path = tmp_path / 'N10E010.osm.xz'
+    with lzma.open(path, 'wt', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+    with pytest.raises(SystemExit, match='a way after a relation'):
+        tool.split_file(str(path), 10, None, False)
+
+
+def test_undoing_a_split_survives_the_relation_having_gone():
+    """A command does not get to assume what ran after it. Nothing deletes a
+    relation yet - that is G4's - so this is the guard rather than the case."""
+    from danu.core.square import Member, Relation, Way
+
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    long_id = alloc.take()
+    ids = [alloc.take() for _ in range(2500)]
+    for i, nid in enumerate(ids):
+        sq.nodes[nid] = Node(id=nid, lat=10.0 + i * 1e-5, lon=10.0)
+    sq.ways[long_id] = Way(id=long_id, refs=list(ids), tags={})
+    rid = alloc.take()
+    sq.relations[rid] = Relation(id=rid, members=[Member('way', long_id, 'outer')],
+                                 tags={'type': 'multipolygon'})
+
+    cmd = edits.split_long_ways(sq, alloc)
+    cmd.apply(sq)
+    del sq.relations[rid]
+    cmd.undo(sq)                       # must not raise
+    assert sq.ways[long_id].refs == ids

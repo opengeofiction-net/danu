@@ -360,3 +360,100 @@ def test_an_elevation_that_is_not_finite_is_not_an_elevation():
     # and the ordinary cases are untouched
     assert parse_ele('125') == 125.0 and parse_ele(' 12.5 ') == 12.5
     assert parse_ele('tbd') is None and parse_ele(None) is None
+
+
+# ---------------------------------------------------------- relations
+
+LAKE = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' upload='never' generator='JOSM'>
+  <node id='-1' action='modify' lat='-23.9' lon='125.1' />
+  <node id='-2' action='modify' lat='-23.9' lon='125.9' />
+  <node id='-3' action='modify' lat='-23.1' lon='125.9' />
+  <node id='-4' action='modify' lat='-23.1' lon='125.1' />
+  <node id='-5' action='modify' lat='-23.6' lon='125.4' />
+  <node id='-6' action='modify' lat='-23.6' lon='125.6' />
+  <node id='-7' action='modify' lat='-23.4' lon='125.6' />
+  <node id='-8' action='modify' lat='-23.4' lon='125.4' />
+  <way id='-20' action='modify'>
+    <nd ref='-1' /><nd ref='-2' /><nd ref='-3' /><nd ref='-4' /><nd ref='-1' />
+    <tag k='natural' v='water' />
+  </way>
+  <way id='-21' action='modify'>
+    <nd ref='-5' /><nd ref='-6' /><nd ref='-7' /><nd ref='-8' /><nd ref='-5' />
+  </way>
+  <relation id='-30' action='modify'>
+    <member type='way' ref='-20' role='outer' />
+    <member type='way' ref='-21' role='inner' />
+    <member type='node' ref='-5' />
+    <tag k='type' v='multipolygon' />
+    <tag k='natural' v='water' />
+    <tag k='ele' v='120' />
+  </relation>
+</osm>
+"""
+
+
+@pytest.fixture
+def lake(tmp_path):
+    """A lake with an island in it - R41's reason for relations existing at
+    all. The island is an inner ring, and there is no way to say so without
+    one."""
+    path = tmp_path / 'S24E125_Lake.osm'
+    path.write_text(LAKE)
+    return path
+
+
+def test_a_relation_is_read_with_its_members_in_order(lake):
+    from danu.core.square import read_square
+
+    sq = read_square(lake)
+    assert list(sq.relations) == [-30]
+    rel = sq.relations[-30]
+    assert [(m.type, m.ref, m.role) for m in rel.members] == [
+        ('way', -20, 'outer'), ('way', -21, 'inner'), ('node', -5, '')]
+    assert rel.tags['type'] == 'multipolygon'
+    assert rel.ele == 120.0
+
+
+def test_a_square_with_a_relation_round_trips(lake, tmp_path):
+    """The property ``write_square`` already holds for nodes and ways: a square
+    opened and saved differs from the one that was opened only where it was
+    edited. Members keep their order and their roles, and a role that is empty
+    stays absent rather than becoming an empty string in the file."""
+    from danu.core.square import read_square, write_square
+
+    original = read_square(lake)
+    written = write_square(original, tmp_path / 'S24E125_Out.osm')
+    back = read_square(written)
+
+    assert list(back.relations) == list(original.relations)
+    assert list(back.ways) == list(original.ways)
+    assert list(back.nodes) == list(original.nodes)
+    a, b = original.relations[-30], back.relations[-30]
+    assert [(m.type, m.ref, m.role) for m in a.members] == [(m.type, m.ref, m.role) for m in b.members]
+    assert a.tags == b.tags
+    text = written.read_text()
+    assert "role='outer'" in text and "role='inner'" in text
+    assert "role=''" not in text, 'an absent role was written as an empty one'
+    # and relations come last, as JOSM writes them and as a member reference
+    # wants: a way is in the file before the relation that names it
+    assert text.index('<way id=') < text.index('<relation id=')
+
+
+def test_the_allocator_counts_relations_too(lake):
+    """One counter over three namespaces. A square whose lowest id is a
+    relation's would otherwise mint one already in use."""
+    from danu.core import edits
+    from danu.core.square import read_square
+
+    sq = read_square(lake)
+    assert min(sq.relations) < min(sq.ways) < min(sq.nodes)
+    assert edits.IdAllocator(sq).take() == min(sq.relations) - 1
+
+
+def test_a_square_with_no_relations_writes_none(golden, tmp_path):
+    from danu.core.square import write_square
+
+    assert golden.relations == {}
+    text = write_square(golden, tmp_path / 'S24E125_Out.osm').read_text()
+    assert '<relation' not in text
