@@ -135,6 +135,8 @@ class Contours:
         # Read-only because nothing edits a spot height yet; that is G2, and
         # this layer is where it will go.
         self.spots = None
+        self._spot_fid: dict[str, int] = {}
+        self._spot_next = 0
         spot_lyr = src.GetLayer(SPOTS)
         if spot_lyr is not None:
             # the source's own geometry type, not wkbPoint named again: the
@@ -142,11 +144,11 @@ class Contours:
             # and a copy that declares something else is a preview burning a
             # different shape from the build - which is the one divergence this
             # whole arrangement exists to prevent
-            self.spots = self._mem.CreateLayer(SPOTS, srs=spot_lyr.GetSpatialRef(),
-                                               geom_type=spot_lyr.GetGeomType())
-            self.spots.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+            self._make_spots(spot_lyr.GetSpatialRef(), spot_lyr.GetGeomType())
             sdefn = self.spots.GetLayerDefn()
+            top = 0
             for f in spot_lyr:
+                top = max(top, f.GetFID())
                 ele = f.GetField('ele')
                 if ele is None:
                     continue
@@ -154,12 +156,79 @@ class Contours:
                 g.SetFID(f.GetFID())
                 g.SetGeometry(f.GetGeometryRef().Clone())
                 g.SetField('ele', float(ele))
+                osm_id = f.GetField('osm_id')
+                g.SetField('osm_id', osm_id)
                 self.spots.CreateFeature(g)
+                if osm_id is not None:
+                    self._spot_fid[str(osm_id)] = f.GetFID()
+            self._spot_next = top + 1
 
     def __len__(self) -> int:
         """The contours. Not the spot heights, which are a layer of their own
         and are not what a caller counting this is asking about."""
         return self.layer.GetFeatureCount()
+
+    def _make_spots(self, srs=None, geom_type=None) -> None:
+        """The in-memory spot layer, empty.
+
+        Made on demand as well as on load, for a GeoPackage that has no
+        ``spot`` layer at all. Every build since G1 produces one - both
+        translates make their layer on the first square whatever it holds, so
+        a working set with no spot height anywhere still has an empty layer -
+        so what this covers is a GeoPackage written before that, which an
+        editor started on an old working directory can still be handed.
+        """
+        from osgeo import ogr
+        if self.spots is not None:
+            return
+        self.spots = self._mem.CreateLayer(
+            SPOTS, srs=srs if srs is not None else self.layer.GetSpatialRef(),
+            geom_type=geom_type if geom_type is not None else ogr.wkbPoint)
+        self.spots.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+        self.spots.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def remove_spot(self, node_id) -> bool:
+        """Drop a spot height. False when there was none - a node with no
+        ``ele`` never reached the layer and its deletion changes nothing."""
+        fid = self._spot_fid.pop(str(node_id), None)
+        if fid is None:
+            return False
+        self.spots.DeleteFeature(fid)
+        return True
+
+    def apply_spot(self, node_id, lon: float, lat: float, ele: float) -> None:
+        """Put a spot height in, at its own FID if it had one - the same
+        bargain as ``apply`` makes for a contour, and for the same reason:
+        within the spot layer the last feature to touch a cell wins it, and a
+        spot height moved or re-valued should land on the side of a tie the
+        build would have put it.
+
+        The FID is found by ``osm_id``, which is the only handle the layer
+        carries back to the node. The build's points layer always has one -
+        ``osmconf.ini``'s ``[points]`` asks for it - so every feature loaded
+        from a GeoPackage this pipeline wrote is keyed. One written without it
+        would be loaded, drawn and burned, and then an edit to that node would
+        add a second feature beside it rather than replacing it. That is a
+        different gap from the missing-layer one ``_make_spots`` covers, and
+        nothing in this pipeline opens it."""
+        from osgeo import ogr
+        self._make_spots()
+        key = str(node_id)
+        fid = self._spot_fid.get(key)
+        if fid is not None:
+            self.spots.DeleteFeature(fid)
+        else:
+            fid = self._spot_next
+            self._spot_next += 1
+        point = ogr.Geometry(ogr.wkbPoint)
+        point.AddPoint_2D(float(lon), float(lat))
+        f = ogr.Feature(self.spots.GetLayerDefn())
+        f.SetFID(fid)
+        f.SetGeometry(point)
+        f.SetField('ele', float(ele))
+        f.SetField('osm_id', key)
+        self.spots.CreateFeature(f)
+        self._spot_fid[key] = fid
 
     def remove(self, way_id) -> bool:
         """Drop a way's contour. False when there was none - a way with no

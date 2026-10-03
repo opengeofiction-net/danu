@@ -445,3 +445,63 @@ def test_a_square_joining_later_does_not_invalidate_ids_already_given_out():
     after = [hist.alloc(b).take() for _ in range(3)]
     assert min(first) > max(after), 'the allocator handed back out over ids in use'
     assert all(i < min(first) - 5 for i in after), (first, after)
+
+
+def test_a_spot_height_is_added_and_taken_back():
+    """R36's node: a node of its own, carrying an elevation, which is the only
+    kind of node that means anything without a way around it."""
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    nid = alloc.take()
+    cmd = edits.AddNode(nid, (10.45, 10.45), {'ele': '240'})
+    assert cmd.spots(sq) == {nid} and cmd.ways(sq) == set()
+
+    cmd.apply(sq)
+    assert sq.nodes[nid].tags == {'ele': '240'}
+    assert (sq.nodes[nid].lon, sq.nodes[nid].lat) == (10.45, 10.45)
+    cmd.undo(sq)
+    assert nid not in sq.nodes
+
+
+def test_a_spot_heights_elevation_changes_and_changes_back():
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    nid = alloc.take()
+    edits.AddNode(nid, (10.45, 10.45), {'ele': '240'}).apply(sq)
+
+    cmd = edits.SetNodeTags(nid, {'ele': '240'}, {'ele': '260'})
+    assert cmd.spots(sq) == {nid}
+    assert cmd.describe() == '240 m -> 260 m'
+    cmd.apply(sq)
+    assert sq.nodes[nid].tags['ele'] == '260'
+    cmd.undo(sq)
+    assert sq.nodes[nid].tags['ele'] == '240'
+
+
+def test_the_node_commands_name_the_node_they_touch():
+    """``spots`` says *may have changed*, not *did*: a command that moves or
+    deletes a node does not know whether that node carries an elevation, and
+    the preview settles it against the square. So they name the node either
+    way, and a command that cannot touch one names nothing."""
+    sq = fresh_square()
+    way = next(iter(sq.ways.values()))
+    ref = way.refs[0]
+    node = sq.nodes[ref]
+
+    assert edits.MoveNode(ref, (node.lon, node.lat), (node.lon, node.lat + 0.01)).spots(sq) == {ref}
+    assert edits.DeleteNode(ref).spots(sq) == {ref}
+    # a vertex put into a way is new and untagged; it cannot be a spot height
+    assert edits.InsertNode(way.id, 1, -9999, (10.45, 10.45)).spots(sq) == set()
+    assert edits.SetTags(way.id, dict(way.tags), {'ele': '5'}).spots(sq) == set()
+
+
+def test_a_compound_names_every_node_and_every_way():
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    nid = alloc.take()
+    way = next(iter(sq.ways.values()))
+    both = edits.Compound([edits.AddNode(nid, (10.45, 10.45), {'ele': '240'}),
+                           edits.SetTags(way.id, dict(way.tags), {'ele': '5'})])
+    assert both.spots(sq) == {nid}
+    assert both.ways(sq) == {way.id}
+    assert edits.Compound([]).spots(sq) == set()

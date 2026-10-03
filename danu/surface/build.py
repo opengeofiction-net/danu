@@ -473,16 +473,18 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                 opts['accessMode'] = 'append'
             gdal.VectorTranslate(str(gpkg), str(source), options=gdal.VectorTranslateOptions(**opts))
             first = False
-            # the same square again for its points, because one VectorTranslate
-            # writes one layer. A square with no spot heights writes nothing and
-            # costs a second parse of a file GDAL has just read, which against
-            # the fill is not a cost worth arranging around
-            # always an append, and no geometryType: the layer does not exist
-            # until some square has a spot height, and that square need not be
-            # the first one read - but an append creates it either way, with
-            # the geometry the OSM driver's points layer has. A POINT hint here
+            # The same square again for its points, because one VectorTranslate
+            # writes one layer. Unconditionally, for every square: one with no
+            # spot heights writes no features and costs a second parse of a
+            # file GDAL has just read, which against the fill is not a cost
+            # worth arranging around - and it is what makes the layer exist
+            # from the first square on, empty, exactly as the lines translate
+            # above makes an empty contour layer.
+            #
+            # Always an append, and no geometryType: the layer comes out typed
+            # Point from the OSM driver's own points layer. A POINT hint here
             # was tried and taken out again, because removing it changed no
-            # test: it looked like the thing that made the layer and was not
+            # test - it looked like the thing that made the layer and was not.
             spot_opts = dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
                              layerName='spot', accessMode='append')
             gdal.VectorTranslate(str(gpkg), str(source),
@@ -625,10 +627,11 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
         raise ValueError(f'{gpkg} holds neither a contour nor a spot layer')
     # One call per layer, in order, rather than one call with a layer list.
     # The first creates the raster and the rest add to it, and the first is the
-    # contour layer whenever collect() made this file: the lines translate runs
-    # for every square and creates that layer on the first one, holding no
+    # contour layer whenever collect() made this file: both translates run for
+    # every square and each makes its layer on the first one, holding no
     # features if no square had any. A set of nothing but spot heights still
-    # arrives here as ['contour', 'spot'].
+    # arrives here as ['contour', 'spot'], and so does one with no spot heights
+    # at all.
     #
     # The second call passes no initValues, no noData, no bounds, no resolution
     # and no type, and every one of those omissions is the point: it writes

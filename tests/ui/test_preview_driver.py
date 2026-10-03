@@ -27,8 +27,9 @@ class Way:
 
 
 class Node:
-    def __init__(self, lon, lat):
+    def __init__(self, lon, lat, tags=None):
         self.lon, self.lat = lon, lat
+        self.tags = tags or {}
 
 
 class Square:
@@ -40,6 +41,7 @@ class Square:
 class FakeContours:
     def __init__(self, collided=()):
         self.applied, self.removed = [], []
+        self.spotted, self.unspotted = [], []
         self.collided = list(collided)
 
     def burn(self, gt, box, nodata):
@@ -51,6 +53,13 @@ class FakeContours:
 
     def remove(self, way_id):
         self.removed.append(way_id)
+        return True
+
+    def apply_spot(self, node_id, lon, lat, ele):
+        self.spotted.append((node_id, lon, lat, ele))
+
+    def remove_spot(self, node_id):
+        self.unspotted.append(node_id)
         return True
 
 
@@ -1343,3 +1352,93 @@ def test_a_skipped_gesture_takes_the_wider_cover_with_it(qtbot, monkeypatch):
 
     assert skipped, 'the gesture was not skipped, so this tests nothing'
     assert not d._solving_wide, 'the wider cover outlived a preview that never ran'
+
+
+# ---------------------------------------------------------- spot heights
+
+def spot_square(col, row, ele='240', nid=7):
+    """A square holding one node and nothing else, at a given cell."""
+    gt = (0.0, 0.01, 0.0, 1.0, 0.0, -0.01)
+    lon = gt[0] + (col + 0.5) * gt[1]
+    lat = gt[3] + (row + 0.5) * gt[5]
+    tags = {'ele': ele} if ele is not None else {}
+    return Square([], {nid: Node(lon, lat, tags)})
+
+
+def test_a_spot_height_placed_reaches_the_layer_and_is_boxed(monkeypatch):
+    d = driver_over(monkeypatch)
+    square = spot_square(100, 100)
+    node = square.nodes[7]
+    d.edited(square, (), {7})
+    assert d._kept.contours.spotted == [(7, node.lon, node.lat, 240.0)]
+    assert len(d._pending) == 1, 'placing a spot height boxed no ground'
+    box = d._pending[0]
+    assert box.x0 <= 100 <= box.x1 and box.y0 <= 100 <= box.y1, (
+        f'{box} is not the cell the spot height was placed in')
+
+
+def test_a_node_with_no_elevation_is_not_a_spot_height(monkeypatch):
+    """Moving a node of a coastline, or of anything untagged, constrains
+    nothing. ``Command.spots`` names every node it touches because it cannot
+    tell; this is where that is settled, and boxing it would solve ground the
+    edit cannot have changed."""
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100, ele=None), (), {7})
+    assert d._kept.contours.spotted == []
+    assert d._kept.contours.unspotted == []
+    assert d._pending == []
+
+
+def test_an_elevation_that_is_not_a_number_is_no_elevation(monkeypatch):
+    """Squares carry ``ele=TBD`` on lake outlets and ``ele=tbd`` on peaks. The
+    build drops them rather than burning them as zero; a node reading nothing
+    is a node with no elevation, not a node at sea level."""
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100, ele='tbd'), (), {7})
+    assert d._kept.contours.spotted == []
+    assert d._pending == []
+
+
+def test_a_spot_height_moved_boxes_where_it_went_and_where_it_was(monkeypatch):
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100), (), {7})
+    d._pending.clear()
+    d.edited(spot_square(300, 300), (), {7})
+    assert len(d._kept.contours.spotted) == 2
+    assert len(d._pending) == 1
+    box = d._pending[0]
+    # one box over both cells, which is what a merged pair looks like: the old
+    # ground has to be resolved as much as the new
+    assert box.x0 <= 100 and box.x1 >= 300 and box.y0 <= 100 and box.y1 >= 300
+
+
+def test_a_spot_height_that_stops_being_one_is_removed_and_boxed(monkeypatch):
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100), (), {7})
+    d._pending.clear()
+    d.edited(spot_square(100, 100, ele=None), (), {7})
+    assert d._kept.contours.unspotted == [7]
+    assert len(d._pending) == 1, 'the ground the spot height was holding up was not boxed'
+    assert d._removing is True, 'a constraint taken away wants the wider cover'
+
+
+def test_a_node_the_square_no_longer_holds_is_removed(monkeypatch):
+    """A deletion arrives as an id the square cannot answer for, the same way
+    a deleted way does."""
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100), (), {7})
+    d._pending.clear()
+    d.edited(Square([], {}), (), {7})
+    assert d._kept.contours.unspotted == [7]
+    assert len(d._pending) == 1
+
+
+def test_a_spot_height_that_did_not_move_is_not_boxed_twice(monkeypatch):
+    """The same node, the same place, the same elevation - which is what a
+    gesture that touches it repeatedly looks like."""
+    d = driver_over(monkeypatch)
+    d.edited(spot_square(100, 100), (), {7})
+    d._pending.clear()
+    d.edited(spot_square(100, 100), (), {7})
+    assert len(d._pending) == 1, 'a spot height still has to be boxed when it is re-applied'
+    assert d._pending[0].x0 <= 100 <= d._pending[0].x1
