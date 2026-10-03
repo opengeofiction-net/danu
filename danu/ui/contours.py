@@ -77,14 +77,23 @@ SPOT_PX = 3.5
 # the one colour all water is drawn in. Not from the ramp: none of it has an
 # elevation to take a colour from until G6, and a river is where the valley
 # floor is rather than how high it is
-WATER = QColor(70, 130, 190, 200)
+# a blue the hypsometric ramp cannot make. Spectral runs from (43, 131, 186)
+# at the bottom of the square up through teal into green, and the water was
+# (70, 130, 190) - which puts a 40 m contour 18 units away in RGB and
+# everything under 80 m within 33. On a coastal square almost every contour is
+# under 80 m, so the whole sheet read as drainage; the mapper who reported it
+# said "contours are getting drawn as water", which is exactly what it looked
+# like. 80 units clear of the nearest ramp colour is what buys the difference,
+# and it has to come out of the darkness rather than the hue, because the hue
+# between blue and green is where the ramp spends its first two hundred metres
+WATER = QColor(20, 70, 140, 200)
 # the fill is far fainter than the edge it sits inside. Water is drawn in the
 # contour layer, which is over the surface preview and over the tiles, so a
 # body filled at the edge's own alpha would blank the hypsometric tint and
 # whatever the backdrop shows - the ground the mapper is working against. The
 # faint wash says "inside", the firm edge says "shore", and between them a
 # lake stops reading as a very round contour
-WATER_FILL = QColor(70, 130, 190, 58)
+WATER_FILL = QColor(20, 70, 140, 58)
 
 
 @dataclass

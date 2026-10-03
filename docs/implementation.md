@@ -2183,3 +2183,27 @@ it out whatever happens to the cut pieces around it - so the relation always
 has a path and the member's ring is in it. The test written to show the gap
 showed the lake filled, and is kept saying so, with the cut piece beside it
 getting an outline and no fill.
+
+**The water was the ramp's blue.** Reported from the running editor, on
+N20E086, as "contours are getting drawn as water" - and the fills were
+innocent: the ten largest on that square are the Bosco River, Lake Kinser and
+seven `waterway=riverbank`, all correctly tagged. What was wrong was the
+colour. Contour lines take theirs from the hypsometric ramp, and spectral
+starts at (43, 131, 186) and walks through teal into green, so a 40 m contour
+sat 18 units in RGB from the water's (70, 130, 190) and everything under 80 m
+within 33. Eighteen units is the same line. On a coastal square almost every
+contour is under 80 m, so the whole sheet read as drainage.
+
+Water is (20, 70, 140) now, 80 units clear of the nearest colour the ramp can
+make at any elevation in the square. It had to come out of the darkness and
+not the hue: the ramp spends its first two hundred metres walking from blue to
+green, so there is no free hue down there, only a free value. The test asserts
+the distance against the ramp rather than against a literal, so changing the
+ramp breaks the test rather than the map.
+
+Two lessons, and the second is the one worth keeping. The first is that a
+colour chosen against a white page is not chosen until it has been put next to
+everything else that is drawn. The second is that I had seen this myself, in
+the z15 render made while settling the fill alphas, and set it aside as a
+follow-up to raise rather than a fault to fix. It was in front of me and it
+was this change's business.

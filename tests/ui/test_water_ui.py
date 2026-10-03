@@ -552,3 +552,24 @@ def test_an_import_still_tells_everyone_what_changed(window):
     )
     assert dict(seen)[here] == {9001} and dict(seen)[east] == {9002}
     assert edits_done, 'nothing was told the set had been edited'
+
+
+def test_the_water_is_a_blue_the_ramp_cannot_make(water_ws):
+    """A 40 m contour used to be 18 units from the water in RGB, and
+    everything under 80 m within 33. On a coastal square that is almost every
+    contour, and the sheet read as drainage."""
+    from danu.surface.ramp import spectral
+    from danu.ui.contours import WATER
+    ramp = spectral(0, 1061)
+    water = (WATER.red(), WATER.green(), WATER.blue())
+    nearest = min(
+        sum((a - b) ** 2 for a, b in zip(water, _rgb(ramp.colour(ele)), strict=True)) ** 0.5
+        for ele in range(0, 1062, 5))
+    assert nearest > 60, (
+        f'the water is {nearest:.0f} units from a contour colour; at this range '
+        f'a low contour and a river are the same line'
+    )
+
+
+def _rgb(c):
+    return (c.red(), c.green(), c.blue()) if hasattr(c, 'red') else tuple(c)[:3]
