@@ -46,8 +46,8 @@ the tools for everything else.
   configurable; 1x1 and 5x5 have uses.
 - **R3** Squares carry contours (`ele` on a way) and may carry water and other
   anchors. All of it is editable.
-- **R4** New nodes and ways take negative ids, as JOSM gives them, unique
-  within the square's file and no further: a square is edited, sent and
+- **R4** New nodes, ways and relations take negative ids, as JOSM gives them,
+  unique within the square's file and no further: a square is edited, sent and
   built as one file, and nothing in the process merges two squares' ids. The
   editor allocates below the lowest id the file holds. `id-blocks.conf` is
   not involved - it allocates the *published* contour PBF's positive ids, one
@@ -55,6 +55,9 @@ the tools for everything else.
   is the build's business. (Gobras' squares happen to hold disjoint id ranges,
   which is the JOSM counter of whoever drew them and not a rule; the manual
   process never enforced more than the file, and neither does this.)
+- **R41** A square carries relations as well as nodes and ways, and they are
+  read, edited and saved like the rest of it. A lake with an island in it is a
+  multipolygon with an inner ring and there is no other way to say so.
 - **R5** Blank square templates can be created for squares nobody has drawn.
 - **R6** The contour ladder is inferred per square, with a per-square override
   and a zone default.
@@ -829,7 +832,30 @@ preview burning them, which means `preview.Contours` gains the points layer it
 does not have. `Node.tags` already survives a read and a save, so the data
 round-trips today and only the two ends are missing.
 
-**G3, water is imported into the square.** R23, and the reason it is an import
+**G3, the square carries relations.** `read_square` skips a relation and
+`write_square` writes none, so a square is nodes and ways. A water body is as
+likely to be a multipolygon as a closed way - gobras has 120 water relations,
+Lake Kinser among them - and a lake with an island in it *is* a multipolygon
+with an inner ring. There is no way to hold one as closed ways, and nothing to
+do with the island if it is lost: R26 flattens a body at a level, and a
+flattened body with no hole in it puts the island under water.
+
+So the model grows: a `Relation` of members and tags beside `Node` and `Way`,
+read in file order, written back in it, and minted negative ids from the same
+allocator - which already takes one counter across two namespaces and now takes
+it across three. The property to hold is the one `write_square` already holds
+for ways: a square opened and saved differs from the square that was opened
+only where it was edited. It goes before the import because the import has
+nowhere to put a lake until it does.
+
+It also makes one thing true that the pipeline currently assumes is not. The
+spot-height guard counts `ele` tags outside a way element and its comment says
+a relation carrying one is not a thing these squares hold; once they do, and
+once R26 flattens a body by putting `ele` on it, that is exactly what they
+hold. The guard warns rather than refuses, which was the right call for a
+different reason and remains the right call for this one.
+
+**G4, water is imported into the square.** R23, and the reason it is an import
 and not a cache: a square is opened, edited and built from its own file, and a
 working set that needs the network to describe its own rivers is not
 self-contained. Features arrive carrying the OSM id they had, positive, which
@@ -837,29 +863,20 @@ is what a later import matches on; `IdAllocator` mints below the lowest id in
 use and takes 0 as its ceiling, so positive ids never move it and nothing
 collides.
 
-**What G3 has to settle first is relations.** A square carries nodes and ways
-and nothing else - `read_square` skips a relation deliberately - and a water
-body is as likely to be a multipolygon as a closed way: gobras has 120 water
-relations, Lake Kinser among them. So either the square model grows relations,
-or a body arrives as the closed way its rings assemble into and loses the
-identity R40 matches on for exactly the features that matter most. Neither is
-obviously right and the choice belongs here rather than in G4, which is where
-it would otherwise be discovered.
-
-**G4, a second import reconciles.** R40, and the hard half of G3. A feature the
+**G5, a second import reconciles.** R40, and the hard half of G4. A feature the
 square holds already takes its geometry from upstream and keeps the elevation
 set on it here - upstream owns where the river is, the mapper owns how high it
 is - and a feature gone from upstream is reported rather than deleted, because
 a square is somebody's work and an import is not entitled to throw it away. One
 undoable step, so the answer to a bad import is Ctrl+Z.
 
-**G5, elevations on water.** R24: a level on a body or a waterway, by hand or
+**G6, elevations on water.** R24: a level on a body or a waterway, by hand or
 from the contours it touches. The grading is `danu/water/constraints.py`'s -
 a waterway takes each contour's value where it crosses one, graded between and
 forced to descend; a body takes its outlet - made per-feature and interactive
 rather than per-zone and unattended.
 
-**G6, burn and flatten, as a proposal.** R25 to R27: grade a river and rewrite
+**G7, burn and flatten, as a proposal.** R25 to R27: grade a river and rewrite
 the contours to match, flatten a body at its level, never flatten flowing
 water. Accept and roll back go through the undo stack rather than a mechanism
 of their own - a burn is an edit to contour ways, and Ctrl+Z is what a mapper
