@@ -1498,8 +1498,11 @@ warning and not a refusal, because the count is of `ele` outside a *way* rather
 than on a *node*: telling those apart means matching `<node` as well, and there
 are two and a half million of those in the largest square, which is the whole
 reason this scans rather than parses. A relation tagged `ele` would be counted
-and is not a thing these squares hold; the cost of being wrong is a line in a
-log rather than a zone build stopped.
+and is not a thing these squares hold - not yet: G3 grows the model to carry
+them, and R26 flattens a water body by putting `ele` on one, so the false
+alarm this tolerates becomes a case that actually arises. The cost of being
+wrong is a line in a log rather than a zone build stopped, which was the right
+call for one reason and stays the right call for the other.
 
 **What it costs on deployment.** The golden square holds no such node, so the
 committed reference surface is unmoved and `test_golden_surface` is
