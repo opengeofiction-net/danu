@@ -59,6 +59,9 @@ the tools for everything else.
   read, edited and saved like the rest of it. A lake with an island in it is a
   multipolygon with an inner ring and there is no other way to say so.
 - **R5** Blank square templates can be created for squares nobody has drawn.
+- **R42** A square holds something worth building when it carries an elevation,
+  a coastline or water. A square of nothing but water is a square somebody has
+  drawn, not one of the blanks handed out.
 - **R6** The contour ladder is inferred per square, with a per-square override
   and a zone default.
 - **R7** The territory and owner under the working set are shown, from the
@@ -862,6 +865,21 @@ self-contained. Features arrive carrying the OSM id they had, positive, which
 is what a later import matches on; `IdAllocator` mints below the lowest id in
 use and takes 0 as its ceiling, so positive ids never move it and nothing
 collides.
+
+**An import may bring a square into being.** Measured over the gobras 3x3,
+features land in two squares the working set has no file for - 355 of 4,673
+between them - and the alternatives are both worse than creating the file:
+dropping them silently, or holding them in memory until a mapper notices. A
+square of nothing but water is already a shape this data has, in that squares
+carrying only a coastline are present in the zones today.
+
+That widens what counts as a drawn square, which R42 now says: an elevation,
+a coastline, or water. `has_constraints` asks for an `ele` tag and nothing
+else, which catches a coastline because one is tagged `ele=0`, and misses a
+square of imported rivers entirely - it would be read as one of the blank
+templates and left out of the build. Widening it changes which squares the
+nightly build reads, so it is a deployment to measure the way G1's was rather
+than a line to change quietly.
 
 **G5, a second import reconciles.** R40, and the hard half of G4. A feature the
 square holds already takes its geometry from upstream and keeps the elevation
