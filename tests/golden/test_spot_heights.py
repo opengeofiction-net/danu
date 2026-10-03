@@ -561,3 +561,49 @@ def test_removing_a_spot_height_previews_the_hill_without_it(tmp_path):
     box = box_round(cgt, LON, LAT)
     burned = contours.burn(cgt, box, NODATA)
     assert (burned == want[box.slice]).all(), 'the spot height is still in the preview'
+
+
+def test_a_square_carrying_a_relation_builds_the_same_surface(tmp_path):
+    """R41 lets a square hold relations. Nothing in the build reads one yet -
+    ``collect`` gathers lines and points - so a square that grows one has to
+    build exactly as it did before.
+
+    Not a given. GDAL's OSM driver assembles multipolygons into a layer of
+    their own, and a driver that dropped member ways from the ``lines`` layer
+    while doing it would take a contour out of the constraints for no reason
+    the file shows. This is what says it does not.
+    """
+    import numpy as np
+
+    from danu.core.square import Member, Relation, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    def constraints_of(sq, name):
+        zone = tmp_path / name / 'zone'
+        zone.mkdir(parents=True)
+        write_square(sq, zone / 'S24E125.osm.xz')
+        result = build.build_dem(zone, tmp_path / name / 'w', sp.load().with_arcsec(3))
+        assert result.dem is not None
+        ds = gdal.Open(str(result.constraints))
+        a = ds.GetRasterBand(1).ReadAsArray()
+        del ds
+        return a
+
+    plain = a_hill()
+    before = constraints_of(plain, 'plain')
+
+    # the same square, with its outermost ring made a multipolygon's outer and
+    # the next one in its inner - a lake with an island, in shape at least
+    with_rel = a_hill()
+    rings = [w.id for w in with_rel.ways.values() if w.ele is not None]
+    rid = min(with_rel.ways) - 1
+    with_rel.relations[rid] = Relation(id=rid, members=[
+        Member('way', rings[0], 'outer'), Member('way', rings[1], 'inner')],
+        tags={'type': 'multipolygon', 'natural': 'water'})
+    after = constraints_of(with_rel, 'related')
+
+    assert (after == before).all(), (
+        f'{int((after != before).sum())} constraint cells moved because the square '
+        f'grew a relation')
+    assert np.count_nonzero(before != build.NODATA) > 1000, 'the fixture burned nothing'

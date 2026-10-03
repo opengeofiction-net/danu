@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .square import Node, Square, Way
+from .square import Member, Node, Square, Way
 
 Coord = tuple[float, float]            # lon, lat
 
@@ -24,9 +24,9 @@ Coord = tuple[float, float]            # lon, lat
 # ------------------------------------------------------------------ ids
 
 class IdAllocator:
-    """Fresh negative ids, each below the lowest in use. Nodes and ways are
-    different namespaces in OSM, but one counter over both keeps a file
-    readable by eye and cannot collide with either.
+    """Fresh negative ids, each below the lowest in use. Nodes, ways and
+    relations are three namespaces in OSM, but one counter over all of them
+    keeps a file readable by eye and cannot collide with any.
 
     Below the lowest in every square it has been shown, not just the first.
     One counter per square mints -1 for each of them - the lowest id in a
@@ -44,7 +44,7 @@ class IdAllocator:
 
     def include(self, square: Square) -> None:
         """Take this square's ids into account as well."""
-        lowest = min([0, *square.nodes.keys(), *square.ways.keys()])
+        lowest = min([0, *square.nodes.keys(), *square.ways.keys(), *square.relations.keys()])
         # lowest is at most 0, so this is the whole of it: the counter only
         # ever moves down, and a square whose ids are all above it changes
         # nothing
@@ -510,10 +510,20 @@ def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Co
 
 @dataclass
 class _ReplaceWays(Command):
-    """One way replaced by several over the same nodes; the inverse of a split."""
+    """One way replaced by several over the same nodes; the inverse of a split.
+
+    Any relation that named the way is mended as part of the same command: the
+    member is replaced by one per piece, in order and with the same role.
+    Without that, a split takes a lake's outer ring down to its first two
+    thousand nodes and leaves the rest of the ring in the file belonging to
+    nothing - a hole in the shape, written on save, and nothing said. The
+    whole relation's member list is kept for the undo rather than the one
+    member, because restoring a list exactly is the only way to be sure.
+    """
     way_id: int
     original: Way
     pieces: list[tuple[int, list[int], dict[str, str]]]
+    members: dict[int, list[Member]] = field(default_factory=dict)   # relation -> as it was
 
     def ways(self, square: Square) -> set[int]:
         return {self.way_id, *(nid for nid, _, _ in self.pieces)}
@@ -522,11 +532,29 @@ class _ReplaceWays(Command):
         del square.ways[self.way_id]
         for nid, refs, tags in self.pieces:
             square.ways[nid] = Way(id=nid, refs=list(refs), tags=tags)
+        self.members = {}
+        for rid, rel in square.relations.items():
+            if not any(m.type == 'way' and m.ref == self.way_id for m in rel.members):
+                continue
+            self.members[rid] = list(rel.members)
+            mended: list[Member] = []
+            for m in rel.members:
+                if m.type == 'way' and m.ref == self.way_id:
+                    mended += [Member('way', nid, m.role) for nid, _, _ in self.pieces]
+                else:
+                    mended.append(m)
+            rel.members = mended
 
     def undo(self, square: Square) -> None:
         for nid, _, _ in self.pieces:
             del square.ways[nid]
         square.ways[self.way_id] = self.original
+        for rid, was in self.members.items():
+            if rid in square.relations:
+                # nothing deletes a relation yet - that is G4's - but a
+                # command does not get to assume what ran after it
+                square.relations[rid].members = list(was)
+        self.members = {}
 
     def describe(self) -> str:
         return f'split way {self.way_id} into {len(self.pieces)}'
@@ -669,4 +697,7 @@ def snapshot(square: Square) -> tuple:
     value - for the test that an edit and its undo leave nothing behind."""
     nodes = tuple(sorted((i, n.lat, n.lon, tuple(sorted(n.tags.items()))) for i, n in square.nodes.items()))
     ways = tuple(sorted((i, tuple(w.refs), tuple(sorted(w.tags.items()))) for i, w in square.ways.items()))
-    return nodes, ways
+    relations = tuple(sorted(
+        (i, tuple((mem.type, mem.ref, mem.role) for mem in r.members), tuple(sorted(r.tags.items())))
+        for i, r in square.relations.items()))
+    return nodes, ways, relations
