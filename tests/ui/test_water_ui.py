@@ -533,3 +533,22 @@ def test_a_closed_member_is_filled_though_the_rest_of_its_lake_is_cut(water_ws):
     # the cut chain got nothing, which is the straddling answer
     assert (sq.name, 'way', -550) not in layer.water_fills
     assert (sq.name, -550) in layer.water, 'the cut piece lost its outline'
+
+
+def test_an_import_still_tells_everyone_what_changed(window):
+    """The import stopped emitting editedWays and edited itself when it moved
+    onto the editor's path. Both have to still come out, once per square and
+    naming that square's ways, or the panels that listen go stale."""
+    w = window
+    here, east = HERE, TEN
+    seen, edits_done = [], []
+    w.editor.editedWays.connect(lambda sq, ways, spots: seen.append((sq.name, set(ways))))
+    w.editor.edited.connect(lambda: edits_done.append(True))
+
+    w._water_imported({here: a_river(9001, 125.5), east: a_river(9002, 126.5)},
+                      w.working_set)
+    assert {name for name, _ in seen} == {here, east}, (
+        'a square an import wrote was not announced'
+    )
+    assert dict(seen)[here] == {9001} and dict(seen)[east] == {9002}
+    assert edits_done, 'nothing was told the set had been edited'
