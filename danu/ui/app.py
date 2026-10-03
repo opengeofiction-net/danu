@@ -38,6 +38,8 @@ from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController
+from .water import WaterImporter
+from .water import commands as water_commands
 
 APP_NAME = 'danu'
 # No organisation name, deliberately. Qt puts an organisation into the paths -
@@ -120,6 +122,10 @@ class MainWindow(QMainWindow):
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
+        self.water = WaterImporter(self)
+        self.water.started.connect(self._water_starting)
+        self.water.finished.connect(self._water_imported)
+        self.water.failed.connect(self._water_failed)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
         self.squares = SquaresItem()
@@ -362,7 +368,8 @@ class MainWindow(QMainWindow):
                 ('edit.delete_way', 'Delete whole &contour', ed.delete_way),
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
-                ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot'))):
+                ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
+                ('edit.import_water', '&Import water', self.import_water)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             a.triggered.connect(fn)
@@ -378,6 +385,8 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])
         edit.addAction(self.edit_actions['tool.spot'])
+        edit.addSeparator()
+        edit.addAction(self.edit_actions['edit.import_water'])
         self._tool_changed('select')
         self._edited()
         elevation = self.menuBar().addMenu('&Elevation')
@@ -536,6 +545,49 @@ class MainWindow(QMainWindow):
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
+
+    # --------------------------------------------------------------- water
+    def import_water(self) -> bool:
+        """R23: the working set's rivers, streams and water bodies, into the
+        squares. Asked for by the mapper rather than on opening a set - it
+        reaches the network, and what it writes is theirs to undo."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return False
+        queued = self.water.busy
+        self.water.request(self.working_set)
+        if queued:
+            self.statusBar().showMessage('already importing; the newer request wins')
+        return True
+
+    def _water_starting(self):
+        w, s, e, n = self.working_set.bounds
+        self.statusBar().showMessage(
+            f'importing water for {w:g}..{e:g} by {s:g}..{n:g} from Overpass…')
+
+    def _water_imported(self, placed):
+        """One import, one step on the history - R40 - however many squares it
+        landed in."""
+        steps = water_commands(placed, self.working_set)
+        if not steps:
+            self.statusBar().showMessage('no water in this working set')
+            return
+        self.editor.history.do_across(steps)
+        for square, cmd in steps:
+            ways, spots = cmd.ways(square), cmd.spots(square)
+            self.contours.refresh(square, ways)
+            self.contours.refresh_spots(square, spots)
+            self.editor.editedWays.emit(square, ways, spots)
+        self.editor.edited.emit()
+        features = sum(len(w) for w in placed.values())
+        # named per square because the share is not even: on the gobras 3x3
+        # one square takes seventy per cent of them
+        where = ', '.join(f'{name} {len(placed[name])}' for name in sorted(placed, key=str))
+        self.statusBar().showMessage(
+            f'imported {features} water features - {where}. Ctrl+Z takes them all back')
+
+    def _water_failed(self, why: str):
+        self.statusBar().showMessage(f'water import failed: {why.splitlines()[0]}')
 
     def _preview_unavailable(self, why: str):
         """Said in the status bar, not over the panel's own line.

@@ -73,6 +73,10 @@ FONT_PT = 9
 # the spot height marker's radius, in pixels: a point on the ground, so it
 # does not grow with the zoom
 SPOT_PX = 3.5
+# the one colour all water is drawn in. Not from the ramp: none of it has an
+# elevation to take a colour from until G6, and a river is where the valley
+# floor is rather than how high it is
+WATER = QColor(70, 130, 190, 200)
 
 
 @dataclass
@@ -103,6 +107,26 @@ class _Piece:
     rect: QRectF
     ele: float
     label: 'Label'
+
+
+WATER_TAGS = ('natural', 'waterway')
+
+
+def _water_members(square: Square) -> frozenset:
+    """The ways a square's water relations are made of. A multipolygon's rings
+    carry no tagging of their own, so this is what says they are water."""
+    return frozenset(mem.ref for rel in square.relations.values()
+                     if rel.tags.get('natural') == 'water'
+                     for mem in rel.members if mem.type == 'way')
+
+
+def _is_water(way: Way) -> bool:
+    """A way an import brought, or a mapper drew, as water.
+
+    ``natural=water`` or any ``waterway``. A multipolygon's member rings carry
+    neither - the relation holds the tagging - so ``set_working_set`` marks
+    them from the relation; this answers for the way alone."""
+    return way.tags.get('natural') == 'water' or 'waterway' in way.tags
 
 
 @dataclass
@@ -219,6 +243,7 @@ class ContourLayer(QGraphicsItem):
         self.drawn_ways = 0
         self.drawn_labels = 0
         self.drawn_spots = 0
+        self.drawn_water = 0
 
     # ------------------------------------------------------------ data
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
@@ -230,7 +255,7 @@ class ContourLayer(QGraphicsItem):
         # which is bounded and small - and the font being in the key is what
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
-        self._geoms, self._pieces, self.spots = {}, {}, {}
+        self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -243,8 +268,14 @@ class ContourLayer(QGraphicsItem):
         rng = ws.elevation_range()
         self.ramp = ramp if ramp is not None else spectral(*rng) if rng else spectral()
         for square in ws.present():
+            # a multipolygon's rings carry no tagging of their own - the
+            # relation holds it - so a layer that asked the way alone would
+            # draw a lake as nothing. Gathered once per square rather than
+            # asked per way, which on 112 relations and four thousand ways is
+            # the difference between a lookup and a search
+            members = _water_members(square)
             for way in square.ways.values():
-                geom = self._project(square, way)
+                geom = self._project(square, way, members)
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
             for nid in square.nodes:
@@ -252,20 +283,34 @@ class ContourLayer(QGraphicsItem):
         for key, geom in self._geoms.items():
             if geom.ele is not None:
                 self._add_way(key, geom)
+            else:
+                # whatever is not a contour and was kept is water or a
+                # coastline; the coastline is here to snap to and not to draw,
+                # and `_project` is what decided either of them was worth
+                # keeping at all
+                if geom.way.tags.get('natural') != 'coastline':
+                    self._add_water(key, geom)
         self._reindex()
         self._levels_moved = False
         self._arrays_stale = True
         self.update()
 
     @staticmethod
-    def _project(square: Square, way: Way) -> WayGeom | None:
-        """A contour or a coastline with at least two placed nodes; anything
-        else is not a line and is not kept.
+    def _project(square: Square, way: Way, water_members=frozenset()) -> WayGeom | None:
+        """A contour, a coastline or water, with at least two placed nodes;
+        anything else is not a line and is not kept.
+
+        Water joined when an import could put it in a square - G4c. It is kept
+        for the same reason a coastline is, which is that a mapper drawing
+        contours along a valley needs to see where the river is, and it is
+        drawn in a colour of its own because it has no elevation to take one
+        from.
 
         The refs are carried alongside the points, so both drop a node the
         square does not have and the two stay aligned."""
         ele = way.ele
-        if ele is None and way.tags.get('natural') != 'coastline':
+        if (ele is None and not _is_water(way) and way.id not in water_members
+                and way.tags.get('natural') != 'coastline'):
             return None
         nodes = square.nodes
         placed = [(r, nodes[r]) for r in way.refs if r in nodes]
@@ -326,17 +371,34 @@ class ContourLayer(QGraphicsItem):
             key = (square.name, wid)
             self._drop_way(key)
             self._geoms.pop(key, None)
+            self.water.pop(key, None)
             way = square.ways.get(wid)
-            geom = self._project(square, way) if way is not None else None
+            geom = (self._project(square, way, _water_members(square))
+                    if way is not None else None)
             if geom is not None:
                 self._geoms[key] = geom
                 if geom.ele is not None:
                     self._add_way(key, geom)
+                elif geom.way.tags.get('natural') != 'coastline':
+                    self._add_water(key, geom)
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
         self._arrays_stale = True
         self.update()
+
+    def _add_water(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+        """A water way's path and rectangle, in the pass that draws under the
+        contours."""
+        pts = g.pts.tolist()
+        path = QPainterPath()
+        path.moveTo(pts[0][0], pts[0][1])
+        for x, y in pts[1:]:
+            path.lineTo(x, y)
+        xs, ys = g.pts[:, 0], g.pts[:, 1]
+        rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
+                      float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
+        self.water[key] = _Piece(path, rect, 0.0, None)
 
     def _add_way(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """One way's path, rectangle and label, into the level it draws at."""
@@ -562,6 +624,7 @@ class ContourLayer(QGraphicsItem):
         if rect.isEmpty():
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_water(painter, rect)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
@@ -592,6 +655,27 @@ class ContourLayer(QGraphicsItem):
         self._paint_spots(painter, rect, scale, zoom)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
+
+    def _paint_water(self, painter: QPainter, rect: QRectF):
+        """The water, under the contours.
+
+        One colour for all of it rather than the ramp's, because none of it
+        has an elevation to take one from - that is G6's, and until then a
+        river is where the valley floor is and not how high. Under, because it
+        is the context a contour is drawn against and not the work: a mapper
+        following a stream wants to see the line they are drawing on top.
+        """
+        self.drawn_water = 0
+        if not self.water:
+            return
+        pen = QPen(WATER, 1.4)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for piece in self.water.values():
+            if piece.rect.intersects(rect):
+                painter.drawPath(piece.path)
+                self.drawn_water += 1
 
     def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
         """The spot heights: a ring in the elevation's own colour, and the

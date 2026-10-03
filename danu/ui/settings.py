@@ -33,6 +33,7 @@ DEFAULT_KEYS = {
     'edit.redo': 'Ctrl+Shift+Z',
     'edit.delete': 'Delete',
     'edit.delete_way': 'Shift+Delete',
+    'edit.import_water': 'Ctrl+I',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

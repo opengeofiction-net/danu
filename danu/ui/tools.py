@@ -139,24 +139,24 @@ class EditController(QObject):
         self.edited.emit()
 
     def undo(self):
-        step = self.history.undo()
-        if step:
-            square, cmd = step
-            ways, spots = cmd.ways(square), cmd.spots(square)
-            self.layer.refresh(square, ways)
-            self.layer.refresh_spots(square, spots)
-            self._after_history_move(square, ways, spots)
-            self.message.emit(f'undid {cmd.describe()}')
+        self._history_move(self.history.undo_across(), 'undid')
 
     def redo(self):
-        step = self.history.redo()
-        if step:
-            square, cmd = step
+        self._history_move(self.history.redo_across(), 'redid')
+
+    def _history_move(self, step, verb: str):
+        """One step off the history, or back on, however many squares it
+        touched. An import lands in up to nine files at once and comes back
+        the same way - R40 asks for one undoable step and this is where that
+        stops being one square's business."""
+        if not step:
+            return
+        for square, cmd in step:
             ways, spots = cmd.ways(square), cmd.spots(square)
             self.layer.refresh(square, ways)
             self.layer.refresh_spots(square, spots)
             self._after_history_move(square, ways, spots)
-            self.message.emit(f'redid {cmd.describe()}')
+        self.message.emit(f'{verb} {step[0][1].describe()}')
 
     def _after_history_move(self, square: Square, ways=(), spots=()):
         if ways or spots:
