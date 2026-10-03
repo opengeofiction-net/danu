@@ -212,10 +212,31 @@ def _way_anchor(water: Water, way: Way) -> Node | None:
 
 
 def _relation_anchor(water: Water, rel: Relation, seen=None) -> Node | None:
+    """The first member that resolves to a node, following relation members.
+
+    ``seen`` is the path and not the walk: a relation is added on the way in
+    and taken out again on the way out, so a cycle is stopped without a second
+    branch being refused for having been down the same way.
+
+    Review asked for this, on the argument that an accumulating set would mark
+    an inner relation seen on a branch that found nothing and then refuse a
+    later branch that needed it. I could not build that case, and on reflection
+    it cannot exist: whether a relation resolves depends on what it can reach,
+    not on how it was reached, so a second visit returns exactly what the first
+    did. The shape here is the right one and costs nothing; it is not a fix for
+    a bug anyone has seen.
+    """
     seen = set() if seen is None else seen
     if rel.id in seen:
         return None
     seen.add(rel.id)
+    try:
+        return _anchor_in(water, rel, seen)
+    finally:
+        seen.discard(rel.id)
+
+
+def _anchor_in(water: Water, rel: Relation, seen) -> Node | None:
     for mem in rel.members:
         if mem.type == 'node':
             node = water.nodes.get(mem.ref)

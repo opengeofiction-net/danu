@@ -259,3 +259,42 @@ def test_a_way_whose_relation_was_dropped_is_still_placed_on_its_own(ws):
     here = SquareName(125, -24)
     assert 405 not in placed.get(here, overpass.Water()).relations
     assert 301 in placed[here].ways, 'the ring went with a relation that was never placed'
+
+
+def test_an_anchor_walks_past_a_branch_that_leads_nowhere(ws):
+    """A relation whose first member is a chain of empty relations and whose
+    second resolves. The walk has to carry on rather than stop at the first
+    member that gave nothing.
+
+    This does *not* distinguish the path-scoped cycle guard from an
+    accumulating one; nothing does, and the docstring on ``_relation_anchor``
+    says why. It pins the thing that is actually testable.
+    """
+    from danu.core.square import Member, Relation
+
+    water = overpass.parse(ANSWER.encode())
+    water.relations[501] = Relation(id=501, members=[], tags={})
+    water.relations[502] = Relation(id=502, members=[Member('relation', 501, '')], tags={})
+    water.relations[504] = Relation(id=504, members=[Member('relation', 502, ''),
+                                                     Member('node', 105, 'label')],
+                                    tags={'natural': 'water'})
+
+    here = SquareName(125, -24)
+    placed = overpass.place(water, ws)
+    assert 504 in placed.get(here, overpass.Water()).relations, (
+        'the walk stopped at a branch that led nowhere')
+
+
+def test_an_imported_id_cannot_collide_with_one_a_mapper_draws():
+    """The whole identity story rests on this: a feature arrives with the
+    positive OSM id it had, and R40 matches a later import on it. The
+    allocator takes 0 as its ceiling, so a positive id never moves it."""
+    from danu.core import edits
+    from danu.core.square import Node, Square, Way
+
+    sq = Square(name=SquareName(125, -24), present=True)
+    sq.nodes[12345678] = Node(id=12345678, lat=-23.5, lon=125.5)
+    sq.ways[87654321] = Way(id=87654321, refs=[12345678])
+    alloc = edits.IdAllocator(sq)
+    assert alloc.take() == -1, 'a square of positive ids should still mint from -1'
+    assert alloc.take() == -2

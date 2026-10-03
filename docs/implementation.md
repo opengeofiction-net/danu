@@ -1780,3 +1780,30 @@ the way belong to nothing and vanish.
 **Nothing reaches the network.** The fetch takes its opener as an argument,
 as the tile and territory fetchers take theirs, and every test here hands it
 one.
+
+**Two things review asked for, one of which I could not reproduce.** The
+anchor's cycle guard is now the recursion path rather than the whole walk -
+added on the way in, discarded on the way out - which was asked for on the
+argument that an accumulating set would mark an inner relation seen on a
+branch that found nothing and then refuse a later branch that needed it. I
+could not build that case, and it cannot exist: whether a relation resolves
+depends on what it can reach and not on how it was reached, so a second visit
+returns what the first did. The path-scoped shape is kept because it is the
+right one and costs nothing, and the docstring says it is not a fix for a bug
+anyone has seen. The test written for it was dropped, because it did not
+distinguish the two.
+
+The other was the claim that an imported positive id cannot collide with one a
+mapper draws. It is true - `IdAllocator.include` takes `min([0, *ids])`, so a
+positive id never moves the counter - and it was asserted rather than shown,
+which for the thing the whole identity story rests on is not good enough. It
+has a test now.
+
+**And one for G4b.** `place` deliberately files a feature's nodes under the
+square the *feature* is in, which for a river crossing a degree line is not
+the square some of those nodes are in. That is the point - a feature stays
+whole and keeps its id - and it means G4b has to write a bucket into the
+square it is filed under rather than sorting the nodes by where they fall.
+`write_square` writes a node where it is, so the file is right either way;
+what would be wrong is a river split across two files by a writer being
+clever.
