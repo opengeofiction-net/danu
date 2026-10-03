@@ -1807,3 +1807,22 @@ square it is filed under rather than sorting the nodes by where they fall.
 `write_square` writes a node where it is, so the file is right either way;
 what would be wrong is a river split across two files by a writer being
 clever.
+
+**The query, tuned.** Three changes, all from reading it rather than running
+it. The box moves into the settings as `[bbox:...]`, where every statement
+inherits it, instead of being written out on each - the same query, written
+once. The waterways become two exact matches rather than one regex, because a
+tag value is an index lookup where a pattern is a test run over what the index
+returned. And the timeout comes down from the batch grading's 900 seconds to
+60: a quarter hour at 3am is nothing and an editor is somebody sitting there.
+The read waits 75, a little longer than the server's own limit, so a timeout
+comes back as Overpass saying so with its reason rather than as us cutting the
+connection and guessing.
+
+`>>` stays, and that is the one place this costs anything. `recurse.cc` has
+`DOWN` collecting a relation's member nodes, its member ways and those ways'
+nodes, and `DOWN_REL` doing the same after a `relations_loop` over member
+*relations*. Under `>` a multipolygon whose outer is itself a relation arrives
+as a member id with nothing behind it - a feature without its geometry, which
+is not something a square can hold, and which `place` has code to follow.
+Settled from the Overpass checkout rather than from memory.

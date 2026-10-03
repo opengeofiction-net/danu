@@ -39,7 +39,15 @@ from xml.etree import ElementTree
 from ..core.square import Member, Node, Relation, Way
 
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
-TIMEOUT = 900
+
+# What the server is given to answer in, and what we wait. The batch grading
+# asks for 900 seconds because a quarter hour at 3am is nothing; an editor is
+# somebody sitting there, and a query that has not answered in a minute is one
+# to be told about rather than waited out. The read waits a little longer than
+# the server's own limit so that a timeout comes back as Overpass saying so,
+# with its reason, rather than as us cutting the connection and guessing.
+QUERY_TIMEOUT = 60
+READ_TIMEOUT = 75
 RETRIES = 3
 
 # the waterways worth importing. The same two the batch grading reads, for the
@@ -54,19 +62,30 @@ def query(bounds: tuple[float, float, float, float]) -> str:
     """The Overpass QL for a working set's bounds, as (west, south, east,
     north).
 
-    ``>>`` pulls each way's nodes and each relation's members, because a
-    feature without its geometry is not something a square can hold. ``out
-    body`` rather than ``out geom``: the ids are the point, and a member's ref
-    is how a relation says what it is made of.
+    The box goes in the settings rather than on every statement, where each
+    one inherits it - the same query, written once. And the waterways are two
+    exact matches rather than one regex, because an exact tag value is an
+    index lookup where a pattern is a test run over what the index returned.
+
+    ``>>`` and not ``>``, which is the one place this costs anything.
+    ``recurse.cc`` has ``DOWN`` collecting a relation's member nodes, its
+    member ways and those ways' nodes, and ``DOWN_REL`` doing the same after
+    a ``relations_loop`` over member *relations*. A multipolygon whose outer
+    is itself a relation is a shape OSM holds, and under ``>`` it arrives as a
+    member id with nothing behind it - a feature without its geometry, which
+    is not something a square can hold. ``place`` follows nested relations
+    for the same reason.
+
+    ``out body`` rather than ``out geom``: the ids are the point, and a
+    member's ref is how a relation says what it is made of.
     """
     west, south, east, north = bounds
-    box = f'{south},{west},{north},{east}'
-    kinds = '|'.join(LINE_KINDS)
-    return (f'[out:xml][timeout:{TIMEOUT}];('
-            f'way["waterway"~"^({kinds})$"]({box});'
-            f'way["natural"="water"]({box});'
-            f'relation["natural"="water"]({box});'
-            f');(._;>>;);out body;')
+    kinds = '\n  '.join(f'way["waterway"="{kind}"];' for kind in LINE_KINDS)
+    return (f'[out:xml][timeout:{QUERY_TIMEOUT}][bbox:{south},{west},{north},{east}];\n'
+            f'(\n  {kinds}\n'
+            f'  way["natural"="water"];\n'
+            f'  relation["natural"="water"];\n'
+            f');\n(._;>>;);\nout body;\n')
 
 
 def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES) -> bytes:
@@ -80,7 +99,7 @@ def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES) 
     last: Exception | None = None
     for _attempt in range(retries):
         try:
-            with opener(urllib.request.Request(url, data=data), timeout=TIMEOUT) as resp:
+            with opener(urllib.request.Request(url, data=data), timeout=READ_TIMEOUT) as resp:
                 return resp.read()
         except Exception as exc:      # noqa: BLE001 - every failure is the same failure
             last = exc
