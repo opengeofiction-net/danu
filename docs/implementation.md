@@ -1826,3 +1826,74 @@ nodes, and `DOWN_REL` doing the same after a `relations_loop` over member
 as a member id with nothing behind it - a feature without its geometry, which
 is not something a square can hold, and which `place` has code to follow.
 Settled from the Overpass checkout rather than from memory.
+
+**Measured, against the real server.** Three variants over the gobras 3x3
+(86..89 E, 19..22 N), then the whole import end to end.
+
+| | fetch | payload | ways | nodes |
+|---|---|---|---|---|
+| river + stream + bodies | 0.7 s | 12.94 MB | 4,446 | 147,439 |
+| the same with `way["waterway"]` | 0.6 s | 14.50 MB | 5,415 | 164,701 |
+| river + stream + riverbank + bodies | 0.7 s | 13.89 MB | 4,561 | 158,633 |
+
+**`way["waterway"]` was tried and is not kept.** It brings 969 more ways: 467
+drains, 280 ditches, 44 canals, 32 docks, 24 dams, 5 weirs, two lock gates, a
+boatyard and a fish pass. None of them is graded by anything - the batch
+grader reads rivers and streams as lines and has done since it was written -
+so each would sit in somebody's square and be reconciled on every re-import. A
+dam and a weir are lines *across* water; a ditch graded as a valley floor is a
+dug channel read as terrain. R23 names the scope and it is rivers, streams and
+water bodies.
+
+**`waterway=riverbank` is kept, and finding it is why the experiment was worth
+running.** Deprecated in favour of `natural=water` + `water=river`, and the
+data has not caught up: 115 of them over this box, 114 closed, and **not one
+also carrying `natural=water`**. Without it the river *surfaces* are missed
+entirely - 11,835 nodes of them - which is a gap and not a tidiness question.
+It turned up in the batch grader's own `FLOWING` list and nowhere in the
+query.
+
+**`>` and `>>` returned byte-identical answers.** There is no water relation
+inside another water relation anywhere in this box, so the nested-relation
+handling in `place` currently exercises nothing in this data. `>>` stays
+because it costs nothing here and the shape it covers is real elsewhere, but
+the honest state of it is untested-in-anger.
+
+**Does a global `[bbox:]` bound the recurse?** Review said it might, and
+called it the one thing to settle before merge - rightly, because a bounded
+recurse would hand a square a river with its far bank missing, and the whole
+argument for `>>` is that a feature's geometry has to come with it. Run both
+ways over the same box:
+
+| | nodes | ways | relations | nodes outside the box |
+|---|---|---|---|---|
+| box on each statement | 158,633 | 4,561 | 112 | 1,535 |
+| `[bbox:]` in the settings | 158,633 | 4,561 | 112 | 1,535 |
+
+Identical id for id, and the second column is the one that answers it: 1,535
+nodes beyond the bounding box came back either way, across the 39 ways that
+cross it. The two files differ by one line, which is the `<bounds>` element
+the global form echoes. The setting reaches the selection statements and not
+the recurse.
+
+**And the thing G4b needs.** End to end, on a warm server:
+
+| | |
+|---|---|
+| fetch | 0.72 s, 13.89 MB |
+| parse | 0.52 s, 158,633 nodes into 4,673 features |
+| place | 0.04 s |
+
+About one and a third seconds, which is twenty-six times the frame budget and
+a fortieth of what the batch grading's timeout was written for. It wants a
+worker, as the build and the preview solve do; it does not want a progress
+dialogue. One measurement on a quiet server with a warm cache, which is why
+the 60 second timeout is there.
+
+Two things the numbers said that the plan had not. **Seventy per cent of the
+import lands in one square** - N20E086 takes 3,277 of the 4,673 features - so
+"an import is one undoable step" is mostly one square's step. And **features
+land in squares that have no file**: N19E086 and N19E087 are not present in
+this set and are given 261 and 94 features between them. Whether an import may
+bring a square into being, when R5 has blank templates created deliberately,
+is a question for G4b and not one the import gets to answer by writing a file.

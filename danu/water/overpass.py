@@ -50,9 +50,20 @@ QUERY_TIMEOUT = 60
 READ_TIMEOUT = 75
 RETRIES = 3
 
-# the waterways worth importing. The same two the batch grading reads, for the
-# same reason: a drain or a ditch is not what the terrain is shaped around
+# The waterways worth importing. The same two the batch grading reads as
+# lines, for the same reason: a drain or a ditch is a dug channel, not what
+# the terrain is shaped around, and grading one as a valley floor would pull
+# the ground down along a thing somebody dug.
 LINE_KINDS = ('river', 'stream')
+
+# and the one that is an area rather than a line. `waterway=riverbank` is
+# deprecated in favour of natural=water + water=river, and the data has not
+# caught up: over the gobras 3x3 there are 115 of them, 114 closed, and not
+# one also carries natural=water - so without this the river *surfaces* are
+# missed entirely, 11,835 nodes of them. Measured rather than assumed, after
+# `waterway=riverbank` turned up in the batch grader's FLOWING list and
+# nowhere in the query.
+AREA_KINDS = ('riverbank',)
 
 # the tags a feature keeps. A key alone means every value of it
 KEEP = ('natural', 'water', 'waterway', 'name', 'ele')
@@ -63,9 +74,29 @@ def query(bounds: tuple[float, float, float, float]) -> str:
     north).
 
     The box goes in the settings rather than on every statement, where each
-    one inherits it - the same query, written once. And the waterways are two
+    one inherits it - the same query, written once.
+
+    The same answer, too, which was worth checking: a global ``[bbox:]``
+    applies to the selection statements and *not* to the recurse, so the
+    geometry of a feature straddling the edge still comes back whole. Review
+    read it the other way and called it the one thing to settle before merge,
+    which was the right instinct - a bounded recurse would hand a square a
+    river with its far bank missing. Run both ways over the gobras 3x3 the
+    two answers hold the same 158,633 nodes, 4,561 ways and 112 relations,
+    id for id, and **1,535 of those nodes are outside the box**, across the
+    39 ways that cross it. The files differ by one line: the global form
+    echoes a ``<bounds>`` element. And the waterways are
     exact matches rather than one regex, because an exact tag value is an
     index lookup where a pattern is a test run over what the index returned.
+
+    Named kinds rather than a bare ``way["waterway"]``, which was tried and
+    measured. Over the gobras 3x3 it brings 969 more ways and 17,262 more
+    nodes - 467 drains, 280 ditches, 44 canals, 32 docks, 24 dams, 5 weirs, a
+    pair of lock gates and a boatyard - none of which anything grades, all of
+    which a square would then hold and a re-import reconcile. A dam and a weir
+    are lines *across* water; a ditch graded as a valley floor is a dug
+    channel read as terrain. R23 names the scope: rivers, streams and water
+    bodies.
 
     ``>>`` and not ``>``, which is the one place this costs anything.
     ``recurse.cc`` has ``DOWN`` collecting a relation's member nodes, its
@@ -80,7 +111,8 @@ def query(bounds: tuple[float, float, float, float]) -> str:
     member's ref is how a relation says what it is made of.
     """
     west, south, east, north = bounds
-    kinds = '\n  '.join(f'way["waterway"="{kind}"];' for kind in LINE_KINDS)
+    kinds = '\n  '.join(f'way["waterway"="{kind}"];'
+                        for kind in LINE_KINDS + AREA_KINDS)
     return (f'[out:xml][timeout:{QUERY_TIMEOUT}][bbox:{south},{west},{north},{east}];\n'
             f'(\n  {kinds}\n'
             f'  way["natural"="water"];\n'

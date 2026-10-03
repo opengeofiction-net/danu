@@ -68,7 +68,13 @@ def test_the_query_asks_for_the_working_sets_bounds():
     # exact values, not a regex: a tag value is an index lookup where a
     # pattern is a test run over what the index returned
     assert 'way["waterway"="river"];' in q and 'way["waterway"="stream"];' in q
-    assert '~' not in q
+    assert '~"' not in q, 'a regex came back'
+    # river areas, which the data still tags the deprecated way: 115 of them
+    # over the gobras 3x3, 114 closed, none also carrying natural=water
+    assert 'way["waterway"="riverbank"];' in q
+    # and nothing wider: a bare way["waterway"] brings drains, ditches, docks,
+    # dams and weirs, which nothing grades and a re-import must reconcile
+    assert 'way["waterway"];' not in q
     assert 'way["natural"="water"];' in q and 'relation["natural"="water"];' in q
     # the geometry has to come with it, or a square has a feature it cannot draw
     assert '(._;>>;);' in q and 'out body;' in q
