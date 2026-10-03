@@ -658,3 +658,20 @@ def test_undoing_a_split_survives_the_relation_having_gone():
     del sq.relations[rid]
     cmd.undo(sq)                       # must not raise
     assert sq.ways[long_id].refs == ids
+
+
+def test_an_empty_step_does_not_go_on_the_history():
+    """It would swallow the Ctrl+Z that reached it: undo pops the empty step,
+    undoes nothing, and answers None, which reads as an empty history."""
+    sq = fresh_square()
+    nid = min(sq.nodes)
+    history = edits.SetUndoStack()
+    history.do(sq, edits.MoveNode(nid, (10.1, 10.2), (10.15, 10.25)))
+    history.do_across([])
+    assert history.undo() is not None, 'an empty step swallowed the undo'
+    assert history.undo() is None
+    # and it did not clear the redo stack on the way past
+    history.do(sq, edits.MoveNode(nid, (10.15, 10.25), (10.16, 10.26)))
+    history.undo()
+    history.do_across([])
+    assert history.redo() is not None, 'an empty step cleared the redo stack'

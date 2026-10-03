@@ -106,17 +106,28 @@ class _Piece:
     path: QPainterPath
     rect: QRectF
     ele: float | None     # None for water: it has no elevation until G6
-    label: 'Label'
+    label: 'Label | None'  # and None for water: nothing labels it
 
 
-WATER_TAGS = ('natural', 'waterway')
+def _water_tags(tags: dict) -> bool:
+    """``natural=water``, or any ``waterway``. Asked of a way and of a
+    relation with the one function, so the two cannot drift apart."""
+    return tags.get('natural') == 'water' or 'waterway' in tags
 
 
 def _water_members(square: Square) -> frozenset:
     """The ways a square's water relations are made of. A multipolygon's rings
-    carry no tagging of their own, so this is what says they are water."""
+    carry no tagging of their own, so this is what says they are water.
+
+    The same test as ``_is_water``, deliberately: the import only asks
+    Overpass for ``relation["natural"="water"]``, so a ``type=waterway``
+    relation does not arrive from there - but one can be drawn, or already be
+    in a square, and its member ways carry no tagging of their own either. A
+    relation the predicates disagreed about would draw its rings on one path
+    and not the other.
+    """
     return frozenset(mem.ref for rel in square.relations.values()
-                     if rel.tags.get('natural') == 'water'
+                     if _water_tags(rel.tags)
                      for mem in rel.members if mem.type == 'way')
 
 
@@ -126,7 +137,7 @@ def _is_water(way: Way) -> bool:
     ``natural=water`` or any ``waterway``. A multipolygon's member rings carry
     neither - the relation holds the tagging - so ``set_working_set`` marks
     them from the relation; this answers for the way alone."""
-    return way.tags.get('natural') == 'water' or 'waterway' in way.tags
+    return _water_tags(way.tags)
 
 
 @dataclass

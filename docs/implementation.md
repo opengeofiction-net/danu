@@ -2027,3 +2027,42 @@ menu entry appeared and the method behind it did not. It was redone with
 `assert old in s` and the branch carries the mended version; the note is here
 because asserting the anchor is the difference between a failed edit and a
 silent one, and this file has said so since the splice that deleted two tests.
+
+**What the two reviews changed.** Four of their findings were real and three
+were worth the change anyway.
+
+The real one was the working set. `_water_imported` read `self.working_set`,
+which is the set open when the fetch *returns* and not the one whose names
+chose the squares. The names of two grids can match and the `Square` objects
+behind them cannot, so moving in that second and a half put the features into
+squares nobody asked about, silently. The answer carries its set out with it
+now and the window refuses one that is no longer open. `started` carries it
+too, for the same reason one step down: a queued request begins when the one
+before it answers, so the status line could name bounds nobody was fetching.
+
+`self.water` was initialised in `set_working_set` and not in `__init__`, which
+`_paint_water` reads to decide there is none - a layer painted before it had a
+set raised `AttributeError`. The `spots` dict had always been in `__init__`;
+this was the odd member out, and the test that catches it builds a bare layer
+and renders it.
+
+`do_across([])` went on the history. The Ctrl+Z that reached it popped the
+empty step, undid nothing, and answered `None` - which every caller reads as
+"the history is empty" - so the keypress was swallowed and the edit before it
+stayed done. Nothing is not a step.
+
+The predicates disagreed. `_is_water` took any `waterway` on a way;
+`_water_members` took only `natural=water` on a relation. The import cannot
+produce the difference, because the query asks for `relation["natural"="water"]`
+and nothing else, but a `type=waterway` relation can be drawn or already be in
+a square, and its members carry no tagging of their own exactly as a lake's
+rings do. Both now call one `_water_tags`, so they cannot answer differently.
+
+The tooltips named keys rather than bindings - `(Q)`, `(A)`, `(Z)`, `(Ctrl+I)`
+written out, while every one of those four is in `DEFAULT_KEYS` and reboundable
+from the settings. `MapControls` takes the settings and builds the tooltip from
+`key(action)`.
+
+The rest of the second review was the diff read without the files around it:
+`ImportWater`, `dirty_squares` and `Water.__len__` were all reported as
+possibly missing and all three are on the branch.

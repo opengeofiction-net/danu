@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen,
 from PySide6.QtWidgets import QButtonGroup, QToolButton, QVBoxLayout, QWidget
 
 from . import mercator as m
+from .settings import DEFAULT_KEYS
 
 MARGIN = 8
 SIZE = 30                  # square: the tools are drawn, not named
@@ -103,9 +104,13 @@ class MapControls(QWidget):
 
     importWater = Signal()
 
-    def __init__(self, view, editor=None):
+    def __init__(self, view, editor=None, settings=None):
         super().__init__(view)
         self.view, self.editor = view, editor
+        # the keys are the mapper's to rebind, so the tooltips are built from
+        # the binding rather than written out: a rebound action used to be
+        # named by the key it no longer had
+        self.keys = settings.key if settings is not None else DEFAULT_KEYS.get
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(2)
@@ -114,11 +119,13 @@ class MapControls(QWidget):
         self.zoom_in = self._button('+', 'Zoom in', column)
         self.zoom_out = self._button('−', 'Zoom out', column)
         column.addSpacing(8)
-        self.select = self._button('', 'Select - pick a contour or a node (Q)', column,
+        self.select = self._button('', self._tip('Select - pick a contour or a node',
+                                                 'tool.select'), column,
                                    checkable=True, icon=_icon(_pointer, ink))
-        self.draw = self._button('', 'Draw a contour (A)', column,
+        self.draw = self._button('', self._tip('Draw a contour', 'tool.draw'), column,
                                  checkable=True, icon=_icon(_polyline, ink))
-        self.spot = self._button('', 'Place a spot height at the active elevation (Z)', column,
+        self.spot = self._button('', self._tip('Place a spot height at the active elevation',
+                                               'tool.spot'), column,
                                  checkable=True, icon=_icon(_spot, ink))
         self.modes = QButtonGroup(self)
         self.modes.addButton(self.select)
@@ -126,8 +133,10 @@ class MapControls(QWidget):
         self.modes.addButton(self.spot)
         self.select.setChecked(True)
         column.addSpacing(8)
-        self.water = self._button('', 'Import water from Overpass for the working set (Ctrl+I)',
-                                  column, icon=_icon(_water, ink))
+        self.water = self._button(
+            '', self._tip('Import water from Overpass for the working set',
+                          'edit.import_water'),
+            column, icon=_icon(_water, ink))
         self.water.clicked.connect(self.importWater)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
@@ -144,6 +153,10 @@ class MapControls(QWidget):
         self.place()
         self.raise_()
         self._zoom_changed(view.zoom)
+
+    def _tip(self, what: str, action: str) -> str:
+        key = self.keys(action)
+        return f'{what} ({key})' if key else what
 
     def _button(self, text: str, tip: str, column: QVBoxLayout, checkable: bool = False,
                 icon: QIcon | None = None) -> QToolButton:

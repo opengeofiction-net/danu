@@ -211,6 +211,25 @@ def test_a_multipolygons_rings_are_water_though_they_carry_no_tags(water_ws):
     assert (sq.name, -950) in layer.water
 
 
+def test_a_waterway_relations_members_are_water_too(water_ws):
+    """The import only asks for natural=water relations, but a type=waterway
+    one can be drawn or already be in a square, and its members carry no
+    tagging of their own either. The way test and the relation test are the
+    same function so the two cannot answer differently."""
+    layer = ContourLayer()
+    sq = water_ws.squares[HERE]
+    nodes = [Node(id=-800 - i, lon=125.3 + 0.01 * i, lat=-23.4) for i in range(3)]
+    sq.nodes.update({n.id: n for n in nodes})
+    sq.ways[-850] = Way(id=-850, refs=[n.id for n in nodes], tags={})
+    sq.relations[-860] = Relation(id=-860, members=[Member('way', -850, 'main_stream')],
+                                  tags={'type': 'waterway', 'waterway': 'river'})
+    layer.set_working_set(water_ws)
+    assert (sq.name, -850) in layer.water, (
+        'a member of a waterway relation was dropped, though the same tags on '
+        'the way itself would have been kept'
+    )
+
+
 def test_a_layer_can_be_painted_before_it_has_a_working_set(map_view):
     """_paint_water reads self.water to decide there is none, so the empty
     dict has to exist from construction and not from the first set."""

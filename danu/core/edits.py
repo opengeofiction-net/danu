@@ -737,8 +737,17 @@ class SetUndoStack:
 
     def do_across(self, steps) -> None:
         """One step over several squares - applied in order, undone in
-        reverse, and taken off the history together."""
+        reverse, and taken off the history together.
+
+        Nothing is not a step. An empty list used to go on the history all the
+        same, and the Ctrl+Z that reached it popped it, undid nothing, and
+        answered None - which every caller reads as "there was nothing to
+        undo", so the keypress was swallowed and the edit before it stayed
+        done. The redo stack was cleared for it too.
+        """
         steps = list(steps)
+        if not steps:
+            return
         for square, cmd in steps:
             cmd.apply(square)
             self._squares[id(square)] = square

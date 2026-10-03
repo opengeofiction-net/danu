@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
-        self.controls = MapControls(self.map, self.editor)
+        self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
