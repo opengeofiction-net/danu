@@ -729,3 +729,185 @@ def test_a_coastline_is_never_redrawn(w):
     assert 'redrew' not in w.statusBar().currentMessage()
     drawn = [y for i, y in square.ways.items() if i != wid and y.ele == 190]
     assert len(drawn) == 1 and set(drawn[0].refs) & set(before)   # joined to it, sharing nodes
+
+
+# ----------------------------------------------------------- spot heights
+
+def spots_in(w, square):
+    return {nid: spot for (name, nid), spot in w.contours.spots.items() if name == square.name}
+
+
+def test_a_spot_height_is_placed_at_the_active_elevation_and_undone(w):
+    """R37: a hill's contours can only bracket its summit, so the only thing
+    that says how high it goes is a node carrying that height. The elevation
+    comes from the panel, as a contour's does."""
+    square = w.working_set.squares[TEN]
+    before = len(square.nodes)
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, 126.5, -23.7)
+
+    added = spots_in(w, square)
+    assert len(added) == 1, 'the click placed no spot height'
+    nid, spot = next(iter(added.items()))
+    assert spot.ele == 243.0
+    assert square.nodes[nid].tags == {'ele': '243'}
+    assert len(square.nodes) == before + 1
+    assert '243 m' in w.statusBar().currentMessage()
+    assert w.editor.selection is not None and w.editor.selection.spot
+
+    w.editor.undo()
+    assert spots_in(w, square) == {}
+    assert nid not in square.nodes
+    assert w.editor.selection is None
+    w.editor.redo()
+    assert len(spots_in(w, square)) == 1
+
+
+def test_a_spot_height_is_selected_before_a_contour_under_it(w):
+    """It is a few pixels across and sits on ground a contour runs through, so
+    a click that could mean either means the small thing. Placed on a contour
+    here, which is where one goes least often and where the ambiguity is
+    worst."""
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    node = square.nodes[forty.refs[0]]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, node.lon, node.lat)
+    nid = next(iter(spots_in(w, square)))
+
+    w.editor.set_tool('select')
+    w.editor.selection = None
+    click(w, node.lon, node.lat)
+    sel = w.editor.selection
+    assert sel is not None and sel.spot and sel.node == nid
+    # selecting is picking up, as it is for a contour
+    assert w.elevation.value == 243.0
+
+
+def test_shift_click_still_reaches_the_contour_under_a_spot_height(w):
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    node = square.nodes[forty.refs[0]]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, node.lon, node.lat)
+
+    w.editor.set_tool('select')
+    pos = at(w, node.lon, node.lat)
+    w.map.mousePressEvent(QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(pos), w.map.viewport().mapToGlobal(pos),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ShiftModifier))
+    sel = w.editor.selection
+    assert sel is not None and not sel.spot and sel.way is forty
+
+
+def test_a_spot_height_is_dragged(w):
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, 126.5, -23.7)
+    nid = next(iter(spots_in(w, square)))
+    was = (square.nodes[nid].lon, square.nodes[nid].lat)
+    drawn_at = spots_in(w, square)[nid].x
+
+    w.editor.set_tool('select')
+    drag(w, *was, 40, 0)
+    now = (square.nodes[nid].lon, square.nodes[nid].lat)
+    assert now[0] > was[0], 'the spot height did not move east'
+    assert 'spot height' in w.statusBar().currentMessage()
+    # and the layer followed it: a move that the canvas does not see is a
+    # marker left behind where the node no longer is
+    assert spots_in(w, square)[nid].x > drawn_at, 'the drawn marker stayed put'
+    w.editor.undo()
+    assert (square.nodes[nid].lon, square.nodes[nid].lat) == was
+
+
+def test_a_spot_height_is_deleted_and_the_contour_action_refuses_it(w):
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, 126.5, -23.7)
+    nid = next(iter(spots_in(w, square)))
+
+    w.edit_actions['edit.delete_way'].trigger()
+    assert 'not a contour' in w.statusBar().currentMessage()
+    assert nid in square.nodes, 'the contour action deleted a spot height'
+
+    w.edit_actions['edit.delete'].trigger()
+    assert nid not in square.nodes
+    assert spots_in(w, square) == {}
+    assert '243 m spot height' in w.statusBar().currentMessage()
+    assert w.editor.selection is None
+    w.editor.undo()
+    assert nid in square.nodes and len(spots_in(w, square)) == 1
+
+
+def test_a_node_whose_elevation_is_not_a_number_is_not_a_spot_height(w):
+    """``ele=TBD`` on a lake outlet and ``ele=tbd`` on a peak are both real.
+    The build drops them rather than burning them as zero, and a mapper should
+    not see one drawn as ground at sea level."""
+    square = w.working_set.squares[TEN]
+    nid = w.editor.history.alloc(square).take()
+    w.editor.do(square, edits.AddNode(nid, (126.5, -23.7), {'ele': 'tbd'}))
+    assert spots_in(w, square) == {}
+
+
+@pytest.mark.parametrize('value', [0.0, 12.5, -3.0, 1234.0, 0.1 + 0.2])
+def test_a_spot_height_placed_at_an_awkward_value_is_still_drawn(w, value):
+    """The elevation goes into the tag through ``format_ele`` and comes back
+    out through ``float()``, in another module, inside a ``try`` that reads a
+    failure as *not a constraint*. A value whose tag did not read back would
+    vanish from the canvas rather than raise, so the round trip is held here
+    as well as in ``tests/test_ladder.py``."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(value)
+    click(w, 126.5, -23.7)
+    drawn = spots_in(w, square)
+    assert len(drawn) == 1, f'{value} m was placed and not drawn'
+    assert next(iter(drawn.values())).ele == pytest.approx(value, abs=5e-4)
+
+
+def test_deleting_a_spot_height_that_is_already_gone_says_so(w):
+    """The contour action checks its way before deleting it; this checks its
+    node, because a menu item is reachable without a history move in between
+    and ``DeleteNode`` pops the node it is given."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, 126.5, -23.7)
+    nid = next(iter(spots_in(w, square)))
+    del square.nodes[nid]                     # out from under the selection
+    w.edit_actions['edit.delete'].trigger()
+    assert 'already gone' in w.statusBar().currentMessage()
+    assert w.editor.selection is None
+
+
+def test_a_spot_height_is_not_picked_where_it_is_not_drawn(w):
+    """Below the zoom they appear at, a click that could mean a contour means
+    the contour: selecting something invisible is worse than selecting
+    nothing, because the next keystroke goes somewhere the mapper cannot
+    see."""
+    from danu.ui.contours import ZOOM_SPOTS
+
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    node = square.nodes[forty.refs[0]]
+    w.editor.set_tool('spot')
+    w.elevation.set(243)
+    click(w, node.lon, node.lat)
+
+    w.editor.set_tool('select')
+    w.editor.selection = None
+    w.map.set_zoom(ZOOM_SPOTS - 1)
+    click(w, node.lon, node.lat)
+    sel = w.editor.selection
+    assert sel is None or not sel.spot, 'an invisible spot height was selected'
+
+    w.map.set_zoom(ZOOM_SPOTS)
+    w.editor.selection = None
+    click(w, node.lon, node.lat)
+    assert w.editor.selection is not None and w.editor.selection.spot

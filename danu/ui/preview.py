@@ -35,6 +35,7 @@ import time
 
 from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
+from ..core.square import parse_ele
 from ..surface import local, preview, shade
 from ..surface.params import Params
 from . import trace as _tracing
@@ -341,16 +342,11 @@ class PreviewDriver(QObject):
         ground the edit cannot have changed.
         """
         node = square.nodes.get(node_id)
-        ele = None
-        if node is not None:
-            try:
-                ele = float(node.tags['ele'])
-            except (KeyError, TypeError, ValueError):
-                # ele=TBD on a lake outlet, ele=tbd on a peak, the odd typo:
-                # the build drops these rather than burning them as zero, and
-                # so does this - a node reading nothing is a node with no
-                # elevation, not a node at sea level
-                ele = None
+        # ele=TBD on a lake outlet, ele=tbd on a peak, inf, the odd typo: the
+        # build drops these rather than burning them as zero and so does this,
+        # by the one function that decides what a tag's elevation is. A node
+        # reading nothing is a node with no elevation, not one at sea level
+        ele = parse_ele(node.tags.get('ele')) if node is not None else None
         was = self._spots.get(node_id)
         if ele is None:
             if was is None:

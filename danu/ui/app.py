@@ -361,7 +361,8 @@ class MainWindow(QMainWindow):
                 ('edit.delete', '&Delete selected', ed.delete_selected),
                 ('edit.delete_way', 'Delete whole &contour', ed.delete_way),
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
-                ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw'))):
+                ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
+                ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot'))):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             a.triggered.connect(fn)
@@ -376,6 +377,7 @@ class MainWindow(QMainWindow):
         edit.addSeparator()
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])
+        edit.addAction(self.edit_actions['tool.spot'])
         self._tool_changed('select')
         self._edited()
         elevation = self.menuBar().addMenu('&Elevation')

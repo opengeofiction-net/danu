@@ -119,6 +119,22 @@ def test_format_ele():
     assert L.format_ele(0.1 + 0.2) == '0.3' and L.format_ele(1e-05) == '0'
 
 
+@given(st.floats(min_value=-12000, max_value=9000, allow_nan=False, allow_infinity=False))
+@settings(max_examples=300)
+def test_what_format_ele_writes_reads_back_as_a_number(value):
+    """Load-bearing across two modules, and lenient at the far end.
+
+    ``format_ele`` writes the ``ele`` tag; the contour layer and the preview
+    driver both read one back with ``float()`` inside a ``try``, because a
+    square may carry ``ele=TBD`` on a lake outlet and the right answer there is
+    *this is not a constraint*. That leniency is what would turn a formatting
+    change into a spot height silently not drawn and not pickable, rather than
+    into an error - so what this holds is that the editor's own pen never
+    writes a tag its own readers will decline.
+    """
+    assert float(L.format_ele(value)) == pytest.approx(value, abs=5e-4)
+
+
 # ----------------------------------------------------------- overrides
 
 TOML = '''
@@ -186,3 +202,14 @@ def test_a_new_ladder_keeps_the_value():
     ev = L.Elevation(L.regular_ladder(25, 0, 100), value=60)
     ev.set_ladder(L.regular_ladder(10, 0, 50))
     assert ev.value == 60 and ev.ladder.high == 60 and ev.ladder.interval == 10
+
+
+def test_format_ele_refuses_a_value_that_is_not_a_number():
+    """Refused at the pen as well as at the page. ``parse_ele`` declines to
+    read 'inf' back; this is what stops one being written in the first
+    place, which matters because the elevation reaching it comes from a
+    spin box, from arithmetic along the ladder, and from a tag picked up off
+    whatever a square holds."""
+    for bad in (float('inf'), float('-inf'), float('nan')):
+        with pytest.raises(ValueError, match='not an elevation'):
+            L.format_ele(bad)

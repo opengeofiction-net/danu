@@ -126,12 +126,21 @@ class Way:
 
 
 def parse_ele(value: str | None) -> float | None:
+    """A tag's elevation, or None where there is not one.
+
+    None for ``ele=TBD`` on a lake outlet nobody has surveyed and ``ele=tbd``
+    on a peak, which squares really carry - and None for ``inf`` and ``nan``,
+    which ``float`` accepts and nothing downstream survives. An infinite
+    elevation reaches a colour ramp, a ladder, a label and a rasteriser, and
+    each of them does something different and silent with it. Not a number is
+    not a number however Python spells it."""
     if value is None:
         return None
     try:
-        return float(value.strip())
+        v = float(value.strip())
     except ValueError:
         return None
+    return v if math.isfinite(v) else None
 
 
 @dataclass

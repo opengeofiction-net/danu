@@ -26,6 +26,9 @@ DEFAULT_KEYS = {
     'elevation.sea_level': '0',
     'tool.select': 'Q',
     'tool.draw': 'A',
+    # Q, A, Z: the tools are a column under the left hand, as the
+    # elevation keys are, and for the same reason
+    'tool.spot': 'Z',
     'edit.undo': 'Ctrl+Z',
     'edit.redo': 'Ctrl+Shift+Z',
     'edit.delete': 'Delete',
