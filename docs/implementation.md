@@ -1957,10 +1957,27 @@ rolling tail now. Written the old way the test fails at chunk sizes 8 to 11 and
 15 and passes everywhere else, which is the kind of bug that waits for a file
 of an awkward size.
 
-**One thing review found that was not there.** `ImportWater.apply` re-snapshots
-`before` on every call, and a redo calls it again - which reads as recording
-the *imported* state and losing the original, so that a second undo would
-restore the import. It does not: the undo puts the square back before the redo
-snapshots it, so the second snapshot equals the first. Walked round the cycle
-three times rather than argued about, and the test does the walking now,
-because the misreading was a fair one.
+**And three the review was right about, after one it was not.** `apply`
+re-snapshotting `before` on every call reads as losing the original on a redo.
+It does not - the undo puts the square back before the redo snapshots it, so
+the second snapshot equals the first - and the test walks that cycle three
+times rather than arguing about it. But the invariant was the caller's and not
+the command's: applied twice with no undo between, a second snapshot records
+the import and the original is gone. `before` is captured once now, and a test
+applies it twice.
+
+`spots()` named every node it imported, and the driver walks that list on the
+UI thread. A river network is 158,633 vertices on the gobras set; each one
+would have been looked up, read for an `ele` it does not have, and dropped -
+a hundred and fifty thousand no-ops between two keystrokes. It names the nodes
+that carry an elevation, which it can do because unlike `MoveNode` it holds
+the nodes rather than their ids. That is the rare node an import brings that
+is a constraint and not geometry: a named spring on a river line.
+
+And the coastline claim was stated as if it were about OSM. It is about *these
+files*: a coastline in the gobras squares carries `ele=0` as well as
+`natural=coastline`, checked rather than assumed, which is why coastline-only
+squares have always counted under the `ele` scan alone. A coastline from
+anywhere else carries no elevation, so the coastline branch of the pair match
+is not the redundancy it looked - it is what catches one drawn elsewhere, or
+by a mapper who did not add the zero.

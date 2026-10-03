@@ -346,6 +346,9 @@ def test_an_import_is_one_step_and_takes_itself_back(ws):
     from danu.core import edits
 
     water = overpass.parse(ANSWER.encode())
+    # a named spring on the lake's rim, which is the rare node an import
+    # brings that is a constraint and not just geometry
+    water.nodes[102].tags = {'natural': 'spring', 'ele': '118'}
     placed = overpass.place(water, ws)[SquareName(125, -24)]
     sq = a_square()
     before = edits.snapshot(sq)
@@ -353,7 +356,11 @@ def test_an_import_is_one_step_and_takes_itself_back(ws):
     cmd = edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
                             new_relations=placed.relations)
     assert cmd.ways(sq) == set(placed.ways)
-    assert cmd.spots(sq) == set(placed.nodes)
+    # the nodes that carry an elevation, not every node imported: a river
+    # network is a hundred and fifty thousand vertices and the driver walks
+    # this on the UI thread
+    assert cmd.spots(sq) == {102}, 'every vertex was offered as a spot height'
+    assert len(placed.nodes) > len(cmd.spots(sq))
     assert 'features' in cmd.describe()
 
     cmd.apply(sq)
@@ -439,3 +446,24 @@ def test_a_square_an_import_brought_into_being_saves(tmp_path, ws):
     assert set(back.ways) >= set(placed.ways)
     assert set(back.relations) == set(placed.relations)
     assert back.relations[401].ele == 120.0
+
+
+def test_applying_twice_without_an_undo_keeps_the_original(ws):
+    """``before`` is captured once. The stack's undo-then-redo puts the square
+    back before ``apply`` runs again, so re-snapshotting would give the same
+    answer - but only because of the order the caller happens to use, and a
+    command owns its own invariant."""
+    from danu.core import edits
+    from danu.core.square import Way
+
+    water = overpass.parse(ANSWER.encode())
+    placed = overpass.place(water, ws)[SquareName(125, -24)]
+    sq = a_square()
+    sq.ways[301] = Way(id=301, refs=[9, 8], tags={'name': 'as it was'})
+    before = edits.snapshot(sq)
+
+    cmd = edits.ImportWater(new_ways=placed.ways)
+    cmd.apply(sq)
+    cmd.apply(sq)                      # no undo between
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before, 'the second apply ate the original'

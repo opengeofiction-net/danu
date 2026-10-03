@@ -546,9 +546,15 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 
 # any way carrying an elevation is a constraint, contour or water edge alike
 # R42: what makes a square one somebody has drawn rather than one of the
-# blanks. An elevation, a coastline, or water - and a coastline is caught by
-# the first of those anyway, since one is tagged ele=0, which is why
-# coastline-only squares have always counted.
+# blanks. An elevation, a coastline, or water.
+#
+# A coastline in *these* squares is tagged ele=0 as well as natural=coastline
+# - checked against the gobras set, where every one carries both - which is
+# why coastline-only squares have always counted under the ele scan alone.
+# That is a fact about this pipeline's files and not about OSM, where a
+# coastline carries no elevation at all, so the coastline branch below is not
+# the redundancy it looks: it is what catches one drawn somewhere else, or by
+# a mapper who did not add the zero.
 #
 # The pair matched together for natural, because `v='water'` on its own would
 # answer for anything - a landuse, a name, a note. Either order and with
@@ -562,8 +568,11 @@ _HAS_CONSTRAINT = re.compile(
     rb"""|k=["']waterway["']"""
     + rb"""|""" + _NATURAL + rb"""[^>]{0,60}""" + _WATERY
     + rb"""|""" + _WATERY + rb"""[^>]{0,60}""" + _NATURAL)
-# enough to hold the longest of those across a chunk boundary: the two halves
-# of a pair, plus the sixty bytes this allows between them
+# enough to hold the longest of those across a chunk boundary. The longest the
+# alternation can match is a pair the wide way round - `v='coastline'` at 13
+# bytes, sixty between, `k='natural'` at 11 - which is 84, and a little more
+# with double quotes. 128 leaves room to widen the gap without coming back
+# here, which is the only reason it is not 96
 _SCAN_OVERLAP = 128
 
 
@@ -594,6 +603,11 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     water has none contributes no ground until G6 gives it one - ``collect``
     gathers lines with an ``ele`` and nothing else. What it does is stop such
     a square being read as a blank template, which is what it is not.
+
+    The coastline branch is not redundant either, though a coastline in these
+    squares carries ``ele=0`` and would be caught without it. That is a fact
+    about this pipeline's files; a coastline from anywhere else carries no
+    elevation.
 
     Reads in chunks and stops at the first, since a filled square can be 87 MB
     and most are answered by the first page. Decompressing as it goes, where

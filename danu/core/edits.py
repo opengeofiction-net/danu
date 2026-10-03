@@ -491,9 +491,29 @@ class ImportWater(Command):
         return set(self.new_ways)
 
     def spots(self, square: Square) -> set[int]:
-        return set(self.new_nodes)
+        """The nodes that carry an elevation, not every node imported.
+
+        ``spots`` is answered from the command's own fields, and here those
+        fields *are* the nodes - so unlike ``MoveNode``, which names a node
+        and lets the driver ask the square, this one can tell. It has to: a
+        river network is 158,633 vertices on the gobras set and the driver
+        walks this on the UI thread, where a hundred and fifty thousand
+        no-ops is a stall rather than a saving.
+        """
+        return {i for i, n in self.new_nodes.items() if 'ele' in n.tags}
 
     def apply(self, square: Square) -> None:
+        if self.before:
+            # captured once. The stack's undo-then-redo puts the square back
+            # before this runs again, so re-snapshotting would give the same
+            # answer - but only because of the order the caller happens to
+            # use, and a command owns its own invariant: applied twice with
+            # no undo between, a second snapshot would record the import and
+            # the original would be gone
+            square.nodes.update(self.new_nodes)
+            square.ways.update(self.new_ways)
+            square.relations.update(self.new_relations)
+            return
         self.before = {
             'nodes': {i: square.nodes.get(i) for i in self.new_nodes},
             'ways': {i: square.ways.get(i) for i in self.new_ways},
