@@ -41,9 +41,13 @@ class Answer:
 def held_by(working_set) -> dict:
     """Which square holds each way and relation, as ``(kind, id)`` to name.
 
-    Taken on the UI thread when the import starts, because the squares are
-    the UI thread's: the worker places against this snapshot rather than
-    walking dictionaries a mapper may be editing. A feature deleted in the
+    Taken on the UI thread when the import starts, because a square's
+    contents are the UI thread's: the worker places against this snapshot
+    rather than walking ``ways`` and ``relations`` a mapper may be editing.
+    What the worker does still read is the grid - ``WorkingSet.at`` maps a
+    point to one of the set's squares by name, for a feature's anchor - and
+    no edit changes the grid; opening another set replaces the whole object,
+    and ``_water_imported`` refuses an answer for a set no longer open. A feature deleted in the
     second and a half the fetch takes is placed where it was, and written
     there afresh - which is what importing it would have done anyway.
     """

@@ -14,7 +14,7 @@ the report does not pretend to know which: deleted upstream, or retagged out
 of what the query asks for (a river become a drain). An answer that is not
 whole never gets this far - ``overpass.IncompleteAnswer``.
 
-Two more limits on what counts:
+Three limits on what counts, as `docs/implementation.md` lists them:
 
 - **Positive ids only.** A negative id was allocated here, for something the
   mapper drew; it was never upstream, so it cannot have left.
@@ -25,10 +25,9 @@ Two more limits on what counts:
   nothing names. That is exactly what a mapper needs telling about, and the
   tag test alone would never find it. The comparison is made *before* the
   import is applied, while the held relation still names the old ring.
-
-Every square in the set is compared against the whole answer, not against
-what was placed into that square: placement is per square and identity is not,
-and a feature placed into a neighbour is not gone.
+- **The whole answer, not the square's share of it.** Placement is per
+  square and identity is not, and a feature placed into a neighbour is not
+  gone.
 """
 
 from __future__ import annotations
@@ -71,7 +70,7 @@ def gone(working_set, answered_ways, answered_relations) -> list[Gone]:
         for rel in square.relations.values():
             if not asked_for('relation', rel.tags):
                 continue
-            rings.update(m.ref for m in rel.members if m.type == 'way')
+            rings.update(mem.ref for mem in rel.members if mem.type == 'way')
             if rel.id > 0 and rel.id not in answered_relations:
                 out.append(Gone(name, 'relation', rel.id, rel.tags.get('name'),
                                 _what('relation', rel.tags, False)))

@@ -102,6 +102,13 @@ class IncompleteAnswer(OSError):
     given; it would not be harmless to G5b, which reads absence as deletion
     and would report every feature the answer was cut short of as gone
     upstream. An answer that says it is incomplete is refused whole.
+
+    Raised by ``parse`` because ``parse`` is the one place that reads the
+    payload; a stored answer replayed through it should be refused for the
+    same reason a fresh one is. An ``OSError`` although ``parse`` does no
+    I/O, because what went wrong is the server failing to deliver - the
+    payload is well formed, there is just not all of it - and that is the
+    class of failure the import already reports for a dropped connection.
     """
 
 

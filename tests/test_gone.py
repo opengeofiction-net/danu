@@ -32,12 +32,22 @@ def hold(ws, name, *features):
 # ------------------------------------------------- what the query asks for
 
 def test_asked_for_is_the_querys_own_selection():
-    """Said twice, so held together: every selector in the query has to pass
-    `asked_for`, and the things the query was written to leave out must not."""
+    """Said twice, so held together. Every statement in the query's union is
+    read - not only the ones a pattern recognises, so a selector added in
+    another syntax fails here rather than slipping past - and each has to pass
+    `asked_for`. The things the query was written to leave out must not."""
     q = overpass.query((125.0, -24.0, 126.0, -23.0))
-    selectors = re.findall(r'(way|relation)\["(\w+)"="(\w+)"\];', q)
-    assert len(selectors) == len(overpass.LINE_KINDS + overpass.AREA_KINDS) + 2
-    for kind, key, value in selectors:
+    union = q[q.index('(\n') + 2:q.index('\n);')]
+    statements = [line.strip() for line in union.splitlines() if line.strip()]
+    selectors = [re.fullmatch(r'(way|relation)\["(\w+)"="(\w+)"\];', st) for st in statements]
+    assert all(selectors), (
+        f'a statement this test cannot read: '
+        f'{[st for st, sel in zip(statements, selectors, strict=True) if not sel]}'
+    )
+    named = {sel.groups() for sel in selectors}
+    assert named == ({('way', 'waterway', k) for k in overpass.LINE_KINDS + overpass.AREA_KINDS}
+                     | {('way', 'natural', 'water'), ('relation', 'natural', 'water')})
+    for kind, key, value in named:
         assert overpass.asked_for(kind, {key: value}), f'{kind}[{key}={value}] is asked for'
     for kind, tags in (('way', {'waterway': 'drain'}), ('way', {'waterway': 'dam'}),
                        ('way', {'natural': 'coastline'}), ('way', {'ele': '40'}),
