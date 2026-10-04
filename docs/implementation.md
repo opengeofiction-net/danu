@@ -2512,3 +2512,70 @@ on a river, a river area held flat, Delete removing the point, dragging
 water, a river level taken for a spot height, no mark drawn, no lake label,
 a relation retag naming no ways to redraw, water in the crossing arrays, and
 walking only present squares.
+
+## The selection panel
+
+Out of the first session spent using phase 5: there was nowhere to see what was
+selected, and no way to change a contour's elevation once drawn. G2's notes had
+already said *"an action that re-tags whatever is selected would serve both and
+belongs with the rest of phase 6's polish"*. It came before G6b instead,
+because selection had just become complete, with G5c and G6a covering every
+kind there is. G6b's grade and G7's burn both want somewhere to show what they
+propose.
+
+A dock under the Elevation panel says what the selection is: a contour, a point
+on one, a spot height, a point on a river, a river, a river area, a lake, or a
+lake ring two lakes share. It shows the name, the elevation, where it is, and
+its other tags. **Only `ele` is editable.** Danu is not a general OSM editor,
+and on imported water upstream owns `name` and the rest (G5a).
+
+**The selection announces itself now.** It was an attribute set in 24
+places, and nothing heard about a change. It is a property that emits
+`selectionChanged` on every assignment, so every one of those places says so
+without remembering to. It fires on every assignment rather than on a change,
+because telling a change means comparing Selections, and a Selection's
+dataclass equality compares its Square, which is every node and way in it.
+
+**`EditController.set_ele(value)`** is the one edit, for every kind, with the
+rules L follows:
+
+- A **contour** is re-levelled - the edit there was no way to make before. A
+  node of one is the contour.
+- A **spot height**'s value changes without deleting it.
+- Neither can be **cleared**: a way with no elevation is not a contour, and
+  Delete is how a spot height goes.
+- A **lake** takes one level, and can be cleared.
+- A **river** takes levels at points, and a point's can be cleared.
+- A **river area** is refused (R27).
+
+L still sets only water, as its menu says. The panel is what re-levels a
+contour.
+
+The field commits on Enter. An unchanged value is not a step on the history,
+and anything that isn't a number is refused with the field put back. Escape
+also puts it back. Either way the keys go back to the map, because the tools
+are keys and a mapper who typed a level should not then find Q typed into the
+field. **Why** a field is disabled is written under it in grey, not hidden
+in a tooltip, which is found only by someone already hovering over the thing
+they were told they could not use.
+
+Seen, not only tested, on the gobras set:
+
+- **A river area got a river line's advice.** It said "select one of its
+  points", which a closed area never lets a click do. It says R27 now, in the
+  panel and in L's message.
+- **"Levels at 0" read oddly.** It says "levels at 0 of 419 points" now.
+- **"Drawn here" was wrong.** The squares are JOSM files never uploaded, so a
+  contour drawn there years ago carries a negative id as surely as one drawn
+  in Danu this morning. The panel says "(local)".
+
+The panel's tests type into the field as a mapper does. The first version of
+the helper cleared nothing - selecting text is not deleting it - and two tests
+of clearing failed on the helper, not the panel.
+
+Twelve mutations, each failing at least one test: the selection not
+announcing itself, the panel not following an undo, a contour clearable, a
+spot height clearable, a river area editable, a river whole editable, the
+keys not handed back, an unchanged value made a step, Escape keeping the typed
+text, bad text accepted, the reason hidden, and a river area given a line's
+advice.

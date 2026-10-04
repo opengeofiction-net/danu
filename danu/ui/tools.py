@@ -83,6 +83,11 @@ class EditController(QObject):
                                                   # square, for the preview
     message = Signal(str)            # for the status line
     toolChanged = Signal(str)
+    # whenever the selection is set, to anything - the selection panel's cue.
+    # Emitted on every assignment rather than on a change, because telling a
+    # change means comparing Selections, and a Selection's dataclass equality
+    # compares its Square, which is every node and way in it
+    selectionChanged = Signal()
 
     def __init__(self, view: MapView, layer: ContourLayer, elevation, parent=None):
         super().__init__(parent)
@@ -92,7 +97,7 @@ class EditController(QObject):
         self.overlay = EditOverlay(self)
         view.scene().addItem(self.overlay)
         self.tool = 'select'
-        self.selection: Selection | None = None
+        self._selection: Selection | None = None
         # drawing
         self.drawing: tuple[Square, int, bool] | None = None      # square, way id, at the end
         self.pending: tuple[Square, int | None, tuple[float, float]] | None = None   # first click
@@ -111,6 +116,17 @@ class EditController(QObject):
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
         self._dragged = False
         view.tool = self
+
+    @property
+    def selection(self) -> Selection | None:
+        return self._selection
+
+    @selection.setter
+    def selection(self, value: Selection | None) -> None:
+        # a property so that the twenty-odd places that set it say so without
+        # each having to remember to
+        self._selection = value
+        self.selectionChanged.emit()
 
     # ------------------------------------------------------------ setup
     def set_working_set(self, ws: WorkingSet | None):
@@ -872,54 +888,99 @@ class EditController(QObject):
         self.overlay.update()
 
     def set_level(self):
-        """The active elevation, as the level of the selected water - R24 by
-        hand, G6a.
+        """L: the active elevation, as the level of the selected water - R24
+        by hand, G6a. Water only, as the menu says; the selection panel is
+        what re-levels a contour or a spot height, through ``set_ele`` as this
+        does."""
+        sel = self.selection
+        if sel is not None and sel.relation is None and not (
+                sel.way is not None and (sel.square.name, sel.way.id) in self.layer.water):
+            self.message.emit('setting a level is for water - a contour takes its level '
+                              'when it is drawn')
+            return
+        self.set_ele(self.elevation.value)
 
-        A still body takes one level: on its relation, or on the way when the
-        lake is a single closed way. A river takes a level at a point - the
-        vertex selected - because it descends, and one number on the way
-        could not say so. A river area is refused: it descends too, and R27
-        says flowing water is never held flat, which is what one level on it
-        would be. Grading gives a river all its levels at once, and is G6b.
+    def set_ele(self, value: float | None) -> bool:
+        """The selection's elevation set to ``value``, or cleared with None -
+        the one property the selection panel edits, and what L does with the
+        active elevation. Answers whether anything changed.
+
+        - A **contour** is its elevation: setting re-levels it, the edit there
+          was no way to make before; clearing is refused, since a way with no
+          elevation is not a contour. A node of one is the contour.
+        - A **spot height** likewise: setting moves its value, clearing is
+          refused - Delete removes it.
+        - A **lake** takes one level, on its relation or on its one closed way;
+          clearing takes it off.
+        - A **river** takes a level at a point - the vertex selected - because
+          it descends; selected whole, it is asked for a point. A river area
+          is refused outright: R27, flowing water is never held flat.
         """
         sel = self.selection
         if sel is None:
             self.message.emit('nothing selected')
-            return
-        text = format_ele(self.elevation.value)
+            return False
+        text = format_ele(value) if value is not None else None
         sq = sel.square
+
+        def retagged(tags: dict) -> dict:
+            if text is None:
+                return {k: v for k, v in tags.items() if k != 'ele'}
+            return {**tags, 'ele': text}
+
+        what = f'{text} m' if text is not None else 'no level'
         if sel.relation is not None:
             rel = sel.relation
             if rel.id not in sq.relations:
                 self.selection = None
                 self.message.emit('that relation is already gone')
-                return
+                return False
             name = rel.tags.get('name') or 'the lake'
             if flows(rel.tags):
                 self.message.emit(f'{name} flows, so it has no one level (R27): grade it instead')
-                return
-            self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), {**rel.tags, 'ele': text}))
-            self.message.emit(f'{name} set to {text} m')
+                return False
+            self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), retagged(rel.tags)))
+            self.message.emit(f'{name}: {what}')
+        elif sel.spot:
+            if value is None:
+                self.message.emit('a spot height is its elevation - Delete removes it')
+                return False
+            node = sq.nodes[sel.node]
+            self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
+            self.message.emit(f'spot height: {what}')
         elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
             way = sel.way
             name = way.tags.get('name')
             if sel.node is not None and sel.node in sq.nodes:
                 node = sq.nodes[sel.node]
-                self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), {**node.tags, 'ele': text}))
-                self.message.emit(f'{text} m at a point on {name or "the river"}')
+                self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
+                self.message.emit(f'{what} at a point on {name or "the river"}')
+            elif way.closed and flows(way.tags):
+                self.message.emit(f'{name or "a river area"} flows, so it has no one level '
+                                  '(R27): grade it instead')
+                return False
             elif flows(way.tags) or not way.closed:
                 self.message.emit('a river descends, so its level is set at a point on it: '
                                   'click one of its vertices, or grade it')
+                return False
             elif not water_tags(way.tags):
                 self.message.emit('more than one water relation names this ring; '
                                   'the level belongs to the lake, not to its ring')
+                return False
             else:
-                self.do(sq, edits.SetTags(way.id, dict(way.tags), {**way.tags, 'ele': text}))
-                self.message.emit(f'{name or "the lake"} set to {text} m')
+                self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
+                self.message.emit(f'{name or "the lake"}: {what}')
+        elif sel.way is not None:
+            if value is None:
+                self.message.emit('a contour is its elevation - without one it is not a contour')
+                return False
+            way = sel.way
+            self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
+            self.message.emit(f'contour re-levelled to {what}')
         else:
-            self.message.emit('setting a level is for water - a contour takes its level '
-                              'when it is drawn')
+            return False
         self.overlay.update()
+        return True
 
     def _delete_relation(self, sel: Selection):
         """The lake, with the untagged rings that are nothing without it -

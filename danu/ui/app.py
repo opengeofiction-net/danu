@@ -34,6 +34,7 @@ from .mapview import MapView
 from .messages import install as quieten_qt
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
+from .selection_panel import SelectionPanel
 from .settings import Settings
 from .squares import SquaresItem
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
@@ -163,6 +164,10 @@ class MainWindow(QMainWindow):
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
+        # what is selected, under the elevation panel: the active elevation is
+        # what the tools will use, and this is what the selection already has
+        self.selection_panel = SelectionPanel(self.editor, self)
+        self.splitDockWidget(self.elevation_panel, self.selection_panel, Qt.Orientation.Vertical)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
         self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
