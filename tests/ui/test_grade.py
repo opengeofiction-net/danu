@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip('PySide6')
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter
 
 from danu.core import edits
@@ -344,16 +344,29 @@ def test_a_rejected_span_shows_through_the_selection_and_marks_mean_one_thing(wi
     painter = QPainter(img)
     window.map.render(painter)
     painter.end()
-    cx, cy = img.width() // 2, img.height() // 2
-    # inside the rejected span, which starts just east of the middle vertex.
-    # Measured down a column through it: the core rows come out (189, 50, 44)
-    # with the red over the halo, (207, 87, 34) with it under - and the eye
-    # reads the second as orange. Green is what tells them apart. The first
-    # threshold accepted any reddish pixel and passed with the order reversed;
-    # the second was set from the commonest colours, which missed the core
-    red = sum(1 for x in range(cx + 20, cx + 120) for y in range(cy - 3, cy + 4)
-              if (c := img.pixelColor(x, y)).red() > 180 and c.green() < 75 and c.blue() < 70)
-    assert red >= 100, f'the rejected span is under the halo ({red} red pixels)'
+    # the span's own pixels, found from its vertices rather than assumed at a
+    # fixed offset from the middle: on Windows the docks are wider, the map
+    # narrower, and a fixed window ran off the image and counted 42 where
+    # Linux counted 300. Vertices 6 to 8 lie in the climbing span
+    from danu.ui import mercator as m
+
+    def px(i):
+        n = sq.nodes[r.refs[i]]
+        return window.map.mapFromScene(QPointF(*m.lonlat_to_scene(n.lon, n.lat)))
+    a, b = px(6), px(8)
+    cols = [x for x in range(min(a.x(), b.x()) + 3, max(a.x(), b.x()) - 3) if 0 <= x < img.width()]
+    row = a.y()
+    assert len(cols) >= 20, f'the span is not in view ({len(cols)} columns)'
+    # measured down a column through it: the core comes out (189, 50, 44)
+    # with the red over the halo and (207, 87, 34) with it under - which the
+    # eye reads as orange. Green tells them apart. "Any reddish pixel" passed
+    # with the order reversed; the commonest colours missed the core
+    over = sum(1 for x in cols
+               if any((c := img.pixelColor(x, y)).red() > 180 and c.green() < 75
+                      and c.blue() < 70 for y in range(row - 3, row + 4)))
+    assert over >= 0.8 * len(cols), (
+        f'the rejected span is under the halo ({over} of {len(cols)} columns red over it)'
+    )
     assert window.editor.proposal is not None
 
 

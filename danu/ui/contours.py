@@ -1132,6 +1132,9 @@ class ContourLayer(QGraphicsItem):
         A crossing is a proper one, or a node the way shares with a contour -
         a contour snapped to a river, which ``geometry.crossings`` counts as a
         touch and not a crossing, but is the clearest crossing there is.
+        Shared nodes are looked for in the way's own square only, and that is
+        not a gap: a node id belongs to one square's file, and a -5 there is
+        not the -5 next door, so a contour held next door cannot share one.
         """
         self._ensure_arrays()
         refs, dist = self.along(square, way)

@@ -96,8 +96,8 @@ class Proposal:
     known: list | None = None             # (metres, contour) where one crosses
     rejected: list | None = None          # (d0, d1, e0, e1) spans left ungraded
     # for the map: each proposed level at its place, and each rejected span
-    preview: list | None = None
-    rejected_paths: list | None = None
+    preview: list = None
+    rejected_paths: list = None
 
 
 class EditController(QObject):

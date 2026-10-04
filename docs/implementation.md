@@ -2659,7 +2659,7 @@ on top and (207, 87, 34) under, and green tells them apart. The test that the
 selection's marks are hidden reads blue at a vertex in the climbing span: the
 mark under the red is (212, 54, 24), and nothing else there falls below 49.
 
-Seventeen mutations, each failing at least one test:
+Sixteen mutations, each failing at least one test:
 
 - **the grade itself:** interpolating by index, assuming drawn is downstream,
   forcing climbs down, no length limit, writing to the millimetre, one reason
@@ -2670,3 +2670,11 @@ Seventeen mutations, each failing at least one test:
   edit, Escape clearing the selection with it, a grade as many steps;
 - **the panel and map:** no grade button, the proposal drawn under the halo,
   the selection's marks shown under a proposal.
+
+The local review counted those as sixteen against a "seventeen" written here,
+and was right. And `ui (windows-latest)` failed the span test: it sampled a
+fixed window east of the map's middle, and with Windows' wider docks the map
+was narrow enough that most of it fell off the image - 42 red pixels where
+Linux has 300. The test finds the span from its own vertices now and asks what
+share of its columns is red over the halo; it passes at map widths of 387, 87
+and 68 px, and still fails with the order reversed.
