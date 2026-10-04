@@ -917,6 +917,18 @@ The notes on what this phase has done so far are in `implementation.md`, under
 **Phase 6 - checks and polish.** The validation panel, measure, profile,
 difference, magnify, autosave and crash recovery, session files.
 
+**Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
+stops there (`mercator.MAX_ZOOM`), but the editor's own layers are vector and
+would draw at any zoom. On the gobras set it leaves features that cannot be
+picked apart: the Water of Meeonoa, a `waterway=stream` (way 4878968), runs
+inside a narrow `natural=water` + `water=river` area (way 4878947), a median
+1.4 m from its outline and sharing a node with it. At z19 that is about 5 px,
+inside the 8 px pick tolerance, so a click on the stream is in reach of both
+and no zoom separates them. To weigh when it is taken up: zooming past the
+tiles' limit with them stretched; preferring a line to an area's outline when
+both are in reach; and cycling through what is under the cursor on repeated
+clicks, as JOSM does.
+
 ### Phase 7
 
 **Phase 7 - the surface while editing.** Three things about building a
