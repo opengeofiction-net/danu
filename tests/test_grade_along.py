@@ -1,12 +1,13 @@
 """Grading a waterway from the contours it crosses, by distance - G6b.
 
-``grade_along`` is the batch grader's rule (``profile.grade``) over distance
-rather than cell index, for the editor. No Qt, no GDAL.
+No Qt, no GDAL.
 """
 
-import random
+from itertools import pairwise
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from danu.core import geometry, profile
 
@@ -56,37 +57,35 @@ def test_too_few_crossings_grade_nothing():
     assert profile.grade_along([], [0])[0] == [None]
 
 
-def test_it_agrees_with_the_batch_grader_where_index_is_distance():
-    """Over points evenly spaced, distance and index are the same measure,
-    and the two graders must give the same levels: two hundred random
-    profiles drawn downstream, the way densify's merge was checked - and two
-    hundred drawn upstream, against the batch grader handed them downstream,
-    which is what finding downstream from the contours has to amount to."""
-    rng = random.Random(20261004)
-    tested = {False: 0, True: 0}
-    while min(tested.values()) < 200:
-        n = rng.randint(5, 40)
-        vals = [None] * n
-        for i in sorted(rng.sample(range(n), rng.randint(2, min(6, n)))):
-            vals[i] = rng.choice((10, 20, 30, 40, 50, 60))
-        known = [v for v in vals if v is not None]
-        upstream = known[0] < known[-1]
-        if tested[upstream] >= 200:
-            continue
-        tested[upstream] += 1
-        seg = [10.0] * (n - 1)
-        batch_in = list(reversed(vals)) if upstream else vals
-        batch, _ = profile.grade(batch_in, seg)
-        if upstream:                       # back into drawn order
-            batch = {n - 1 - i: v for i, v in batch.items()}
-        mine, _, rev = profile.grade_along(
-            [(i * 10.0, v) for i, v in enumerate(vals) if v is not None],
-            [i * 10.0 for i in range(n)])
-        assert rev == upstream
-        for i in range(n):
-            assert (batch.get(i) is None) == (mine[i] is None), (vals, i, upstream)
-            if mine[i] is not None:
-                assert mine[i] == pytest.approx(batch[i])
+@given(st.lists(st.integers(0, 2000), min_size=2, max_size=12), st.booleans())
+def test_a_graded_run_never_ascends(levels, drawn_upstream):
+    """The spec's property: walked downstream, a graded waterway never climbs -
+    whichever way round it was drawn."""
+    known = [(30.0 * i, float(v)) for i, v in enumerate(levels)]
+    d = [10.0 * i for i in range(3 * len(levels) - 2)]
+    if drawn_upstream:
+        known = [(d[-1] - x, v) for x, v in known]
+    got, _, rev = profile.grade_along(known, d)
+    walk = list(reversed(got)) if rev else got
+    run = []
+    for v in [*walk, None]:
+        if v is None:
+            assert all(b <= a + 1e-9 for a, b in pairwise(run)), run
+            run = []
+        else:
+            run.append(v)
+
+
+def test_a_rejected_span_leaves_a_step_between_runs():
+    """Contours at 0, 0, 1, 0 along a river contradict themselves. The climb is
+    left ungraded, and the descent after it is still graded from the contour
+    it crosses - so the levels step up across the gap. That is what the
+    contours say, and a river never overrides a contour."""
+    got, rejected, _ = profile.grade_along(
+        [(0.0, 0.0), (30.0, 0.0), (60.0, 1.0), (90.0, 0.0)], [10.0 * i for i in range(10)])
+    assert len(rejected) == 1 and rejected[0][:2] == (30.0, 60.0)
+    assert got[3] == 0.0 and got[6] == 1.0
+    assert got[4] is None and got[5] is None
 
 
 def test_crossing_t_says_where_along_the_segment():

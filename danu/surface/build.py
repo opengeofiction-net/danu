@@ -24,8 +24,7 @@ square in the directory, and the editor builds a *working set*. For a square in
 the middle of a drawn zone the editor's surface near the set's edge will differ
 from the zone build's, because the zone had the neighbours' contours to look at
 and the set does not. That is expected, and it is why the golden fixture is a
-single square: there the two are the same job, run with water constraints off as
-its params.lock records, so neither path reaches Overpass.
+single square: there the two are the same job.
 """
 
 from __future__ import annotations

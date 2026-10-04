@@ -8,10 +8,10 @@ without GDAL - which is what lets the test suite run on Windows, where GDAL is
 not reasonably installable from PyPI.
 
 `densify` and the segment lengths existed twice, once in `danu.checks.rivers`
-and once in `danu.water.constraints`, with different names and different
-spellings of the same arithmetic. They were checked against each other over
-three hundred random ways before being merged: the coordinates agreed to 4e-14
-and the lengths exactly.
+and once in the batch water step since removed, with different names and
+different spellings of the same arithmetic. They were checked against each
+other over three hundred random ways before being merged: the coordinates
+agreed to 4e-14 and the lengths exactly.
 """
 
 import bisect
@@ -80,34 +80,17 @@ def linear_fix(elev, intervals):
     return out
 
 
-def grade(values, seg_m):
-    """Contour values where a way crosses one, graded between, descending only.
-    OGF::Terrain::RiverProfile::setLinearElev, applied to a whole way."""
-    known = [i for i, v in enumerate(values) if v is not None]
-    if len(known) < 2:
-        return {}, 0
-    out, rejected = {}, 0
-    for a, b in pairwise(known):
-        ea, eb = values[a], values[b]
-        if eb > ea or sum(seg_m[a:b]) > MAX_SEGMENT_M:
-            rejected += 1
-            continue
-        for i in range(a, b + 1):
-            out[i] = ea + (eb - ea) * ((i - a) / (b - a) if b > a else 0.0)
-    return out, rejected
-
-
 def grade_along(known, vertex_d):
     """A waterway's level at each vertex, from the contour values where it
-    crosses one - ``grade``'s rule over distance rather than index, for the
-    editor (G6b).
+    crosses one, graded between and descending only - for the editor (G6b).
+    ``OGF::Terrain::RiverProfile::setLinearElev``'s rule, over distance.
 
     ``known`` is ``(d, elevation)`` for each crossing, ``d`` in metres along
     the way as drawn; ``vertex_d`` the same for each vertex. Between two
     crossings a vertex takes the value interpolated by distance. A span that
     climbs going downstream, or runs further than ``MAX_SEGMENT_M``, is left
-    ungraded and reported, as ``grade`` leaves it - not forced down, which
-    would invent ground nobody drew. Before the first crossing and after the
+    ungraded and reported - not forced down, which would invent ground nobody
+    drew. Before the first crossing and after the
     last there is nothing to grade from.
 
     **Downstream is found, not assumed.** A way's direction carries no meaning
