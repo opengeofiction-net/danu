@@ -156,7 +156,10 @@ def test_a_river_area_is_never_given_one_level(wet):
     before = dict(sq.ways[500].tags)
     level(w, 50.0)
     assert sq.ways[500].tags == before, 'a river area was held flat'
-    assert 'descends' in w.statusBar().currentMessage()
+    # R27, and not a river line's advice to pick a point: a click never
+    # lands on one of a closed area's points
+    msg = w.statusBar().currentMessage()
+    assert 'R27' in msg and 'vertices' not in msg
 
 
 def test_a_level_set_goes_back_on_ctrl_z(wet):
