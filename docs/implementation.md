@@ -2973,8 +2973,13 @@ stands - a lake with fill lines, or a relation whose rings carry a level, so a
 lake too narrow for a fill line still counts. After it, the same lakes are
 compared. An outline is its rings' coordinates, each ring from its lowest point
 and the shorter way round, so the same shore redrawn from another node or the
-other way about is no change. A lake whose shore no longer closes in the square
-is reported as that; a lake gone altogether is the gone report's.
+other way about is no change - a property test walks random rings from every
+start, both ways. A lake whose shore no longer closes in the square is reported
+as that; a lake gone altogether is the gone report's. And a relation lake whose
+ring upstream redrew under a new way, the same shore, is reported too: the new
+way does not carry the level, so the build has lost the lake's shore contour
+though nothing moved. Review asked whether a renumbered ring would be a false
+report; it is not, the outline is coordinates - but it found this.
 
 The report is a second group in the gone dock, *Flattened, and reshaped
 upstream since*: the same kind of thing a mapper looks at after an import, so

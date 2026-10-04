@@ -6,8 +6,11 @@ pull-back is one the test can measure.
 """
 
 import math
+import random
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, Square, SquareName, Way, WorkingSet
@@ -371,3 +374,31 @@ def test_a_shore_that_no_longer_closes_is_said_and_a_lake_gone_is_left_to_the_go
     assert 'no longer closes' in r.why
     del sq.relations[7]
     assert flatten.reshaped(before, w) == []
+
+
+@given(st.integers(0, 10_000), st.booleans())
+def test_an_outline_is_the_same_from_any_start_and_either_way_round(seed, reverse):
+    """The canonical form the comparison rests on: a ring of random points,
+    started anywhere and walked either way, is one outline."""
+    rng = random.Random(seed)
+    w, sq = ws()
+    pts = [(125.5 + rng.random() / 10, -22.5 + rng.random() / 10) for _ in range(rng.randint(3, 12))]
+    a = way(sq, pts, {}, closed=True)
+    k = rng.randrange(len(pts))
+    again = pts[k:] + pts[:k]
+    if reverse:
+        again = again[::-1]
+    b = way(sq, again, {}, closed=True)
+    assert flatten._outline(sq, a) == flatten._outline(sq, b)
+
+
+def test_a_ring_redrawn_under_a_new_way_without_the_level_is_reported():
+    """Upstream replaced the ring way, same shore: the relation names the
+    new way, which carries no level - the build has lost the lake's shore."""
+    w, sq, outer = flattened_lake()
+    before = flatten.flattened(w)
+    new = Way(id=next(_ids), refs=list(outer.refs), tags={})
+    sq.ways[new.id] = new
+    sq.relations[7].members = [Member('way', new.id, 'outer')]
+    (r,) = flatten.reshaped(before, w)
+    assert 'without its level' in r.why

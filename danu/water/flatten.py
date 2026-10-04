@@ -472,6 +472,16 @@ def flattened(working_set) -> dict:
     return out
 
 
+def _unlevelled(square: Square, feature) -> bool:
+    """A flattened relation lake with a ring way that does not carry its
+    level - one upstream put in place of the way that did."""
+    if not isinstance(feature, Relation):
+        return False
+    level = feature.tags.get('ele')
+    return any(m.type == 'way' and m.ref in square.ways and square.ways[m.ref].tags.get('ele') != level
+               for m in feature.members)
+
+
 def reshaped(before: dict, working_set) -> list[Reshaped]:
     """The flattened lakes ``before`` named whose outline is not what it was.
     A lake no longer held at all is the gone report's, not this one's."""
@@ -483,9 +493,15 @@ def reshaped(before: dict, working_set) -> list[Reshaped]:
         if feature is None:
             continue
         now = _outline(sq, feature)
-        if now == was:
+        if now == was and not _unlevelled(sq, feature):
             continue
-        why = ('its outline no longer closes in this square' if now is None
-               else 'reshaped upstream since it was flattened - F flattens it again')
+        if now is None:
+            why = 'its outline no longer closes in this square'
+        elif now == was:
+            # the same shore under new ways: upstream redrew the ring, and the
+            # new ways do not carry the level the build reads as its contour
+            why = 'its shore was redrawn upstream without its level - F flattens it again'
+        else:
+            why = 'reshaped upstream since it was flattened - F flattens it again'
         out.append(Reshaped(name, kind, fid, label, why))
     return out
