@@ -243,3 +243,16 @@ def test_a_spot_height_gone_since_it_was_selected_says_so(w):
     assert w.editor.set_ele(410.0) is False
     assert 'already gone' in w.statusBar().currentMessage()
     assert w.editor.selection is None
+
+
+def test_l_at_the_level_a_lake_already_has_is_no_step(w):
+    """L at a lake already at the active elevation used to push a step that
+    changed nothing, and Ctrl+Z then undid nothing visible."""
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, None, relation=sq.relations[300])
+    w.elevation.set(120.0)
+    w.editor.set_level()
+    depth = len(w.editor.history._done)
+    w.editor.set_level()
+    assert len(w.editor.history._done) == depth, 'the same level again went on the history'
+    assert 'already' in w.statusBar().currentMessage()

@@ -928,6 +928,15 @@ class EditController(QObject):
                 return {k: v for k, v in tags.items() if k != 'ele'}
             return {**tags, 'ele': text}
 
+        def unchanged(tags: dict) -> bool:
+            # the level it already has is no step on the history - so L at a
+            # lake already at the active elevation, and Enter on the panel's
+            # unchanged field, leave Ctrl+Z where it was
+            if retagged(tags) == tags:
+                self.message.emit(f'already {what}')
+                return True
+            return False
+
         what = f'{text} m' if text is not None else 'no level'
         if sel.relation is not None:
             rel = sel.relation
@@ -938,6 +947,8 @@ class EditController(QObject):
             name = rel.tags.get('name') or 'the lake'
             if flows(rel.tags):
                 self.message.emit(f'{name} flows, so it has no one level (R27): grade it instead')
+                return False
+            if unchanged(rel.tags):
                 return False
             self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), retagged(rel.tags)))
             self.message.emit(f'{name}: {what}')
@@ -950,6 +961,8 @@ class EditController(QObject):
                 self.message.emit('a spot height is its elevation - Delete removes it')
                 return False
             node = sq.nodes[sel.node]
+            if unchanged(node.tags):
+                return False
             self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
             self.message.emit(f'spot height: {what}')
         elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
@@ -957,6 +970,8 @@ class EditController(QObject):
             name = way.tags.get('name')
             if sel.node is not None and sel.node in sq.nodes:
                 node = sq.nodes[sel.node]
+                if unchanged(node.tags):
+                    return False
                 self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
                 self.message.emit(f'{what} at a point on {name or "the river"}')
             elif way.closed and flows(way.tags):
@@ -972,6 +987,8 @@ class EditController(QObject):
                                   'the level belongs to the lake, not to its ring')
                 return False
             else:
+                if unchanged(way.tags):
+                    return False
                 self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
                 self.message.emit(f'{name or "the lake"}: {what}')
         elif sel.way is not None:
@@ -979,6 +996,8 @@ class EditController(QObject):
                 self.message.emit('a contour is its elevation - without one it is not a contour')
                 return False
             way = sel.way
+            if unchanged(way.tags):
+                return False
             self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
             self.message.emit(f'contour re-levelled to {what}')
         else:

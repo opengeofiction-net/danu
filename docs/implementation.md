@@ -2529,8 +2529,8 @@ lake ring two lakes share. It shows the name, the elevation, where it is, and
 its other tags. **Only `ele` is editable.** Danu is not a general OSM editor,
 and on imported water upstream owns `name` and the rest (G5a).
 
-**The selection announces itself now.** It was an attribute set in 24
-places, and nothing heard about a change. It is a property that emits
+**The selection announces itself now.** It was an attribute set all through
+the controller, and nothing heard about a change. It is a property that emits
 `selectionChanged` on every assignment, so every one of those places says so
 without remembering to. It fires on every assignment rather than on a change,
 because telling a change means comparing Selections, and a Selection's
