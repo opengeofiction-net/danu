@@ -265,9 +265,9 @@ class WayGeom:
 
 def _room(taken: dict, px: float, py: float) -> bool:
     """Whether a label at (px, py), in pixels, is clear of every label placed
-    so far by WATER_LABEL_PX - and if it is, take the place. By cell, in
-    pixels of the scene and not of the screen, so the labels kept do not
-    change as the map pans."""
+    so far by WATER_LABEL_PX - and if it is, take the place. Pixels at the
+    zoom painted, counted from the scene's origin and not the window's, so
+    the cells - and the labels kept - do not change as the map pans."""
     cx, cy = math.floor(px / WATER_LABEL_PX), math.floor(py / WATER_LABEL_PX)
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
