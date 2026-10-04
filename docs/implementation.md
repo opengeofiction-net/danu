@@ -2579,3 +2579,93 @@ spot height clearable, a river area editable, a river whole editable, the
 keys not handed back, an unchanged value made a step, Escape keeping the typed
 text, bad text accepted, the reason hidden, and a river area given a line's
 advice.
+
+## G6b, grade from the contours
+
+R24's other half: a level *from the contours it touches*. **G**, or the panel's
+button, works one out for the selected water and **proposes** it. The panel
+shows what it found and a profile, the map shows where, and Enter accepts it
+as one step or Escape drops it. Any edit or change of selection drops it too,
+since it was worked out against the square as it was.
+
+**A river** is graded between the contours it crosses, by distance along it.
+`profile.grade_along` is the batch grader's `grade` over distance, not cell
+index, and on evenly spaced points the two agree over two hundred random
+profiles. The crossings are vector ones, `ContourLayer.crossings_of`:
+
+- **against every contour in the working set**, because a river near a
+  degree line crosses the contours its neighbour holds;
+- **and nodes it shares with a contour**, which `geometry.crossings` counts
+  as a touch, though a contour snapped to a river is the clearest crossing
+  there is.
+
+Two kinds of span are left ungraded, never forced down, and the summary tells
+them apart: one where the contours **climb**, which is the data disagreeing
+with itself, and one **running over 5 km without a contour**, which is ground
+nobody contoured. On the gobras set, the Bass River climbs from 200 m to 350 m
+and back down as drawn. The Prado River's lowland run has descending crossings
+too far apart. The first version reported both kinds as "climb".
+
+**Downstream is found, not assumed.** A way's direction means nothing
+elsewhere in Danu, and mappers draw rivers either way round. Water descends,
+so the end at the higher crossing is upstream. The way is never reversed;
+only levels are written. Rocky River and Wine River grade though drawn
+upstream, and the summary says so.
+
+Levels go on the vertices (G6 decision 1), **to the decimetre**: the build
+rasterises to the metre, so a millimetre is precision nobody measured, and a
+whole metre would turn a slow river into a staircase. A grade is one
+`SetNodeLevels`, not a `Compound` of `SetNodeTags`, because each of those
+scans every way in the square for its one node and a grade names hundreds.
+
+**A lake** takes the lower of two candidates:
+
+- its **outlet**: the lowest graded river level inside it or on its shore;
+- its **rim**: the lowest contour its shore crosses, which is where it would
+  spill, and so a ceiling.
+
+The batch grader takes the outlet whenever there is one. That is right there,
+because it grades every river at once, so the outflow is always graded and
+always lowest. The editor grades one river at a time. On the gobras set, with
+only Oleander Creek graded, Lake Therran's "outlet" came out at 25.2 m, 10 m
+above the 15 m contour crossing its own shore: the creek flows *in*. Taking
+the lower of the two keeps the batch's answer wherever it had a true outflow,
+and says so when an inflow is higher than the rim. An outflow *starting* at a
+shore has no level there, since a river grades only between crossings. The
+outlet comes from a river mapped through the lake, the OSM convention, whose
+vertices inside sit between the contours upstream and downstream.
+
+**What the map shows.**
+
+- **Ungraded spans in red.** They were drawn under the selection's orange
+  halo, on the very river being graded, and could not be seen. They are drawn
+  over it now.
+- **Proposed levels as dark diamonds on a white halo.** Amber on orange
+  vanished.
+- **No selection vertex marks while a grade is open.** At z12 those marks,
+  the same size as a proposed level, made the Prado River look graded at both
+  ends when it was graded at one. It took a close-up of each end to see that
+  the data was right and the picture wasn't.
+
+**The profile** in the panel plots distance against elevation: crossings as
+dots, proposed levels in amber, current levels in grey, ungraded spans shaded
+red. A climb shows as a line going up, which a list of numbers hides.
+
+**The pixel tests took three tries.** "Any reddish pixel" passed with the
+proposal drawn under the halo. A threshold from the commonest colours missed
+the core rows of the line. Measured down a column, the core is (189, 50, 44)
+on top and (207, 87, 34) under, and green tells them apart. The test that the
+selection's marks are hidden reads blue at a vertex in the climbing span: the
+mark under the red is (212, 54, 24), and nothing else there falls below 49.
+
+Seventeen mutations, each failing at least one test:
+
+- **the grade itself:** interpolating by index, assuming drawn is downstream,
+  forcing climbs down, no length limit, writing to the millimetre, one reason
+  for every rejection;
+- **the crossings:** the river's own square only, no shared-node crossings;
+- **the lake:** the outlet over the rim (the batch rule, unmodified);
+- **the proposal's life:** not dropped by a selection, not dropped by an
+  edit, Escape clearing the selection with it, a grade as many steps;
+- **the panel and map:** no grade button, the proposal drawn under the halo,
+  the selection's marks shown under a proposal.

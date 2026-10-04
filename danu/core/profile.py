@@ -14,6 +14,7 @@ three hundred random ways before being merged: the coordinates agreed to 4e-14
 and the lengths exactly.
 """
 
+import bisect
 import math
 from itertools import pairwise
 
@@ -94,3 +95,49 @@ def grade(values, seg_m):
         for i in range(a, b + 1):
             out[i] = ea + (eb - ea) * ((i - a) / (b - a) if b > a else 0.0)
     return out, rejected
+
+
+def grade_along(known, vertex_d):
+    """A waterway's level at each vertex, from the contour values where it
+    crosses one - ``grade``'s rule over distance rather than index, for the
+    editor (G6b).
+
+    ``known`` is ``(d, elevation)`` for each crossing, ``d`` in metres along
+    the way as drawn; ``vertex_d`` the same for each vertex. Between two
+    crossings a vertex takes the value interpolated by distance. A span that
+    climbs going downstream, or runs further than ``MAX_SEGMENT_M``, is left
+    ungraded and reported, as ``grade`` leaves it - not forced down, which
+    would invent ground nobody drew. Before the first crossing and after the
+    last there is nothing to grade from.
+
+    **Downstream is found, not assumed.** A way's direction carries no meaning
+    for anything else in Danu, and mappers draw rivers either way round; the
+    batch grader's `danu.checks.rivers` allows for exactly that. Water
+    descends, so the end at the higher crossing is upstream: the spans are
+    judged walking from it. The way is never reversed - only its levels are
+    written.
+
+    Answers (levels, rejected, reversed): a level or None per vertex, the
+    rejected spans as (d0, d1, e0, e1) in drawn order, and whether downstream
+    runs against the drawn direction.
+    """
+    known = sorted(known)
+    levels = [None] * len(vertex_d)
+    if len(known) < 2:
+        return levels, [], False
+    reversed_ = known[0][1] < known[-1][1]
+    walk = list(reversed(known)) if reversed_ else known
+    rejected = []
+    order = sorted(range(len(vertex_d)), key=lambda i: vertex_d[i])
+    ds = [vertex_d[i] for i in order]
+    for (da, ea), (db, eb) in pairwise(walk):
+        lo, hi = min(da, db), max(da, db)
+        if eb > ea or hi - lo > MAX_SEGMENT_M:
+            rejected.append((lo, hi, ea, eb) if not reversed_ else (lo, hi, eb, ea))
+            continue
+        for k in range(bisect.bisect_left(ds, lo), bisect.bisect_right(ds, hi)):
+            d = ds[k]
+            f = (d - da) / (db - da) if db != da else 0.0
+            levels[order[k]] = ea + (eb - ea) * f
+    rejected.sort()
+    return levels, rejected, reversed_

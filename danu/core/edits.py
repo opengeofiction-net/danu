@@ -352,6 +352,38 @@ class DeleteWay(Command):
 
 
 @dataclass
+class SetNodeLevels(Command):
+    """Many vertices' tags replaced as one step - a graded river's levels
+    (G6b), and Ctrl+Z takes the whole grade back.
+
+    Not a ``Compound`` of ``SetNodeTags``: each of those answers ``ways()``
+    by scanning every way in the square for the one node it names, and a
+    grade names hundreds. The way they are vertices of is known here, and is
+    the only way to redraw - its shape has not changed, its levels have.
+    """
+    changes: dict[int, tuple[dict, dict]]      # node id -> (tags before, after)
+    way_id: int | None = None
+    name: str = 'set levels'
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id} if self.way_id is not None else set()
+
+    def spots(self, square: Square) -> set[int]:
+        return set(self.changes)
+
+    def apply(self, square: Square) -> None:
+        for nid, (_, after) in self.changes.items():
+            square.nodes[nid].tags = dict(after)
+
+    def undo(self, square: Square) -> None:
+        for nid, (before, _) in self.changes.items():
+            square.nodes[nid].tags = dict(before)
+
+    def describe(self) -> str:
+        return self.name
+
+
+@dataclass
 class SetRelationTags(Command):
     """A relation's tags replaced - a lake's level set, most often (G6a).
 

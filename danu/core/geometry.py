@@ -41,6 +41,19 @@ def crossings(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
            ((d3 > EPS) & (d4 < -EPS) | (d3 < -EPS) & (d4 > EPS))
 
 
+def crossing_t(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Where along p-q each line a[i]-b[i] meets it, as a fraction of p-q -
+    for the segments ``crossings`` says p-q crosses; elsewhere the value
+    means nothing. Parallel segments, which never cross, answer nan."""
+    p = np.asarray(p, dtype=float); q = np.asarray(q, dtype=float)
+    r = q - p
+    s = b - a
+    denom = r[0] * s[..., 1] - r[1] * s[..., 0]
+    num = (a[..., 0] - p[0]) * s[..., 1] - (a[..., 1] - p[1]) * s[..., 0]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(np.abs(denom) > EPS, num / denom, np.nan)
+
+
 def touches(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Which segments p-q meets without properly crossing: an endpoint of
     one lies on the other (a shared node, a T-junction), or they overlap

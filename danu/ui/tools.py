@@ -28,7 +28,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
-from ..core import edits, geometry
+from ..core import edits, geometry, profile
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
 from ..water.overpass import flows
@@ -75,6 +75,31 @@ class Selection:
         return self.way is None and self.node is not None
 
 
+@dataclass
+class Proposal:
+    """A grade worked out and not yet applied - G6b. R24 asks for an
+    elevation "from the contours it touches", and the spec for it shown
+    before it lands: this is what is shown, and Accept is one step.
+
+    Dropped by any edit and by any change of selection: it was worked out
+    against the square as it was, for the feature that was selected.
+    """
+    square: Square
+    feature: object                       # the Way or Relation it is for
+    command: object                       # what Accept does, as one step
+    summary: str
+    # a river's profile, for the panel to draw - metres along it, and per
+    # vertex the level proposed and the level it has now
+    dist: list | None = None
+    levels: list | None = None
+    current: list | None = None
+    known: list | None = None             # (metres, contour) where one crosses
+    rejected: list | None = None          # (d0, d1, e0, e1) spans left ungraded
+    # for the map: each proposed level at its place, and each rejected span
+    preview: list = None
+    rejected_paths: list = None
+
+
 class EditController(QObject):
     """The tools, the history and the selection, over one working set."""
 
@@ -88,6 +113,7 @@ class EditController(QObject):
     # change means comparing Selections, and a Selection's dataclass equality
     # compares its Square, which is every node and way in it
     selectionChanged = Signal()
+    proposalChanged = Signal()       # a grade proposed, accepted or dropped
 
     def __init__(self, view: MapView, layer: ContourLayer, elevation, parent=None):
         super().__init__(parent)
@@ -98,6 +124,10 @@ class EditController(QObject):
         view.scene().addItem(self.overlay)
         self.tool = 'select'
         self._selection: Selection | None = None
+        self.proposal: Proposal | None = None
+        # a proposal is of the square as it was and the feature then selected
+        self.selectionChanged.connect(self._drop_proposal)
+        self.edited.connect(self._drop_proposal)
         # drawing
         self.drawing: tuple[Square, int, bool] | None = None      # square, way id, at the end
         self.pending: tuple[Square, int | None, tuple[float, float]] | None = None   # first click
@@ -425,6 +455,12 @@ class EditController(QObject):
 
     def key_press(self, event) -> bool:
         key = event.key()
+        if self.proposal is not None and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.accept_proposal()
+            return True
+        if self.proposal is not None and key == Qt.Key.Key_Escape:
+            self.cancel_proposal()
+            return True
         if key == Qt.Key.Key_Escape:
             if self.tool == 'draw' and (self.drawing or self.pending):
                 self._stop_drawing()
@@ -1005,6 +1041,174 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
+    def grade(self):
+        """G: a level from the contours, for the selected water - R24's other
+        half, G6b - proposed, not applied. Enter accepts it as one step,
+        Escape drops it.
+
+        A river is graded between the contours it crosses, by distance along
+        it, descending only: ``profile.grade_along``, the batch grader's rule.
+        A span where the contours climb is left ungraded and said so - not
+        forced down, which would invent ground nobody drew. A lake takes its
+        outlet, failing that the lowest contour on its rim:
+        ``ContourLayer.outlet``, the batch grader's rule again. A river area is
+        refused - R27, and it is graded through the river that runs down it.
+        """
+        sel = self.selection
+        if sel is None:
+            self.message.emit('nothing selected')
+            return
+        sq = sel.square
+        if sel.relation is not None:
+            self._propose_lake(sq, sel.relation)
+        elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
+            way = sel.way
+            if way.closed and flows(way.tags):
+                self.message.emit('a river area flows, so it has no one level (R27): '
+                                  'grade the river that runs down it')
+            elif way.closed and water_tags(way.tags):
+                self._propose_lake(sq, way)
+            elif way.closed:
+                self.message.emit('more than one water relation names this ring; '
+                                  'grade the lake, not its ring')
+            else:
+                self._propose_river(sq, way)
+        else:
+            self.message.emit('grading is for water - select a river or a lake')
+
+    def _propose_river(self, sq: Square, way: Way) -> None:
+        name = way.tags.get('name') or f'way {way.id}'
+        refs, dist = self.layer.along(sq, way)
+        known = self.layer.crossings_of(sq, way)
+        if len(known) < 2:
+            self.message.emit(f'{name} crosses {len(known)} contour'
+                              f'{"" if len(known) == 1 else "s"} - '
+                              'not enough to grade from')
+            return
+        levels, rejected, upstream = profile.grade_along(known, dist)
+        # to the decimetre: the build rasterises to the metre, and a level
+        # interpolated to the millimetre is precision nobody measured - but a
+        # metre would make a slow river a staircase
+        levels = [round(v, 1) if v is not None else None for v in levels]
+        current = [parse_ele(sq.nodes[r].tags.get('ele')) for r in refs]
+        changes, replaced = {}, 0
+        for r, lv, cur in zip(refs, levels, current, strict=True):
+            if lv is None:
+                continue
+            text = format_ele(lv)
+            tags = sq.nodes[r].tags
+            if tags.get('ele') == text:
+                continue
+            replaced += cur is not None
+            changes[r] = (dict(tags), {**tags, 'ele': text})
+        graded = [v for v in levels if v is not None]
+        # proposed even when nothing grades: the profile is what shows why
+        parts = [f'{name}: {len(known)} crossings, {len(graded)} of {len(refs)} points '
+                 f'levelled' + (f', {max(graded):g} to {min(graded):g} m' if graded else '')]
+        # two reasons a span is left ungraded, and they are told apart: a
+        # climb is the contours and the river disagreeing; a long span is
+        # ground nobody contoured - the lowland run of a river, mostly
+        climbs = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
+        far = len(rejected) - climbs
+        why = []
+        if climbs:
+            why.append(f'{climbs} where the contours climb')
+        if far:
+            why.append(f'{far} running over {profile.MAX_SEGMENT_M / 1000:g} km '
+                       'without a contour')
+        if why:
+            parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded - '
+                         + ', '.join(why))
+        if upstream:
+            parts.append('drawn upstream - graded from its higher end')
+        if replaced:
+            parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
+        if not changes:
+            parts.append('already graded so - nothing to change')
+        nodes = sq.nodes
+        pts = {r: m.lonlat_to_scene(nodes[r].lon, nodes[r].lat) for r in refs}
+        index = dict(zip(refs, dist, strict=True))
+        bad = []
+        for d0, d1, _, _ in rejected:
+            run = [pts[r] for r in refs if d0 - 1e-6 <= index[r] <= d1 + 1e-6]
+            if len(run) >= 2:
+                bad.append(run)
+        self._set_proposal(Proposal(
+            sq, way,
+            edits.SetNodeLevels(changes, way.id, f'grade {name}') if changes else None,
+            '; '.join(parts), dist, levels, current, known, rejected,
+            [(*pts[r], lv) for r, lv in zip(refs, levels, strict=True) if lv is not None], bad))
+
+    def _propose_lake(self, sq: Square, feature) -> None:
+        name = feature.tags.get('name') or 'the lake'
+        found = self.layer.outlet(sq, feature)
+        if found is None:
+            self.message.emit(f'{name}: no graded river reaches it and no contour '
+                              'crosses its shore - nothing to grade from')
+            return
+        level, how, higher = found
+        text = format_ele(round(level, 1))
+        before = dict(feature.tags)
+        after = {**before, 'ele': text}
+        if isinstance(feature, Relation):
+            cmd = edits.SetRelationTags(feature.id, before, after)
+            ring = [sq.ways[mem.ref] for mem in feature.members
+                    if mem.type == 'way' and mem.ref in sq.ways]
+        else:
+            cmd = edits.SetTags(feature.id, before, after)
+            ring = [feature]
+        was = before.get('ele')
+        if how == 'outlet':
+            why = ' - the lowest graded river level in it'
+        elif higher is not None:
+            # a graded river reaches it, higher than its shore: flowing in
+            why = (f' - the lowest contour its shore crosses; a graded river reaches it '
+                   f'at {higher:g} m, above that, so flows in rather than out - grade '
+                   'the one that drains it')
+        else:
+            why = (' - the lowest contour its shore crosses; grade the river that drains '
+                   'it for a truer level')
+        summary = (f'{name}: {text} m, from its {how}' + why
+                   + (f'; replaces {was} m' if was is not None and was != text else ''))
+        if was == text:
+            cmd, summary = None, f'{name} is already at {text} m, from its {how}'
+        xs = [m.lonlat_to_scene(sq.nodes[r].lon, sq.nodes[r].lat)
+              for w in ring for r in w.refs if r in sq.nodes]
+        centre = (sum(x for x, _ in xs) / len(xs), sum(y for _, y in xs) / len(xs)) if xs else (0, 0)
+        self._set_proposal(Proposal(sq, feature, cmd, summary,
+                                    preview=[(*centre, round(level, 1))], rejected_paths=[]))
+
+    def _set_proposal(self, proposal: Proposal | None) -> None:
+        self.proposal = proposal
+        if proposal is not None:
+            self.message.emit(proposal.summary + (' - Enter accepts, Escape drops it'
+                                                  if proposal.command else ''))
+        self.proposalChanged.emit()
+        self.overlay.update()
+
+    def accept_proposal(self) -> bool:
+        p = self.proposal
+        if p is None or p.command is None:
+            self._set_proposal(None)
+            return False
+        self.proposal = None                       # before the step, which drops it
+        self.do(p.square, p.command)
+        self.message.emit(f'accepted: {p.summary}')
+        self.proposalChanged.emit()
+        self.overlay.update()
+        return True
+
+    def cancel_proposal(self) -> None:
+        if self.proposal is not None:
+            self.message.emit('grade dropped')
+            self._set_proposal(None)
+
+    def _drop_proposal(self) -> None:
+        if self.proposal is not None:
+            self.proposal = None
+            self.proposalChanged.emit()
+            self.overlay.update()
+
     def _delete_relation(self, sel: Selection):
         """The lake, with the untagged rings that are nothing without it -
         ``edits.delete_relation`` says which. One step, so Ctrl+Z is the lake
@@ -1064,6 +1268,51 @@ class EditOverlay(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         return QRectF(-m.WORLD, -m.WORLD, 3 * m.WORLD, 3 * m.WORLD)
 
+    def _paint_proposal(self, painter: QPainter, proposal) -> None:
+        """A grade not yet accepted - G6b. The spans left ungraded in red, and
+        each proposed level as an amber diamond, hollow: a level that is not
+        there yet, apart from the water's own diamonds, which are. A lake's is
+        its value, written at its middle."""
+        scale = painter.worldTransform().m11() or 1.0
+        pen = QPen(QColor(200, 30, 30, 200), 4.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for run in proposal.rejected_paths or ():
+            path = QPainterPath(QPointF(*run[0]))
+            for pt in run[1:]:
+                path.lineTo(*pt)
+            painter.drawPath(path)
+        amber = QColor(220, 140, 0)
+        h = 4.5 / scale
+        # dark on a white halo: the river under it is haloed orange as the
+        # selection, and amber on orange is not there at all
+        halo = QPen(QColor(255, 255, 255, 230), 3.6)
+        halo.setCosmetic(True)
+        pen = QPen(QColor(120, 60, 0), 1.6)
+        pen.setCosmetic(True)
+        lake = not isinstance(proposal.feature, Way) or proposal.feature.closed
+        for x, y, level in proposal.preview or ():
+            if lake:
+                painter.save()
+                painter.translate(x, y)
+                painter.scale(1.0 / scale, 1.0 / scale)
+                font = painter.font()
+                font.setBold(True)
+                painter.setFont(font)
+                text = f'{level:g} m ?'
+                painter.setPen(QPen(QColor(255, 255, 255, 230), 4.0))
+                painter.drawText(QPointF(-20, 5), text)
+                painter.setPen(amber.darker(140))
+                painter.drawText(QPointF(-20, 5), text)
+                painter.restore()
+                continue
+            diamond = [QPointF(x, y - h), QPointF(x + h, y), QPointF(x, y + h), QPointF(x - h, y)]
+            painter.setPen(halo)
+            painter.drawPolygon(diamond)
+            painter.setPen(pen)
+            painter.drawPolygon(diamond)
+
     def paint(self, painter: QPainter, option, widget=None):
         ctl = self.ctl
         scale = painter.worldTransform().m11()
@@ -1105,7 +1354,11 @@ class EditOverlay(QGraphicsItem):
                 painter.setPen(halo); painter.drawPath(path)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(255, 140, 0))
-                if len(pts) <= 4000:
+                # not while a grade is proposed: at a zoom that shows a river
+                # whole, these vertex marks and its proposed levels were the
+                # same size, close in colour and on the same line - a mark on
+                # the river has to mean one thing
+                if len(pts) <= 4000 and ctl.proposal is None:
                     h = 2.5 * px
                     for x, y in pts:
                         if rect.contains(QPointF(x, y)):
@@ -1116,6 +1369,11 @@ class EditOverlay(QGraphicsItem):
                 painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
                 h = 5 * px
                 painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        # a grade not yet accepted, over the selection's halo: drawn under it,
+        # the red of a rejected span was hidden by the orange of the river
+        # being graded, which is the river it is on
+        if ctl.proposal is not None:
+            self._paint_proposal(painter, ctl.proposal)
         if ctl.tool != 'draw':
             return
         anchor = ctl._anchor()

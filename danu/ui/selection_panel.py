@@ -24,8 +24,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDockWidget, QFormLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core.ladder import format_ele
 from ..core.square import parse_ele
@@ -120,6 +131,79 @@ def describe(sel, layer) -> Info:
                 where=where + node_note, tags=_others(way.tags))
 
 
+class ProfileView(QWidget):
+    """A river's grade, along it - G6b's "shown before it lands".
+
+    Distance along the river across, elevation up. Where a contour crosses
+    it, a dark dot at the contour's value; the proposed levels, amber, joined;
+    the levels it has now, grey; and the spans left ungraded, shaded red -
+    which is where the contours climb as the river is drawn, the thing a list
+    of numbers hides and a line shows at once.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.proposal = None
+        self.setMinimumHeight(120)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def show_proposal(self, proposal) -> None:
+        self.proposal = proposal
+        self.setVisible(proposal is not None and proposal.dist is not None)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = self.proposal
+        if p is None or not p.dist:
+            return
+        values = [e for _, e in p.known or ()] + [v for v in p.levels or () if v is not None] \
+            + [v for v in p.current or () if v is not None]
+        if not values:
+            return
+        lo, hi = min(values), max(values)
+        pad = max(1.0, (hi - lo) * 0.08)
+        lo, hi = lo - pad, hi + pad
+        length = p.dist[-1] or 1.0
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = QRectF(self.rect()).adjusted(34, 6, -6, -16)
+        painter.fillRect(r, self.palette().base())
+        x = lambda d: r.left() + r.width() * d / length            # noqa: E731
+        y = lambda e: r.bottom() - r.height() * (e - lo) / (hi - lo)  # noqa: E731
+        for d0, d1, _, _ in p.rejected or ():
+            painter.fillRect(QRectF(x(d0), r.top(), max(1.0, x(d1) - x(d0)), r.height()),
+                             QColor(220, 40, 40, 60))
+        painter.setPen(QPen(QColor(150, 150, 150), 3.0))
+        for d, v in zip(p.dist, p.current or (), strict=False):
+            if v is not None:
+                painter.drawPoint(QPointF(x(d), y(v)))
+        pen = QPen(QColor(220, 140, 0), 2.0)
+        painter.setPen(pen)
+        path, open_ = QPainterPath(), False
+        for d, v in zip(p.dist, p.levels or (), strict=False):
+            if v is None:
+                open_ = False
+                continue
+            if open_:
+                path.lineTo(x(d), y(v))
+            else:
+                path.moveTo(x(d), y(v))
+                open_ = True
+        painter.drawPath(path)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(20, 70, 140))
+        for d, e in p.known or ():
+            painter.drawEllipse(QPointF(x(d), y(e)), 2.6, 2.6)
+        painter.setPen(self.palette().text().color())
+        painter.drawText(QRectF(0, r.top() - 6, 32, 14), Qt.AlignmentFlag.AlignRight,
+                         f'{hi - pad:g}')
+        painter.drawText(QRectF(0, r.bottom() - 8, 32, 14), Qt.AlignmentFlag.AlignRight,
+                         f'{lo + pad:g}')
+        painter.drawText(QRectF(r.left(), r.bottom() + 1, r.width(), 14),
+                         Qt.AlignmentFlag.AlignRight, f'{length / 1000:.1f} km')
+        painter.end()
+
+
 class SelectionPanel(QDockWidget):
     def __init__(self, editor, parent=None):
         super().__init__('Selected', parent)
@@ -148,7 +232,32 @@ class SelectionPanel(QDockWidget):
         form.addRow('', self.why)
         form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
+        # grading, for water - G6b: the action, findable without its key, and
+        # the proposal it makes, shown before it lands
+        self.grade_btn = QPushButton('Grade from the contours (G)')
+        self.grade_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.grade_btn.clicked.connect(editor.grade)
+        form.addRow('', self.grade_btn)
+        self.proposal_box = QWidget()
+        box = QVBoxLayout(self.proposal_box)
+        box.setContentsMargins(0, 6, 0, 0)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.profile = ProfileView()
+        buttons = QHBoxLayout()
+        self.accept_btn = QPushButton('Accept (Enter)')
+        self.drop_btn = QPushButton('Drop (Esc)')
+        for b in (self.accept_btn, self.drop_btn):
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            buttons.addWidget(b)
+        self.accept_btn.clicked.connect(editor.accept_proposal)
+        self.drop_btn.clicked.connect(editor.cancel_proposal)
+        box.addWidget(self.summary)
+        box.addWidget(self.profile)
+        box.addLayout(buttons)
+        form.addRow(self.proposal_box)
         self.setWidget(body)
+        editor.proposalChanged.connect(self.refresh_proposal)
         self.info = NOTHING
         self.ele.returnPressed.connect(self._commit)
         editor.selectionChanged.connect(self.refresh)
@@ -167,6 +276,21 @@ class SelectionPanel(QDockWidget):
                             "water level. Escape puts it back.")
         self.where.setText(info.where or '—')
         self.tags.setText(info.tags or '—')
+        sel = self.editor.selection
+        water = sel is not None and (sel.relation is not None or (
+            sel.way is not None and (sel.square.name, sel.way.id) in self.editor.layer.water))
+        self.grade_btn.setVisible(water)
+        self.refresh_proposal()
+
+    def refresh_proposal(self) -> None:
+        p = getattr(self.editor, 'proposal', None)
+        self.proposal_box.setVisible(p is not None)
+        if p is None:
+            self.profile.show_proposal(None)
+            return
+        self.summary.setText(p.summary)
+        self.accept_btn.setEnabled(p.command is not None)
+        self.profile.show_proposal(p)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self.ele.hasFocus():
