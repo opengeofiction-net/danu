@@ -65,8 +65,15 @@ LINE_KINDS = ('river', 'stream')
 # nowhere in the query.
 AREA_KINDS = ('riverbank',)
 
+# the tags upstream is the authority for, on a feature the square already
+# holds: what kind of water it is and what it is called. A second import takes
+# these from the answer even where the mapper has changed them - G5a, and the
+# line R40 draws, upstream owning where the river is. Everything else on the
+# feature, `ele` first among it, is the mapper's
+UPSTREAM_OWNS = ('natural', 'water', 'waterway', 'name')
+
 # the tags a feature keeps. A key alone means every value of it
-KEEP = ('natural', 'water', 'waterway', 'name', 'ele')
+KEEP = (*UPSTREAM_OWNS, 'ele')
 
 
 def query(bounds: tuple[float, float, float, float]) -> str:

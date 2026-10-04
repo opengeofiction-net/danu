@@ -353,7 +353,7 @@ def test_an_import_is_one_step_and_takes_itself_back(ws):
     sq = a_square()
     before = edits.snapshot(sq)
 
-    cmd = edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+    cmd = edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_nodes=placed.nodes, new_ways=placed.ways,
                             new_relations=placed.relations)
     assert cmd.ways(sq) == set(placed.ways)
     # the nodes that carry an elevation, not every node imported: a river
@@ -374,9 +374,9 @@ def test_an_import_is_one_step_and_takes_itself_back(ws):
 
 
 def test_a_second_import_replaces_and_still_undoes_exactly(ws):
-    """What to write when the square already holds the feature is
-    reconciliation, which is G5. What this owes is that whatever it does
-    write can be taken back - the floor G5 builds on."""
+    """Upstream owns `name`, so a held way's name follows the answer - and
+    whatever the import writes, an undo takes back exactly. G4b wrote this as
+    the floor; G5a's merge keeps it."""
     from danu.core import edits
     from danu.core.square import Way
 
@@ -387,7 +387,7 @@ def test_a_second_import_replaces_and_still_undoes_exactly(ws):
     sq.ways[301] = Way(id=301, refs=[9, 8], tags={'name': 'as it was'})
     before = edits.snapshot(sq)
 
-    cmd = edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+    cmd = edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_nodes=placed.nodes, new_ways=placed.ways,
                             new_relations=placed.relations)
     cmd.apply(sq)
     assert sq.ways[301].tags['name'] == 'Lake Kinser', 'the import did not land'
@@ -405,7 +405,7 @@ def test_an_import_goes_on_the_history_and_off_it(ws):
     history = edits.SetUndoStack()
     before = edits.snapshot(sq)
 
-    history.do(sq, edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+    history.do(sq, edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_nodes=placed.nodes, new_ways=placed.ways,
                                      new_relations=placed.relations))
     assert history.dirty(sq)
     assert len(sq.ways) > 0
@@ -436,7 +436,7 @@ def test_a_square_an_import_brought_into_being_saves(tmp_path, ws):
     assert not absent.present and absent.path is None
 
     history = edits.SetUndoStack()
-    history.do(absent, edits.ImportWater(new_nodes=placed.nodes, new_ways=placed.ways,
+    history.do(absent, edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_nodes=placed.nodes, new_ways=placed.ways,
                                          new_relations=placed.relations))
     report = save.save_square(absent, history, tmp_path / 'S24E125.osm.xz')
     assert report.framed, 'a square brought into being was not framed'
@@ -462,7 +462,7 @@ def test_applying_twice_without_an_undo_keeps_the_original(ws):
     sq.ways[301] = Way(id=301, refs=[9, 8], tags={'name': 'as it was'})
     before = edits.snapshot(sq)
 
-    cmd = edits.ImportWater(new_ways=placed.ways)
+    cmd = edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_ways=placed.ways)
     cmd.apply(sq)
     cmd.apply(sq)                      # no undo between
     cmd.undo(sq)
