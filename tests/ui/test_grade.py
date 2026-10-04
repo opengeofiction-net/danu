@@ -11,6 +11,7 @@ pytest.importorskip('PySide6')
 
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter
+from PySide6.QtWidgets import QApplication, QDockWidget
 
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, SquareName, Way
@@ -718,10 +719,13 @@ def test_the_panel_lists_what_the_grade_found_and_a_click_takes_the_map_there(wi
     panel.issues.itemClicked.emit(item)
     issue = p.issues[0]
     assert window.editor.focused_issue is issue
-    assert 13 <= window.map.zoom <= 16, f'the map was not taken to it: z{window.map.zoom}'
-    centre = window.map.mapToScene(window.map.viewport().rect().center())
-    xs = [x for x, _ in issue.path]
-    assert min(xs) - 1 <= centre.x() <= max(xs) + 1, 'the map is not on it'
+    # on it, and all of it in sight - a zoom number would depend on the size
+    # of the window, which on the Windows runner is a sliver
+    seen = window.map.mapToScene(window.map.viewport().rect()).boundingRect()
+    assert all(seen.contains(QPointF(*pt)) for pt in issue.path), 'the map is not on it'
+    assert window.map.zoom <= 16 and seen.width() < 20 * (max(x for x, _ in issue.path)
+                                                         - min(x for x, _ in issue.path)), (
+        f'not taken to it: z{window.map.zoom}')
     assert issue.text in window.statusBar().currentMessage()
 
 
@@ -805,6 +809,12 @@ def test_level_labels_are_thinned_below_z16_and_all_there(window, sq):
     grade(window, sq, r)
     window.editor.accept_proposal()
     window.editor.selection = None
+    # room for the river across the map, whatever the runner's screen
+    for dock in window.findChildren(QDockWidget):
+        dock.hide()
+    window.resize(1200, 800)
+    QApplication.processEvents()
+    assert window.map.viewport().width() >= 600, window.map.viewport().size()
     layer = window.contours
     for z in (14, 15):
         _render(window, 125.31, LAT, z)
@@ -818,7 +828,8 @@ def test_level_labels_are_thinned_below_z16_and_all_there(window, sq):
 def test_a_short_span_is_shown_no_nearer_than_z16(window, sq):
     """A climb some 200 m long fitted to the window went to z19, where the
     river round it - which is what says where it is - was off the screen."""
-    for lon, ele in ((125.301, 100), (125.303, 50), (125.305, 75)):
+    # some 20 m: nearer than z16 fitted to any window
+    for lon, ele in ((125.3010, 100), (125.3012, 50), (125.3014, 75)):
         contour(sq, lon, ele)
     r = river(sq, EAST)
     rebuild(window)
