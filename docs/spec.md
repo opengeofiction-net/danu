@@ -913,9 +913,13 @@ Three parts, in this order:
   refused where a member is shared with flowing water (R27). An island's ring
   takes the level too and keeps its own contours. Contours inside the water are
   deleted, not kept as bathymetry; contours crossing the shore at another level
-  are pulled back from it, as far as the strength says. A closed contour at the
-  lake's level with nothing inside fills flat. When a re-import changes a
-  flattened lake's outline, the lake is reported for flattening again.
+  are pulled back from it, as far as the strength says. The shore alone does not
+  fill flat - isofill declines ground that sees one level all round, as a
+  hilltop does - so for now straight fill lines at the lake's level cross the
+  water every 120 m, tagged `danu:fill`, to be deleted in one pass once isofill
+  holds a marked one-level enclosure flat, lakes and plateaus alike. When a
+  re-import changes a flattened lake's outline, the lake is reported for
+  flattening again.
 - **G7b, burn** (R25). From a span the grade left ungraded because the contours
   climb, bend those contours back from the river so it crosses them in
   descending order. The strength is how far into the hillside the bend reaches

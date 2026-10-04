@@ -2893,3 +2893,70 @@ tested on `grade_along`, the grader the editor uses, drawn either way round.
 Both fail when `grade_along` is let grade a climb. The agreement test between
 the two graders goes, its reference with it; `densify` and the segment lengths
 keep their tests, in `test_profile_geometry.py`.
+
+## G7a, flatten
+
+**F flattens the selected lake at its level**, proposed like a grade and
+accepted as one step across every square it touches. Four edits, in
+`danu/water/flatten.py`, with no Qt:
+
+- the level on its outline as `ele` - a closed way's own, a relation's member
+  ways, an island's ring among them. A member another relation names is
+  refused, and one that is flowing water's bank says so (R27);
+- contours in the water deleted, the islands' kept;
+- contours crossing the shore clipped, and drawn back from it by a distance
+  the proposal sets - 100 m by default, tried before it is accepted - unless
+  at the lake's own level, which stay touching it;
+- fill lines across the water at its level, every 120 m, tagged `danu:fill`.
+
+**The fill lines are an interim measure, and the measurement that made them
+one.** The design said a closed contour at the lake's level with nothing
+inside fills flat. It does not. Lake Kinser flattened that way came out 125 to
+150 m with 8% of it at its level, median 132. The shore was in the
+constraints; isofill declines a cell that sees one level in every direction -
+which is how a hilltop looks, a closed contour with nothing inside - and its
+second pass filled the lake from the 150 to 200 m islands. Holding it flat from
+the squares needs something inside it. Spot heights on a grid needed 2,586
+nodes at 120 m for 96% at 3 arcseconds. Straight lines, as AlvedC's mapper
+had drawn across its big lake a kilometre apart, need far fewer:
+
+| Lines at 125 m, 120 m apart unless said | nodes | at 125 m, 3" | at 125 m, 1" |
+|---|---|---|---|
+| none | 0 | 8% | - |
+| 1,000 m | 38 | 35% | - |
+| 250 m | 144 | 95.1% | 97.1% |
+| 120 m | 296 | 98.8% | **99.7%** |
+
+At 250 m the hillshade showed smears off the islands' tips; at 120 m none, and
+no striping. Through the editor, the flatten of Lake Kinser - 105 contours
+removed, 21 drawn back, 148 fill lines - built at 1 arcsecond puts 41,734 cells
+of lake at 125 m to 99.7%. An isofill change that holds a marked one-level
+enclosure flat, for plateaus as much as lakes, is the real fix; then every way
+tagged `danu:fill` is deleted in one pass.
+
+**Water with a level is still water in the editor.** Any way with a usable
+`ele` was a contour, which a flattened lake's outline now has. A lake's
+outline - a closed `natural=water` way, or a ring of a water relation - stays
+water: drawn, filled and picked as the lake, left out of the contour arrays and
+the ladder. A waterway *line* with an `ele` is a contour as before: Los
+Pizarrales has eight `ldata:survey=thalweg` river pieces pinning a valley floor,
+and the first version of this rule took them away from the golden ladder. Fill
+lines are drawn dashed over the water and are in nothing a click or a grade
+reads. Lake Kinser showed why the rule is needed: one of its rings is also
+tagged `natural=wood`, and with a level on it the editor drew and picked it as
+a 125 m contour.
+
+**A flattened lake's level stays one level.** Setting it by L, the panel or G
+carries the new level to its outline and fill lines in the same step;
+clearing it takes the outline's `ele` and the fill lines. Its contours were
+clipped against the old level, and the message says F again redoes them.
+
+`ReplaceWay` is the new edit: a way replaced by pieces through its own nodes
+and new ones, orphans kept for the undo - G7b's bends will use it too. The
+shore tests went to numpy after the first version took 4.9 s on Lake Kinser's
+3,000 shore edges; 0.85 s now, the same answers.
+
+Not yet: reporting a flattened lake whose outline a re-import changes, which
+the spec asks for - a follow-up.
+
+Fourteen mutations, each failing a test, every one from a fresh copy.

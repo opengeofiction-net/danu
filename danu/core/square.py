@@ -159,6 +159,12 @@ class Way:
         return len(self.refs) > 1 and self.refs[0] == self.refs[-1]
 
 
+def water_tags(tags: dict) -> bool:
+    """``natural=water``, or any ``waterway``. Asked of a way and of a
+    relation with the one function, so the two cannot drift apart."""
+    return tags.get('natural') == 'water' or 'waterway' in tags
+
+
 def parse_ele(value: str | None) -> float | None:
     """A tag's elevation, or None where there is not one.
 
@@ -200,10 +206,31 @@ class Square:
         return self.name.bounds
 
     def contours(self) -> Iterator[Way]:
-        """Ways with a usable elevation, in file order."""
+        """Ways with a usable elevation, in file order - and not water. A lake
+        flattened at a level carries it on its outline (G7a), which the build
+        reads as a contour and should; in the editor it is the water's level,
+        and a contour only in what the surface is built from.
+
+        A waterway *line* with an ``ele`` is still a contour here, as it always
+        was: squares carry them on purpose - Los Pizarrales has eight
+        ``ldata:survey=thalweg`` river pieces, each at one level, pinning a
+        valley floor - and they are a mapper's constraint like any other."""
+        bodies = self.water_bodies()
         for way in self.ways.values():
-            if way.ele is not None:
+            # and not a lake's fill line (G7a): the lake's level drawn across
+            # it for the build's sake, no contour of anybody's
+            if way.ele is not None and way.id not in bodies and 'danu:fill' not in way.tags:
                 yield way
+
+    def water_bodies(self) -> set[int]:
+        """The outlines of still water: a closed ``natural=water`` way, and
+        every ring of a water relation, whose tagging is the relation's."""
+        out = {w.id for w in self.ways.values()
+               if w.tags.get('natural') == 'water' and w.closed}
+        for rel in self.relations.values():
+            if water_tags(rel.tags):
+                out.update(m.ref for m in rel.members if m.type == 'way')
+        return out
 
     def coords(self, way: Way) -> list[tuple[float, float]]:
         """(lon, lat) along a way. A ref with no node is skipped rather than

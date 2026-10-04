@@ -352,6 +352,47 @@ class DeleteWay(Command):
 
 
 @dataclass
+class ReplaceWay(Command):
+    """A way replaced by pieces through its own nodes and new ones - a contour
+    clipped at a lake's shore, or bent back from a river (G7). No pieces is
+    the way removed. Nodes the way held that nothing references afterwards go
+    with it, as ``DeleteWay``'s orphans do, and everything is kept for the
+    undo. The tags are the way's, on every piece; the first piece may keep
+    the way's own id."""
+    way_id: int
+    pieces: list[tuple[int, list[int]]]
+    new_nodes: dict[int, Coord]
+    original: Way | None = None
+    orphans: dict[int, Node] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id, *(wid for wid, _ in self.pieces)}
+
+    def apply(self, square: Square) -> None:
+        self.original = square.ways.pop(self.way_id)
+        for nid, (lon, lat) in self.new_nodes.items():
+            square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
+        for wid, refs in self.pieces:
+            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(self.original.tags))
+        still_used = {r for w in square.ways.values() for r in w.refs}
+        self.orphans = {r: square.nodes.pop(r) for r in dict.fromkeys(self.original.refs)
+                        if r not in still_used and r in square.nodes}
+
+    def undo(self, square: Square) -> None:
+        for wid, _ in self.pieces:
+            del square.ways[wid]
+        for nid in self.new_nodes:
+            del square.nodes[nid]
+        square.nodes.update(self.orphans)
+        square.ways[self.way_id] = self.original
+        self.orphans = {}
+
+    def describe(self) -> str:
+        ele = self.original.tags.get('ele', '') if self.original else ''
+        return f'reshape {ele} m contour' if self.pieces else f'remove {ele} m contour'
+
+
+@dataclass
 class SetNodeLevels(Command):
     """Many vertices' tags replaced as one step - a graded river's levels
     (G6b), and Ctrl+Z takes the whole grade back.
