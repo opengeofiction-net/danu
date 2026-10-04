@@ -75,7 +75,7 @@ def test_a_river_is_graded_between_its_crossings_by_distance(window, sq):
     r = river(sq, EAST)
     rebuild(window)
     p = grade(window, sq, r)
-    assert p is not None and p.command is not None
+    assert p is not None and p.acceptable
     assert '3 crossings' in p.summary and '6 of 11 points' in p.summary
     window.editor.accept_proposal()
     got = levels(sq, r)
@@ -163,7 +163,7 @@ def test_a_river_already_graded_has_nothing_to_accept(window, sq):
     grade(window, sq, r)
     window.editor.accept_proposal()
     p = grade(window, sq, r)
-    assert p.command is None and 'nothing to change' in p.summary
+    assert not p.acceptable and "nothing to change" in p.summary
     assert not window.selection_panel.accept_btn.isEnabled()
 
 
@@ -418,3 +418,138 @@ def test_only_water_is_offered_a_grade(window, sq):
     window.editor.grade()
     assert window.editor.proposal is None
     assert 'grading is for water' in window.statusBar().currentMessage()
+
+
+# ------------------------------------------------------------- chains (G6d)
+
+def test_a_way_with_no_crossings_of_its_own_is_graded_as_part_of_its_chain(window, sq):
+    """Graded way by way it would get nothing; the next pieces have the
+    crossings. On the gobras set the 150 chains of three or more ways level
+    7,481 vertices this way instead of 4,090."""
+    three_contours(sq)                                   # at 125.325, 125.355, 125.385
+    a = river(sq, [125.30, 125.31, 125.32, 125.33])      # crosses 100
+    b = river(sq, [125.33, 125.34, 125.35])              # crosses nothing
+    c = river(sq, [125.35, 125.36, 125.37, 125.38, 125.39])   # crosses 75 and 50
+    b.refs[0], c.refs[0] = a.refs[-1], b.refs[-1]        # end to end, sharing nodes
+    rebuild(window)
+    p = grade(window, sq, b)
+    assert 'a chain of 3 ways' in p.summary
+    window.editor.accept_proposal()
+    assert levels(sq, b)[1] == '87.5', 'the middle piece was not graded from its neighbours'
+    window.editor.undo()
+    assert all(v is None for w_ in (a, b, c) for v in levels(sq, w_)), 'not one step'
+
+
+def test_a_chain_across_two_squares_is_one_step_and_its_junction_level_is_in_both(window, sq):
+    """An import puts each way whole into one square, nodes and all, so the
+    node two ways in two squares share is in both files under one OSM id -
+    and a level on it has to be in both, or the squares disagree."""
+    here = window.working_set.squares[SquareName(125, -24)]
+    junction = 7_000_001
+    for s_, lat in ((here, -23.0), (sq, -23.0)):
+        s_.nodes[junction] = Node(id=junction, lon=125.35, lat=lat)
+    for s_, ids, lats in ((here, [7_000_002, 7_000_003], (-23.06, -23.03)),
+                          (sq, [7_000_004, 7_000_005], (-22.97, -22.94))):
+        for i, la in zip(ids, lats, strict=True):
+            s_.nodes[i] = Node(id=i, lon=125.35, lat=la)
+    here.ways[7_000_010] = Way(id=7_000_010, refs=[7_000_002, 7_000_003, junction],
+                               tags={'waterway': 'stream'})
+    sq.ways[7_000_011] = Way(id=7_000_011, refs=[junction, 7_000_004, 7_000_005],
+                             tags={'waterway': 'stream'})
+    # one contour crosses each piece, so neither grades alone - and 4.4 km
+    # apart, inside the 5 km a span may run (the first layout put them 10 km
+    # apart and graded nothing, rightly)
+    for s_, la, ele in ((here, -23.02, 100), (sq, -22.98, 50)):
+        i = next(_ids)
+        s_.ways[i] = Way(id=i, refs=[node(s_, 125.30, la), node(s_, 125.40, la)],
+                         tags={'ele': str(ele)})
+    rebuild(window)
+    p = grade(window, sq, sq.ways[7_000_011])
+    assert p is not None and 'a chain of 2 ways' in p.summary
+    window.editor.accept_proposal()
+    a, b = here.nodes[junction].tags.get('ele'), sq.nodes[junction].tags.get('ele')
+    assert a is not None and a == b, f'the junction disagrees between the squares: {a} / {b}'
+    window.editor.undo()
+    assert 'ele' not in here.nodes[junction].tags and 'ele' not in sq.nodes[junction].tags
+
+
+def test_a_gap_walked_across_is_reported_with_where_it_is(window, sq):
+    three_contours(sq)
+    river(sq, [125.30, 125.31, 125.32, 125.33])
+    gap = river(sq, [125.33, 125.34, 125.35, 125.36, 125.37, 125.38, 125.39], lat=LAT + 2.5 / 110540)
+    rebuild(window)
+    p = grade(window, sq, gap)
+    assert 'walked across 1 gap' in p.summary and 'a mapping error' in p.summary
+    # placed where the piece that stops short ends - 2.5 m north of the other
+    assert '-22.69998, 125.33000' in p.summary, 'the gap is not placed'
+    assert len(p.joins) == 1 and p.chain_paths and len(p.chain_paths) == 2
+
+
+def test_a_point_a_way_passes_through_twice_is_counted_once(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    r.refs.insert(6, r.refs[4])                         # back through its own node
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert '11 points' in p.summary, p.summary
+
+
+def test_the_whole_chain_is_drawn_not_only_the_way_clicked(window, sq):
+    """Read from pixels on a piece that was not clicked. Measured: the chain's
+    halo comes out (242, 201, 152) beside the line; without it the ground is
+    (235, 235, 235)."""
+    three_contours(sq)
+    a = river(sq, [125.30, 125.31, 125.32, 125.33])
+    b = river(sq, [125.33, 125.34, 125.35])
+    c = river(sq, [125.35, 125.36, 125.37, 125.38, 125.39])
+    b.refs[0], c.refs[0] = a.refs[-1], b.refs[-1]
+    rebuild(window)
+    grade(window, sq, b)
+    n = sq.nodes[a.refs[1]]
+    window.map.set_zoom(15)
+    window.map.center_on_lonlat(n.lon + 0.004, n.lat)
+    img = QImage(window.map.viewport().size(), QImage.Format.Format_ARGB32)
+    img.fill(QColor('white'))
+    painter = QPainter(img)
+    window.map.render(painter)
+    painter.end()
+    cx, cy = img.width() // 2, img.height() // 2
+    halo = sum(1 for x in range(cx - 10, cx + 11) for y in range(cy - 5, cy + 6)
+               if (c_ := img.pixelColor(x, y)).red() > 230 and 180 < c_.green() < 220
+               and c_.blue() < 170)
+    assert halo >= 40, f'the rest of the chain is not shown ({halo} px)'
+
+
+def test_a_gap_counts_as_distance_and_a_shared_node_counts_once(window, sq):
+    """The chain's distances, read straight from the proposal: across a join
+    by a shared node the next piece starts where the last ended, once; across
+    a gap the distance steps by the gap."""
+    three_contours(sq)
+    a = river(sq, [125.30, 125.31, 125.32, 125.33])
+    b = river(sq, [125.33, 125.34, 125.35])
+    c = river(sq, [125.35, 125.36, 125.37, 125.38, 125.39])
+    b.refs[0], c.refs[0] = a.refs[-1], b.refs[-1]
+    rebuild(window)
+    p = grade(window, sq, b)
+    assert len(p.dist) == 4 + 3 + 5 - 2, 'a shared node was walked twice'
+    assert all(d2 > d1 for d1, d2 in zip(p.dist, p.dist[1:], strict=False))
+
+    sq.ways.clear()
+    three_contours(sq)
+    river(sq, [125.30, 125.31, 125.32, 125.33])
+    gap = river(sq, [125.33, 125.34, 125.35, 125.36, 125.37, 125.38, 125.39],
+                lat=LAT + 2.5 / 110540)
+    rebuild(window)
+    p = grade(window, sq, gap)
+    steps = [d2 - d1 for d1, d2 in zip(p.dist, p.dist[1:], strict=False)]
+    assert any(abs(st - 2.5) < 0.3 for st in steps), 'the gap is not distance'
+
+
+def test_two_nodes_on_one_spot_are_said_as_that_not_as_a_gap(window, sq):
+    three_contours(sq)
+    a = river(sq, [125.30, 125.31, 125.32, 125.33])
+    b = river(sq, [125.33, 125.34, 125.35, 125.36, 125.37, 125.38, 125.39])
+    assert a.refs[-1] != b.refs[0]                       # two nodes, one place
+    rebuild(window)
+    p = grade(window, sq, b)
+    assert 'two nodes on one spot, not merged' in p.summary

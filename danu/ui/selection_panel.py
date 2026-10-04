@@ -291,7 +291,7 @@ class SelectionPanel(QDockWidget):
             self.profile.show_proposal(None)
             return
         self.summary.setText(p.summary)
-        self.accept_btn.setEnabled(p.command is not None)
+        self.accept_btn.setEnabled(p.acceptable)
         self.profile.show_proposal(p)
 
     def keyPressEvent(self, event):

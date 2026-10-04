@@ -2687,3 +2687,61 @@ multipolygon (`natural=water` + `water=river`) was proposed one flat level,
 which is exactly what R27 forbids and how the Bosco River's area once got its
 mouth's height. `set_ele` refused it; `grade` did not. Both refuse now, and
 only water relations are offered a grade.
+
+## G6d-1, chains
+
+Mappers split a river wherever they stopped, or a tag changed, or a bridge went
+over: on the gobras set 158 of 398 named rivers and streams are more than one
+way, the Bosco River thirty-eight. Graded way by way, a piece with one crossing
+gets nothing though the next has five. **G now grades the chain the selected
+way belongs to** - JOSM's non-branching way sequence - and on the gobras set,
+through the editor's own code, the 149 chains of three or more ways level
+**7,478 points instead of 4,090**, 83% more. Wandrasoon Creek, nine ways: 428
+of 539 points, 100 m to 15 m over 12.3 km, as one step.
+
+`danu/core/chains.py`, with no Qt. A chain runs end to end through nodes where
+exactly two waterway lines meet, both ending there, and stops where a third
+meets it (a confluence - 241 on the set), where one passes through without
+ending (a tributary drawn on to a river's side - 496, G6d-2's ground), where it
+comes back on itself (12), and where it ends (1,099). Its pieces are walked in
+one order, each against its drawing where it has to be, and never reversed;
+the grade finds downstream itself (G6b). A chain runs into the next square by
+an imported node's id, which is the same OSM node in both files - so **a level
+on a junction is written into both copies**, as one step across the squares.
+A negative id belongs to one file and chains nothing next door.
+
+**Gaps of up to 5 m between free ends are walked across, for the grade only.**
+No node is added or moved; the gap's length is distance along the chain; and
+each is reported, with where it is, as a mapping error to join upstream. On
+the gobras set that is seven, all in two-way chains: six are two nodes on one
+spot never merged - said as that, since "a 0 m gap" names nothing to fix - and
+one is 2.5 m at the Petunia River. None crosses into a differently named
+waterway, and that is refused anyway, as is a gap with two pieces in reach of
+it, which is a branch the data does not say is one. The 5 m was chosen from a
+measurement: end to end, 1 m catches six of the set's breaks and 5 m seven,
+and nothing within 25 m joins two differently named streams. Most snapping
+misses are not end to end at all but a tributary stopping short of a river's
+side, which is a network join and G6d-2's.
+
+**Seen on the gobras set:** Wandrasoon Creek's summary said 429 points and
+wrote 428. Its way 30384414 passes through one of its own nodes twice, which
+gives that node two distances and two levels; the upstream visit's is the one
+written, and points are counted as nodes now, not as places along the chain.
+
+**And a G6b fix that never landed.** G6b's review commit said the Proposal's
+annotations matched their neighbours; on main they did not. A falsification
+probe later in G6b restored `tools.py` from a copy saved before that edit,
+silently reverting it. Done here - and mutations now take a fresh copy just
+before each one and `cmp` it after restoring, rather than reusing one across
+edits.
+
+Fourteen mutations, each failing at least one test, every one from a fresh
+copy: no gap crossing, any distance, crossing into another named stream,
+crossing with two in reach, walking through a pass-through, walking through a
+confluence, local ids treated as global, a junction written in one square
+only, a gap not counted as distance, a shared node walked twice, one way only,
+points counted as places, a gap not reported, and the chain not drawn. Three of
+them survived the first tests - the gap's distance, the shared node and the
+drawing - and have tests of their own now: the proposal's distances read
+straight, and the chain's halo read from pixels on a piece that was not
+clicked.

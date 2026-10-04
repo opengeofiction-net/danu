@@ -358,15 +358,16 @@ class SetNodeLevels(Command):
 
     Not a ``Compound`` of ``SetNodeTags``: each of those answers ``ways()``
     by scanning every way in the square for the one node it names, and a
-    grade names hundreds. The way they are vertices of is known here, and is
-    the only way to redraw - its shape has not changed, its levels have.
+    grade names hundreds. The ways they are vertices of are known here - one
+    for a river, several for a chain (G6d) - and are the only ways to redraw:
+    their shape has not changed, their levels have.
     """
     changes: dict[int, tuple[dict, dict]]      # node id -> (tags before, after)
-    way_id: int | None = None
+    way_ids: tuple[int, ...] = ()               # the ways they are vertices of, to redraw
     name: str = 'set levels'
 
     def ways(self, square: Square) -> set[int]:
-        return {self.way_id} if self.way_id is not None else set()
+        return set(self.way_ids)
 
     def spots(self, square: Square) -> set[int]:
         return set(self.changes)

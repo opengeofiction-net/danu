@@ -29,6 +29,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import edits, geometry, profile
+from ..core.chains import Network
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
 from ..water.overpass import flows
@@ -86,7 +87,7 @@ class Proposal:
     """
     square: Square
     feature: object                       # the Way or Relation it is for
-    command: object                       # what Accept does, as one step
+    command: object                       # what Accept does, as one step - a lake's
     summary: str
     # a river's profile, for the panel to draw - metres along it, and per
     # vertex the level proposed and the level it has now
@@ -96,8 +97,18 @@ class Proposal:
     known: list | None = None             # (metres, contour) where one crosses
     rejected: list | None = None          # (d0, d1, e0, e1) spans left ungraded
     # for the map: each proposed level at its place, and each rejected span
-    preview: list = None
-    rejected_paths: list = None
+    preview: list | None = None
+    rejected_paths: list | None = None
+    # a chain's (G6d): what Accept does when the grade spans squares - one
+    # step on the history across them - and the ways of the chain and the gaps
+    # it was walked across, for the map
+    steps: list | None = None
+    chain_paths: list | None = None
+    joins: list | None = None             # (scene x, y, gap metres)
+
+    @property
+    def acceptable(self) -> bool:
+        return self.command is not None or bool(self.steps)
 
 
 class EditController(QObject):
@@ -1085,34 +1096,79 @@ class EditController(QObject):
             self.message.emit('grading is for water - select a river or a lake')
 
     def _propose_river(self, sq: Square, way: Way) -> None:
+        """A river graded as the chain it belongs to - G6d. The ways it was
+        split into, end to end, crossing gaps of up to ``chains.TOLERANCE_M``
+        between free ends: the vertices in one order, the distances and the
+        crossings carried across each link, one grade along the lot."""
+        chain = Network(self.working_set).chain_of(sq, way)
+        seq, dist, known, offset = [], [], [], 0.0      # seq: (square, node id)
+        crossed = {(j.after, j.before): j for j in chain.joins}
+        for i, link in enumerate(chain.links):
+            refs, d = self.layer.along(link.square, link.way)
+            if len(refs) < 2:
+                continue
+            cr = self.layer.crossings_of(link.square, link.way)
+            length = d[-1]
+            if link.backwards:
+                refs, d = refs[::-1], [length - x for x in reversed(d)]
+                cr = [(length - x, e) for x, e in cr]
+            if i:
+                j = crossed.get((chain.links[i - 1].way.id, link.way.id))
+                if j is not None:
+                    offset += j.gap_m              # a gap: its length is distance too
+                elif seq and seq[-1][1] == refs[0]:
+                    refs, d = refs[1:], d[1:]       # the node the two share, once
+            seq += [(link.square, r) for r in refs]
+            dist += [offset + x for x in d]
+            known += [(offset + x, e) for x, e in cr]
+            offset += length
+        known = sorted(set(known))
         name = way.tags.get('name') or f'way {way.id}'
-        refs, dist = self.layer.along(sq, way)
-        known = self.layer.crossings_of(sq, way)
+        pieces = len(chain.links)
         if len(known) < 2:
             self.message.emit(f'{name} crosses {len(known)} contour'
-                              f'{"" if len(known) == 1 else "s"} - '
-                              'not enough to grade from')
+                              f'{"" if len(known) == 1 else "s"}'
+                              + (f' along its {pieces} ways' if pieces > 1 else '')
+                              + ' - not enough to grade from')
             return
         levels, rejected, upstream = profile.grade_along(known, dist)
         # to the decimetre: the build rasterises to the metre, and a level
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
         levels = [round(v, 1) if v is not None else None for v in levels]
-        current = [parse_ele(sq.nodes[r].tags.get('ele')) for r in refs]
-        changes, replaced = {}, 0
-        for r, lv, cur in zip(refs, levels, current, strict=True):
+        current = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
+        # a junction node an import placed in two squares is one OSM node in
+        # both files, and its level goes into both
+        squares = {link.square.name: link.square for link in chain.links}
+        changes: dict = {}
+        replaced = 0
+        for (s2, r), lv, cur in zip(seq, levels, current, strict=True):
             if lv is None:
                 continue
             text = format_ele(lv)
-            tags = sq.nodes[r].tags
-            if tags.get('ele') == text:
-                continue
-            replaced += cur is not None
-            changes[r] = (dict(tags), {**tags, 'ele': text})
+            for holder in ([s2] if r < 0 else [x for x in squares.values() if r in x.nodes]):
+                tags = holder.nodes[r].tags
+                if tags.get('ele') == text or r in changes.get(holder.name, {}):
+                    continue
+                if holder is s2:
+                    replaced += cur is not None
+                changes.setdefault(holder.name, {})[r] = (dict(tags), {**tags, 'ele': text})
+        steps = []
+        for sq_name, ch in changes.items():
+            ids = tuple(link.way.id for link in chain.links if link.square.name == sq_name)
+            steps.append((squares[sq_name], edits.SetNodeLevels(ch, ids, f'grade {name}')))
         graded = [v for v in levels if v is not None]
+        # points counted as nodes, not as places along the chain: a way that
+        # passes through one of its own nodes twice - Wandrasoon Creek's
+        # 30384414 does - gives that node two distances and two levels, and the
+        # first, the upstream visit, is the one written above
+        points = len({(s2.name, r) for s2, r in seq})
+        levelled = len({(s2.name, r) for (s2, r), lv in zip(seq, levels, strict=True)
+                        if lv is not None})
         # proposed even when nothing grades: the profile is what shows why
-        parts = [f'{name}: {len(known)} crossings, {len(graded)} of {len(refs)} points '
-                 f'levelled' + (f', {max(graded):g} to {min(graded):g} m' if graded else '')]
+        parts = [f'{name}' + (f': a chain of {pieces} ways' if pieces > 1 else '')
+                 + f', {len(known)} crossings, {levelled} of {points} points levelled'
+                 + (f', {max(graded):g} to {min(graded):g} m' if graded else '')]
         # two reasons a span is left ungraded, and they are told apart: a
         # climb is the contours and the river disagreeing; a long span is
         # ground nobody contoured - the lowland run of a river, mostly
@@ -1129,23 +1185,38 @@ class EditController(QObject):
                          + ', '.join(why))
         if upstream:
             parts.append('drawn upstream - graded from its higher end')
+        if chain.joins:
+            # crossed for the grade, and said, so the mapping error is fixed
+            # where it was made rather than hidden here
+            # six of the seven on the gobras set are two nodes on one spot,
+            # never merged - "a 0 m gap" would say nothing a mapper can act on
+            gaps = ', '.join((f'{j.gap_m:g} m' if j.gap_m >= 0.05 else
+                              'two nodes on one spot, not merged')
+                             + f' at {j.lat:.5f}, {j.lon:.5f}' for j in chain.joins)
+            parts.append(f'walked across {len(chain.joins)} gap'
+                         f'{"s" * (len(chain.joins) != 1)} between its ways ({gaps}) - '
+                         'a mapping error, to join upstream')
         if replaced:
             parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
-        if not changes:
+        if not steps:
             parts.append('already graded so - nothing to change')
-        nodes = sq.nodes
-        pts = {r: m.lonlat_to_scene(nodes[r].lon, nodes[r].lat) for r in refs}
-        index = dict(zip(refs, dist, strict=True))
+        pts = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
         bad = []
         for d0, d1, _, _ in rejected:
-            run = [pts[r] for r in refs if d0 - 1e-6 <= index[r] <= d1 + 1e-6]
+            run = [pt for pt, x in zip(pts, dist, strict=True) if d0 - 1e-6 <= x <= d1 + 1e-6]
             if len(run) >= 2:
                 bad.append(run)
+        chain_paths = []
+        for link in chain.links:
+            ns = link.square.nodes
+            run = [m.lonlat_to_scene(ns[r].lon, ns[r].lat) for r in link.way.refs if r in ns]
+            if len(run) >= 2:
+                chain_paths.append(run)
+        joins = [(*m.lonlat_to_scene(j.lon, j.lat), j.gap_m) for j in chain.joins]
         self._set_proposal(Proposal(
-            sq, way,
-            edits.SetNodeLevels(changes, way.id, f'grade {name}') if changes else None,
-            '; '.join(parts), dist, levels, current, known, rejected,
-            [(*pts[r], lv) for r, lv in zip(refs, levels, strict=True) if lv is not None], bad))
+            sq, way, None, '; '.join(parts), dist, levels, current, known, rejected,
+            [(*pt, lv) for pt, lv in zip(pts, levels, strict=True) if lv is not None], bad,
+            steps=steps, chain_paths=chain_paths, joins=joins))
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
@@ -1190,17 +1261,20 @@ class EditController(QObject):
         self.proposal = proposal
         if proposal is not None:
             self.message.emit(proposal.summary + (' - Enter accepts, Escape drops it'
-                                                  if proposal.command else ''))
+                                                  if proposal.acceptable else ''))
         self.proposalChanged.emit()
         self.overlay.update()
 
     def accept_proposal(self) -> bool:
         p = self.proposal
-        if p is None or p.command is None:
+        if p is None or not p.acceptable:
             self._set_proposal(None)
             return False
         self.proposal = None                       # before the step, which drops it
-        self.do(p.square, p.command)
+        if p.steps:
+            self.do_across(p.steps)                # a chain may run into the next square
+        else:
+            self.do(p.square, p.command)
         self.message.emit(f'accepted: {p.summary}')
         self.proposalChanged.emit()
         self.overlay.update()
@@ -1282,6 +1356,23 @@ class EditOverlay(QGraphicsItem):
         there yet, apart from the water's own diamonds, which are. A lake's is
         its value, written at its middle."""
         scale = painter.worldTransform().m11() or 1.0
+        # the whole chain being graded, not only the way that was clicked:
+        # the grade is the chain's, and so is what it will change (G6d)
+        chain = QPen(QColor(255, 140, 0, 90), 9.0)
+        chain.setCosmetic(True)
+        painter.setPen(chain)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for run in proposal.chain_paths or ():
+            path = QPainterPath(QPointF(*run[0]))
+            for pt in run[1:]:
+                path.lineTo(*pt)
+            painter.drawPath(path)
+        # each gap walked across: a ring, so the mapping error can be found
+        ring = QPen(QColor(120, 60, 0), 2.0)
+        ring.setCosmetic(True)
+        for x, y, _gap in proposal.joins or ():
+            painter.setPen(ring)
+            painter.drawEllipse(QPointF(x, y), 9.0 / scale, 9.0 / scale)
         pen = QPen(QColor(200, 30, 30, 200), 4.0)
         pen.setCosmetic(True)
         painter.setPen(pen)
