@@ -66,6 +66,9 @@ def test_a_graded_run_never_ascends(levels, drawn_upstream):
     if drawn_upstream:
         known = [(d[-1] - x, v) for x, v in known]
     got, _, rev = profile.grade_along(known, d)
+    # downstream found from the levels: the end at the higher crossing is upstream
+    by_d = sorted(known)
+    assert rev == (by_d[0][1] < by_d[-1][1])
     walk = list(reversed(got)) if rev else got
     run = []
     for v in [*walk, None]:

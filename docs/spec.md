@@ -892,7 +892,7 @@ a square is somebody's work and an import is not entitled to throw it away. One
 undoable step, so the answer to a bad import is Ctrl+Z.
 
 **G6, elevations on water.** R24: a level on a body or a waterway, by hand or
-from the contours it touches. The grading is the batch water step's -
+from the contours it touches. The grading is the rule the old per-zone water step used -
 a waterway takes each contour's value where it crosses one, graded between and
 forced to descend; a body takes its outlet - made per-feature and interactive
 rather than per-zone and unattended.
