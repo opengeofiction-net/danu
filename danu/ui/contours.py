@@ -39,9 +39,9 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
-from ..core import geometry
+from ..core import geometry, profile
 from ..core.rings import is_closed, relation_rings
-from ..core.square import Square, SquareName, Way, WorkingSet, parse_ele
+from ..core.square import Relation, Square, SquareName, Way, WorkingSet, parse_ele
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -1113,6 +1113,100 @@ class ContourLayer(QGraphicsItem):
             v = int(vd.argmin())
             best = (g.square, g.way, float(dist[i]), g.refs[v], float(vd[v]))
         return best
+
+    def along(self, square: Square, way: Way) -> tuple[list[int], list[float]]:
+        """A way's placed vertices and each one's distance along it in metres,
+        in drawn order - the measure G6b grades by."""
+        nodes = square.nodes
+        refs = [r for r in way.refs if r in nodes]
+        if len(refs) < 2:
+            return refs, [0.0] * len(refs)
+        seg = profile.seg_lengths([(nodes[r].lon, nodes[r].lat) for r in refs])
+        return refs, [0.0, *np.cumsum(seg).tolist()]
+
+    def crossings_of(self, square: Square, way: Way) -> list[tuple[float, float]]:
+        """Where contours cross a way, as (metres along it, elevation) - G6b.
+
+        Against every contour in the working set, not the way's own square:
+        a river near a degree line crosses the contours its neighbour holds.
+        A crossing is a proper one, or a node the way shares with a contour -
+        a contour snapped to a river, which ``geometry.crossings`` counts as a
+        touch and not a crossing, but is the clearest crossing there is.
+        Shared nodes are looked for in the way's own square only, and that is
+        not a gap: a node id belongs to one square's file, and a -5 there is
+        not the -5 next door, so a contour held next door cannot share one.
+        """
+        self._ensure_arrays()
+        refs, dist = self.along(square, way)
+        if len(refs) < 2 or not len(self._seg_ele):
+            return []
+        nodes = square.nodes
+        pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        near = ((np.minimum(self._seg_a, self._seg_b) <= hi).all(axis=1)
+                & (np.maximum(self._seg_a, self._seg_b) >= lo).all(axis=1))
+        a, b, ele = self._seg_a[near], self._seg_b[near], self._seg_ele[near]
+        out = []
+        for k in range(len(pts) - 1):
+            hit = geometry.crossings(pts[k], pts[k + 1], a, b)
+            if hit.any():
+                t = geometry.crossing_t(pts[k], pts[k + 1], a[hit], b[hit])
+                step = dist[k + 1] - dist[k]
+                out.extend((dist[k] + float(tt) * step, float(e))
+                           for tt, e in zip(t, ele[hit], strict=True) if not np.isnan(tt))
+        index = {r: i for i, r in enumerate(refs)}
+        for g in self._ways:
+            if g.square is square and g.way is not way:
+                for r in index.keys() & set(g.refs):
+                    out.append((dist[index[r]], float(g.ele)))
+        return sorted(set(out))
+
+    def outlet(self, square: Square, feature) -> tuple[float, str, float | None] | None:
+        """A still body's level - G6b, the batch grader's rule made per lake,
+        and corrected for being per lake.
+
+        Two candidates. **The outlet**: a river only descends, so the lowest
+        level on a waterway's points inside the body, or on its shore, is where
+        water leaves it - graded or set by hand, since a level a mapper put on
+        a river is a level on the river. **The rim**: the lowest contour its shore crosses,
+        which is where it would spill - so a ceiling on the level.
+
+        The batch grader takes the outlet when there is one and the rim
+        otherwise, which is right there because it grades every river at once:
+        the outflow is always among them, and always lowest. The editor grades
+        one river at a time, and with only the inflow graded the "outlet" is
+        where water comes in - on the gobras set, Lake Therran came out 10 m
+        above the 15 m contour crossing its own shore. So the level is the
+        lower of the two: the outlet whenever it is truly that, as in the
+        batch, and never above the spill.
+
+        Answers (level, which candidate it is, the other candidate when that
+        was higher), or None when there is neither.
+        """
+        if isinstance(feature, Relation):
+            key = (square.name, 'rel', feature.id)
+            rings = [square.ways[mem.ref] for mem in feature.members
+                     if mem.type == 'way' and mem.ref in square.ways]
+        else:
+            key = (square.name, 'way', feature.id)
+            rings = [feature]
+        fill = self.water_fills.get(key)
+        shore = {r for ring in rings for r in ring.refs}
+        out = None
+        for spot in self.spots.values():
+            if not spot.on_water:
+                continue
+            on_shore = spot.square is square and spot.node_id in shore
+            if on_shore or (fill is not None and fill.path.contains(QPointF(spot.x, spot.y))):
+                if out is None or spot.ele < out:
+                    out = spot.ele
+        rim_values = [e for ring in rings for _, e in self.crossings_of(square, ring)]
+        rim = min(rim_values) if rim_values else None
+        if out is None and rim is None:
+            return None
+        if rim is None or (out is not None and out <= rim):
+            return out, 'outlet', None
+        return rim, 'rim', out
 
     def _text_path(self, text: str, font: QFont) -> QPainterPath:
         """The outline of a label's text, centred on the origin, kept.
