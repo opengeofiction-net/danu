@@ -2353,7 +2353,9 @@ deleted from the answer are reported as exactly those six, by name. Deleting
 the lake realistically, so that its two untagged rings leave the answer with
 it, reports the relation and both rings.
 
-Ten mutations, each failing at least one test: ignoring the remark, refusing
-any remark, placing by anchor, an empty snapshot, counting any tag as asked
-for, counting negative ids, losing the ring rule, deleting instead of
-reporting, and comparing after the import was applied.
+Eleven mutations, each failing at least one test: ignoring the remark,
+refusing any remark, placing by anchor, an empty snapshot, counting any tag as
+asked for, counting negative ids, losing the ring rule, deleting instead of
+reporting, comparing after the import was applied - and, against the selector
+test once the local review had it read the whole union, a selector in another
+syntax and one `asked_for` does not know.
