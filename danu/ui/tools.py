@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import edits, geometry
 from ..core.ladder import format_ele
-from ..core.square import Square, Way, WorkingSet
+from ..core.square import Relation, Square, Way, WorkingSet
 from . import mercator as m
 from .contours import ContourLayer
 from .mapview import MapView, visible_rect
@@ -45,7 +45,7 @@ SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within th
 
 @dataclass
 class Selection:
-    """What is selected: a way, a node of one, or a spot height.
+    """What is selected: a way, a node of one, a spot height, or a relation.
 
     A spot height is the one with no way, since it belongs to none - so every
     reader of ``way`` has to ask, and ``spot`` is the question. That is the
@@ -54,17 +54,22 @@ class Selection:
     square: Square
     way: Way | None
     node: int | None = None
+    # a relation, chosen from the gone-from-upstream dock - G5c. A lake is a
+    # relation and not one of its rings, and deleting it has to mean the lake.
+    # Nothing on the map selects one: a click lands on a line, and which of
+    # the relations naming that line was meant is not something a click says
+    relation: Relation | None = None
 
     @property
     def spot(self) -> bool:
         """A node selected with no way around it.
 
         Which is a spot height by convention rather than by construction: it
-        answers *is there no way* and is read as *is this a spot height*, and
-        those are the same question only while nothing else builds a way-less
-        selection. Nothing does - the two places that clear a way clear the
-        whole selection with it - and a third way-less case would have to say
-        what it is rather than lean on this.
+        answers *is there no way, but a node* and is read as *is this a spot
+        height*. A relation selection is the other way-less case - G5c's, from
+        the gone dock - and it says what it is, as this asked a third case to:
+        ``relation`` is set and ``node`` is not, so this stays False for it.
+        Readers that act on a selection ask ``relation`` first.
         """
         return self.way is None and self.node is not None
 
@@ -184,7 +189,10 @@ class EditController(QObject):
             self.editedWays.emit(square, ways, spots)
         if self.drawing and (self.drawing[0] is square) and self.drawing[1] not in square.ways:
             self.drawing = None                      # the way being drawn was undone away
-        if self.selection and self.selection.way is not None and self.selection.way.id not in self.selection.square.ways:
+        if (self.selection and self.selection.relation is not None
+                and self.selection.relation.id not in self.selection.square.relations):
+            self.selection = None
+        elif self.selection and self.selection.way is not None and self.selection.way.id not in self.selection.square.ways:
             self.selection = None
         elif self.selection and self.selection.node is not None and self.selection.node not in self.selection.square.nodes:
             # a spot height undone away is nothing at all; a node of a way is
@@ -767,6 +775,9 @@ class EditController(QObject):
         if sel is None:
             self.message.emit('nothing selected')
             return
+        if sel.relation is not None:
+            self._delete_relation(sel)
+            return
         if sel.way is None:
             # a spot height is selected: Delete takes it, and this is the
             # action for being rid of a whole contour
@@ -787,6 +798,9 @@ class EditController(QObject):
         sel = self.selection
         if sel is None:
             self.message.emit('nothing selected')
+            return
+        if sel.relation is not None:
+            self._delete_relation(sel)
             return
         if sel.spot:
             if sel.node not in sel.square.nodes:
@@ -810,6 +824,24 @@ class EditController(QObject):
             self.do(sel.square, edits.DeleteWay(sel.way.id))
             self.selection = None
             self.message.emit(f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None else 'deleted a way')
+        self.overlay.update()
+
+    def _delete_relation(self, sel: Selection):
+        """The lake, with the untagged rings that are nothing without it -
+        ``edits.delete_relation`` says which. One step, so Ctrl+Z is the lake
+        back whole."""
+        if sel.relation.id not in sel.square.relations:
+            self.selection = None
+            self.message.emit('that relation is already gone')
+            return
+        cmd = edits.delete_relation(sel.square, sel.relation.id)
+        rings = len(cmd.commands) - 1
+        self.do(sel.square, cmd)
+        self.selection = None
+        name = sel.relation.tags.get('name')
+        what = f'"{name}"' if name else 'a relation'
+        self.message.emit(f'deleted {what}' + (f' and its {rings} ring{"s" * (rings != 1)}'
+                                              if rings else ''))
         self.overlay.update()
 
     @staticmethod
@@ -867,6 +899,23 @@ class EditOverlay(QGraphicsItem):
             painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
             h = 7 * px
             painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if (sel is not None and sel.relation is not None
+                and sel.relation.id in sel.square.relations):
+            # the relation's member ways, haloed, without the per-node marks:
+            # nothing here edits a relation's vertices, and a lake's rings run
+            # to thousands of them
+            halo = QPen(QColor(255, 140, 0, 140), 7.0); halo.setCosmetic(True)
+            painter.setPen(halo); painter.setBrush(Qt.BrushStyle.NoBrush)
+            for mem in sel.relation.members:
+                way = sel.square.ways.get(mem.ref) if mem.type == 'way' else None
+                if way is None:
+                    continue
+                pts = [m.lonlat_to_scene(lon, lat) for lon, lat in sel.square.coords(way)]
+                if len(pts) >= 2:
+                    path = QPainterPath(QPointF(*pts[0]))
+                    for p in pts[1:]:
+                        path.lineTo(*p)
+                    painter.drawPath(path)
         if sel is not None and sel.way is not None and sel.way.id in sel.square.ways:
             pts = [m.lonlat_to_scene(lon, lat) for lon, lat in sel.square.coords(sel.way)]
             if len(pts) >= 2:

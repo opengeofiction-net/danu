@@ -2359,3 +2359,70 @@ asked for, counting negative ids, losing the ring rule, deleting instead of
 reporting, comparing after the import was applied - and, against the selector
 test once the local review had it read the whole union, a selector in another
 syntax and one `asked_for` does not know.
+
+## G5c, the dock
+
+R40's report where a mapper can work through it. A list, not a status line,
+which could only count, and not a dialog, which is dismissed and gone. The
+features want looking at one at a time, and the list outlives the moment the
+import finished. It is a tab beside the Surface panel, hidden until an import
+finds something gone and raised when one does. Its toggle is under Edit,
+beside Import water. Opening another set clears it, because the report names
+squares of the set it was made against.
+
+**Choosing a row selects the feature as the map would** and fits the view to
+it. What follows is the editor's own: Shift+Delete removes it, Ctrl+Z puts it
+back, and keeping a feature means doing nothing. A deleted row stays, struck
+through, and comes back on an undo. A list that rearranged itself while the
+mapper worked down it would lose their place.
+
+**A lake's rings are listed under the lake** when the lake is gone too;
+`Gone.of` says which relation names a ring. A ring whose lake is still
+upstream - one upstream replaced under a new id - has nothing to sit under,
+and stands on its own.
+
+**A relation can be selected now**, and that was the real work. A lake is a
+relation, not one of its rings, and deleting it has to mean the lake. Without
+this a gone lake could be looked at but never removed, and would be reported
+again on every import. `Selection.relation` is set only from the dock: a
+click lands on a line, and which of the relations naming that line was meant
+is not something a click says. Four readers of a selection needed to know
+about it:
+
+- `_after_history_move` clears it when an undo takes the relation, as it
+  already did for a way.
+- `delete_way` used to answer "that is a spot height".
+- `delete_selected` used to reach `sel.way.id` and raise.
+- The overlay used to draw nothing. It now haloes every held member way,
+  without per-node marks, since nothing here edits a relation's vertices.
+
+**`edits.delete_relation` is what deleting a lake means**: the relation, plus
+the member ways that are nothing without it, as one step. An untagged ring
+nothing else names goes with it; left behind, it would be exactly the junk
+G5b reports on the next import. A tagged ring is a feature in its own right,
+and a ring another relation names - a lake sharing a shore with a riverbank -
+still has a use. Both stay. `DeleteRelation.ways()` names the members,
+because they were drawn as water only because the relation said so, and the
+layer has to look at them again.
+
+The pixel test for the relation halo first said the lake was not drawn. The
+image showed it plainly drawn: the halo is orange at alpha 140, which over
+the map's grey comes out (246, 183, 106), and the test's guess had excluded a
+blue of 106. The threshold is now from that measurement, and the test still
+fails with the halo removed.
+
+Walked through on the gobras set with the window: a first import, then an
+answer with a named lake (and so its two untagged rings) and two named rivers
+deleted upstream. The dock opened with the lake, its two rings nested, and
+the two rivers. Choosing the lake fitted the view to it, haloed - the Pool of
+the Nation, a reflecting pool with an island, still drawn with its hole.
+Shift+Delete gave `deleted "Pool of the Nation" and its 2 rings` and struck
+all three rows. Ctrl+Z put all three back. The second import took 355 ms on
+the UI thread across the set, the merge and the layer's refresh together:
+once per import, a pause rather than a stall.
+
+Eleven mutations, each failing at least one test: deleting the relation
+without its rings, taking a tagged ring, taking a shared ring, not naming the
+members for redraw, Delete reaching `sel.way.id`, a selection outliving its
+relation, no strike-through, a flat list, not raising the dock, a report kept
+across sets, and choosing a row without bringing it into view.

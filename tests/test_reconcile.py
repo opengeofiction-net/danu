@@ -257,3 +257,68 @@ def test_a_feature_carrying_only_an_elevation_keeps_it():
                     {100: Way(id=100, refs=[1, 2])}, {}, OWNS)
     assert got.nodes[1].tags['ele'] == '120', "upstream's ele replaced the mapper's"
     assert got.ways[100].tags == {'ele': '42'}, 'a way carrying only an ele lost it'
+
+
+# ------------------------------------------------- deleting a lake (G5c)
+
+def a_lake_square():
+    """A lake relation with two untagged rings - an outer and an island -
+    and a third, tagged way the relation also names."""
+    sq = Square(name=SquareName(125, -24), present=True, attrs={})
+    for i in range(1, 13):
+        sq.nodes[i] = Node(id=i, lat=-23.5 + (i % 3) * 0.01, lon=125.0 + i * 0.01)
+    sq.ways[200] = Way(id=200, refs=[1, 2, 3, 1])
+    sq.ways[201] = Way(id=201, refs=[4, 5, 6, 4])
+    sq.ways[202] = Way(id=202, refs=[7, 8, 9, 7], tags={'natural': 'water'})
+    sq.relations[300] = Relation(id=300, tags={'natural': 'water', 'name': 'Kinser'},
+                                 members=[Member('way', 200, 'outer'),
+                                          Member('way', 201, 'inner'),
+                                          Member('way', 202, 'outer')])
+    return sq
+
+
+def test_deleting_a_lake_takes_the_rings_that_are_nothing_without_it():
+    sq = a_lake_square()
+    before = edits.snapshot(sq)
+    cmd = edits.delete_relation(sq, 300)
+    cmd.apply(sq)
+    assert 300 not in sq.relations
+    assert 200 not in sq.ways and 201 not in sq.ways, 'an untagged ring was left as junk'
+    assert 202 in sq.ways, 'a tagged ring is a feature in its own right'
+    assert {1, 2, 3, 4, 5, 6}.isdisjoint(sq.nodes), "the rings' vertices were left behind"
+    assert {7, 8, 9} <= set(sq.nodes)
+    assert cmd.describe() == 'delete Kinser'
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before, 'Ctrl+Z did not put the lake back whole'
+
+
+def test_a_ring_another_relation_names_stays():
+    """A lake sharing a shore with a riverbank: the shared ring still has a use."""
+    sq = a_lake_square()
+    sq.relations[301] = Relation(id=301, tags={'waterway': 'riverbank'},
+                                 members=[Member('way', 200, 'outer')])
+    edits.delete_relation(sq, 300).apply(sq)
+    assert 200 in sq.ways and 201 not in sq.ways
+
+
+def test_deleting_a_lake_names_its_rings_so_they_are_redrawn():
+    """They were drawn as water - filled, outlined - because the relation
+    said so. The layer has to be told to look at them again, before and after
+    an undo."""
+    sq = a_lake_square()
+    cmd = edits.delete_relation(sq, 300)
+    assert {200, 201, 202} <= cmd.ways(sq)
+    cmd.apply(sq)
+    assert {200, 201, 202} <= cmd.ways(sq)
+    cmd.undo(sq)
+    assert {200, 201, 202} <= cmd.ways(sq)
+
+
+def test_a_gone_ring_says_which_lake_names_it():
+    from danu.core.square import WorkingSet
+    from danu.water.gone import gone
+    ws = WorkingSet(centre=SquareName(125, -24), size=1,
+                    squares={SquareName(125, -24): a_lake_square()})
+    got = {(g.kind, g.id): g.of for g in gone(ws, frozenset(), frozenset())}
+    assert got[('way', 200)] == 300 and got[('way', 201)] == 300
+    assert got[('relation', 300)] is None

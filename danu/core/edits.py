@@ -351,6 +351,58 @@ class DeleteWay(Command):
         return f'delete way {self.way.tags.get("ele", "") if self.way else ""}'.strip()
 
 
+@dataclass
+class DeleteRelation(Command):
+    """A relation removed - the relation alone. ``delete_relation`` is what
+    a mapper means by deleting a lake, and builds this into a step with the
+    rings that go with it."""
+    relation_id: int
+    relation: Relation | None = None
+
+    def ways(self, square: Square) -> set[int]:
+        """Its member ways, which are drawn as water - filled, outlined - only
+        because the relation said so. Gone, they are drawn as what they are on
+        their own account, and the layer has to be told to look again."""
+        rel = self.relation or square.relations.get(self.relation_id)
+        return {m.ref for m in rel.members if m.type == 'way'} if rel else set()
+
+    def apply(self, square: Square) -> None:
+        self.relation = square.relations.pop(self.relation_id)
+
+    def undo(self, square: Square) -> None:
+        square.relations[self.relation_id] = self.relation
+
+    def describe(self) -> str:
+        name = self.relation.tags.get('name') if self.relation else None
+        return f'delete relation {name}' if name else 'delete relation'
+
+
+def delete_relation(square: Square, relation_id: int) -> Compound:
+    """A relation and the member ways that are nothing without it, as one step.
+
+    A lake's ring carries no tags; the relation holds them. Delete the
+    relation alone and the ring is left as an untagged line that nothing
+    names - the very thing G5b reports as junk on the next import. So a ring
+    goes with its relation when it is untagged and no other relation in the
+    square names it. A tagged ring is a feature in its own right, and a ring
+    another relation also names - a lake sharing a shore with a riverbank -
+    still has a use; both stay.
+    """
+    rel = square.relations[relation_id]
+    others = {m.ref for r in square.relations.values() if r.id != relation_id
+              for m in r.members if m.type == 'way'}
+    rings = []
+    for m in rel.members:
+        if m.type != 'way' or m.ref in others or m.ref in rings:
+            continue
+        way = square.ways.get(m.ref)
+        if way is not None and not way.tags:
+            rings.append(m.ref)
+    name = rel.tags.get('name')
+    return Compound([DeleteRelation(relation_id), *(DeleteWay(w) for w in rings)],
+                    name=f'delete {name}' if name else 'delete relation')
+
+
 def rotate_ring(refs: list[int], by: int) -> list[int]:
     """A closed way's refs turned so another of its nodes leads. The same ring
     through the same ground; only where it is cut open moves."""

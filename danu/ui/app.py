@@ -25,6 +25,7 @@ from . import config
 from . import mercator as m
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
+from .gone_dock import GoneDock
 from .layers_panel import LayersPanel
 from .legend import Legend
 from .loader import WorkingSetLoader
@@ -38,7 +39,7 @@ from .squares import SquaresItem
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
-from .tools import EditController
+from .tools import EditController, Selection
 from .water import WaterImporter
 from .water import commands as water_commands
 
@@ -106,6 +107,12 @@ class MainWindow(QMainWindow):
         self.map.scene().addItem(self.envelope)
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
+        # R40's report, as a tab beside the surface panel: hidden until an
+        # import has something in it, and then raised - see _water_imported
+        self.gone_dock = GoneDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.gone_dock)
+        self.tabifyDockWidget(self.surface_panel, self.gone_dock)
+        self.gone_dock.hide()
         self.builder = SurfaceBuilder(self)
         from .preview import PreviewDriver
         self.preview = PreviewDriver(self)
@@ -130,6 +137,7 @@ class MainWindow(QMainWindow):
         self.water.started.connect(self._water_starting)
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
+        self.gone_dock.chosen.connect(self._choose_gone)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
         self.squares = SquaresItem()
@@ -151,6 +159,7 @@ class MainWindow(QMainWindow):
         self.editor = EditController(self.map, self.contours, self.elevation, self)
         self.editor.editedWays.connect(self.preview.edited)
         self.editor.edited.connect(self._edited)
+        self.editor.edited.connect(lambda: self.gone_dock.mark_deleted(self.working_set))
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
@@ -392,6 +401,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['tool.spot'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.import_water'])
+        edit.addAction(self.gone_dock.toggleViewAction())
         self._tool_changed('select')
         self._edited()
         elevation = self.menuBar().addMenu('&Elevation')
@@ -470,6 +480,9 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self.open_action.setEnabled(True)
         self.working_set = ws
+        # the report names squares of the set it was made against
+        self.gone_from_upstream = []
+        self.gone_dock.show_report([], imported=False)
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
@@ -591,6 +604,10 @@ class MainWindow(QMainWindow):
         # compared before the import is applied, while a held lake relation
         # still names the ring upstream has since replaced - see water/gone.py
         self.gone_from_upstream = gone(working_set, answer.ways, answer.relations)
+        self.gone_dock.show_report(self.gone_from_upstream)
+        if self.gone_from_upstream:
+            self.gone_dock.show()
+            self.gone_dock.raise_()
         kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
                 if self.gone_from_upstream else '')
         steps = water_commands(placed, working_set)
@@ -606,6 +623,36 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f'imported {features} water features - {where}{kept}. '
             f'Ctrl+Z takes them all back')
+
+    def _choose_gone(self, g):
+        """A row of the report chosen: select the feature as the map would,
+        and bring it into view. What follows is the editor's own - Shift+Delete
+        takes it away, a lake with its untagged rings; doing nothing keeps it."""
+        ws = self.working_set
+        square = ws.squares.get(g.square) if ws is not None else None
+        holder = (square.relations if g.kind == 'relation' else square.ways) if square else {}
+        feature = holder.get(g.id)
+        if feature is None:
+            self.statusBar().showMessage(f'{g.describe()}: deleted here since the import')
+            return
+        if g.kind == 'relation':
+            ways = [square.ways[mem.ref] for mem in feature.members
+                    if mem.type == 'way' and mem.ref in square.ways]
+            selection = Selection(square, None, relation=feature)
+        else:
+            ways, selection = [feature], Selection(square, feature)
+        self.editor.set_tool('select')
+        self.editor.selection = selection
+        self.editor.overlay.update()
+        pts = [square.nodes[r] for w in ways for r in w.refs if r in square.nodes]
+        if pts:
+            lons, lats = [n.lon for n in pts], [n.lat for n in pts]
+            w, e, s, n = min(lons), max(lons), min(lats), max(lats)
+            # a margin, so the feature is seen against what is round it
+            pad = max(e - w, n - s) * 0.15 or 0.005
+            self.map.fit_bounds(w - pad, s - pad, e + pad, n + pad)
+        key = self.settings.key('edit.delete_way') or 'Shift+Delete'
+        self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
 
     def _water_failed(self, why: str):
         self.statusBar().showMessage(f'water import failed: {why.splitlines()[0]}')
