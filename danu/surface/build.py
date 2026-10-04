@@ -1037,7 +1037,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         return Result(None, None, squares, None, None, None, None, blank=blank)
     grid = grid_for(elevated, params.arcsec)
     water_only = len(squares) - len(elevated)
-    log(f'  {len(elevated)} squares with contours ({blank} blank'
+    log(f'  {len(elevated)} squares with elevations ({blank} blank'
         + (f', {water_only} of water alone' if water_only else '') + '), '
         f'{grid.west}..{grid.east} by {grid.south}..{grid.north}, '
         f'{grid.size[0]}x{grid.size[1]} at {params.arcsec:g}"')
