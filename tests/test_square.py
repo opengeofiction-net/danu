@@ -564,3 +564,23 @@ def test_has_elevation_is_an_ele_anywhere_and_not_water_alone(tmp_path):
     assert has_elevation(str(levelled)), 'a level on a river is an elevation'
     contour = square("  <way id='-9'><tag k=\"ele\" v=\"100\" /></way>\n", 'S24E125_C.osm')
     assert has_elevation(str(contour))
+
+
+def test_a_lakes_outline_with_a_level_is_water_and_a_thalweg_with_one_a_contour():
+    """G7a. A flattened lake carries its level on its outline, for the build;
+    in the editor it is still the lake. A waterway *line* with an ele - Los
+    Pizarrales' thalwegs - is a mapper's contour, as it always was. A lake's
+    fill line is neither: it is the lake's level, not a contour."""
+    from danu.core.square import Member, Node, Relation, Square, SquareName, Way
+    sq = Square(name=SquareName(125, -24), present=True, attrs={})
+    for i, (lon, lat) in enumerate(((125.1, -23.9), (125.2, -23.9), (125.2, -23.8)), 1):
+        sq.nodes[i] = Node(id=i, lon=lon, lat=lat)
+    sq.ways[10] = Way(id=10, refs=[1, 2, 3, 1], tags={'natural': 'water', 'ele': '100'})
+    sq.ways[11] = Way(id=11, refs=[1, 2, 3, 1], tags={'ele': '100'})
+    sq.relations[1] = Relation(id=1, tags={'natural': 'water', 'ele': '100'},
+                               members=[Member('way', 11, 'outer')])
+    sq.ways[12] = Way(id=12, refs=[1, 2], tags={'waterway': 'river', 'ele': '145',
+                                               'ldata:survey': 'thalweg'})
+    sq.ways[13] = Way(id=13, refs=[2, 3], tags={'ele': '100', 'danu:fill': 'relation/1'})
+    sq.ways[14] = Way(id=14, refs=[1, 3], tags={'ele': '75'})
+    assert {w.id for w in sq.contours()} == {12, 14}

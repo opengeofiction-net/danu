@@ -32,6 +32,7 @@ from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
+from ..water import flatten
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
@@ -89,6 +90,9 @@ class Issue:
 
 
 ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'far': 3}
+# said when a flattened lake's new level is carried to its outline and fill
+# lines; its contours were clipped against the old one
+_FOLLOW = ' - its outline and fill lines follow; F flattens it again to redo its contours'
 # on the map, and lighter in the profile: a climb is a fault, red; ground no
 # contour reaches is only unknown, grey
 ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'far': QColor(110, 110, 110, 200)}
@@ -178,6 +182,12 @@ class Proposal:
     # it was walked across, for the map
     steps: list | None = None
     chain_paths: list | None = None
+    # a flatten's (G7a): the contours it takes out of the water and back from
+    # its shore, as scene runs, the fill lines it lays across it, and how far
+    # it draws the contours back
+    removed: list | None = None
+    fill: list | None = None
+    pull_back_m: float | None = None
     joins: list | None = None             # (scene x, y, gap metres)
 
     @property
@@ -212,6 +222,7 @@ class EditController(QObject):
         self._selection: Selection | None = None
         self.proposal: Proposal | None = None
         self.focused_issue: Issue | None = None   # the one the map was last taken to
+        self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
         # a proposal is of the square as it was and the feature then selected
         self.selectionChanged.connect(self._drop_proposal)
         self.edited.connect(self._drop_proposal)
@@ -1073,8 +1084,11 @@ class EditController(QObject):
                 return False
             if unchanged(rel.tags):
                 return False
-            self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), retagged(rel.tags)))
-            self.message.emit(f'{name}: {what}')
+            after = retagged(rel.tags)
+            follow = flatten.relevel(sq, rel, after.get('ele'))
+            self.do(sq, edits.Compound([edits.SetRelationTags(rel.id, dict(rel.tags), after), *follow],
+                                       name=f'{name}: {what}'))
+            self.message.emit(f'{name}: {what}' + _FOLLOW * bool(follow))
         elif sel.spot:
             if sel.node not in sq.nodes:
                 self.selection = None
@@ -1112,8 +1126,11 @@ class EditController(QObject):
             else:
                 if unchanged(way.tags):
                     return False
-                self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
-                self.message.emit(f'{name or "the lake"}: {what}')
+                after = retagged(way.tags)
+                follow = flatten.relevel(sq, way, after.get('ele'))
+                self.do(sq, edits.Compound([edits.SetTags(way.id, dict(way.tags), after), *follow],
+                                           name=f'{name or "the lake"}: {what}'))
+                self.message.emit(f'{name or "the lake"}: {what}' + _FOLLOW * bool(follow))
         elif sel.way is not None:
             if value is None:
                 self.message.emit('a contour is its elevation - without one it is not a contour')
@@ -1500,6 +1517,61 @@ class EditController(QObject):
             preview, sorted(issues, key=lambda x: ISSUE_ORDER[x.kind]),
             steps=steps, chain_paths=chain_paths, joins=joins))
 
+    def flatten(self, pull_back_m: float | None = None):
+        """F: flatten the selected lake at its level - G7a, R26 - proposed, not
+        applied. The level goes on its outline, which the build reads as a
+        contour; the contours in the water are deleted and those crossing its
+        shore drawn back from it by ``pull_back_m``. Enter accepts it as one
+        step across every square it touches.
+
+        At the level the lake has: G grades one from its outlet or rim, L or
+        the panel sets one by hand - which is R26's "a chosen level" without a
+        second way of choosing it."""
+        if pull_back_m is not None:
+            self.pull_back_m = float(pull_back_m)
+        sel = self.selection
+        feature = None
+        if sel is not None and sel.relation is not None and water_tags(sel.relation.tags):
+            feature = sel.relation
+        elif (sel is not None and sel.way is not None and sel.way.closed
+              and sel.way.tags.get('natural') == 'water'):
+            feature = sel.way
+        if feature is None:
+            self.message.emit('select a lake to flatten')
+            return
+        sq = sel.square
+        name = feature.tags.get('name') or 'the lake'
+        try:
+            p = flatten.plan(self.working_set, sq, feature, self.history.alloc,
+                             pull_back_m=self.pull_back_m)
+        except flatten.Refused as why:
+            self.message.emit(f'{name} cannot be flattened: {why}')
+            return
+        text = format_ele(p.level)
+        parts = [f'{name} flattened at {text} m']
+        if p.outline_ways:
+            parts.append(f'the level on its outline, {p.outline_ways} way{"s" * (p.outline_ways != 1)}')
+        if p.deleted:
+            parts.append(f'{p.deleted} contour{"s" * (p.deleted != 1)} in the water removed')
+        if p.pulled:
+            parts.append(f'{p.pulled} crossing its shore drawn back {self.pull_back_m:g} m')
+        if p.clipped:
+            parts.append(f'{p.clipped} at its level cut at the shore')
+        if p.fill:
+            parts.append(f'{len(p.fill)} fill line{"s" * (len(p.fill) != 1)} across the water, '
+                         f'{flatten.FILL_SPACING_M:g} m apart, to hold it flat')
+        if not p.steps:
+            parts = [f'{name} is already flat at {text} m - nothing to change']
+        pts = [m.lonlat_to_scene(lon, lat) for ring in p.outline for lon, lat in ring]
+        centre = (sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts))
+        self._set_proposal(Proposal(
+            sq, feature, None, '; '.join(parts), preview=[(*centre, p.level)], issues=[],
+            steps=p.steps or None,
+            chain_paths=[[m.lonlat_to_scene(lon, lat) for lon, lat in ring] for ring in p.outline],
+            removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
+            fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
+            pull_back_m=self.pull_back_m))
+
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
         found = self.layer.outlet(sq, feature)
@@ -1531,6 +1603,10 @@ class EditController(QObject):
                    'it for a truer level')
         summary = (f'{name}: {text} m, from its {how}' + why
                    + (f'; replaces {was} m' if was is not None and was != text else ''))
+        follow = flatten.relevel(sq, feature, text)
+        if follow:
+            cmd = edits.Compound([cmd, *follow], name=f'{name}: {text} m')
+            summary += _FOLLOW
         if was == text:
             cmd, summary = None, f'{name} is already at {text} m, from its {how}'
         xs = [m.lonlat_to_scene(sq.nodes[r].lon, sq.nodes[r].lat)
@@ -1660,6 +1736,22 @@ class EditOverlay(QGraphicsItem):
             for pt in run[1:]:
                 path.lineTo(*pt)
             painter.drawPath(path)
+        # what a flatten takes away: struck through in red, dashed, so the
+        # contour under it still shows what is being lost
+        cut = QPen(QColor(200, 30, 30, 220), 2.5)
+        cut.setCosmetic(True)
+        cut.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(cut)
+        for run in proposal.removed or ():
+            if len(run) >= 2:
+                painter.drawPath(_path(run))
+        # and what it lays across the water: its fill lines, in the lake's own
+        # dark blue so they read as the lake's and not as contours
+        lay = QPen(QColor(20, 70, 140, 200), 1.2, Qt.PenStyle.DashLine)
+        lay.setCosmetic(True)
+        painter.setPen(lay)
+        for run in proposal.fill or ():
+            painter.drawPath(_path(run))
         # each gap walked across: a ring, so the mapping error can be found
         ring = QPen(QColor(120, 60, 0), 2.0)
         ring.setCosmetic(True)

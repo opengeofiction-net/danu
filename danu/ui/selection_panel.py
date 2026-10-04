@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QToolTip,
     QVBoxLayout,
     QWidget,
@@ -313,6 +314,10 @@ class SelectionPanel(QDockWidget):
         self.network_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.network_btn.clicked.connect(editor.grade_network)
         form.addRow('', self.network_btn)
+        self.flatten_btn = QPushButton('Flatten the lake (F)')
+        self.flatten_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.flatten_btn.clicked.connect(lambda: editor.flatten())
+        form.addRow('', self.flatten_btn)
         self.proposal_box = QWidget()
         box = QVBoxLayout(self.proposal_box)
         box.setContentsMargins(0, 6, 0, 0)
@@ -335,7 +340,21 @@ class SelectionPanel(QDockWidget):
         self.issues.itemClicked.connect(
             lambda item: editor.show_issue(item.data(Qt.ItemDataRole.UserRole)))
         self.profile.issueClicked.connect(editor.show_issue)
+        # a flatten's strength: how far it draws contours back from the shore
+        self.pull_back = QSpinBox()
+        self.pull_back.setRange(0, 2000)
+        self.pull_back.setSingleStep(25)
+        self.pull_back.setSuffix(' m')
+        self.pull_back.setToolTip('How far a contour crossing the shore at another level is '
+                                  'drawn back from the water')
+        self.pull_back.valueChanged.connect(self._pull_back_changed)
+        self.pull_back_row = QWidget()
+        row = QHBoxLayout(self.pull_back_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(QLabel('Draw back from the shore'))
+        row.addWidget(self.pull_back)
         box.addWidget(self.summary)
+        box.addWidget(self.pull_back_row)
         box.addWidget(self.issues)
         box.addWidget(self.profile)
         box.addLayout(buttons)
@@ -366,6 +385,11 @@ class SelectionPanel(QDockWidget):
             or (sel.relation is None and sel.way is not None
                 and (sel.square.name, sel.way.id) in self.editor.layer.water))
         self.grade_btn.setVisible(water)
+        self.flatten_btn.setVisible(
+            sel is not None and (
+                (sel.relation is not None and water_tags(sel.relation.tags) and not flows(sel.relation.tags))
+                or (sel.relation is None and sel.way is not None and sel.way.closed
+                    and sel.way.tags.get('natural') == 'water' and not flows(sel.way.tags))))
         # a network is of lines: a river or a stream, not a lake
         self.network_btn.setVisible(
             sel is not None and sel.relation is None and sel.way is not None
@@ -379,6 +403,11 @@ class SelectionPanel(QDockWidget):
             self.profile.show_proposal(None)
             return
         self.summary.setText(p.summary)
+        self.pull_back_row.setVisible(p.pull_back_m is not None)
+        if p.pull_back_m is not None and self.pull_back.value() != round(p.pull_back_m):
+            self.pull_back.blockSignals(True)
+            self.pull_back.setValue(round(p.pull_back_m))
+            self.pull_back.blockSignals(False)
         self.issues.clear()
         for issue in p.issues or ():
             item = QListWidgetItem(_mark(issue.kind), issue.text)
@@ -388,6 +417,13 @@ class SelectionPanel(QDockWidget):
         self.issues.setVisible(bool(p.issues))
         self.accept_btn.setEnabled(p.acceptable)
         self.profile.show_proposal(p)
+
+    def _pull_back_changed(self, value: int) -> None:
+        """The flatten proposed again at the new distance - the strength
+        tried before it is accepted."""
+        p = getattr(self.editor, 'proposal', None)
+        if p is not None and p.pull_back_m is not None:
+            self.editor.flatten(pull_back_m=value)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self.ele.hasFocus():

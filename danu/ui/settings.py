@@ -40,6 +40,8 @@ DEFAULT_KEYS = {
     'edit.grade': 'G',
     # and the river network it belongs to - G6d-2
     'edit.grade_network': 'Shift+G',
+    # and flatten a lake at its level, through the contours - G7a
+    'edit.flatten': 'F',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

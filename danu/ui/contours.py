@@ -41,7 +41,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import geometry, profile
 from ..core.rings import is_closed, relation_rings
-from ..core.square import Relation, Square, SquareName, Way, WorkingSet, parse_ele
+from ..core.square import Relation, Square, SquareName, Way, WorkingSet, parse_ele, water_tags
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -133,12 +133,6 @@ class _Piece:
     rect: QRectF
     ele: float | None     # None for water: it has no elevation until G6
     label: 'Label | None'  # and None for water: nothing labels it
-
-
-def water_tags(tags: dict) -> bool:
-    """``natural=water``, or any ``waterway``. Asked of a way and of a
-    relation with the one function, so the two cannot drift apart."""
-    return tags.get('natural') == 'water' or 'waterway' in tags
 
 
 def _member_ways(rel) -> tuple:
@@ -302,6 +296,7 @@ class ContourLayer(QGraphicsItem):
         # set_working_set because _paint_water reads it, and a layer can be
         # painted before it is given a set
         self.water: dict[tuple[SquareName, int], _Piece] = {}
+        self.fills: dict[tuple[SquareName, int], _Piece] = {}    # lakes' fill lines, G7a
         # how many water ways name each vertex, so a node carrying `ele` can
         # be told apart as a level on a river rather than a spot height. Here
         # and not only in set_working_set, for the reason `water` is
@@ -353,6 +348,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
+        self.fills = {}
         self.water_fills, self._rel_members = {}, {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
@@ -387,6 +383,8 @@ class ContourLayer(QGraphicsItem):
         for key, geom in self._geoms.items():
             if geom.ele is not None:
                 self._add_way(key, geom)
+            elif 'danu:fill' in geom.way.tags:
+                self._add_fill(key, geom)
             else:
                 # whatever is not a contour and was kept is water or a
                 # coastline; the coastline is here to snap to and not to draw,
@@ -418,9 +416,16 @@ class ContourLayer(QGraphicsItem):
 
         The refs are carried alongside the points, so both drop a node the
         square does not have and the two stay aligned."""
-        ele = way.ele
-        if (ele is None and not _is_water(way) and way.id not in water_members
-                and way.tags.get('natural') != 'coastline'):
+        water = _is_water(way) or way.id in water_members
+        # a lake's outline with a level - flattened at it (G7a) - is still
+        # water here: drawn, filled and picked as the lake, its level the
+        # lake's. The build reads it as a contour, which is what makes the lake
+        # flat. A waterway *line* with an ele is a contour as it always was -
+        # see Square.contours
+        body = way.id in water_members or (way.tags.get('natural') == 'water' and way.closed)
+        fill = 'danu:fill' in way.tags
+        ele = None if body or fill else way.ele
+        if ele is None and not water and not fill and way.tags.get('natural') != 'coastline':
             return None
         nodes = square.nodes
         placed = [(r, nodes[r]) for r in way.refs if r in nodes]
@@ -484,6 +489,7 @@ class ContourLayer(QGraphicsItem):
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
+            self.fills.pop(key, None)
             old = self._geoms.pop(key, None)
             if self.water.pop(key, None) is not None and old is not None:
                 for r in old.refs:
@@ -499,6 +505,8 @@ class ContourLayer(QGraphicsItem):
                 self._geoms[key] = geom
                 if geom.ele is not None:
                     self._add_way(key, geom)
+                elif 'danu:fill' in geom.way.tags:
+                    self._add_fill(key, geom)
                 elif geom.way.tags.get('natural') != 'coastline':
                     self._add_water(key, geom)
         # unguarded, and the 0.25 ms it costs on the gobras square that holds
@@ -661,6 +669,17 @@ class ContourLayer(QGraphicsItem):
         for r in g.refs:
             k = (key[0], r)
             self._water_refs[k] = self._water_refs.get(k, 0) + 1
+
+    def _add_fill(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+        """A lake's fill line (G7a): drawn faintly over its water, and in
+        nothing a click or a grade reads - it is the lake's level, laid across
+        it for the build, and not a line of its own."""
+        path = QPainterPath()
+        pts = g.pts.tolist()
+        path.moveTo(*pts[0])
+        for x, y in pts[1:]:
+            path.lineTo(x, y)
+        self.fills[key] = _Piece(path, path.boundingRect().adjusted(-1, -1, 1, 1), None, None)
 
     def _add_way(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """One way's path, rectangle and label, into the level it draws at."""
@@ -957,6 +976,16 @@ class ContourLayer(QGraphicsItem):
                 if piece.rect.intersects(rect):
                     painter.drawPath(piece.path)
                     self.drawn_water_fills += 1
+            if self.fills:
+                faint = QPen(WATER.lighter(130), 1.0, Qt.PenStyle.DashLine)
+                faint.setCosmetic(True)
+                painter.setPen(faint)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for piece in self.fills.values():
+                    if piece.rect.intersects(rect):
+                        painter.drawPath(piece.path)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(WATER_FILL)
             if not self.water:
                 return
             pen = QPen(WATER, 1.4)
