@@ -76,6 +76,75 @@ class Selection:
         return self.way is None and self.node is not None
 
 
+@dataclass(frozen=True)
+class Issue:
+    """One thing a grade found and says - G6d-3: a span it left ungraded,
+    or a gap it walked across. Each has its place, so the panel's list and
+    the profile can take the map to it rather than leave a mapper to search
+    for a coordinate."""
+    kind: str                 # 'side', 'gap', 'climb' or 'far'
+    text: str
+    path: tuple               # scene points: the span, or the one point of a gap
+    span: tuple | None = None  # (d0, d1) along the profile, when on the stem it shows
+
+
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'far': 3}
+# on the map, and lighter in the profile: a climb is a fault, red; ground no
+# contour reaches is only unknown, grey
+ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'far': QColor(110, 110, 110, 200)}
+
+
+def _path(points) -> QPainterPath:
+    path = QPainterPath(QPointF(*points[0]))
+    for pt in points[1:]:
+        path.lineTo(*pt)
+    return path
+
+
+def _point_at(scene, dist, d):
+    """The scene point ``d`` metres along a run of points."""
+    for (a, da), (b, db) in pairwise(zip(scene, dist, strict=True)):
+        if da <= d <= db:
+            t = 0.0 if db == da else (d - da) / (db - da)
+            return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+    return scene[0] if d <= dist[0] else scene[-1]
+
+
+def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
+    """The spans a grade left ungraded, told apart: a climb is the contours
+    and the river disagreeing, which is a fault in one or the other; a long
+    span is ground nobody contoured - the lowland run of a river, mostly."""
+    out = []
+    for d0, d1, e0, e1 in rejected:
+        run = [_point_at(scene, dist, d0)]
+        run += [pt for pt, x in zip(scene, dist, strict=True) if d0 < x < d1]
+        run.append(_point_at(scene, dist, d1))
+        lo, hi = min(e0, e1), max(e0, e1)
+        if e0 > e1 if upstream else e1 > e0:
+            kind = 'climb'
+            text = (f'{label}: the contours climb from {lo:g} to {hi:g} m going downstream '
+                    '- left ungraded')
+        else:
+            kind = 'far'
+            text = (f'{label}: {(d1 - d0) / 1000:.1f} km between the {hi:g} and {lo:g} m '
+                    f'contours, over {profile.MAX_SEGMENT_M / 1000:g} km - left ungraded')
+        out.append(Issue(kind, text, tuple(run), (d0, d1) if shown else None))
+    return out
+
+
+def gap_issue(kind, label, gap_m, lon, lat) -> Issue:
+    """A gap walked across - ``side`` for a tributary short of its river's
+    side, ``gap`` for one between two ways end to end."""
+    if kind == 'side':
+        what = ('ends on its river without a node they share' if gap_m < 0.05
+                else f'stops {gap_m:g} m short of the river it joins')
+    else:
+        what = ('two nodes on one spot between its ways, not merged' if gap_m < 0.05
+                else f'a {gap_m:g} m gap between its ways')
+    return Issue(kind, f'{label}: {what}, at {lat:.5f}, {lon:.5f} - a mapping error, '
+                 'to join upstream', (m.lonlat_to_scene(lon, lat),))
+
+
 @dataclass
 class Proposal:
     """A grade worked out and not yet applied - G6b. R24 asks for an
@@ -101,7 +170,9 @@ class Proposal:
     rejected: list | None = None          # (d0, d1, e0, e1) spans left ungraded
     # for the map: each proposed level at its place, and each rejected span
     preview: list | None = None
-    rejected_paths: list | None = None
+    # what the grade found and says, each with its place: spans left ungraded,
+    # gaps walked across - for the panel's list and the map (G6d-3)
+    issues: list | None = None
     # a chain's (G6d): what Accept does when the grade spans squares - one
     # step on the history across them - and the ways of the chain and the gaps
     # it was walked across, for the map
@@ -128,6 +199,7 @@ class EditController(QObject):
     # compares its Square, which is every node and way in it
     selectionChanged = Signal()
     proposalChanged = Signal()       # a grade proposed, accepted or dropped
+    placeAsked = Signal(float, float, float, float)   # west, south, east, north: show it
 
     def __init__(self, view: MapView, layer: ContourLayer, elevation, parent=None):
         super().__init__(parent)
@@ -139,6 +211,7 @@ class EditController(QObject):
         self.tool = 'select'
         self._selection: Selection | None = None
         self.proposal: Proposal | None = None
+        self.focused_issue: Issue | None = None   # the one the map was last taken to
         # a proposal is of the square as it was and the feature then selected
         self.selectionChanged.connect(self._drop_proposal)
         self.edited.connect(self._drop_proposal)
@@ -1201,26 +1274,22 @@ class EditController(QObject):
         if upstream:
             parts.append('drawn upstream - graded from its higher end')
         if chain.joins:
-            # crossed for the grade, and said, so the mapping error is fixed
-            # where it was made rather than hidden here
-            # six of the seven on the gobras set are two nodes on one spot,
-            # never merged - "a 0 m gap" would say nothing a mapper can act on
-            gaps = ', '.join((f'{j.gap_m:g} m' if j.gap_m >= 0.05 else
-                              'two nodes on one spot, not merged')
-                             + f' at {j.lat:.5f}, {j.lon:.5f}' for j in chain.joins)
+            # crossed for the grade, and said - each in the list, with where
+            # it is - so the mapping error is fixed where it was made rather
+            # than hidden here
             parts.append(f'walked across {len(chain.joins)} gap'
-                         f'{"s" * (len(chain.joins) != 1)} between its ways ({gaps}) - '
+                         f'{"s" * (len(chain.joins) != 1)} between its ways - '
                          'a mapping error, to join upstream')
         if replaced:
             parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
         if not steps:
             parts.append('already graded so - nothing to change')
         pts = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
-        bad = []
-        for d0, d1, _, _ in rejected:
-            run = [pt for pt, x in zip(pts, dist, strict=True) if d0 - 1e-6 <= x <= d1 + 1e-6]
-            if len(run) >= 2:
-                bad.append(run)
+        # six of the seven gaps on the gobras set are two nodes on one spot,
+        # never merged - "a 0 m gap" would say nothing a mapper can act on
+        issues = sorted(span_issues(name, pts, dist, rejected, upstream, True)
+                        + [gap_issue('gap', name, j.gap_m, j.lon, j.lat) for j in chain.joins],
+                        key=lambda i: ISSUE_ORDER[i.kind])
         chain_paths = []
         for link in chain.links:
             ns = link.square.nodes
@@ -1230,7 +1299,7 @@ class EditController(QObject):
         joins = [(*m.lonlat_to_scene(j.lon, j.lat), j.gap_m) for j in chain.joins]
         self._set_proposal(Proposal(
             sq, way, None, '; '.join(parts), dist, levels, current, known, rejected,
-            [(*pt, lv) for pt, lv in zip(pts, levels, strict=True) if lv is not None], bad,
+            [(*pt, lv) for pt, lv in zip(pts, levels, strict=True) if lv is not None], issues,
             steps=steps, chain_paths=chain_paths, joins=joins))
 
     def grade_network(self):
@@ -1313,12 +1382,16 @@ class EditController(QObject):
             sequence.append(pick)
         levels_at: dict = {}
         mine = None                                   # the selected way's stem, for the profile
-        rejected_paths, all_rejected, joins, places = [], [], [], []
+        issues, all_rejected, joins = [], [], []
         crossings = climbs = far = 0
         for i in sequence:
             seq, dist, known = profiles[i]
             if len(seq) < 2:
                 continue
+            label = next((link.way.tags['name'] for link in stems[i].links
+                          if link.way.tags.get('name')),
+                         f'an unnamed {stems[i].links[0].way.tags.get("waterway", "stream")} '
+                         f'(way {stems[i].links[0].way.id})')
             extra = [(dist[n], levels_at[node_key(s2, r)]) for n, (s2, r) in enumerate(seq)
                      if node_key(s2, r) in levels_at]
             for pos, side in ends[i]:
@@ -1330,10 +1403,10 @@ class EditController(QObject):
                 pt = seq[pos]
                 n = pt[0].nodes[pt[1]]
                 joins.append((*m.lonlat_to_scene(n.lon, n.lat), side.gap_m))
-                places.append((side.gap_m, n.lat, n.lon, 'short of its river'))
+                issues.append(gap_issue('side', label, side.gap_m, n.lon, n.lat))
             for j in stems[i].joins:
                 joins.append((*m.lonlat_to_scene(j.lon, j.lat), j.gap_m))
-                places.append((j.gap_m, j.lat, j.lon, 'between ways'))
+                issues.append(gap_issue('gap', label, j.gap_m, j.lon, j.lat))
             pts = sorted(set(known) | set(extra))
             crossings += len(known)
             if len(pts) < 2:
@@ -1346,11 +1419,10 @@ class EditController(QObject):
             c = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
             climbs, far = climbs + c, far + len(rejected) - c
             scene = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
-            for d0, d1, _, _ in rejected:
-                run = [pt for pt, x in zip(scene, dist, strict=True) if d0 - 1e-6 <= x <= d1 + 1e-6]
-                if len(run) >= 2:
-                    rejected_paths.append(run)
-            if any((link.square.name, link.way.id) == (sq0.name, way0.id) for link in stems[i].links):
+            shown = any((link.square.name, link.way.id) == (sq0.name, way0.id)
+                        for link in stems[i].links)
+            issues += span_issues(label, scene, dist, rejected, upstream, shown)
+            if shown:
                 cur = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
                 mine = (dist, [levels_at.get(node_key(s2, r)) for s2, r in seq], cur, pts, rejected)
                 all_rejected = rejected
@@ -1397,14 +1469,14 @@ class EditController(QObject):
         if why:
             parts.append(f'{climbs + far} span{"s" * (climbs + far != 1)} left ungraded - '
                          + ', '.join(why))
-        if places:
-            # as the chain's grade says them, so each is fixed where it was made
-            said = ', '.join((f'{g:g} m' if g >= 0.05 else 'two nodes on one spot')
-                             + f' {kind} at {lat:.5f}, {lon:.5f}'
-                             for g, lat, lon, kind in places[:5])
-            more = f' and {len(places) - 5} more' if len(places) > 5 else ''
-            parts.append(f'walked across {len(places)} gap{"s" * (len(places) != 1)} '
-                         f'({said}{more}) - mapping errors, to join upstream')
+        gaps = [x for x in issues if x.kind in ('side', 'gap')]
+        if gaps:
+            # each in the list, with where it is, so it is fixed where it was made
+            sides = sum(x.kind == 'side' for x in gaps)
+            parts.append(f'walked across {len(gaps)} gap{"s" * (len(gaps) != 1)}'
+                         + (f', {sides} where a tributary stops short of its river'
+                            if sides else '')
+                         + ' - mapping errors, to join upstream')
         if replaced:
             parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
         if not steps:
@@ -1425,7 +1497,8 @@ class EditController(QObject):
         dist, levels, current, known, _ = mine if mine else (None, None, None, None, None)
         self._set_proposal(Proposal(
             sq0, way0, None, '; '.join(parts), dist, levels, current, known, all_rejected,
-            preview, rejected_paths, steps=steps, chain_paths=chain_paths, joins=joins))
+            preview, sorted(issues, key=lambda x: ISSUE_ORDER[x.kind]),
+            steps=steps, chain_paths=chain_paths, joins=joins))
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
@@ -1464,10 +1537,21 @@ class EditController(QObject):
               for w in ring for r in w.refs if r in sq.nodes]
         centre = (sum(x for x, _ in xs) / len(xs), sum(y for _, y in xs) / len(xs)) if xs else (0, 0)
         self._set_proposal(Proposal(sq, feature, cmd, summary,
-                                    preview=[(*centre, round(level, 1))], rejected_paths=[]))
+                                    preview=[(*centre, round(level, 1))], issues=[]))
+
+    def show_issue(self, issue: Issue) -> None:
+        """Take the map to something a grade found, and outline it - G6d-3,
+        from the panel's list or a click on the profile."""
+        self.focused_issue = issue
+        lonlat = [m.scene_to_lonlat(x, y) for x, y in issue.path]
+        lons, lats = [a for a, _ in lonlat], [b for _, b in lonlat]
+        self.placeAsked.emit(min(lons), min(lats), max(lons), max(lats))
+        self.message.emit(issue.text)
+        self.overlay.update()
 
     def _set_proposal(self, proposal: Proposal | None) -> None:
         self.proposal = proposal
+        self.focused_issue = None
         if proposal is not None:
             self.message.emit(proposal.summary + (' - Enter accepts, Escape drops it'
                                                   if proposal.acceptable else ''))
@@ -1582,15 +1666,29 @@ class EditOverlay(QGraphicsItem):
         for x, y, _gap in proposal.joins or ():
             painter.setPen(ring)
             painter.drawEllipse(QPointF(x, y), 9.0 / scale, 9.0 / scale)
-        pen = QPen(QColor(200, 30, 30, 200), 4.0)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for run in proposal.rejected_paths or ():
-            path = QPainterPath(QPointF(*run[0]))
-            for pt in run[1:]:
-                path.lineTo(*pt)
-            painter.drawPath(path)
+        # the spans left ungraded, as the profile shades them: a climb red,
+        # ground nobody contoured grey; and the one the list or the profile
+        # last took the map to, outlined under it
+        focus = self.ctl.focused_issue
+        for issue in proposal.issues or ():
+            if issue is focus:
+                mark = QPen(QColor(255, 220, 0, 230), 12.0)
+                mark.setCosmetic(True)
+                painter.setPen(mark)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                if len(issue.path) == 1:
+                    painter.drawEllipse(QPointF(*issue.path[0]), 14.0 / scale, 14.0 / scale)
+                else:
+                    painter.drawPath(_path(issue.path))
+            if issue.kind not in ISSUE_PEN:
+                continue
+            pen = QPen(ISSUE_PEN[issue.kind], 4.0)
+            pen.setCosmetic(True)
+            if issue.kind == 'far':
+                pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(_path(issue.path))
         amber = QColor(220, 140, 0)
         h = 4.5 / scale
         # dark on a white halo: the river under it is haloed orange as the

@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip('PySide6')
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter
 
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, SquareName, Way
@@ -124,7 +124,9 @@ def test_a_span_that_climbs_is_left_ungraded_and_said(window, sq):
     rebuild(window)
     p = grade(window, sq, r)
     assert 'where the contours climb' in p.summary
-    assert p.rejected_paths, 'the climbing span is not drawn on the map'
+    (climb,) = [i for i in p.issues if i.kind == 'climb']
+    assert 'climb from 50 to 75 m going downstream' in climb.text
+    assert len(climb.path) >= 2 and climb.span is not None, 'not placed on the map and the profile'
     window.editor.accept_proposal()
     got = levels(sq, r)
     assert got[6] is None and got[7] is None, 'the climbing span was graded'
@@ -137,6 +139,8 @@ def test_a_span_too_long_is_told_apart_from_a_climb(window, sq):
     rebuild(window)
     p = grade(window, sq, r)
     assert 'running over 5 km' in p.summary and 'climb' not in p.summary
+    (far,) = p.issues
+    assert far.kind == 'far' and '6.2 km between the 100 and 50 m contours' in far.text
 
 
 def test_too_few_crossings_is_said_and_nothing_proposed(window, sq):
@@ -481,7 +485,13 @@ def test_a_gap_walked_across_is_reported_with_where_it_is(window, sq):
     p = grade(window, sq, gap)
     assert 'walked across 1 gap' in p.summary and 'a mapping error' in p.summary
     # placed where the piece that stops short ends - 2.5 m north of the other
-    assert '-22.69998, 125.33000' in p.summary, 'the gap is not placed'
+    (gap_,) = [i for i in p.issues if i.kind == 'gap']
+    assert '2.5 m gap between its ways, at -22.69998, 125.33000' in gap_.text, 'the gap is not placed'
+    assert len(gap_.path) == 1
+    window.editor.show_issue(gap_)
+    # a point: near enough to see the ends that do not meet, not so near the
+    # river round it is lost - G6d-3
+    assert window.map.zoom == 16, f'a gap shown at z{window.map.zoom}'
     assert len(p.joins) == 1 and p.chain_paths and len(p.chain_paths) == 2
 
 
@@ -552,7 +562,7 @@ def test_two_nodes_on_one_spot_are_said_as_that_not_as_a_gap(window, sq):
     assert a.refs[-1] != b.refs[0]                       # two nodes, one place
     rebuild(window)
     p = grade(window, sq, b)
-    assert 'two nodes on one spot, not merged' in p.summary
+    assert any('two nodes on one spot between its ways, not merged' in i.text for i in p.issues)
 
 
 def test_a_gap_ahead_of_the_way_clicked_counts_as_distance_too(window, sq):
@@ -640,7 +650,9 @@ def test_a_tributary_stopping_short_of_its_rivers_side_takes_the_level_there_and
     t = tributary(sq)                                 # 2 m short, between 125.36 and 125.37
     rebuild(window)
     p = network(window, sq, t)
-    assert 'walked across 1 gap (2 m short of its river at -22.69998, 125.37000)' in p.summary
+    assert 'walked across 1 gap, 1 where a tributary stops short of its river' in p.summary
+    (side,) = [i for i in p.issues if i.kind == 'side']
+    assert side.text.startswith('Kinser: stops 2 m short of the river it joins, at -22.69998, 125.37000')
     assert len(p.joins) == 1
     window.editor.accept_proposal()
     river_at = [float(v) for v in levels(sq, r)[6:8]]
@@ -683,3 +695,146 @@ def test_the_network_button_is_for_rivers_and_streams(window, sq):
     window.editor.selection = Selection(sq, c)
     assert not p.network_btn.isVisible()
     assert window.edit_actions['edit.grade_network'].shortcut().toString() == 'Shift+G'
+
+
+# ------------------------------------------- what a grade found, on the map - G6d-3
+
+def climbing(window, sq):
+    three_contours(sq, (100, 50, 75))
+    r = river(sq, EAST)
+    rebuild(window)
+    window.editor.selection = Selection(sq, r)
+    window.editor.grade()
+    return window.editor.proposal
+
+
+def test_the_panel_lists_what_the_grade_found_and_a_click_takes_the_map_there(window, sq):
+    p = climbing(window, sq)
+    panel = window.selection_panel
+    assert panel.issues.isVisible() and panel.issues.count() == len(p.issues) == 1
+    item = panel.issues.item(0)
+    assert 'climb from 50 to 75 m' in item.text() and 'show it on the map' in item.toolTip()
+    window.map.set_zoom(8)
+    panel.issues.itemClicked.emit(item)
+    issue = p.issues[0]
+    assert window.editor.focused_issue is issue
+    assert 13 <= window.map.zoom <= 16, f'the map was not taken to it: z{window.map.zoom}'
+    centre = window.map.mapToScene(window.map.viewport().rect().center())
+    xs = [x for x, _ in issue.path]
+    assert min(xs) - 1 <= centre.x() <= max(xs) + 1, 'the map is not on it'
+    assert issue.text in window.statusBar().currentMessage()
+
+
+def test_nothing_found_shows_no_list(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    rebuild(window)
+    grade(window, sq, r)
+    assert not window.selection_panel.issues.isVisible()
+
+
+def test_a_span_on_the_profile_says_what_it_is_and_a_click_takes_the_map_there(window, sq):
+    p = climbing(window, sq)
+    view = window.selection_panel.profile
+    view.grab()                                   # painted, so it knows where each span is
+    issue = p.issues[0]
+    middle = view._x((issue.span[0] + issue.span[1]) / 2)
+    assert view.span_at(middle) is issue
+    assert view.span_at(view._x(0.0)) is None, 'a span where there is none'
+    pos = QPointF(middle, view.height() / 2)
+    view.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, pos, view.mapToGlobal(pos),
+                                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                                     Qt.KeyboardModifier.NoModifier))
+    assert window.editor.focused_issue is issue
+
+
+def test_a_one_pixel_span_can_still_be_found(window, sq):
+    p = climbing(window, sq)
+    view = window.selection_panel.profile
+    view.grab()
+    issue = p.issues[0]
+    assert view.span_at(view._x(issue.span[1]) + 2.5) is issue, 'no margin round a span'
+
+
+def test_the_profile_shades_a_climb_red_and_a_long_span_grey(window, sq):
+    """Read from pixels, in the band's own middle, above the line."""
+    def shade(p):
+        view = window.selection_panel.profile
+        img = view.grab().toImage()
+        d0, d1 = p.issues[0].span
+        return img.pixelColor(int(view._x((d0 + d1) / 2)), 12)
+    red = shade(climbing(window, sq))
+    assert red.red() - red.blue() > 20, f'a climb is not red: {red.name()}'
+    window.editor.selection = None
+    for w_ in [x for x in sq.ways if x < 0]:
+        del sq.ways[w_]
+    contour(sq, 125.30, 100)
+    contour(sq, 125.36, 50)
+    r = river(sq, [125.29, 125.31, 125.33, 125.35, 125.37])
+    rebuild(window)
+    grey = shade(grade(window, sq, r))
+    assert abs(grey.red() - grey.blue()) < 12 and grey.red() < 250, f'a long span is not grey: {grey.name()}'
+
+
+def test_a_new_proposal_forgets_the_place_last_shown(window, sq):
+    p = climbing(window, sq)
+    window.editor.show_issue(p.issues[0])
+    window.editor.grade()
+    assert window.editor.focused_issue is None
+
+
+# ------------------------------------------------- level labels - G6d-3
+
+def _render(window, lon, lat, zoom):
+    window.map.set_zoom(zoom)
+    window.map.center_on_lonlat(lon, lat)
+    img = QImage(window.map.viewport().size(), QImage.Format.Format_ARGB32)
+    p = QPainter(img)
+    window.map.render(p)
+    p.end()
+
+
+def test_level_labels_are_thinned_below_z16_and_all_there(window, sq):
+    """A river graded at every vertex, 50 m apart: at z14 that is a level
+    every six pixels, and their values written over each other."""
+    contour(sq, 125.3001, 100)
+    contour(sq, 125.3199, 50)
+    lons = [round(125.30 + 0.0005 * k, 4) for k in range(41)]
+    r = river(sq, lons)
+    rebuild(window)
+    grade(window, sq, r)
+    window.editor.accept_proposal()
+    window.editor.selection = None
+    layer = window.contours
+    for z in (14, 15):
+        _render(window, 125.31, LAT, z)
+        assert layer.drawn_water_levels >= 20, f'z{z}: the diamonds are thinned too'
+        assert 2 <= layer.labelled_water_levels <= layer.drawn_water_levels // 4, (
+            f'z{z}: {layer.labelled_water_levels} labels for {layer.drawn_water_levels} levels')
+    _render(window, 125.31, LAT, 16)
+    assert layer.labelled_water_levels == layer.drawn_water_levels > 0, 'not every label at z16'
+
+
+def test_a_short_span_is_shown_no_nearer_than_z16(window, sq):
+    """A climb some 200 m long fitted to the window went to z19, where the
+    river round it - which is what says where it is - was off the screen."""
+    for lon, ele in ((125.301, 100), (125.303, 50), (125.305, 75)):
+        contour(sq, lon, ele)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    (climb,) = [i for i in p.issues if i.kind == 'climb']
+    window.editor.show_issue(climb)
+    assert window.map.zoom == 16
+
+
+def test_a_networks_spans_are_listed_and_only_the_clicked_stems_are_on_the_profile(window, sq):
+    three_contours(sq, (100, 50, 75))
+    r = river(sq, EAST)
+    t = tributary(sq, end=r.refs[7])
+    rebuild(window)
+    for clicked, on_profile in ((r, True), (t, False)):
+        p = network(window, sq, clicked)
+        (climb,) = [i for i in p.issues if i.kind == 'climb']
+        assert climb.text.startswith('Bosco: the contours climb')
+        assert (climb.span is not None) is on_profile, clicked.tags['name']

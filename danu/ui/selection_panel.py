@@ -24,16 +24,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSizePolicy,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -131,26 +134,73 @@ def describe(sel, layer) -> Info:
                 where=where + node_note, tags=_others(way.tags))
 
 
+# the profile's shading, the map's colours lighter: a climb red, unknown grey
+SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'far': QColor(120, 120, 120, 70)}
+
+
 class ProfileView(QWidget):
     """A river's grade, along it - G6b's "shown before it lands".
 
     Distance along the river across, elevation up. Where a contour crosses
     it, a dark dot at the contour's value; the proposed levels, amber, joined;
-    the levels it has now, grey; and the spans left ungraded, shaded red -
-    which is where the contours climb as the river is drawn, the thing a list
-    of numbers hides and a line shows at once.
+    the levels it has now, grey; and the spans left ungraded, shaded - red
+    where the contours climb as the river is drawn, the thing a list of
+    numbers hides and a line shows at once, and grey where no contour comes
+    for over 5 km. A span says which on hover, and a click on one takes the
+    map to it (G6d-3).
     """
+
+    issueClicked = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.proposal = None
+        self._x = None                    # metres along to pixels, as last painted
+        self.setMouseTracking(True)
         self.setMinimumHeight(120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def show_proposal(self, proposal) -> None:
         self.proposal = proposal
+        self._x = None
         self.setVisible(proposal is not None and proposal.dist is not None)
         self.update()
+
+    def spans(self) -> list:
+        p = self.proposal
+        return [i for i in (p.issues or ()) if i.span is not None] if p is not None else []
+
+    def span_at(self, px: float):
+        """The span under a pixel column - within 3 px, since a climb a
+        hundred metres long on an 86 km river is one pixel wide."""
+        if self._x is None:
+            return None
+        best = None
+        for issue in self.spans():
+            a, b = self._x(issue.span[0]) - 3, self._x(issue.span[1]) + 3
+            if a <= px <= b and (best is None or b - a < best[0]):
+                best = (b - a, issue)              # the narrowest, inside a wide one
+        return best[1] if best else None
+
+    def mouseMoveEvent(self, event):
+        issue = self.span_at(event.position().x())
+        if issue is None:
+            QToolTip.hideText()
+            self.unsetCursor()
+        else:
+            d0, d1 = issue.span
+            QToolTip.showText(event.globalPosition().toPoint(),
+                              f'{d0 / 1000:.1f} to {d1 / 1000:.1f} km along - {issue.text}. '
+                              'Click to show it on the map.', self)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        issue = self.span_at(event.position().x())
+        if issue is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.issueClicked.emit(issue)
+            return
+        super().mousePressEvent(event)
 
     def paintEvent(self, _event):
         p = self.proposal
@@ -170,9 +220,11 @@ class ProfileView(QWidget):
         painter.fillRect(r, self.palette().base())
         x = lambda d: r.left() + r.width() * d / length            # noqa: E731
         y = lambda e: r.bottom() - r.height() * (e - lo) / (hi - lo)  # noqa: E731
-        for d0, d1, _, _ in p.rejected or ():
+        self._x = x
+        for issue in self.spans():
+            d0, d1 = issue.span
             painter.fillRect(QRectF(x(d0), r.top(), max(1.0, x(d1) - x(d0)), r.height()),
-                             QColor(220, 40, 40, 60))
+                             SPAN_FILL[issue.kind])
         painter.setPen(QPen(QColor(150, 150, 150), 3.0))
         for d, v in zip(p.dist, p.current or (), strict=False):
             if v is not None:
@@ -202,6 +254,24 @@ class ProfileView(QWidget):
         painter.drawText(QRectF(r.left(), r.bottom() + 1, r.width(), 14),
                          Qt.AlignmentFlag.AlignRight, f'{length / 1000:.1f} km')
         painter.end()
+
+
+def _mark(kind: str) -> QIcon:
+    """A swatch in the colour the map and the profile give the kind: red a
+    climb, grey a span no contour reaches, brown a gap - its ring's colour."""
+    pix = QPixmap(12, 12)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    colour = {'climb': QColor(200, 30, 30), 'far': QColor(110, 110, 110)}.get(
+        kind, QColor(120, 60, 0))
+    if kind in ('climb', 'far'):
+        painter.fillRect(1, 4, 10, 4, colour)
+    else:
+        painter.setPen(QPen(colour, 2.0))
+        painter.drawEllipse(2, 2, 8, 8)
+    painter.end()
+    return QIcon(pix)
 
 
 class SelectionPanel(QDockWidget):
@@ -256,7 +326,16 @@ class SelectionPanel(QDockWidget):
             buttons.addWidget(b)
         self.accept_btn.clicked.connect(editor.accept_proposal)
         self.drop_btn.clicked.connect(editor.cancel_proposal)
+        # what the grade found, each a click from the map
+        self.issues = QListWidget()
+        self.issues.setWordWrap(True)
+        self.issues.setMaximumHeight(140)
+        self.issues.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.issues.itemClicked.connect(
+            lambda item: editor.show_issue(item.data(Qt.ItemDataRole.UserRole)))
+        self.profile.issueClicked.connect(editor.show_issue)
         box.addWidget(self.summary)
+        box.addWidget(self.issues)
         box.addWidget(self.profile)
         box.addLayout(buttons)
         form.addRow(self.proposal_box)
@@ -299,6 +378,13 @@ class SelectionPanel(QDockWidget):
             self.profile.show_proposal(None)
             return
         self.summary.setText(p.summary)
+        self.issues.clear()
+        for issue in p.issues or ():
+            item = QListWidgetItem(_mark(issue.kind), issue.text)
+            item.setData(Qt.ItemDataRole.UserRole, issue)
+            item.setToolTip(issue.text + ' - click to show it on the map')
+            self.issues.addItem(item)
+        self.issues.setVisible(bool(p.issues))
         self.accept_btn.setEnabled(p.acceptable)
         self.profile.show_proposal(p)
 
