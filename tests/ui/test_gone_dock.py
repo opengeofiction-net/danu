@@ -183,8 +183,21 @@ def test_an_import_that_finds_nothing_gone_does_not(window):
 
 
 def test_opening_another_set_clears_the_report(window):
-    """The report names squares of the set it was made against."""
+    """The report names squares of the set it was made against - and an empty
+    dock on a set nobody has imported into does not claim an import found
+    everything still upstream."""
     w = window
     reported(w)
     w._loaded(w.working_set)
     assert w.gone_from_upstream == [] and w.gone_dock.report == []
+    assert w.gone_dock.empty.text() == w.gone_dock.NOT_IMPORTED
+    from danu.ui.water import Answer
+    w._water_imported(Answer({}, frozenset(), frozenset()), w.working_set)
+    assert w.gone_dock.empty.text() == w.gone_dock.NOTHING_GONE
+
+
+def test_a_relation_selection_is_not_a_spot_height(window):
+    from danu.ui.tools import Selection
+    sq, _ = reported(window)
+    sel = Selection(sq, None, relation=sq.relations[9300])
+    assert not sel.spot

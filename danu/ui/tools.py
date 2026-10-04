@@ -65,11 +65,11 @@ class Selection:
         """A node selected with no way around it.
 
         Which is a spot height by convention rather than by construction: it
-        answers *is there no way* and is read as *is this a spot height*, and
-        those are the same question only while nothing else builds a way-less
-        selection. Nothing does - the two places that clear a way clear the
-        whole selection with it - and a third way-less case would have to say
-        what it is rather than lean on this.
+        answers *is there no way, but a node* and is read as *is this a spot
+        height*. A relation selection is the other way-less case - G5c's, from
+        the gone dock - and it says what it is, as this asked a third case to:
+        ``relation`` is set and ``node`` is not, so this stays False for it.
+        Readers that act on a selection ask ``relation`` first.
         """
         return self.way is None and self.node is not None
 

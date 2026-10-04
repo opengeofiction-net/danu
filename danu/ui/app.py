@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
         self.working_set = ws
         # the report names squares of the set it was made against
         self.gone_from_upstream = []
-        self.gone_dock.show_report([])
+        self.gone_dock.show_report([], imported=False)
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')

@@ -42,8 +42,7 @@ class GoneDock(QDockWidget):
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         self.tree.setRootIsDecorated(True)
-        self.empty = QLabel('Nothing: the last import found everything held\n'
-                            'still upstream.')
+        self.empty = QLabel()
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
         self.stack = QStackedWidget()
@@ -56,9 +55,18 @@ class GoneDock(QDockWidget):
         # with the arrow keys as well as the mouse
         self.tree.currentItemChanged.connect(self._current)
 
-    def show_report(self, report: list[Gone]) -> None:
-        """The last import's report, replacing whatever was listed."""
+    NOTHING_GONE = 'Nothing: the last import found everything held\nstill upstream.'
+    NOT_IMPORTED = 'No import yet for this working set.'
+
+    def show_report(self, report: list[Gone], imported: bool = True) -> None:
+        """The last import's report, replacing whatever was listed.
+
+        ``imported`` False is a set opened and not yet imported into. An
+        empty list then says that, and not that an import found everything
+        still upstream - which, of a set nobody has imported, would be a
+        claim about an answer that was never asked for."""
         self.report = list(report)
+        self.empty.setText(self.NOTHING_GONE if imported else self.NOT_IMPORTED)
         self.tree.blockSignals(True)
         self.tree.clear()
         self._items = {}
