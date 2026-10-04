@@ -327,3 +327,21 @@ def test_a_rebuild_keeps_what_an_import_put_in_a_square_with_no_file(wet):
     w.contours.set_working_set(w.working_set)
     assert (NORTH, 100) in w.contours.water, 'the river vanished from the canvas'
     assert (NORTH, 'rel', 300) in w.contours.water_fills, 'the lake vanished from the canvas'
+
+
+def test_a_ring_two_lakes_share_has_no_one_level(wet):
+    """A ring two water relations name - a lake sharing a shore with a river
+    area - leaves a click no lake to mean, so the ring itself is selected.
+    It is untagged, its level belongs to whichever lake, and L says so rather
+    than writing a level onto a ring. Reachable: the layer keeps untagged
+    rings a water relation names, which review read as impossible."""
+    w, sq = wet
+    sq.relations[301] = Relation(id=301, tags={'natural': 'water', 'water': 'river'},
+                                 members=[Member('way', 200, 'outer')])
+    w.contours.set_working_set(w.working_set)
+    click(w, 125.52, -22.50)
+    sel = w.editor.selection
+    assert sel is not None and sel.relation is None and sel.way is sq.ways[200]
+    level(w, 90.0)
+    assert 'ele' not in sq.ways[200].tags, 'a level was written onto a shared ring'
+    assert 'more than one water relation' in w.statusBar().currentMessage()

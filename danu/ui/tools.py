@@ -33,7 +33,7 @@ from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
 from ..water.overpass import flows
 from . import mercator as m
-from .contours import ContourLayer, _water_tags, water_feature
+from .contours import ContourLayer, water_feature, water_tags
 from .mapview import MapView, visible_rect
 
 SNAP_PX = 10.0                  # a node this close is the one meant
@@ -910,7 +910,7 @@ class EditController(QObject):
             elif flows(way.tags) or not way.closed:
                 self.message.emit('a river descends, so its level is set at a point on it: '
                                   'click one of its vertices, or grade it')
-            elif not _water_tags(way.tags):
+            elif not water_tags(way.tags):
                 self.message.emit('more than one water relation names this ring; '
                                   'the level belongs to the lake, not to its ring')
             else:

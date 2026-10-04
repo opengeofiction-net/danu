@@ -128,7 +128,7 @@ class _Piece:
     label: 'Label | None'  # and None for water: nothing labels it
 
 
-def _water_tags(tags: dict) -> bool:
+def water_tags(tags: dict) -> bool:
     """``natural=water``, or any ``waterway``. Asked of a way and of a
     relation with the one function, so the two cannot drift apart."""
     return tags.get('natural') == 'water' or 'waterway' in tags
@@ -151,7 +151,7 @@ def _water_members(square: Square) -> frozenset:
     and not the other.
     """
     return frozenset(mem.ref for rel in square.relations.values()
-                     if _water_tags(rel.tags)
+                     if water_tags(rel.tags)
                      for mem in rel.members if mem.type == 'way')
 
 
@@ -164,7 +164,7 @@ def water_feature(square: Square, way: Way):
     a shore with a river area - leave the click without an answer, and the
     way is what it gets; G5c's dock selects either relation by name.
     """
-    naming = [r for r in square.relations.values() if _water_tags(r.tags)
+    naming = [r for r in square.relations.values() if water_tags(r.tags)
               and any(mem.type == 'way' and mem.ref == way.id for mem in r.members)]
     return naming[0] if len(naming) == 1 else way
 
@@ -175,7 +175,7 @@ def _is_water(way: Way) -> bool:
     ``natural=water`` or any ``waterway``. A multipolygon's member rings carry
     neither - the relation holds the tagging - so ``set_working_set`` marks
     them from the relation; this answers for the way alone."""
-    return _water_tags(way.tags)
+    return water_tags(way.tags)
 
 
 @dataclass
@@ -519,7 +519,7 @@ class ContourLayer(QGraphicsItem):
         key = (square.name, 'rel', rel.id)
         self.water_fills.pop(key, None)
         self._rel_members[key] = _member_ways(rel)
-        if not _water_tags(rel.tags):
+        if not water_tags(rel.tags):
             return
         paths = [self._ring_path(square, r) for r in relation_rings(square, rel)]
         self._put_fill(key, [p for p in paths if p], parse_ele(rel.tags.get('ele')))
@@ -543,7 +543,7 @@ class ContourLayer(QGraphicsItem):
         """
         key = (square.name, 'way', way.id)
         self.water_fills.pop(key, None)
-        if way.id in members or not _water_tags(way.tags) or not is_closed(way):
+        if way.id in members or not water_tags(way.tags) or not is_closed(way):
             return
         ring = self._ring_path(square, way.refs)
         self._put_fill(key, [ring] if ring else [], parse_ele(way.tags.get('ele')))
