@@ -29,7 +29,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import edits, geometry, profile
-from ..core.chains import LINE_KINDS, Network, _key, component, free_end_side
+from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
 from ..water.overpass import flows
@@ -1245,8 +1245,9 @@ class EditController(QObject):
         graded after the stems its ends sit on, so a tributary's lower end
         takes the level its river has at the confluence; among stems ready
         together, named before unnamed and then the longer first, which is
-        the length fallback for the confluences names do not settle. A level
-        set by an earlier stem is not changed by a later one.
+        the length fallback for the confluences names do not settle; stems
+        that wait on each other in a ring are taken in that order too. A
+        level set by an earlier stem is not changed by a later one.
         """
         sel = self.selection
         if (sel is None or sel.way is None or sel.relation is not None
@@ -1277,7 +1278,7 @@ class EditController(QObject):
         owner = {(link.square.name, link.way.id): i
                  for i, st in enumerate(stems) for link in st.links}
         profiles = [self._along_chain(st) for st in stems]
-        keys = [{_key(s2, r) for s2, r in prof[0]} for prof in profiles]
+        keys = [{node_key(s2, r) for s2, r in prof[0]} for prof in profiles]
         # where each stem's ends meet another stem: at a node, or at a side
         ends, needs = [], []
         for i, (st, (seq, _dist, _)) in enumerate(zip(stems, profiles, strict=True)):
@@ -1288,7 +1289,7 @@ class EditController(QObject):
             first, last = st.links[0], st.links[-1]
             for pos, link, at_start in ((0, first, not first.backwards),
                                         (-1, last, last.backwards)):
-                k = _key(*seq[pos])
+                k = node_key(*seq[pos])
                 for j, kj in enumerate(keys):
                     if j != i and k in kj:
                         deps.add(j)
@@ -1318,12 +1319,12 @@ class EditController(QObject):
             seq, dist, known = profiles[i]
             if len(seq) < 2:
                 continue
-            extra = [(dist[n], levels_at[_key(s2, r)]) for n, (s2, r) in enumerate(seq)
-                     if _key(s2, r) in levels_at]
+            extra = [(dist[n], levels_at[node_key(s2, r)]) for n, (s2, r) in enumerate(seq)
+                     if node_key(s2, r) in levels_at]
             for pos, side in ends[i]:
                 ns, refs = side.square.nodes, side.way.refs
-                a = levels_at.get(_key(side.square, refs[side.seg]))
-                b = levels_at.get(_key(side.square, refs[side.seg + 1]))
+                a = levels_at.get(node_key(side.square, refs[side.seg]))
+                b = levels_at.get(node_key(side.square, refs[side.seg + 1]))
                 if a is not None and b is not None:
                     extra.append((dist[pos], round(a + (b - a) * side.t, 1)))
                 pt = seq[pos]
@@ -1341,7 +1342,7 @@ class EditController(QObject):
             lv = [round(v, 1) if v is not None else None for v in lv]
             for (s2, r), v in zip(seq, lv, strict=True):
                 if v is not None:
-                    levels_at.setdefault(_key(s2, r), v)
+                    levels_at.setdefault(node_key(s2, r), v)
             c = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
             climbs, far = climbs + c, far + len(rejected) - c
             scene = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
@@ -1351,7 +1352,7 @@ class EditController(QObject):
                     rejected_paths.append(run)
             if any((link.square.name, link.way.id) == (sq0.name, way0.id) for link in stems[i].links):
                 cur = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
-                mine = (dist, [levels_at.get(_key(s2, r)) for s2, r in seq], cur, pts, rejected)
+                mine = (dist, [levels_at.get(node_key(s2, r)) for s2, r in seq], cur, pts, rejected)
                 all_rejected = rejected
         # named after its main river - the first named stem graded - and not
         # the tributary that happened to be clicked
@@ -1381,7 +1382,7 @@ class EditController(QObject):
             ids = tuple(link.way.id for st in stems for link in st.links
                         if link.square.name == sq_name)
             steps.append((by_sq[sq_name], edits.SetNodeLevels(ch, ids, f'grade the {name} network')))
-        points = {_key(s2, r) for prof in profiles for s2, r in prof[0]}
+        points = {node_key(s2, r) for prof in profiles for s2, r in prof[0]}
         named = sum(1 for st in stems if st.links and st.links[0].way.tags.get('name'))
         values = list(levels_at.values())
         parts = [f'{name} network: {len(stems)} stem{"s" * (len(stems) != 1)} ({named} named), '

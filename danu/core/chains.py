@@ -68,7 +68,7 @@ class Chain:
     stops: tuple[str, str] = ('end', 'end')
 
 
-def _key(square, nid: int):
+def node_key(square, nid: int):
     return nid if nid > 0 else (square.name, nid)
 
 
@@ -95,15 +95,15 @@ class Network:
                     continue
                 self.lines.append((square, way))
                 for at_start, nid in ((True, way.refs[0]), (False, way.refs[-1])):
-                    k = _key(square, nid)
+                    k = node_key(square, nid)
                     self.ends.setdefault(k, []).append((square, way, at_start))
                 for nid in way.refs:
-                    k = _key(square, nid)
+                    k = node_key(square, nid)
                     self.at.setdefault(k, []).append((square, way))
                     if nid in square.nodes:
                         self.node[k] = square.nodes[nid]
                 for nid in way.refs[1:-1]:
-                    self.through.add(_key(square, nid))
+                    self.through.add(node_key(square, nid))
         self._cells = None                   # segments by cell, built when a side is asked for
         self._joined = None                  # gaps and sides, both ways, for component
         self._free = None                    # free ends by cell, for _across
@@ -141,7 +141,7 @@ class Network:
         sq, w, start = square, way, from_start
         while True:
             nid = w.refs[0] if start else w.refs[-1]
-            k = _key(sq, nid)
+            k = node_key(sq, nid)
             others = [(s2, w2, at) for s2, w2, at in self.ends.get(k, ())
                       if (s2.name, w2.id) != (sq.name, w.id)]
             if k in self.through:
@@ -212,7 +212,7 @@ class Network:
 
 
 def _cell(n) -> tuple[int, int]:
-    return int(n.lon * 500), int(n.lat * 500)
+    return math.floor(n.lon * 500), math.floor(n.lat * 500)
 
 
 def _seg_metres(here, a, b):
@@ -279,7 +279,7 @@ def free_end_side(network, square, way, at_start: bool) -> Side | None:
     something already, or nothing, or more than one line - which is a branch
     the data does not say."""
     nid = way.refs[0] if at_start else way.refs[-1]
-    k = _key(square, nid)
+    k = node_key(square, nid)
     if len(network.at.get(k, ())) != 1:
         return None                      # it meets something already
     hits = _sides(network, square, way, k)
@@ -300,7 +300,7 @@ def component(network, square, way) -> list:
         for s, w in network.lines:
             a = (s.name, w.id)
             for at_start in (True, False):
-                k = _key(s, w.refs[0] if at_start else w.refs[-1])
+                k = node_key(s, w.refs[0] if at_start else w.refs[-1])
                 if len(network.at.get(k, ())) != 1:
                     continue
                 hit = network._across(s, w, k, set())
@@ -320,7 +320,7 @@ def component(network, square, way) -> list:
         s, w = lookup[here]
         near = set(network._joined.get(here, ()))
         for nid in w.refs:
-            for s2, w2 in network.at.get(_key(s, nid), ()):
+            for s2, w2 in network.at.get(node_key(s, nid), ()):
                 near.add((s2.name, w2.id))
         for key in near - seen:
             if key in lookup:
