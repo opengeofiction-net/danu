@@ -131,9 +131,16 @@ def reconcile(square: Square, nodes: dict[int, Node], ways: dict[int, Way],
             out.relations[i] = Relation(id=i, members=list(up.members),
                                         tags=merge_tags(here.tags, up.tags, owns))
 
-    # the vertices left behind, less any still in use. Narrowed before the
-    # walk of the square's other ways, which is the one costly step here and
-    # is skipped entirely when a re-import moved nothing - the common case
+    # the vertices left behind, less any still in use. A held node goes only
+    # when every one of these holds, and each step below removes the nodes
+    # that fail one: a held way the import rewrites named it; upstream does
+    # not have it; no way the import writes names it; no held way outside the
+    # import names it; no relation, held or written, names it as a member; and
+    # it carries no tags. `out.ways` must be complete before this runs - a
+    # written way's refs are what keep a vertex the re-route still uses. The
+    # order is for cost alone: the cheap set differences come first, so the
+    # walk of the square's other ways is skipped when a re-import moved
+    # nothing, which is the common case
     if left_behind:
         left_behind -= nodes.keys()
         for w in out.ways.values():
