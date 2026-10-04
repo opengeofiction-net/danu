@@ -210,6 +210,7 @@ class EditController(QObject):
     selectionChanged = Signal()
     proposalChanged = Signal()       # a grade proposed, accepted or dropped
     placeAsked = Signal(float, float, float, float)   # west, south, east, north: show it
+    flattened = Signal(object, object)                # square, lake: a flatten accepted
 
     def __init__(self, view: MapView, layer: ContourLayer, elevation, parent=None):
         super().__init__(parent)
@@ -1645,6 +1646,8 @@ class EditController(QObject):
         else:
             self.do(p.square, p.command)
         self.message.emit(f'accepted: {p.summary}')
+        if p.pull_back_m is not None:
+            self.flattened.emit(p.square, p.feature)
         self.proposalChanged.emit()
         self.overlay.update()
         return True

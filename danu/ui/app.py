@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, Q
 
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
+from ..water import flatten
 from ..water.gone import gone
 from . import config
 from . import mercator as m
@@ -139,6 +140,7 @@ class MainWindow(QMainWindow):
         # what the last import found held and no longer upstream - R40's
         # "reported rather than deleted". G5c gives it a dock
         self.gone_from_upstream: list = []
+        self.reshaped: list = []             # flattened lakes the last import reshaped
         self.water.started.connect(self._water_starting)
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
@@ -169,6 +171,7 @@ class MainWindow(QMainWindow):
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
         self.editor.placeAsked.connect(self._show_place)
+        self.editor.flattened.connect(lambda sq, f: self.gone_dock.mark_flattened(sq.name, f))
         # what is selected, under the elevation panel: the active elevation is
         # what the tools will use, and this is what the selection already has
         self.selection_panel = SelectionPanel(self.editor, self)
@@ -500,6 +503,7 @@ class MainWindow(QMainWindow):
         self.working_set = ws
         # the report names squares of the set it was made against
         self.gone_from_upstream = []
+        self.reshaped = []
         self.gone_dock.show_report([], imported=False)
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
@@ -622,18 +626,27 @@ class MainWindow(QMainWindow):
         # compared before the import is applied, while a held lake relation
         # still names the ring upstream has since replaced - see water/gone.py
         self.gone_from_upstream = gone(working_set, answer.ways, answer.relations)
-        self.gone_dock.show_report(self.gone_from_upstream)
-        if self.gone_from_upstream:
-            self.gone_dock.show()
-            self.gone_dock.raise_()
+        # and the lakes flattened here, as they stand, to see which the
+        # import reshapes - their fill lines and clipped contours were laid
+        # against the old outline (G7a-bis)
+        was_flat = flatten.flattened(working_set)
         kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
                 if self.gone_from_upstream else '')
         steps = water_commands(placed, working_set)
+        if steps:
+            # the editor's own path, not a copy of it: see EditController.do_across
+            self.editor.do_across(steps)
+        self.reshaped = flatten.reshaped(was_flat, working_set)
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=self.reshaped)
+        if self.gone_from_upstream or self.reshaped:
+            self.gone_dock.show()
+            self.gone_dock.raise_()
+        if self.reshaped:
+            kept += (f'; {len(self.reshaped)} flattened lake{"s" * (len(self.reshaped) != 1)} '
+                     'reshaped, to flatten again')
         if not steps:
             self.statusBar().showMessage(f'no water in this working set{kept}')
             return
-        # the editor's own path, not a copy of it: see EditController.do_across
-        self.editor.do_across(steps)
         features = sum(len(w) for w in placed.values())
         # named per square because the share is not even: on the gobras 3x3
         # one square takes seventy per cent of them
@@ -669,6 +682,10 @@ class MainWindow(QMainWindow):
             # a margin, so the feature is seen against what is round it
             pad = max(e - w, n - s) * 0.15 or 0.005
             self.map.fit_bounds(w - pad, s - pad, e + pad, n + pad)
+        if isinstance(g, flatten.Reshaped):
+            key = self.settings.key('edit.flatten') or 'F'
+            self.statusBar().showMessage(f'{g.describe()} - {key} flattens it again')
+            return
         key = self.settings.key('edit.delete_way') or 'Shift+Delete'
         self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
 

@@ -152,3 +152,55 @@ def test_the_flatten_button_is_for_lakes(lake):
     w.editor.selection = Selection(sq, next(x for x in sq.ways.values() if x.tags.get('ele') == '75'))
     assert not p.flatten_btn.isVisible()
     assert w.edit_actions['edit.flatten'].shortcut().toString() == 'F'
+
+
+# --------------------------------------------- a re-import reshapes, G7a-bis
+
+def lake_answer(dx=0.0):
+    """Upstream's answer: a lake as a relation, ids positive as imported."""
+    from danu.water import overpass
+    water = overpass.Water()
+    for k, (lon, lat) in enumerate(box(125.50, -22.50, 0.04), 1):
+        water.nodes[k] = Node(id=k, lon=lon + (dx if k == 2 else 0.0), lat=lat)
+    water.ways[100] = Way(id=100, refs=[1, 2, 3, 4, 1])
+    water.relations[300] = Relation(id=300, tags={'natural': 'water', 'name': 'Kinser'},
+                                    members=[Member('way', 100, 'outer')])
+    return water
+
+
+def imported(window, water):
+    from danu.ui.water import Answer
+    window._water_imported(Answer({NORTH: water}, frozenset(water.ways),
+                                  frozenset(water.relations)), window.working_set)
+
+
+def test_a_reimport_that_reshapes_a_flattened_lake_lists_it_to_flatten_again(window):
+    sq = window.working_set.squares[NORTH]
+    imported(window, lake_answer())
+    rel = sq.relations[300]
+    select(window, sq, rel)
+    assert window.editor.set_ele(100.0)
+    window.editor.flatten()
+    window.editor.accept_proposal()
+    imported(window, lake_answer())                     # the same shore again
+    assert window.reshaped == []
+    imported(window, lake_answer(dx=0.002))             # upstream moved a corner
+    assert [(r.kind, r.id) for r in window.reshaped] == [('relation', 300)]
+    assert 'reshaped, to flatten again' in window.statusBar().currentMessage()
+    dock = window.gone_dock
+    head = next(dock.tree.topLevelItem(i) for i in range(dock.tree.topLevelItemCount())
+                if 'reshaped upstream' in dock.tree.topLevelItem(i).text(0))
+    row = head.child(0)
+    assert 'Kinser' in row.text(0)
+    dock.tree.setCurrentItem(row)
+    assert window.editor.selection is not None and window.editor.selection.relation.id == 300
+    assert 'F flattens it again' in window.statusBar().currentMessage()
+    window.editor.flatten()
+    window.editor.accept_proposal()
+    assert row.font(0).strikeOut(), 'flattened again, and the row did not say so'
+
+
+def test_a_reimport_with_nothing_flattened_reports_no_reshaping(window):
+    imported(window, lake_answer())
+    imported(window, lake_answer(dx=0.002))
+    assert window.reshaped == []

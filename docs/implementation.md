@@ -2960,3 +2960,28 @@ Not yet: reporting a flattened lake whose outline a re-import changes, which
 the spec asks for - a follow-up.
 
 Fourteen mutations, each failing a test, every one from a fresh copy.
+
+## G7a-bis, a re-import that reshapes a flattened lake
+
+A flattened lake's fill lines and clipped contours are laid against its shore
+as it was. Upstream owns the shore (G5a), and a re-import that moves it leaves
+them laid against a shore that is no longer there. So, as the spec asks, the
+lake is reported for flattening again.
+
+Before the import is applied, every flattened lake's outline is taken as it
+stands - a lake with fill lines, or a relation whose rings carry a level, so a
+lake too narrow for a fill line still counts. After it, the same lakes are
+compared. An outline is its rings' coordinates, each ring from its lowest point
+and the shorter way round, so the same shore redrawn from another node or the
+other way about is no change. A lake whose shore no longer closes in the square
+is reported as that; a lake gone altogether is the gone report's.
+
+The report is a second group in the gone dock, *Flattened, and reshaped
+upstream since*: the same kind of thing a mapper looks at after an import, so
+the same list. Choosing a row selects the lake and says F flattens it again;
+accepting that strikes the row through, as a deleted feature's row is, rather
+than taking it away from under the mapper. On gobras, with Lake Kinser
+flattened, finding the flattened lakes takes 3 ms and re-importing the same
+answer reports nothing.
+
+Seven mutations, each failing a test, every one from a fresh copy.
