@@ -128,10 +128,12 @@ the tools for everything else.
   built from its own file, with or without a network.
 - **R24** Set an elevation on a water body or a waterway, by hand or from the
   contours it touches.
-- **R25** Burn a river into the terrain: grade it between the contours it
-  crosses and rewrite the contours to match, as a proposal the user accepts or
-  rolls back.
-- **R26** Flatten a water body at a chosen level, likewise.
+- **R25** Burn a river into the terrain: where the contours climb along it,
+  bend them so that it descends, at a chosen strength and as often as wanted,
+  each time as a proposal the user accepts or rolls back.
+- **R26** Flatten a water body at a level: the level goes on its outline, the
+  contours inside it are removed and those crossing its shore are pulled back,
+  as a proposal likewise.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the
@@ -490,13 +492,14 @@ would find real typos.
 
 The verbs worth having, beyond drawing.
 
-- **Burn a river.** Grade the selected waterway between the contours it crosses,
-  force it to descend, and rewrite contours so the surface follows it. Shown as
-  a proposal: the affected contours highlighted, the surface updated, accept or
-  roll back. This is the experiment that prompted Danu, and it belongs here
-  rather than in the build precisely because it needs judgement.
+- **Burn a river.** Where the selected river climbs against the contours, bend
+  them back from it so it descends, at a strength, and again if once was not
+  enough. Shown as a proposal: the affected contours highlighted, the surface
+  updated, accept or roll back. This is the experiment that prompted Danu, and
+  it belongs here rather than in the build precisely because it needs judgement.
 - **Flatten a body.** At its outlet level, its rim's lowest contour, or a value
-  typed in. Same accept-or-roll-back shape.
+  typed in: the level on its outline, the contours inside it removed, those
+  crossing its shore pulled back. Same accept-or-roll-back shape.
 - **Re-contour the surface.** Cut contours from the interpolated DEM at any
   interval and offer them as new ways. The inverse operation, and the fastest way
   to turn a sparse sketch into a described surface - draw the ridge and the
@@ -894,17 +897,39 @@ a waterway takes each contour's value where it crosses one, graded between and
 forced to descend; a body takes its outlet - made per-feature and interactive
 rather than per-zone and unattended.
 
-**G7, burn and flatten, as a proposal.** R25 to R27: grade a river and rewrite
-the contours to match, flatten a body at its level, never flatten flowing
-water. Accept and roll back go through the undo stack rather than a mechanism
-of their own - a burn is an edit to contour ways, and Ctrl+Z is what a mapper
-will reach for.
+**G7, burn and flatten, as a proposal.** R25 to R27, in the editor and only
+there: water shapes the surface through the contours and levels the editor
+writes into the squares, and the build reads no water. The squares then
+describe themselves - contours that agree with the water, whoever opens them -
+the server pipeline stays as it is, and the editor's surface stays the
+server's. Accept and roll back go through the undo stack rather than a
+mechanism of their own: a burn is an edit to contour ways, and Ctrl+Z is what
+a mapper will reach for.
 
-Ends on two measurements. The editor's burn produces the same constraints
-raster as `danu/water/constraints.py` does over the same input, cell for cell -
-the gobras experiment reproduced by hand rather than described. And a hill with
-a spot height on it comes out pointed, with the spot height's own value at the
-summit.
+Three parts, in this order:
+
+- **G7a, flatten** (R26). The level goes on the lake's outline as `ele`, where
+  the build already reads it: a closed way's own, or a relation's member ways -
+  refused where a member is shared with flowing water (R27). An island's ring
+  takes the level too and keeps its own contours. Contours inside the water are
+  deleted, not kept as bathymetry; contours crossing the shore at another level
+  are pulled back from it, as far as the strength says. A closed contour at the
+  lake's level with nothing inside fills flat. When a re-import changes a
+  flattened lake's outline, the lake is reported for flattening again.
+- **G7b, burn** (R25). From a span the grade left ungraded because the contours
+  climb, bend those contours back from the river so it crosses them in
+  descending order. The strength is how far into the hillside the bend reaches
+  and how far each contour moves toward where the grade puts its level; running
+  it again moves them further.
+- **G7c, what is left.** A river level that contradicts a contour beside it -
+  a level tens of metres below the contour a cell away - listed with the rest
+  of what a grade found, to burn or to fix the level.
+
+Ends on three measurements. A flattened lake has one elevation, in the editor's
+surface and the server's alike. The climbing ascent left on the spans a burn
+was run on, against before it, judged on the hillshade as well as by the
+number. And a hill with a spot height on it comes out pointed, with the spot
+height's own value at the summit.
 
 The profile tool was named here and is phase 6's, with measure and difference:
 it is how you read a surface, not how you anchor one.
