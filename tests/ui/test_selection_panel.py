@@ -209,7 +209,7 @@ def test_escape_puts_the_field_back_and_hands_the_keys_to_the_map(w):
     QTest.keyClick(f, Qt.Key.Key_Escape)
     assert f.text() == f'{way.ele:g}'
     assert sq.ways[way.id].tags['ele'] != '999'
-    assert w.map.hasFocus() or not f.hasFocus(), 'the field kept the keys'
+    assert not f.hasFocus(), 'the field kept the keys'
 
 
 def test_enter_hands_the_keys_back_to_the_map(w):
@@ -230,3 +230,16 @@ def test_l_still_sets_only_water(w):
     w.editor.set_level()
     assert sq.ways[way.id].tags['ele'] == was
     assert 'for water' in w.statusBar().currentMessage()
+
+
+def test_a_spot_height_gone_since_it_was_selected_says_so(w):
+    """The panel can be showing a spot height whose node an edit elsewhere has
+    since removed; Enter then says so rather than raising."""
+    sq = w.working_set.squares[HERE]
+    nid = w.editor.history.alloc(sq).take()
+    w.editor.do(sq, edits.AddNode(nid, (125.5, -23.5), {'ele': '400'}))
+    w.editor.selection = Selection(sq, None, nid)
+    del sq.nodes[nid]
+    assert w.editor.set_ele(410.0) is False
+    assert 'already gone' in w.statusBar().currentMessage()
+    assert w.editor.selection is None

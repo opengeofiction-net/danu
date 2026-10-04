@@ -1,7 +1,8 @@
 """The selection panel: what is selected, and its elevation, editable.
 
 A dock beside Elevation that says what the selection is - a contour, a point
-on one, a spot height, a point on a river, a river, a lake - its name, its
+on one, a spot height, a point on a river, a river, a river area, a lake, or a
+lake ring two lakes share - its name, its
 elevation, where it is, and its other tags. **Only `ele` is editable.** Danu
 is not a general OSM editor; it edits elevation constraints. And on imported
 water upstream owns `name` and the rest (G5a), so an edit to them here would

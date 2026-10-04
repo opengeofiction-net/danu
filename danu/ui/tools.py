@@ -942,6 +942,10 @@ class EditController(QObject):
             self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), retagged(rel.tags)))
             self.message.emit(f'{name}: {what}')
         elif sel.spot:
+            if sel.node not in sq.nodes:
+                self.selection = None
+                self.message.emit('that spot height is already gone')
+                return False
             if value is None:
                 self.message.emit('a spot height is its elevation - Delete removes it')
                 return False
