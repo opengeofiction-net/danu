@@ -583,3 +583,103 @@ def test_a_junction_node_another_square_holds_gets_the_level_too(window, sq):
     grade(window, sq, r)
     window.editor.accept_proposal()
     assert other.nodes[shared].tags.get('ele') == sq.nodes[shared].tags.get('ele') == '87.5'
+
+
+# --------------------------------------------------------- networks - G6d-2
+
+def tributary(sq, end=None, name='Kinser'):
+    """A stream from the north-west down on to the river at 125.37, crossing
+    the 75 m contour half way between its third and fourth points - one
+    crossing of its own, not enough to grade it alone."""
+    pts = [(125.33, -22.66), (125.34, -22.67), (125.35, -22.68), (125.36, -22.69)]
+    refs = [node(sq, lon, lat) for lon, lat in pts] + [end if end is not None
+                                                      else node(sq, 125.37, LAT + 2 / 110540)]
+    i = next(_ids)
+    tags = {'waterway': 'stream'} | ({'name': name} if name else {})
+    sq.ways[i] = Way(id=i, refs=refs, tags=tags)
+    return sq.ways[i]
+
+
+def network(w, sq, way):
+    w.editor.selection = Selection(sq, way)
+    w.editor.grade_network()
+    return w.editor.proposal
+
+
+def test_a_tributary_takes_the_level_its_river_has_where_it_joins(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    t = tributary(sq, end=r.refs[7])                  # on to the river at 125.37
+    rebuild(window)
+    assert grade(window, sq, t) is None, 'one crossing graded a stream alone'
+    p = network(window, sq, t)
+    assert p is not None and p.acceptable
+    assert p.summary.startswith('Bosco network: 2 stems (2 named)'), 'named after the stream clicked'
+    window.editor.accept_proposal()
+    # the river at 125.37: between 75 m at 125.355 and 50 m at 125.385
+    assert levels(sq, r)[7] == '62.5' and levels(sq, t)[-1] == '62.5'
+    got = levels(sq, t)
+    assert got[:3] == [None, None, None], 'graded above its one crossing'
+    assert 62.5 < float(got[3]) < 75
+
+
+def test_a_network_is_one_step(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    t = tributary(sq, end=r.refs[7])
+    rebuild(window)
+    network(window, sq, r)
+    window.editor.accept_proposal()
+    window.editor.undo()
+    assert levels(sq, r) == [None] * 11 and levels(sq, t) == [None] * 5
+
+
+def test_a_tributary_stopping_short_of_its_rivers_side_takes_the_level_there_and_it_is_said(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    t = tributary(sq)                                 # 2 m short, between 125.36 and 125.37
+    rebuild(window)
+    p = network(window, sq, t)
+    assert 'walked across 1 gap (2 m short of its river at -22.69998, 125.37000)' in p.summary
+    assert len(p.joins) == 1
+    window.editor.accept_proposal()
+    river_at = [float(v) for v in levels(sq, r)[6:8]]
+    assert float(levels(sq, t)[-1]) == pytest.approx(river_at[1], abs=0.05), (
+        'not the level the river has beside its end')
+
+
+def test_a_tributary_waits_for_the_river_it_joins_whatever_their_names(window, sq):
+    """Named before unnamed decides only among stems ready together; a named
+    stream on to an unnamed river is still graded after it."""
+    three_contours(sq)
+    r = river(sq, EAST, tags={'waterway': 'river'})
+    t = tributary(sq, end=r.refs[7])
+    rebuild(window)
+    p = network(window, sq, r)
+    assert p.summary.startswith('Kinser network: 2 stems (1 named)')
+    window.editor.accept_proposal()
+    assert levels(sq, t)[3] is not None, 'the stream was graded before the river it joins'
+
+
+def test_a_network_no_contour_crosses_is_said_and_nothing_proposed(window, sq):
+    r = river(sq, EAST)
+    tributary(sq, end=r.refs[7])
+    rebuild(window)
+    assert network(window, sq, r) is None
+    assert 'not enough to grade from' in window.statusBar().currentMessage()
+
+
+def test_the_network_button_is_for_rivers_and_streams(window, sq):
+    three_contours(sq)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = window.selection_panel
+    window.editor.selection = Selection(sq, r)
+    assert p.network_btn.isVisible()
+    p.network_btn.click()
+    assert window.editor.proposal is not None and 'Bosco network' in window.editor.proposal.summary
+    window.editor.selection = None
+    c = next(x for x in sq.ways.values() if 'ele' in x.tags)
+    window.editor.selection = Selection(sq, c)
+    assert not p.network_btn.isVisible()
+    assert window.edit_actions['edit.grade_network'].shortcut().toString() == 'Shift+G'

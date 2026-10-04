@@ -29,7 +29,7 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import edits, geometry, profile
-from ..core.chains import Network
+from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
 from ..water.overpass import flows
@@ -1098,13 +1098,12 @@ class EditController(QObject):
         else:
             self.message.emit('grading is for water - select a river or a lake')
 
-    def _propose_river(self, sq: Square, way: Way) -> None:
-        """A river graded as the chain it belongs to - G6d. The ways it was
-        split into, end to end, crossing gaps of up to ``chains.TOLERANCE_M``
-        between free ends: the vertices in one order, the distances and the
-        crossings carried across each link, one grade along the lot."""
-        chain = Network(self.working_set).chain_of(sq, way)
-        seq, dist, known, offset = [], [], [], 0.0      # seq: (square, node id)
+    def _along_chain(self, chain):
+        """A chain's vertices in one order, as (square, node id), each one's
+        distance along it, and where contours cross it - the pieces end to
+        end, each turned to continue the last, the distances and crossings
+        carried across each link and across any gap walked."""
+        seq, dist, known, offset = [], [], [], 0.0
         crossed = {(j.after, j.before): j for j in chain.joins}
         for i, link in enumerate(chain.links):
             refs, d = self.layer.along(link.square, link.way)
@@ -1125,7 +1124,15 @@ class EditController(QObject):
             dist += [offset + x for x in d]
             known += [(offset + x, e) for x, e in cr]
             offset += length
-        known = sorted(set(known))
+        return seq, dist, sorted(set(known))
+
+    def _propose_river(self, sq: Square, way: Way) -> None:
+        """A river graded as the chain it belongs to - G6d. The ways it was
+        split into, end to end, crossing gaps of up to ``chains.TOLERANCE_M``
+        between free ends: the vertices in one order, the distances and the
+        crossings carried across each link, one grade along the lot."""
+        chain = Network(self.working_set).chain_of(sq, way)
+        seq, dist, known = self._along_chain(chain)
         name = way.tags.get('name') or f'way {way.id}'
         pieces = len(chain.links)
         if len(known) < 2:
@@ -1225,6 +1232,200 @@ class EditController(QObject):
             sq, way, None, '; '.join(parts), dist, levels, current, known, rejected,
             [(*pt, lv) for pt, lv in zip(pts, levels, strict=True) if lv is not None], bad,
             steps=steps, chain_paths=chain_paths, joins=joins))
+
+    def grade_network(self):
+        """Shift+G: the river network the selected way belongs to, graded as
+        one - G6d-2, proposed like any grade.
+
+        The network is everything connected: by a node shared, by a gap end
+        to end, or by an end that stops short of another line's side within
+        ``chains.TOLERANCE_M``. It is split into stems - by name first, where
+        the name carries a stem on through a confluence (445 of the gobras
+        set's 632), and where it does not, chains that stop there. A stem is
+        graded after the stems its ends sit on, so a tributary's lower end
+        takes the level its river has at the confluence; among stems ready
+        together, named before unnamed and then the longer first, which is
+        the length fallback for the confluences names do not settle; stems
+        that wait on each other in a ring are taken in that order too. A
+        level set by an earlier stem is not changed by a later one.
+        """
+        sel = self.selection
+        if (sel is None or sel.way is None or sel.relation is not None
+                or sel.way.tags.get('waterway') not in LINE_KINDS):
+            self.message.emit('select a river or a stream to grade its network')
+            return
+        sq0, way0 = sel.square, sel.way
+        net = Network(self.working_set)
+        members = component(net, sq0, way0)
+        if not members:
+            members = [(sq0, way0)]
+        metres = {(s.name, w.id): (self.layer.along(s, w)[1] or [0.0])[-1] for s, w in members}
+        by_name: dict = {}
+        for s, w in members:
+            if w.tags.get('name'):
+                by_name[w.tags['name']] = by_name.get(w.tags['name'], 0.0) + metres[(s.name, w.id)]
+        order = sorted(members, key=lambda sw: (
+            not sw[1].tags.get('name'),
+            -by_name.get(sw[1].tags.get('name'), 0.0),
+            -metres[(sw[0].name, sw[1].id)]))
+        stems, claimed = [], set()
+        for s, w in order:
+            if (s.name, w.id) in claimed:
+                continue
+            stem = net.stem_of(s, w, claimed)
+            stems.append(stem)
+            claimed |= {(link.square.name, link.way.id) for link in stem.links}
+        owner = {(link.square.name, link.way.id): i
+                 for i, st in enumerate(stems) for link in st.links}
+        profiles = [self._along_chain(st) for st in stems]
+        keys = [{node_key(s2, r) for s2, r in prof[0]} for prof in profiles]
+        # where each stem's ends meet another stem: at a node, or at a side
+        ends, needs = [], []
+        for i, (st, (seq, _dist, _)) in enumerate(zip(stems, profiles, strict=True)):
+            here, deps = [], set()
+            if not seq:
+                ends.append(here); needs.append(deps)
+                continue
+            first, last = st.links[0], st.links[-1]
+            for pos, link, at_start in ((0, first, not first.backwards),
+                                        (-1, last, last.backwards)):
+                k = node_key(*seq[pos])
+                for j, kj in enumerate(keys):
+                    if j != i and k in kj:
+                        deps.add(j)
+                side = free_end_side(net, link.square, link.way, at_start)
+                if side is not None:
+                    j = owner.get((side.square.name, side.way.id))
+                    if j is not None and j != i:
+                        deps.add(j)
+                        here.append((pos, side))
+            ends.append(here)
+            needs.append(deps)
+        rank = {i: (not stems[i].links[0].way.tags.get('name'),
+                    -(profiles[i][1][-1] if profiles[i][1] else 0.0)) for i in range(len(stems))}
+        done, sequence = set(), []
+        while len(done) < len(stems):
+            ready = [i for i in rank if i not in done and needs[i] <= done]
+            # a ring of stems each waiting on another is broken by the same
+            # priority: named, then longer
+            pick = min(ready or [i for i in rank if i not in done], key=rank.get)
+            done.add(pick)
+            sequence.append(pick)
+        levels_at: dict = {}
+        mine = None                                   # the selected way's stem, for the profile
+        rejected_paths, all_rejected, joins, places = [], [], [], []
+        crossings = climbs = far = 0
+        for i in sequence:
+            seq, dist, known = profiles[i]
+            if len(seq) < 2:
+                continue
+            extra = [(dist[n], levels_at[node_key(s2, r)]) for n, (s2, r) in enumerate(seq)
+                     if node_key(s2, r) in levels_at]
+            for pos, side in ends[i]:
+                ns, refs = side.square.nodes, side.way.refs
+                a = levels_at.get(node_key(side.square, refs[side.seg]))
+                b = levels_at.get(node_key(side.square, refs[side.seg + 1]))
+                if a is not None and b is not None:
+                    extra.append((dist[pos], round(a + (b - a) * side.t, 1)))
+                pt = seq[pos]
+                n = pt[0].nodes[pt[1]]
+                joins.append((*m.lonlat_to_scene(n.lon, n.lat), side.gap_m))
+                places.append((side.gap_m, n.lat, n.lon, 'short of its river'))
+            for j in stems[i].joins:
+                joins.append((*m.lonlat_to_scene(j.lon, j.lat), j.gap_m))
+                places.append((j.gap_m, j.lat, j.lon, 'between ways'))
+            pts = sorted(set(known) | set(extra))
+            crossings += len(known)
+            if len(pts) < 2:
+                continue
+            lv, rejected, upstream = profile.grade_along(pts, dist)
+            lv = [round(v, 1) if v is not None else None for v in lv]
+            for (s2, r), v in zip(seq, lv, strict=True):
+                if v is not None:
+                    levels_at.setdefault(node_key(s2, r), v)
+            c = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
+            climbs, far = climbs + c, far + len(rejected) - c
+            scene = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
+            for d0, d1, _, _ in rejected:
+                run = [pt for pt, x in zip(scene, dist, strict=True) if d0 - 1e-6 <= x <= d1 + 1e-6]
+                if len(run) >= 2:
+                    rejected_paths.append(run)
+            if any((link.square.name, link.way.id) == (sq0.name, way0.id) for link in stems[i].links):
+                cur = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
+                mine = (dist, [levels_at.get(node_key(s2, r)) for s2, r in seq], cur, pts, rejected)
+                all_rejected = rejected
+        # named after its main river - the first named stem graded - and not
+        # the tributary that happened to be clicked
+        name = next((stems[i].links[0].way.tags['name'] for i in sequence
+                     if stems[i].links[0].way.tags.get('name')), 'unnamed')
+        if not levels_at:
+            self.message.emit(f'the {name} network crosses {crossings} contour'
+                              f'{"s" * (crossings != 1)} along its {len(stems)} stem'
+                              f'{"s" * (len(stems) != 1)} - not enough to grade from')
+            return
+        everywhere = list(self.working_set.squares.values())
+        by_sq = {x.name: x for x in everywhere}
+        changes: dict = {}
+        replaced = 0
+        for k, v in levels_at.items():
+            text = format_ele(v)
+            holders = ([(by_sq[k[0]], k[1])] if isinstance(k, tuple)
+                       else [(x, k) for x in everywhere if k in x.nodes])
+            for holder, nid in holders:
+                tags = holder.nodes[nid].tags
+                if tags.get('ele') == text:
+                    continue
+                replaced += 'ele' in tags
+                changes.setdefault(holder.name, {})[nid] = (dict(tags), {**tags, 'ele': text})
+        steps = []
+        for sq_name, ch in changes.items():
+            ids = tuple(link.way.id for st in stems for link in st.links
+                        if link.square.name == sq_name)
+            steps.append((by_sq[sq_name], edits.SetNodeLevels(ch, ids, f'grade the {name} network')))
+        points = {node_key(s2, r) for prof in profiles for s2, r in prof[0]}
+        named = sum(1 for st in stems if st.links and st.links[0].way.tags.get('name'))
+        values = list(levels_at.values())
+        parts = [f'{name} network: {len(stems)} stem{"s" * (len(stems) != 1)} ({named} named), '
+                 f'{crossings} crossing{"s" * (crossings != 1)}, '
+                 f'{len(levels_at)} of {len(points)} points levelled'
+                 + (f', {max(values):g} to {min(values):g} m' if values else '')]
+        why = []
+        if climbs:
+            why.append(f'{climbs} where the contours climb')
+        if far:
+            why.append(f'{far} running over {profile.MAX_SEGMENT_M / 1000:g} km without a contour')
+        if why:
+            parts.append(f'{climbs + far} span{"s" * (climbs + far != 1)} left ungraded - '
+                         + ', '.join(why))
+        if places:
+            # as the chain's grade says them, so each is fixed where it was made
+            said = ', '.join((f'{g:g} m' if g >= 0.05 else 'two nodes on one spot')
+                             + f' {kind} at {lat:.5f}, {lon:.5f}'
+                             for g, lat, lon, kind in places[:5])
+            more = f' and {len(places) - 5} more' if len(places) > 5 else ''
+            parts.append(f'walked across {len(places)} gap{"s" * (len(places) != 1)} '
+                         f'({said}{more}) - mapping errors, to join upstream')
+        if replaced:
+            parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
+        if not steps:
+            parts.append('already graded so - nothing to change')
+        preview = []
+        for k, v in levels_at.items():
+            s2, nid = ((by_sq[k[0]], k[1]) if isinstance(k, tuple)
+                       else next((x, k) for x in everywhere if k in x.nodes))
+            n = s2.nodes[nid]
+            preview.append((*m.lonlat_to_scene(n.lon, n.lat), v))
+        chain_paths = []
+        for st in stems:
+            for link in st.links:
+                ns = link.square.nodes
+                run = [m.lonlat_to_scene(ns[r].lon, ns[r].lat) for r in link.way.refs if r in ns]
+                if len(run) >= 2:
+                    chain_paths.append(run)
+        dist, levels, current, known, _ = mine if mine else (None, None, None, None, None)
+        self._set_proposal(Proposal(
+            sq0, way0, None, '; '.join(parts), dist, levels, current, known, all_rejected,
+            preview, rejected_paths, steps=steps, chain_paths=chain_paths, joins=joins))
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'

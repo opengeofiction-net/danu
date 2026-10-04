@@ -4,7 +4,7 @@ Built on a small grid of squares with ways laid out by hand, so every place a
 chain runs on, stops or crosses a gap is one the test can name.
 """
 
-from danu.core.chains import TOLERANCE_M, Network
+from danu.core.chains import TOLERANCE_M, Network, component, free_end_side
 from danu.core.square import Node, Square, SquareName, Way, WorkingSet
 
 A, B = SquareName(125, -24), SquareName(126, -24)
@@ -196,3 +196,94 @@ def test_a_way_whose_own_ends_are_within_reach_is_not_crossed_into_itself():
     way(sq, 1, [10, 11, 12, 13])
     chain = Network(w).chain_of(sq, sq.ways[1])
     assert [link.way.id for link in chain.links] == [1] and chain.joins == []
+
+
+# ------------------------------------------------------------ networks - G6d-2
+
+def confluence(names=('Bosco', 'Bosco', None)):
+    """Two pieces of a river meeting a tributary at node 12."""
+    w = ws(); sq = w.squares[A]
+    line(sq, 1, [10, 11, 12], name=names[0])
+    line(sq, 2, [12, 13, 14], lon0=125.12, name=names[1])
+    node(sq, 20, 125.12, -23.6)
+    way(sq, 3, [20, 12], name=names[2])
+    return w, sq
+
+
+def test_a_stem_carries_on_through_a_confluence_into_the_arm_with_its_name():
+    w, sq = confluence()
+    stem = Network(w).stem_of(sq, sq.ways[1])
+    assert [link.way.id for link in stem.links] == [1, 2]
+    assert walked(stem) == [10, 11, 12, 13, 14]
+
+
+def test_a_chain_still_stops_there():
+    w, sq = confluence()
+    assert [link.way.id for link in Network(w).chain_of(sq, sq.ways[1]).links] == [1]
+
+
+def test_a_stem_stops_where_no_one_arm_carries_its_name():
+    for names in (('Bosco', 'Kinser', None), ('Bosco', 'Bosco', 'Bosco'), (None, None, None)):
+        w, sq = confluence(names)
+        stem = Network(w).stem_of(sq, sq.ways[1])
+        assert [link.way.id for link in stem.links] == [1], names
+        assert 'a confluence' in stem.stops
+
+
+def test_a_stem_stops_short_of_a_way_another_stem_holds():
+    w, sq = confluence()
+    stem = Network(w).stem_of(sq, sq.ways[1], claimed={(A, 2)})
+    assert [link.way.id for link in stem.links] == [1]
+
+
+def test_an_end_that_stops_short_of_a_rivers_side_is_found():
+    w = ws(); sq = w.squares[A]
+    line(sq, 1, [10, 11, 12])
+    node(sq, 20, 125.105, -23.6)
+    node(sq, 21, 125.105, -23.5 - 2 * M)                  # 2 m short of way 1's side
+    way(sq, 2, [20, 21])
+    net = Network(w)
+    side = free_end_side(net, sq, sq.ways[2], at_start=False)
+    assert side is not None and side.way.id == 1 and side.seg == 0
+    assert abs(side.t - 0.5) < 0.01 and abs(side.gap_m - 2) < 0.2
+    assert free_end_side(net, sq, sq.ways[2], at_start=True) is None, 'the far end reached it'
+
+
+def test_an_end_that_meets_a_line_or_reaches_two_has_no_side():
+    w = ws(); sq = w.squares[A]
+    line(sq, 1, [10, 11, 12])
+    node(sq, 20, 125.105, -23.6)
+    way(sq, 2, [20, 11])                                   # meets way 1 at a node
+    assert free_end_side(Network(w), sq, sq.ways[2], at_start=False) is None
+    line(sq, 3, [30, 31], lat=-23.5 - 4 * M)               # a second line, 4 m the other side
+    node(sq, 22, 125.105, -23.5 - 2 * M)
+    way(sq, 4, [20, 22])
+    assert free_end_side(Network(w), sq, sq.ways[4], at_start=False) is None
+
+
+def test_a_network_is_the_same_whichever_line_it_is_asked_from():
+    """A tributary that stops short of its river is found from the river too
+    - on the gobras set it was not, and one network was proposed three ways."""
+    w = ws(); sq = w.squares[A]
+    line(sq, 1, [10, 11, 12])
+    node(sq, 20, 125.105, -23.6)
+    node(sq, 21, 125.105, -23.5 - 2 * M)
+    way(sq, 2, [20, 21])
+    line(sq, 3, [12, 13], lon0=125.12)                     # on, by a shared node
+    line(sq, 4, [40, 41], lon0=125.13, lat=-23.5 + 2 * M)  # on, across a gap
+    net = Network(w)
+    want = {1, 2, 3, 4}
+    for wid in want:
+        assert {x.id for _, x in component(net, sq, sq.ways[wid])} == want, wid
+
+
+def test_a_side_is_found_beside_the_end_of_a_long_segment():
+    """Segments are found by cell; one a kilometre long is in every cell it
+    crosses, not only the one its middle is in."""
+    w = ws(); sq = w.squares[A]
+    line(sq, 1, [10, 11, 12])                              # 1 km segments
+    node(sq, 20, 125.119, -23.6)
+    node(sq, 21, 125.119, -23.5 - 2 * M)                   # 100 m from 12, 450 from the middle
+    way(sq, 2, [20, 21])
+    side = free_end_side(Network(w), sq, sq.ways[2], at_start=False)
+    assert side is not None and side.way.id == 1 and side.seg == 1
