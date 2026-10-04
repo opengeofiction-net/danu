@@ -2879,3 +2879,17 @@ from Overpass - a check run by hand, not part of the build, and not touched.
 Four mutations, each failing a test, every one from a fresh copy: the grid
 over every drawn square, `has_elevation` answering for water, a working set of
 water alone built, and the switch put back into `danu-build-zone`.
+
+## `danu/water/constraints.py` goes
+
+G6c kept it, reading a file, for one purpose: G7's measure that the editor's
+burn writes the same constraints as it does, cell for cell. The spec now has
+G7 burn and flatten through the contours in the editor, with the build reading
+no water (#102), so that comparison has nothing to compare and the module
+nothing to do. `profile.grade`, the per-cell grader it alone called, goes with
+it. Its two properties - a graded run never ascends, and a climb rejected
+leaves the levels stepping up across the gap rather than forced down - are now
+tested on `grade_along`, the grader the editor uses, drawn either way round.
+Both fail when `grade_along` is let grade a climb. The agreement test between
+the two graders goes, its reference with it; `densify` and the segment lengths
+keep their tests, in `test_profile_geometry.py`.

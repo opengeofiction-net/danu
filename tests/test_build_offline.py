@@ -1,17 +1,15 @@
 """The nightly build reads the squares and nothing else - G6c.
 
 It never fetched from Overpass in service - server/etc/danu.conf held the
-switch off - but the switch was there, defaulting on in danu-build-zone, and
-danu/water/constraints.py fetched when asked. The editor imports water into
-the squares; a level on it reaches the build as a spot height. Read as text,
+switch off - but the switch was there, defaulting on in danu-build-zone. The editor imports water
+into the squares; a level on it reaches the build as a spot height. Read as text,
 so it runs where GDAL does not.
 """
 
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
-BUILD = [*sorted((ROOT / 'server').rglob('*')), *sorted((ROOT / 'danu' / 'surface').rglob('*.py')),
-         ROOT / 'danu' / 'water' / 'constraints.py']
+BUILD = [*sorted((ROOT / 'server').rglob('*')), *sorted((ROOT / 'danu' / 'surface').rglob('*.py'))]
 
 
 def test_nothing_the_build_runs_names_overpass_or_the_network():
@@ -25,9 +23,3 @@ def test_nothing_the_build_runs_names_overpass_or_the_network():
         if found:
             said[path.relative_to(ROOT).as_posix()] = found
     assert said == {}, said
-
-
-def test_constraints_reads_a_file_it_is_given():
-    text = (ROOT / 'danu' / 'water' / 'constraints.py').read_text()
-    assert "add_argument('--osm', required=True" in text
-    assert 'def fetch' not in text
