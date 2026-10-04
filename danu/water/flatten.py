@@ -411,3 +411,97 @@ def _drawn_back(pts, a, b, cut_a, cut_b, d, proj, out):
             out.removed.append([proj.lonlat(*_at(pts, pos_at(m0 + (m1 - m0) * k / 4)))
                                 for k in range(5)])
     return na, nb
+
+
+# ------------------------------------------------- re-import, G7a-bis
+
+@dataclass(frozen=True)
+class Reshaped:
+    """A flattened lake whose outline an import has since changed - its
+    fill lines and clipped contours were laid against the old one. Shaped
+    like ``gone.Gone`` so the dock and the map choose it the same way."""
+    square: object
+    kind: str                # 'way' or 'relation'
+    id: int
+    name: str | None
+    why: str
+
+    def describe(self) -> str:
+        return f'"{self.name}" - {self.why}' if self.name else f'{self.kind} {self.id} - {self.why}'
+
+
+def _outline(square: Square, feature):
+    """A lake's outline as it stands, comparable before and after: its
+    rings' coordinates, each ring from its lowest point and the rings in
+    order, so the same shape read twice is equal. None when it no longer
+    closes."""
+    try:
+        node_rings, _ = rings(square, feature)
+    except Refused:
+        return None
+    out = []
+    for ring in node_rings:
+        pts = [(round(square.nodes[r].lon, 7), round(square.nodes[r].lat, 7))
+               for r in ring[:-1] if r in square.nodes]
+        if not pts:
+            return None
+        k = pts.index(min(pts))
+        pts = pts[k:] + pts[:k]
+        out.append(tuple(min(pts, pts[:1] + pts[:0:-1])))      # either direction
+    return tuple(sorted(out))
+
+
+def flattened(working_set) -> dict:
+    """Every lake the set holds that has been flattened, with its outline as
+    it stands: one with fill lines, or a relation whose rings carry a level
+    - a lake too narrow for a fill line still has that. Keyed by square,
+    kind and id."""
+    out = {}
+    for sq in working_set.squares.values():
+        keys = {w.tags[FILL] for w in sq.ways.values() if FILL in w.tags}
+        for rel in sq.relations.values():
+            if not water_tags(rel.tags):
+                continue
+            ringed = any(m.type == 'way' and m.ref in sq.ways and 'ele' in sq.ways[m.ref].tags
+                         for m in rel.members)
+            if ringed or fill_key(rel) in keys:
+                out[(sq.name, 'relation', rel.id)] = (rel.tags.get('name'), _outline(sq, rel))
+        for way in sq.ways.values():
+            if fill_key(way) in keys:
+                out[(sq.name, 'way', way.id)] = (way.tags.get('name'), _outline(sq, way))
+    return out
+
+
+def _unlevelled(square: Square, feature) -> bool:
+    """A flattened relation lake with a ring way that does not carry its
+    level - one upstream put in place of the way that did."""
+    if not isinstance(feature, Relation):
+        return False
+    level = feature.tags.get('ele')
+    return any(m.type == 'way' and m.ref in square.ways and square.ways[m.ref].tags.get('ele') != level
+               for m in feature.members)
+
+
+def reshaped(before: dict, working_set) -> list[Reshaped]:
+    """The flattened lakes ``before`` named whose outline is not what it was.
+    A lake no longer held at all is the gone report's, not this one's."""
+    out = []
+    for (name, kind, fid), (label, was) in sorted(before.items(), key=lambda kv: (str(kv[0][0]), kv[0][1], kv[0][2])):
+        sq = working_set.squares.get(name)
+        holder = (sq.relations if kind == 'relation' else sq.ways) if sq is not None else {}
+        feature = holder.get(fid)
+        if feature is None:
+            continue
+        now = _outline(sq, feature)
+        if now == was and not _unlevelled(sq, feature):
+            continue
+        if now is None:
+            why = 'its outline no longer closes in this square'
+        elif now == was:
+            # the same shore under new ways: upstream redrew the ring, and the
+            # new ways do not carry the level the build reads as its contour
+            why = 'its shore was redrawn upstream without its level - F flattens it again'
+        else:
+            why = 'reshaped upstream since it was flattened - F flattens it again'
+        out.append(Reshaped(name, kind, fid, label, why))
+    return out

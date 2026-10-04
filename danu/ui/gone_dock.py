@@ -20,6 +20,11 @@ on its own.
 A row whose feature has since been deleted stays, struck through: the report
 is of what the import found, and a list that rearranged itself under the
 mapper's hand while they worked down it would lose their place.
+
+Below them, the lakes flattened here whose outline the import changed (G7a-bis):
+their fill lines and clipped contours were laid against the old shore, and F
+flattens them again. Not gone - still upstream, and still held - but the same
+kind of thing a mapper has to look at after an import, so the same list.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDockWidget, QLabel, QStackedWidget, QTreeWidget, QTreeWidgetItem
 
+from ..core.square import Way
 from ..water.gone import Gone
 
 _GONE = Qt.ItemDataRole.UserRole
@@ -50,6 +56,7 @@ class GoneDock(QDockWidget):
         self.stack.addWidget(self.tree)
         self.setWidget(self.stack)
         self.report: list[Gone] = []
+        self.reshaped: list = []
         self._items: dict[tuple, QTreeWidgetItem] = {}
         # a click and a keyboard move both choose, so the list can be walked
         # with the arrow keys as well as the mouse
@@ -58,7 +65,7 @@ class GoneDock(QDockWidget):
     NOTHING_GONE = 'Nothing: the last import found everything held\nstill upstream.'
     NOT_IMPORTED = 'No import yet for this working set.'
 
-    def show_report(self, report: list[Gone], imported: bool = True) -> None:
+    def show_report(self, report: list[Gone], imported: bool = True, reshaped=()) -> None:
         """The last import's report, replacing whatever was listed.
 
         ``imported`` False is a set opened and not yet imported into. An
@@ -66,6 +73,7 @@ class GoneDock(QDockWidget):
         still upstream - which, of a set nobody has imported, would be a
         claim about an answer that was never asked for."""
         self.report = list(report)
+        self.reshaped = list(reshaped)
         self.empty.setText(self.NOTHING_GONE if imported else self.NOT_IMPORTED)
         self.tree.blockSignals(True)
         self.tree.clear()
@@ -79,9 +87,20 @@ class GoneDock(QDockWidget):
                 continue
             under = self._items.get((g.square, 'relation', g.of)) if (g.square, g.of) in lakes else None
             self._items[(g.square, g.kind, g.id)] = self._item(g, under)
+        if self.reshaped:
+            head = QTreeWidgetItem([f'Flattened, and reshaped upstream since ({len(self.reshaped)})'])
+            head.setFlags(head.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.tree.addTopLevelItem(head)
+            for r in self.reshaped:
+                item = QTreeWidgetItem([r.describe()])
+                item.setData(0, _GONE, r)
+                item.setToolTip(0, 'its fill lines and clipped contours were laid against the\n'
+                                   'outline it had - select it and F flattens it again')
+                head.addChild(item)
+                self._items[(r.square, r.kind, r.id, 'reshaped')] = item
         self.tree.expandAll()
         self.tree.blockSignals(False)
-        self.stack.setCurrentWidget(self.tree if self.report else self.empty)
+        self.stack.setCurrentWidget(self.tree if self.report or self.reshaped else self.empty)
 
     def _item(self, g: Gone, under: QTreeWidgetItem | None = None) -> QTreeWidgetItem:
         item = QTreeWidgetItem([g.describe()])
@@ -112,8 +131,30 @@ class GoneDock(QDockWidget):
                             'not in the last answer: deleted upstream, or no longer\n'
                             'tagged as the water the import asks for. Kept here.')
             open_ += held
+        for r in self.reshaped:
+            item = self._items.get((r.square, r.kind, r.id, 'reshaped'))
+            square = working_set.squares.get(r.square) if working_set else None
+            if item is None or square is None:
+                continue
+            if r.id not in (square.relations if r.kind == 'relation' else square.ways):
+                font = item.font(0)
+                font.setStrikeOut(True)
+                item.setFont(0, font)
+                item.setToolTip(0, 'deleted here since the import')
         return open_
 
-    def _current(self, item, _previous):
+    def mark_flattened(self, square, feature) -> None:
+        """A reshaped lake flattened again: its row struck through, so the
+        list can be worked down. Kept rather than removed, for the same reason
+        a deleted feature's row is."""
+        kind = 'way' if isinstance(feature, Way) else 'relation'
+        item = self._items.get((square, kind, feature.id, 'reshaped'))
         if item is not None:
+            font = item.font(0)
+            font.setStrikeOut(True)
+            item.setFont(0, font)
+            item.setToolTip(0, 'flattened again since the import')
+
+    def _current(self, item, _previous):
+        if item is not None and item.data(0, _GONE) is not None:
             self.chosen.emit(item.data(0, _GONE))

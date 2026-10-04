@@ -6,8 +6,11 @@ pull-back is one the test can measure.
 """
 
 import math
+import random
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, Square, SquareName, Way, WorkingSet
@@ -322,3 +325,80 @@ def test_a_fill_spacing_that_is_not_positive_is_refused():
     w, sq = ws()
     with pytest.raises(ValueError, match='never stop'):
         flatten.plan(w, sq, lake(sq), allocator(sq), fill_spacing_m=0)
+
+
+# --------------------------------------------- a re-import reshapes, G7a-bis
+
+def flattened_lake():
+    w, sq = ws()
+    outer = way(sq, box(125.50, -22.50, 0.04), {}, closed=True)
+    sq.relations[7] = Relation(id=7, tags={'natural': 'water', 'name': 'Kinser', 'ele': '100'},
+                               members=[Member('way', outer.id, 'outer')])
+    run(w, sq, sq.relations[7])
+    return w, sq, outer
+
+
+def test_a_flattened_lake_is_found_by_its_fill_lines_or_its_ringed_level():
+    w, sq, outer = flattened_lake()
+    lk = lake(sq)                                    # never flattened
+    assert set(flatten.flattened(w)) == {(A, 'relation', 7)}
+    for x in fill_lines(sq):                         # a lake too narrow for a line still counts
+        del sq.ways[x.id]
+    assert set(flatten.flattened(w)) == {(A, 'relation', 7)}
+    assert (A, 'way', lk.id) not in flatten.flattened(w)
+
+
+def test_an_outline_moved_is_reported_and_one_unchanged_is_not():
+    w, sq, outer = flattened_lake()
+    before = flatten.flattened(w)
+    assert flatten.reshaped(before, w) == []
+    sq.nodes[outer.refs[1]].lon += 0.001             # upstream moved a node of the shore
+    (r,) = flatten.reshaped(before, w)
+    assert (r.kind, r.id, r.name) == ('relation', 7, 'Kinser') and 'flattens it again' in r.why
+
+
+def test_the_same_shore_redrawn_from_another_node_and_the_other_way_round_is_not_a_change():
+    w, sq, outer = flattened_lake()
+    before = flatten.flattened(w)
+    refs = outer.refs[:-1]
+    outer.refs = list(reversed(refs[2:] + refs[:2])) + [refs[1]]
+    assert outer.refs[0] == outer.refs[-1]
+    assert flatten.reshaped(before, w) == []
+
+
+def test_a_shore_that_no_longer_closes_is_said_and_a_lake_gone_is_left_to_the_gone_report():
+    w, sq, outer = flattened_lake()
+    before = flatten.flattened(w)
+    outer.refs = outer.refs[:-1]                     # cut open
+    (r,) = flatten.reshaped(before, w)
+    assert 'no longer closes' in r.why
+    del sq.relations[7]
+    assert flatten.reshaped(before, w) == []
+
+
+@given(st.integers(0, 10_000), st.booleans())
+def test_an_outline_is_the_same_from_any_start_and_either_way_round(seed, reverse):
+    """The canonical form the comparison rests on: a ring of random points,
+    started anywhere and walked either way, is one outline."""
+    rng = random.Random(seed)
+    w, sq = ws()
+    pts = [(125.5 + rng.random() / 10, -22.5 + rng.random() / 10) for _ in range(rng.randint(3, 12))]
+    a = way(sq, pts, {}, closed=True)
+    k = rng.randrange(len(pts))
+    again = pts[k:] + pts[:k]
+    if reverse:
+        again = again[::-1]
+    b = way(sq, again, {}, closed=True)
+    assert flatten._outline(sq, a) == flatten._outline(sq, b)
+
+
+def test_a_ring_redrawn_under_a_new_way_without_the_level_is_reported():
+    """Upstream replaced the ring way, same shore: the relation names the
+    new way, which carries no level - the build has lost the lake's shore."""
+    w, sq, outer = flattened_lake()
+    before = flatten.flattened(w)
+    new = Way(id=next(_ids), refs=list(outer.refs), tags={})
+    sq.ways[new.id] = new
+    sq.relations[7].members = [Member('way', new.id, 'outer')]
+    (r,) = flatten.reshaped(before, w)
+    assert 'without its level' in r.why
