@@ -1059,8 +1059,16 @@ class EditController(QObject):
             self.message.emit('nothing selected')
             return
         sq = sel.square
-        if sel.relation is not None:
-            self._propose_lake(sq, sel.relation)
+        if sel.relation is not None and water_tags(sel.relation.tags):
+            # R27 for a relation as for a closed way: a river area mapped as a
+            # multipolygon went down the lake path and was proposed one flat
+            # level, which is how the Bosco River's area got its mouth's height
+            if flows(sel.relation.tags):
+                self.message.emit(f'{sel.relation.tags.get("name") or "a river area"} flows, '
+                                  'so it has no one level (R27): grade the river that runs '
+                                  'down it')
+            else:
+                self._propose_lake(sq, sel.relation)
         elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
             way = sel.way
             if way.closed and flows(way.tags):

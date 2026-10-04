@@ -2678,3 +2678,12 @@ was narrow enough that most of it fell off the image - 42 red pixels where
 Linux has 300. The test finds the span from its own vertices now and asks what
 share of its columns is red over the halo; it passes at map widths of 387, 87
 and 68 px, and still fails with the order reversed.
+
+**A river area mapped as a relation was proposed one level.** The GitHub
+review noticed that the grade button showed for any selected relation.
+Following that up found the worse case: `grade()` sent every relation down
+the lake path without asking whether it flows. So a river area drawn as a
+multipolygon (`natural=water` + `water=river`) was proposed one flat level,
+which is exactly what R27 forbids and how the Bosco River's area once got its
+mouth's height. `set_ele` refused it; `grade` did not. Both refuse now, and
+only water relations are offered a grade.

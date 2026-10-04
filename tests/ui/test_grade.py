@@ -393,3 +393,28 @@ def test_while_a_grade_is_proposed_a_mark_on_the_river_is_a_proposed_level(windo
     marks = sum(1 for x in range(cx - 4, cx + 5) for y in range(cy - 4, cy + 5)
                 if (c := img.pixelColor(x, y)).red() > 190 and c.blue() < 35)
     assert marks == 0, f'the selection marked a vertex while a grade was open ({marks} px)'
+
+
+def test_a_river_area_mapped_as_a_relation_is_refused_too(window, sq):
+    """R27 held for a river area drawn as one closed way; one mapped as a
+    relation went down the lake path and was proposed one flat level - the
+    Bosco River's area, flattened at its mouth's height, is how R27 came to
+    be written."""
+    k = lake(sq)
+    k.tags.update({'water': 'river'})
+    contour(sq, 125.51, 45, -22.80, -22.60)
+    rebuild(window)
+    assert grade(window, sq, k) is None, 'a river area was proposed one level'
+    assert 'R27' in window.statusBar().currentMessage()
+
+
+def test_only_water_is_offered_a_grade(window, sq):
+    i = next(_ids)
+    rel = Relation(id=i, tags={'type': 'boundary', 'name': 'a district'}, members=[])
+    sq.relations[i] = rel
+    rebuild(window)
+    window.editor.selection = Selection(sq, None, relation=rel)
+    assert not window.selection_panel.grade_btn.isVisible()
+    window.editor.grade()
+    assert window.editor.proposal is None
+    assert 'grading is for water' in window.statusBar().currentMessage()

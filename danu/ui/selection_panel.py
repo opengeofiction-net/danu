@@ -277,8 +277,10 @@ class SelectionPanel(QDockWidget):
         self.where.setText(info.where or '—')
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
-        water = sel is not None and (sel.relation is not None or (
-            sel.way is not None and (sel.square.name, sel.way.id) in self.editor.layer.water))
+        water = sel is not None and (
+            (sel.relation is not None and water_tags(sel.relation.tags))
+            or (sel.relation is None and sel.way is not None
+                and (sel.square.name, sel.way.id) in self.editor.layer.water))
         self.grade_btn.setVisible(water)
         self.refresh_proposal()
 
