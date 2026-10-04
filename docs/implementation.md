@@ -2066,3 +2066,185 @@ from the settings. `MapControls` takes the settings and builds the tooltip from
 The rest of the second review was the diff read without the files around it:
 `ImportWater`, `dirty_squares` and `Water.__len__` were all reported as
 possibly missing and all three are on the branch.
+
+## Water drawn as water
+
+Two things, taken together because the first is what the second needs before
+G5 lands.
+
+**One forward path.** `_water_imported` wrote out `history.do_across`, the two
+refreshes and the two signals - the same lines as `_history_move` minus
+`_after_history_move`. Two review rounds pointed at the duplication and I
+filed it as deliberate twice. It was harmless only because an import adds:
+nothing under the selection could vanish, so there was nothing to clear. G5's
+reconciliation replaces superseded features, which is a delete, and then the
+forward path would leave a selection pointing at a way no longer in the square
+while undoing the same step cleared it. `EditController.do_across` is the one
+entry point now, and the test deletes the selected way forward to prove the
+ask is made.
+
+**Filled bodies.** A lake drawn as an outline reads as a very round contour,
+which is the one thing the water layer exists to stop. So the bodies are
+filled, and every water way is still outlined over the top - two passes,
+because they say different things: the fill says *inside*, the edge says
+*shore*, and where the wash is faint the edge is what a mapper draws against.
+
+The fill is per *relation*, not per ring. An island in a lake is an inner ring
+and filling each ring on its own paints the island solid - the one case
+relations were grown for in the first place. All of a relation's rings go in
+one `QPainterPath` with an odd-even fill, and the hole falls out of the
+geometry rather than out of a role we would have to trust.
+
+Which means the rings have to be stitched back together first, and that is
+`danu/core/rings.py`: a lake's boundary is a dozen ways in whatever order the
+relation lists them and whatever direction each was drawn, so the chaining is
+greedy and takes a piece off the pile when either of its ends meets either end
+of the chain. It is core rather than ui because it is topology and the `tests`
+job can run it without Qt.
+
+Two things keep the stitch from depending on the order the members arrive in,
+and the local review found both. A piece that is already a ring is lifted out
+first and kept whole: spliced into an open chain it grafts a loop onto a line
+and makes a shape that is in neither, and on the real gobras import that was
+one lake drawn wrong - the relation fills went from 92 to 93 when it was
+fixed. And the rest are sorted by their own node ids, so where a node is
+shared by more than two members and the greedy choice is genuinely ambiguous,
+it still falls the same way every time. The editor and the server read the
+same relation and have to fill the same shape; "whichever order the members
+happened to be listed in" does not give that.
+
+What does not close is not filled. A square holds its own degree, so a lake
+crossing the edge arrives cut, and those pieces chain into an open line. It
+keeps its outline and gets no fill. Closing it would draw a shore along the
+square edge that nobody mapped.
+
+The gobras 3x3 does not exercise that, and an earlier draft of this paragraph
+said it did. Of the 112 relations in the Overpass answer, 19 are placed into
+N19E086, which the set does not hold, so they are never drawn; the other 93
+land in present squares and all 93 stitch. Nothing in this box fails to close.
+The count here was 92 before the closed-member lift, and the one it recovered
+is the only evidence this data gives: the straddling case is covered by tests
+rather than by the import.
+
+**The cost, measured.** Painting: +2.2 ms at z10, +0.5 ms at z13 and z15, on
+773 fills drawn of 2,072 - the per-piece rectangle cull was already there and
+the fills use it. Opening: 65 ms of the 579 ms `set_working_set`, which is on
+a worker.
+
+Editing was the one that needed fixing. Rebuilding the square's fills on every
+water edit cost **50.7 ms** on N20E086, which holds seventy per cent of the
+box's water - a whole frame, on the UI thread, which is exactly the cost phase
+4 was spent taking out of `refresh`. A way can only change its own fill and
+the fills of the relations that name it, so only those are rebuilt: **0.5 ms**,
+and finding which relations name it is a walk of 112 relations rather than of
+four thousand ways.
+
+**What the PR review changed.** Three, and all three are about a fill that
+stops being true rather than one that never was.
+
+A ring missing a node was filled across the gap. `_project` allows a way in a
+square whose nodes are not all in it, and draws the part it knows, which is
+right for a line - but a line may stop short where a shape may not, and
+joining the two sides of a missing node draws a shore nobody mapped. It is the
+straddling case by another road, and gets the same answer: outline, no fill.
+`_ring_path` now wants every ref placed, not merely four of them. On the real
+import it costs nothing - 2,073 fills before and after - which is the
+reassuring result, because it means the invariant usually holds and the guard
+is for when it does not.
+
+A relation that stopped *naming* a ring kept the ring. The rebuild was keyed on
+"a changed way is a member of this relation", and a relation that loses its
+outer ring names no changed way at all. That is exactly what G5 does -
+reconciliation rewrites member lists - so the fill a relation was built from is
+remembered and compared, and a relation whose members moved is redone whatever
+the changed ids say. The first attempt at a test for this passed without the
+fix, because the edit it made happened to name the new member; the one that
+bites reports a river nearby and nothing else.
+
+And `_add_water_fills(square, members=frozenset())` had a default that was a
+lie: called without `members`, every ring of every relation gets a second fill
+of its own, the one thing the docstring warns against. It is required now.
+
+The review also asked for the ordering test to compare rings rather than node
+sets - two stitchings can group the same nodes in a different order, and the
+order is the shape - so it compares them up to rotation and reversal.
+
+**The second review: one real, one that dissolved.**
+
+The real one was a guard that made its own check unreachable. `refresh` only
+called `_refresh_water_fills` when one of the changed ways already had a fill
+or a line - and the one thing in there that an *ordinary* edit can have broken
+is a relation's member list, which names no changed way at all. So the
+staleness check added in the round before could never fire on the only path
+where it was the only thing that could. The guard is gone. It costs 0.25 ms on
+N20E086, six thousand ways and seventy-eight relations, which against the 8 ms
+an edit has is worth paying to make a check true rather than decorative. The
+test that pins it edits a contour and nothing else.
+
+The second dissolved when the test for it was written, which is the useful
+thing about writing the test first. The claim was that a closed way which is a
+member of a relation the square cannot stitch loses its fill: skipped by
+`_way_fill` for being a member, and not drawn by the relation because the
+relation drew nothing. But a closed member *is* a ring - `closed_rings` lifts
+it out whatever happens to the cut pieces around it - so the relation always
+has a path and the member's ring is in it. The test written to show the gap
+showed the lake filled, and is kept saying so, with the cut piece beside it
+getting an outline and no fill.
+
+**The water was the ramp's blue.** Reported from the running editor, on
+N20E086, as "contours are getting drawn as water" - and the fills were
+innocent: the ten largest on that square are the Bosco River, Lake Kinser and
+seven `waterway=riverbank`, all correctly tagged. What was wrong was the
+colour. Contour lines take theirs from the hypsometric ramp, and spectral
+starts at (43, 131, 186) and walks through teal into green, so a 40 m contour
+sat 18 units in RGB from the water's (70, 130, 190) and everything under 80 m
+within 33. Eighteen units is the same line. On a coastal square almost every
+contour is under 80 m, so the whole sheet read as drainage.
+
+Water is (20, 70, 140) now, 80 units clear of the nearest colour the ramp can
+make at any elevation in the square. It had to come out of the darkness and
+not the hue: the ramp spends its first two hundred metres walking from blue to
+green, so there is no free hue down there, only a free value. The test asserts
+the distance against the ramp rather than against a literal, so changing the
+ramp breaks the test rather than the map.
+
+Two lessons, and the second is the one worth keeping. The first is that a
+colour chosen against a white page is not chosen until it has been put next to
+everything else that is drawn. The second is that I had seen this myself, in
+the z15 render made while settling the fill alphas, and set it aside as a
+follow-up to raise rather than a fault to fix. It was in front of me and it
+was this change's business.
+
+**The water pass filled the contours.** Reported from the editor on N20E086,
+a square that had never seen an import, with the surface at zero opacity: the
+whole terrain drawn in water.
+
+```python
+painter.setPen(Qt.PenStyle.NoPen)
+painter.setBrush(WATER_FILL)      # set before anything is known about there being any
+for piece in self.water_fills.values(): ...
+if not self.water:
+    return                        # and left on the painter
+```
+
+The contour pass below sets a pen per level and no brush. It always relied on
+`_paint_water` leaving `NoBrush` behind, which the version before this change
+did - it returned before touching either when there was no water, and ended
+with `setBrush(NoBrush)` when there was. The fill pass broke that silently: on
+a square with no water it sets the brush, draws nothing, returns early, and
+every closed contour is then filled with it.
+
+Fixed at both ends, because the fault was the implicit dependency and not the
+one line. `_paint_water` wraps itself in `save`/`restore`, so it cannot leak
+whatever it does; and `paint` sets `NoBrush` before the contour loop, so that
+pass says what it needs instead of inheriting it.
+
+The lesson is not about brushes. The counter said `fills drawn 0`, which was
+true - no fill was drawn, the brush did the filling - and I offered that
+number to the mapper as evidence that nothing was filled, twice, without
+opening the image it came from. A rendering fault is settled by looking at the
+rendering. This file has said so since the pass-2 streaks, and the rule has
+now caught me from the other side: there, a statistic hid a fault that was
+obvious on sight; here, a counter did. The test that pins this reads a pixel
+inside a contour ring, and the second one hands the pass a magenta brush and
+requires it back.

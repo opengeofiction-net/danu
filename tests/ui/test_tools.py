@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 from danu.core import edits
 from danu.core.square import SquareName
 from danu.ui import mercator as m
+from danu.ui.tools import Selection
 
 TEN = SquareName(126, -24)          # the square with five east-west lines, 10..50 m, at lat -23.9..-23.5
 
@@ -911,3 +912,23 @@ def test_a_spot_height_is_not_picked_where_it_is_not_drawn(w):
     w.editor.selection = None
     click(w, node.lon, node.lat)
     assert w.editor.selection is not None and w.editor.selection.spot
+
+
+def test_a_forward_step_that_deletes_the_selection_clears_it(window):
+    """G5 reconciliation replaces superseded features, which means a step done
+    forward can delete the way under the selection. The import used to write
+    its own forward path, which refreshed and emitted but never asked whether
+    the selection had survived - while undoing the same step did."""
+    w = window
+    square = w.working_set.squares[w.working_set.centre]
+    way = next(iter(square.ways.values()))
+    w.editor.selection = Selection(square=square, way=way)
+
+    w.editor.do_across([(square, edits.DeleteWay(way_id=way.id))])
+    assert way.id not in square.ways
+    assert w.editor.selection is None, (
+        'the selection still points at a way the step deleted'
+    )
+
+    w.editor.undo()
+    assert way.id in square.ways

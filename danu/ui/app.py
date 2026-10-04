@@ -587,13 +587,8 @@ class MainWindow(QMainWindow):
         if not steps:
             self.statusBar().showMessage('no water in this working set')
             return
-        self.editor.history.do_across(steps)
-        for square, cmd in steps:
-            ways, spots = cmd.ways(square), cmd.spots(square)
-            self.contours.refresh(square, ways)
-            self.contours.refresh_spots(square, spots)
-            self.editor.editedWays.emit(square, ways, spots)
-        self.editor.edited.emit()
+        # the editor's own path, not a copy of it: see EditController.do_across
+        self.editor.do_across(steps)
         features = sum(len(w) for w in placed.values())
         # named per square because the share is not even: on the gobras 3x3
         # one square takes seventy per cent of them

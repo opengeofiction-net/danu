@@ -144,6 +144,31 @@ class EditController(QObject):
     def redo(self):
         self._history_move(self.history.redo_across(), 'redid')
 
+    def do_across(self, steps) -> None:
+        """A step that spans squares, done forward - the import's path onto
+        the history, and the same path back off it that undo takes.
+
+        It used to be written out again in the window, which was the same
+        three lines minus ``_after_history_move``. That was harmless while an
+        import only added: nothing under the selection could vanish, so there
+        was nothing to clear. G5's reconciliation replaces superseded features,
+        which means deleting ways, and then the forward path would leave a
+        selection pointing at a way no longer in the square while the undo
+        path cleared it. One entry point, so the two cannot differ.
+        """
+        steps = list(steps)
+        if not steps:
+            return
+        self.history.do_across(steps)
+        self._refresh_step(steps)
+
+    def _refresh_step(self, step) -> None:
+        for square, cmd in step:
+            ways, spots = cmd.ways(square), cmd.spots(square)
+            self.layer.refresh(square, ways)
+            self.layer.refresh_spots(square, spots)
+            self._after_history_move(square, ways, spots)
+
     def _history_move(self, step, verb: str):
         """One step off the history, or back on, however many squares it
         touched. An import lands in up to nine files at once and comes back
@@ -151,11 +176,7 @@ class EditController(QObject):
         stops being one square's business."""
         if not step:
             return
-        for square, cmd in step:
-            ways, spots = cmd.ways(square), cmd.spots(square)
-            self.layer.refresh(square, ways)
-            self.layer.refresh_spots(square, spots)
-            self._after_history_move(square, ways, spots)
+        self._refresh_step(step)
         self.message.emit(f'{verb} {step[0][1].describe()}')
 
     def _after_history_move(self, square: Square, ways=(), spots=()):

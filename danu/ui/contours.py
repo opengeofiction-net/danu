@@ -40,6 +40,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import geometry
+from ..core.rings import is_closed, relation_rings
 from ..core.square import Square, SquareName, Way, WorkingSet, parse_ele
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
@@ -76,7 +77,25 @@ SPOT_PX = 3.5
 # the one colour all water is drawn in. Not from the ramp: none of it has an
 # elevation to take a colour from until G6, and a river is where the valley
 # floor is rather than how high it is
-WATER = QColor(70, 130, 190, 200)
+# a blue the hypsometric ramp cannot make. Spectral runs from (43, 131, 186)
+# at the bottom of the square up through teal into green, and the water was
+# (70, 130, 190) - which puts a 40 m contour 18 units away in RGB and
+# everything under 80 m within 33. On a coastal square almost every contour is
+# under 80 m, so the whole sheet read as drainage; the mapper who reported it
+# said "contours are getting drawn as water", which is exactly what it looked
+# like. 80 units clear of the nearest ramp colour is what buys the difference,
+# and it has to come out of the darkness rather than the hue, because the hue
+# between blue and green is where the ramp spends its first two hundred metres.
+# The test asks for 60 and this gives 80: the floor is what must hold if the
+# ramp changes, and the margin above it is this colour's own
+WATER = QColor(20, 70, 140, 200)
+# the fill is far fainter than the edge it sits inside. Water is drawn in the
+# contour layer, which is over the surface preview and over the tiles, so a
+# body filled at the edge's own alpha would blank the hypsometric tint and
+# whatever the backdrop shows - the ground the mapper is working against. The
+# faint wash says "inside", the firm edge says "shore", and between them a
+# lake stops reading as a very round contour
+WATER_FILL = QColor(20, 70, 140, 58)
 
 
 @dataclass
@@ -113,6 +132,11 @@ def _water_tags(tags: dict) -> bool:
     """``natural=water``, or any ``waterway``. Asked of a way and of a
     relation with the one function, so the two cannot drift apart."""
     return tags.get('natural') == 'water' or 'waterway' in tags
+
+
+def _member_ways(rel) -> tuple:
+    """The way ids a relation names, in order - what a fill was built from."""
+    return tuple(mem.ref for mem in rel.members if mem.type == 'way')
 
 
 def _water_members(square: Square) -> frozenset:
@@ -236,6 +260,13 @@ class ContourLayer(QGraphicsItem):
         # set_working_set because _paint_water reads it, and a layer can be
         # painted before it is given a set
         self.water: dict[tuple[SquareName, int], _Piece] = {}
+        # and the bodies among it, as filled shapes: by relation where one
+        # holds the rings, by way where a way is its own ring
+        self.water_fills: dict[tuple, _Piece] = {}
+        # the member ways each relation fill was built from, so an edit that
+        # rewrote a member list is noticed - the changed way ids alone cannot
+        # say that a relation stopped naming one
+        self._rel_members: dict[tuple, tuple] = {}
         # whether a level has appeared or emptied since index_levels was last
         # worked out, which is the only thing that can move an index contour
         self._levels_moved = False
@@ -259,6 +290,7 @@ class ContourLayer(QGraphicsItem):
         self.drawn_labels = 0
         self.drawn_spots = 0
         self.drawn_water = 0
+        self.drawn_water_fills = 0
 
     # ------------------------------------------------------------ data
     def set_working_set(self, ws: WorkingSet | None, ramp: Ramp | None = None):
@@ -271,6 +303,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
+        self.water_fills, self._rel_members = {}, {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -293,6 +326,7 @@ class ContourLayer(QGraphicsItem):
                 geom = self._project(square, way, members)
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
+            self._add_water_fills(square, members)
             for nid in square.nodes:
                 self._project_spot(square, nid)
         for key, geom in self._geoms.items():
@@ -399,11 +433,150 @@ class ContourLayer(QGraphicsItem):
                     self._add_way(key, geom)
                 elif geom.way.tags.get('natural') != 'coastline':
                     self._add_water(key, geom)
+        # unguarded, and the 0.25 ms it costs on the gobras square that holds
+        # six thousand ways is worth it. The guard was "did one of these ways
+        # have a fill or a line", which is false for an ordinary contour edit
+        # - and the one thing in here that an ordinary edit can have broken is
+        # a relation's member list, which names no changed way at all. The
+        # check for it was unreachable on the only path where it is the only
+        # thing that could fire
+        self._refresh_water_fills(square, way_ids)
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
         self._arrays_stale = True
         self.update()
+
+    def _add_water_fills(self, square: Square, members) -> None:
+        """Every water body of one square, as a filled shape - the open path.
+
+        A relation first, as one path holding every ring it stitched, with an
+        odd-even fill: an island in a lake is an inner ring, and filling each
+        ring on its own would paint the island solid. Odd-even makes it a hole
+        out of the geometry rather than out of a role we would have to trust.
+
+        Then the closed ways that are water in their own right - a small lake
+        drawn as one way, and `waterway=riverbank`, which is 115 ways and 114
+        of them closed on the gobras box, river surface that would otherwise
+        draw as an outline. A member of a water relation is skipped, because
+        its ring is in the relation's path already.
+
+        Open ways are not here at all. A river is a line and has no inside,
+        and a ring the square edge cut is an open chain that `closed_rings`
+        does not return - it keeps its outline and gets no fill, which is the
+        honest answer when the rest of the lake is in a square nobody opened.
+        """
+        for rel in square.relations.values():
+            self._relation_fill(square, rel)
+        for way in square.ways.values():
+            self._way_fill(square, way, members)
+
+    def _relation_fill(self, square: Square, rel) -> None:
+        key = (square.name, 'rel', rel.id)
+        self.water_fills.pop(key, None)
+        self._rel_members[key] = _member_ways(rel)
+        if not _water_tags(rel.tags):
+            return
+        paths = [self._ring_path(square, r) for r in relation_rings(square, rel)]
+        self._put_fill(key, [p for p in paths if p])
+
+    def _way_fill(self, square: Square, way: Way, members) -> None:
+        """A closed water way's own fill, unless a water relation names it.
+
+        The skip is safe even when the relation straddles the square edge and
+        most of it cannot be stitched: a closed member *is* a ring, so
+        `closed_rings` returns it whatever happens to the cut pieces around
+        it, and the relation's path holds it. A review read the skip as
+        dropping such a member's fill on the floor; the test that was written
+        to show it instead showed the relation filled.
+
+        ``members`` must be the union of what the square's water relations
+        name *now*, and never the set of ways whose membership moved. The two
+        look interchangeable because a way that joined a relation is in both.
+        A way that *left* one is in the moved set and is not a member, and
+        handed the moved set it would be skipped here and drawn by nobody -
+        which is the fault this argument was widened to fix.
+        """
+        key = (square.name, 'way', way.id)
+        self.water_fills.pop(key, None)
+        if way.id in members or not _water_tags(way.tags) or not is_closed(way):
+            return
+        ring = self._ring_path(square, way.refs)
+        self._put_fill(key, [ring] if ring else [])
+
+    @staticmethod
+    def _ring_path(square: Square, refs) -> list:
+        """A ring's nodes in scene units, or nothing at all.
+
+        Every node, not merely enough of them. A way can be in a square whose
+        nodes are not all in it - ``_project`` allows for exactly that, and
+        draws the part it knows - but a line may stop short where a shape may
+        not: joining the two sides of a missing node fills across a gap and
+        draws a shore nobody mapped, which is the straddling case again by
+        another road. A body we cannot draw truthfully keeps its outline and
+        gets no fill.
+        """
+        nodes = square.nodes
+        placed = [nodes[r] for r in refs if r in nodes]
+        if len(placed) != len(refs) or len(placed) < 4:
+            return []
+        pts = m.lonlat_to_scene_array([n.lon for n in placed], [n.lat for n in placed])
+        return pts.tolist()
+
+    def _put_fill(self, key, rings: list) -> None:
+        if not rings:
+            return
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        for ring in rings:
+            path.moveTo(ring[0][0], ring[0][1])
+            for x, y in ring[1:]:
+                path.lineTo(x, y)
+            path.closeSubpath()
+        self.water_fills[key] = _Piece(path, path.boundingRect(), None, None)
+
+    def _refresh_water_fills(self, square: Square, way_ids) -> None:
+        """The fills a set of changed ways can have altered, and no others.
+
+        Redoing the square instead costs 50 ms on N20E086, which holds seventy
+        per cent of the gobras box's water - a whole frame on the UI thread,
+        on every edit near a river, which is the cost phase 4 was spent taking
+        out of ``refresh``. A way can only change its own fill and the fills
+        of the relations that name it, so those are what is rebuilt. Walking
+        the square's 112 relations to find which name it is a scan of the
+        relations and not of the four thousand ways.
+        """
+        changed = set(way_ids)
+        moved = set()           # ways that joined or left a relation
+        for rel in square.relations.values():
+            key = (square.name, 'rel', rel.id)
+            was, now = self._rel_members.get(key), _member_ways(rel)
+            # a way it names changed, or the names themselves did. The second
+            # half is what G5 needs: reconciliation replaces superseded
+            # features, which rewrites member lists, and a relation that lost
+            # its outer ring that way names no changed id at all
+            if was != now or any(mem.type == 'way' and mem.ref in changed
+                                 for mem in rel.members):
+                moved |= set(was or ()) ^ set(now)
+                self._relation_fill(square, rel)
+        for key in [k for k in self._rel_members
+                    if k[0] == square.name and k[2] not in square.relations]:
+            moved |= set(self._rel_members[key])
+            self.water_fills.pop(key, None)
+            del self._rel_members[key]
+        members = _water_members(square)
+        # the ways, and with them the ways whose *membership* moved. A closed
+        # lake that leaves a relation had its ring drawn by that relation's
+        # path and has none of its own - skipped by _way_fill for being a
+        # member - so without this it simply vanishes; one that joins a
+        # relation keeps a standalone fill under the relation's and is drawn
+        # twice. Neither way changed, so neither is in `changed`
+        for wid in changed | moved:
+            way = square.ways.get(wid)
+            if way is None:
+                self.water_fills.pop((square.name, 'way', wid), None)
+            else:
+                self._way_fill(square, way, members)
 
     def _add_water(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A water way's path and rectangle, in the pass that draws under the
@@ -643,6 +816,9 @@ class ContourLayer(QGraphicsItem):
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._paint_water(painter, rect)
+        # said rather than inherited: a contour is a line, and the pass below
+        # sets a pen per level and no brush
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
@@ -675,7 +851,16 @@ class ContourLayer(QGraphicsItem):
             self._paint_labels(painter, rect, scale, zoom)
 
     def _paint_water(self, painter: QPainter, rect: QRectF):
-        """The water, under the contours.
+        """The water, under the contours: the bodies filled, then every
+        water way outlined over them.
+
+        Both passes, because they say different things. A lake outlined and
+        not filled reads as a very round contour, which is the one thing this
+        layer exists to stop; a lake filled and not outlined loses its shore
+        where the wash is faint, and the shore is what a mapper is drawing
+        against. The fill goes down first so the edge sits on top of it, and a
+        ring the square edge cut gets the edge alone - no fill was built for
+        it, because it is not a closed ring.
 
         One colour for all of it rather than the ramp's, because none of it
         has an elevation to take one from - that is G6's, and until then a
@@ -683,17 +868,34 @@ class ContourLayer(QGraphicsItem):
         is the context a contour is drawn against and not the work: a mapper
         following a stream wants to see the line they are drawing on top.
         """
-        self.drawn_water = 0
-        if not self.water:
-            return
-        pen = QPen(WATER, 1.4)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for piece in self.water.values():
-            if piece.rect.intersects(rect):
-                painter.drawPath(piece.path)
-                self.drawn_water += 1
+        self.drawn_water = self.drawn_water_fills = 0
+        # save and restore, because this is the only pass that sets a brush.
+        # Without it, a square with fills and no lines left WATER_FILL on the
+        # painter at the early return, and the contour pass - which sets a pen
+        # and nothing else - filled every closed contour with it. A square
+        # with no water at all drew its whole terrain in water: reported from
+        # the editor, on a square that had never seen an import. A pass that
+        # changes painter state hands it back.
+        painter.save()
+        try:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(WATER_FILL)
+            for piece in self.water_fills.values():
+                if piece.rect.intersects(rect):
+                    painter.drawPath(piece.path)
+                    self.drawn_water_fills += 1
+            if not self.water:
+                return
+            pen = QPen(WATER, 1.4)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for piece in self.water.values():
+                if piece.rect.intersects(rect):
+                    painter.drawPath(piece.path)
+                    self.drawn_water += 1
+        finally:
+            painter.restore()
 
     def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
         """The spot heights: a ring in the elevation's own colour, and the
