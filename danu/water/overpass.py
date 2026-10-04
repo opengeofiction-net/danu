@@ -65,6 +65,21 @@ LINE_KINDS = ('river', 'stream')
 # nowhere in the query.
 AREA_KINDS = ('riverbank',)
 
+# what flows, as a `waterway` or a `water` value. natural=water covers still
+# water and flowing water alike, and a river area is not flat: it descends
+# along its course - R27. Flattening relation 89708, the Bosco River, at the
+# lowest contour its outline touches put the whole of it at 0 m - the level
+# near its mouth - and cost 1,262 m of river ascent on its own. Here, without
+# GDAL, so the editor's choice of what can take one level and the batch
+# grader's are the same list
+FLOWING = ('river', 'stream', 'canal', 'ditch', 'drain', 'riverbank')
+
+
+def flows(tags: dict[str, str]) -> bool:
+    """Whether water with these tags descends along its course, so has no
+    single level to be set or flattened at."""
+    return tags.get('waterway') in FLOWING or tags.get('water') in FLOWING
+
 # the tags upstream is the authority for, on a feature the square already
 # holds: what kind of water it is and what it is called. A second import takes
 # these from the answer even where the mapper has changed them - G5a, and the

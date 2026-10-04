@@ -2426,3 +2426,88 @@ without its rings, taking a tagged ring, taking a shared ring, not naming the
 members for redraw, Delete reaching `sel.way.id`, a selection outliving its
 relation, no strike-through, a flat list, not raising the dock, a report kept
 across sets, and choosing a row without bringing it into view.
+
+## G6a, select water and set a level by hand
+
+R24 by hand. Until this the editor could import water but not give it a
+level, so G5a's protection of a mapper's levels had nothing to protect.
+
+**What a click on water selects.** Selection takes **the nearer of a contour
+and a water way**. A river runs down the valley a contour bends round, so
+contour-first would leave it unselectable at every zoom that shows both. A
+test puts a contour three pixels from a river and clicks each.
+
+- A **lake's ring** selects the lake: the relation, when exactly one water
+  relation names that ring. The level belongs to the relation, and the ring
+  is untagged.
+- A **vertex of a waterway** selects that point, because a river's level
+  lives there (decision 1 of G6): a river descends, and one number on the
+  way could not say so.
+- **Shift** selects the whole line, as it does for a contour.
+
+Water has its own `pick_water`, kept out of the segment arrays that `pick`
+shares with the crossing checks. In those arrays, every contour drawn across
+a river would have been a refused crossing. Measured on the gobras set: 0.7 ms
+a click over 4,270 water ways.
+
+**Setting a level** is **L**, or *Edit > Set the level of the water*, and
+uses the active elevation:
+
+- a lake's goes on its relation (`SetRelationTags`, new);
+- a pond drawn as one closed way takes it on the way;
+- a river takes it at the selected vertex (`SetNodeTags`).
+
+A river selected whole is asked for a point. A river area (a `riverbank`, or
+`natural=water` + `water=river`) is refused: R27 says flowing water is never
+held flat, and one level is exactly that. Flattening the Bosco River's area
+at one level once put the whole of it at its mouth's height. What flows is
+`overpass.FLOWING`, moved there from `water/constraints.py` (which imports
+GDAL) so that the editor and the batch grader share one list.
+
+**Upstream owns the shape, the mapper owns the height.**
+
+- A river's vertex is never dragged: G5a puts it back on the next import, so
+  a drag would be an edit that does not last.
+- For the same reason, **Delete on a river's point removes its level, not the
+  point**. The first version read the level for its message after the step
+  had replaced the tags, and raised; the test caught it.
+
+**Drawn.**
+
+- A river's level is a **hollow diamond in the water's colour**, with its
+  value above and to the right. A spot height is a filled ring in the ramp's
+  colour, so a river graded at three hundred vertices reads as a river with
+  levels on it, not as three hundred hilltops.
+- The value first sat level with the mark, as a spot height's does. At z16
+  that showed its white halo eating the diamond's right half, and the text
+  sitting on the river line. Now it sits up and right, drawn before the mark.
+- A **lake's level is written on the lake**, centred, from z12.
+- `Spot.on_water` keeps a river's levels out of spot-height picking.
+- `_water_refs` counts water vertices so the layer can tell the two apart.
+  It is built in `__init__`, not only `set_working_set`, after the
+  `self.water` lesson of #90.
+
+The pixel tests were written from the rendering, not from the pen colour.
+Twice the guessed colour found nothing on an image that plainly showed the
+mark. A 1.6 px antialiased diamond never reaches its pen's colour, and comes
+out the same blue as the river through it. So the river test reads **shape**:
+ink two and three rows off the line's own row, which the line never reaches.
+A companion test reads the same rows at a point with no level and finds
+nothing.
+
+**A latent fault found on the way.** The layer drew `ws.present()` only.
+"Present" means *has a file*, and an import can fill a square that has none
+(#87), so a rebuild dropped water imported there from the canvas while the
+square still held it. Nothing in the app rebuilds before such a square is
+saved today, but a test that did is what found it. The layer now walks every
+square; an empty absent one costs nothing.
+
+**G5a, in the editor at last.** Set a river level and a lake level by click
+and **L**, re-import the same answer, and both survive.
+
+Fourteen mutations, each failing at least one test: contour-first picking, no
+water picking, a ring not taken for its lake, no vertex selection, one level
+on a river, a river area held flat, Delete removing the point, dragging
+water, a river level taken for a spot height, no mark drawn, no lake label,
+a relation retag naming no ways to redraw, water in the crossing arrays, and
+walking only present squares.

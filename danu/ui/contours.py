@@ -155,6 +155,20 @@ def _water_members(square: Square) -> frozenset:
                      for mem in rel.members if mem.type == 'way')
 
 
+def water_feature(square: Square, way: Way):
+    """What a click on a water way means - G6a. The lake it is a ring of,
+    when exactly one water relation names it; otherwise the way itself.
+
+    A lake is the relation and not its ring: its level is the relation's, and
+    a ring is untagged. Two water relations naming one ring - a lake sharing
+    a shore with a river area - leave the click without an answer, and the
+    way is what it gets; G5c's dock selects either relation by name.
+    """
+    naming = [r for r in square.relations.values() if _water_tags(r.tags)
+              and any(mem.type == 'way' and mem.ref == way.id for mem in r.members)]
+    return naming[0] if len(naming) == 1 else way
+
+
 def _is_water(way: Way) -> bool:
     """A way an import brought, or a mapper drew, as water.
 
@@ -177,6 +191,12 @@ class Spot:
     ele: float
     x: float          # scene
     y: float
+    # a vertex of water carrying a level - G6a, decision 1: a waterway's level
+    # is `ele` on its vertices, since a river descends and one number on the
+    # way cannot say so. Drawn apart from a spot height a mapper placed, so a
+    # graded river of three hundred vertices does not bury them; and never
+    # picked as one, because a spot height selected is a node Delete removes
+    on_water: bool = False
 
 
 @dataclass
@@ -260,6 +280,10 @@ class ContourLayer(QGraphicsItem):
         # set_working_set because _paint_water reads it, and a layer can be
         # painted before it is given a set
         self.water: dict[tuple[SquareName, int], _Piece] = {}
+        # how many water ways name each vertex, so a node carrying `ele` can
+        # be told apart as a level on a river rather than a spot height. Here
+        # and not only in set_working_set, for the reason `water` is
+        self._water_refs: dict[tuple[SquareName, int], int] = {}
         # and the bodies among it, as filled shapes: by relation where one
         # holds the rings, by way where a way is its own ring
         self.water_fills: dict[tuple, _Piece] = {}
@@ -289,6 +313,8 @@ class ContourLayer(QGraphicsItem):
         self.drawn_ways = 0
         self.drawn_labels = 0
         self.drawn_spots = 0
+        self.drawn_water_levels = 0
+        self.drawn_lake_levels = 0
         self.drawn_water = 0
         self.drawn_water_fills = 0
 
@@ -304,6 +330,7 @@ class ContourLayer(QGraphicsItem):
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
         self.water_fills, self._rel_members = {}, {}
+        self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
             self._bounds = QRectF()
             self._arrays_stale = True
@@ -315,7 +342,13 @@ class ContourLayer(QGraphicsItem):
         self._bounds = QRectF(x0, y0, x1 - x0, y1 - y0)
         rng = ws.elevation_range()
         self.ramp = ramp if ramp is not None else spectral(*rng) if rng else spectral()
-        for square in ws.present():
+        # every square, not ws.present(): present means *has a file*, and an
+        # import can fill a square that has none (#87). Drawn from present()
+        # alone, water imported there vanished from the canvas on any rebuild
+        # while the square still held it. Nothing in the app rebuilds before
+        # such a square is saved today - a test that did is what found it - and
+        # an absent square with nothing in it costs nothing to walk
+        for square in ws.squares.values():
             # a multipolygon's rings carry no tagging of their own - the
             # relation holds it - so a layer that asked the way alone would
             # draw a lake as nothing. Gathered once per square rather than
@@ -327,8 +360,6 @@ class ContourLayer(QGraphicsItem):
                 if geom is not None:
                     self._geoms[(square.name, way.id)] = geom
             self._add_water_fills(square, members)
-            for nid in square.nodes:
-                self._project_spot(square, nid)
         for key, geom in self._geoms.items():
             if geom.ele is not None:
                 self._add_way(key, geom)
@@ -339,6 +370,12 @@ class ContourLayer(QGraphicsItem):
                 # keeping at all
                 if geom.way.tags.get('natural') != 'coastline':
                     self._add_water(key, geom)
+        # the spots after the water, not with the ways: whether a node is a
+        # spot height or a level on a river depends on the water's vertices
+        # having been counted, and they are counted as the water is added
+        for square in ws.squares.values():
+            for nid in square.nodes:
+                self._project_spot(square, nid)
         self._reindex()
         self._levels_moved = False
         self._arrays_stale = True
@@ -383,7 +420,8 @@ class ContourLayer(QGraphicsItem):
             self.spots.pop(key, None)
             return
         x, y = m.lonlat_to_scene(node.lon, node.lat)
-        self.spots[key] = Spot(square, node_id, ele, x, y)
+        self.spots[key] = Spot(square, node_id, ele, x, y,
+                               on_water=self._water_refs.get(key, 0) > 0)
 
     def refresh_spots(self, square: Square, node_ids) -> None:
         """Some nodes of a square changed - re-project the ones that are spot
@@ -422,8 +460,14 @@ class ContourLayer(QGraphicsItem):
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
-            self._geoms.pop(key, None)
-            self.water.pop(key, None)
+            old = self._geoms.pop(key, None)
+            if self.water.pop(key, None) is not None and old is not None:
+                for r in old.refs:
+                    k = (square.name, r)
+                    if self._water_refs.get(k, 0) <= 1:
+                        self._water_refs.pop(k, None)
+                    else:
+                        self._water_refs[k] -= 1
             way = square.ways.get(wid)
             geom = (self._project(square, way, members)
                     if way is not None else None)
@@ -478,7 +522,7 @@ class ContourLayer(QGraphicsItem):
         if not _water_tags(rel.tags):
             return
         paths = [self._ring_path(square, r) for r in relation_rings(square, rel)]
-        self._put_fill(key, [p for p in paths if p])
+        self._put_fill(key, [p for p in paths if p], parse_ele(rel.tags.get('ele')))
 
     def _way_fill(self, square: Square, way: Way, members) -> None:
         """A closed water way's own fill, unless a water relation names it.
@@ -502,7 +546,7 @@ class ContourLayer(QGraphicsItem):
         if way.id in members or not _water_tags(way.tags) or not is_closed(way):
             return
         ring = self._ring_path(square, way.refs)
-        self._put_fill(key, [ring] if ring else [])
+        self._put_fill(key, [ring] if ring else [], parse_ele(way.tags.get('ele')))
 
     @staticmethod
     def _ring_path(square: Square, refs) -> list:
@@ -523,7 +567,7 @@ class ContourLayer(QGraphicsItem):
         pts = m.lonlat_to_scene_array([n.lon for n in placed], [n.lat for n in placed])
         return pts.tolist()
 
-    def _put_fill(self, key, rings: list) -> None:
+    def _put_fill(self, key, rings: list, ele: float | None = None) -> None:
         if not rings:
             return
         path = QPainterPath()
@@ -533,7 +577,7 @@ class ContourLayer(QGraphicsItem):
             for x, y in ring[1:]:
                 path.lineTo(x, y)
             path.closeSubpath()
-        self.water_fills[key] = _Piece(path, path.boundingRect(), None, None)
+        self.water_fills[key] = _Piece(path, path.boundingRect(), ele, None)
 
     def _refresh_water_fills(self, square: Square, way_ids) -> None:
         """The fills a set of changed ways can have altered, and no others.
@@ -590,6 +634,9 @@ class ContourLayer(QGraphicsItem):
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
         self.water[key] = _Piece(path, rect, None, None)
+        for r in g.refs:
+            k = (key[0], r)
+            self._water_refs[k] = self._water_refs.get(k, 0) + 1
 
     def _add_way(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """One way's path, rectangle and label, into the level it draws at."""
@@ -815,7 +862,7 @@ class ContourLayer(QGraphicsItem):
         if rect.isEmpty():
             return
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self._paint_water(painter, rect)
+        self._paint_water(painter, rect, scale, zoom)
         # said rather than inherited: a contour is a line, and the pass below
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -850,7 +897,8 @@ class ContourLayer(QGraphicsItem):
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
 
-    def _paint_water(self, painter: QPainter, rect: QRectF):
+    def _paint_water(self, painter: QPainter, rect: QRectF, scale: float = 1.0,
+                     zoom: float = 0.0):
         """The water, under the contours: the bodies filled, then every
         water way outlined over them.
 
@@ -868,7 +916,7 @@ class ContourLayer(QGraphicsItem):
         is the context a contour is drawn against and not the work: a mapper
         following a stream wants to see the line they are drawing on top.
         """
-        self.drawn_water = self.drawn_water_fills = 0
+        self.drawn_water = self.drawn_water_fills = self.drawn_lake_levels = 0
         # save and restore, because this is the only pass that sets a brush.
         # Without it, a square with fills and no lines left WATER_FILL on the
         # painter at the early return, and the contour pass - which sets a pen
@@ -894,8 +942,73 @@ class ContourLayer(QGraphicsItem):
                 if piece.rect.intersects(rect):
                     painter.drawPath(piece.path)
                     self.drawn_water += 1
+            self._paint_lake_levels(painter, rect, scale, zoom)
         finally:
             painter.restore()
+
+    def _paint_water_level(self, painter: QPainter, spot: Spot, scale: float, zoom: float,
+                           font: QFont):
+        """A level on a river's vertex: a small diamond in the water's colour,
+        hollow, and its value once there is room. Apart from a spot height's
+        filled ring in the ramp's colour - decision 1 of G6 - so that a river
+        graded at three hundred vertices reads as a river with levels on it
+        and not as three hundred hilltops."""
+        painter.save()
+        painter.translate(spot.x, spot.y)
+        painter.scale(1.0 / scale, 1.0 / scale)
+        h = SPOT_PX * 0.85
+        # the value first, above and to the right, and the mark over it. A
+        # spot height's label sits level with the point, which is clear ground
+        # for a point on its own; this point is on a line, which runs through
+        # wherever that label would go - and the label's white halo, painted
+        # after the mark, ate the right half of it. Seen at z16, not counted
+        if zoom >= ZOOM_LABELS:
+            tp = self._text_path(f'{spot.ele:g}', font)
+            painter.save()
+            painter.translate(h + 4.0, -(h + 3.0))
+            painter.setPen(QPen(QColor(255, 255, 255, 220), 3.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(tp)
+            painter.fillPath(tp, WATER.darker(150))
+            painter.restore()
+        diamond = [QPointF(0, -h), QPointF(h, 0), QPointF(0, h), QPointF(-h, 0)]
+        pen = QPen(QColor(255, 255, 255, 220), 3.0)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPolygon(diamond)
+        pen = QPen(WATER.darker(130), 1.6)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.drawPolygon(diamond)
+        painter.restore()
+        self.drawn_water_levels += 1
+
+    def _paint_lake_levels(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
+        """A still body's level, written on it - G6a. At the middle of its
+        extent, in the water's colour, from the zoom spot heights appear at:
+        the level of a lake is a single number about a place, as a spot
+        height's is, and wants the same room."""
+        if zoom < ZOOM_SPOTS:
+            return
+        font = QFont()
+        font.setPointSize(FONT_PT)
+        ink = WATER.darker(150)
+        for piece in self.water_fills.values():
+            if piece.ele is None or not piece.rect.intersects(rect):
+                continue
+            c = piece.rect.center()
+            tp = self._text_path(f'{piece.ele:g} m', font)
+            painter.save()
+            painter.translate(c)
+            painter.scale(1.0 / scale, 1.0 / scale)
+            painter.translate(-tp.boundingRect().width() / 2, tp.boundingRect().height() / 2)
+            painter.setPen(QPen(QColor(255, 255, 255, 220), 3.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(tp)
+            painter.fillPath(tp, ink)
+            painter.restore()
+            self.drawn_lake_levels += 1
 
     def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
         """The spot heights: a ring in the elevation's own colour, and the
@@ -918,8 +1031,12 @@ class ContourLayer(QGraphicsItem):
             return
         font = QFont()
         font.setPointSize(FONT_PT)
+        self.drawn_water_levels = 0
         for spot in self.spots.values():
             if not rect.contains(QPointF(spot.x, spot.y)):
+                continue
+            if spot.on_water:
+                self._paint_water_level(painter, spot, scale, zoom, font)
                 continue
             colour = self.colour(spot.ele)
             painter.save()
@@ -962,9 +1079,39 @@ class ContourLayer(QGraphicsItem):
             return None
         best = None
         for spot in self.spots.values():
+            if spot.on_water:
+                continue        # a level on a river: picked as a vertex of it
             d = math.hypot(spot.x - x, spot.y - y)
             if d <= tolerance and (best is None or d < best[2]):
                 best = (spot.square, spot.node_id, d)
+        return best
+
+    def pick_water(self, x: float, y: float, tolerance: float):
+        """The water way nearest a scene point, within ``tolerance``, as
+        (square, way, distance, nearest vertex id, its distance) - G6a.
+
+        Apart from ``pick``, and kept apart. ``pick`` works the segment arrays
+        that the crossing checks share, and water put in them would make every
+        contour drawn across a river a refused crossing. Water is culled by
+        each way's own rectangle first, which on the gobras 3x3 is four
+        thousand rectangle tests and a handful of ways measured.
+        """
+        best = None
+        for key, piece in self.water.items():
+            r = piece.rect
+            if not (r.left() - tolerance <= x <= r.right() + tolerance
+                    and r.top() - tolerance <= y <= r.bottom() + tolerance):
+                continue
+            g = self._geoms.get(key)
+            if g is None or len(g.pts) < 2:
+                continue
+            _, dist = geometry.nearest_point_on_segments((x, y), g.pts[:-1], g.pts[1:])
+            i = int(dist.argmin())
+            if dist[i] > tolerance or (best is not None and dist[i] >= best[2]):
+                continue
+            vd = np.hypot(g.pts[:, 0] - x, g.pts[:, 1] - y)
+            v = int(vd.argmin())
+            best = (g.square, g.way, float(dist[i]), g.refs[v], float(vd[v]))
         return best
 
     def _text_path(self, text: str, font: QFont) -> QPainterPath:

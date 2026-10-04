@@ -34,6 +34,8 @@ DEFAULT_KEYS = {
     'edit.delete': 'Delete',
     'edit.delete_way': 'Shift+Delete',
     'edit.import_water': 'Ctrl+I',
+    # L for level: a lake's, or a river's at the point selected - G6a
+    'edit.set_level': 'L',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

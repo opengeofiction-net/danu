@@ -30,9 +30,10 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import edits, geometry
 from ..core.ladder import format_ele
-from ..core.square import Relation, Square, Way, WorkingSet
+from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
+from ..water.overpass import flows
 from . import mercator as m
-from .contours import ContourLayer
+from .contours import ContourLayer, _water_tags, water_feature
 from .mapview import MapView, visible_rect
 
 SNAP_PX = 10.0                  # a node this close is the one meant
@@ -259,6 +260,13 @@ class EditController(QObject):
                 self.overlay.update()
                 return True
         hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
+        wet = self.layer.pick_water(pos.x(), pos.y(), self._px(PICK_PX))
+        # the nearer of the two. A river runs down the valley a contour bends
+        # round, and contour-first would leave it unselectable at every zoom
+        # that shows both
+        if wet is not None and (hit is None or wet[2] < hit[2]):
+            self._select_water(wet, whole)
+            return True
         if hit is not None:
             self.selection = Selection(hit[0], hit[1])
             self.elevation.pick_up(hit[1].ele)
@@ -268,6 +276,30 @@ class EditController(QObject):
             self.selection = None
             self.overlay.update()
         return False                                 # the view pans
+
+    def _select_water(self, wet, whole: bool) -> None:
+        """A click on water - G6a. A lake, when the line is its ring; a
+        point on a river, when the click is on one of its vertices, since
+        that is where a river's level lives (decision 1); otherwise the way.
+        Shift is the whole line, as it is for a contour.
+
+        No drag. Upstream owns where water is - G5a - and a vertex moved here
+        goes back on the next import, so offering to move one would offer an
+        edit that does not last."""
+        square, way, _, vid, vdist = wet
+        feature = water_feature(square, way)
+        if isinstance(feature, Relation):
+            self.selection = Selection(square, None, relation=feature)
+            ele = feature.ele
+        elif not whole and not way.closed and vdist <= self._px(SNAP_PX):
+            self.selection = Selection(square, way, vid)
+            ele = parse_ele(square.nodes[vid].tags.get('ele')) if vid in square.nodes else None
+        else:
+            self.selection = Selection(square, way)
+            ele = way.ele
+        if ele is not None:
+            self.elevation.pick_up(ele)              # selecting is picking up, as for a contour
+        self.overlay.update()
 
     def mouse_move(self, event, pos: QPointF) -> bool:
         self.cursor = (pos.x(), pos.y())
@@ -816,6 +848,19 @@ class EditController(QObject):
             self.do(sel.square, edits.DeleteNode(sel.node))
             self.selection = None
             self.message.emit(f'deleted the {what} m spot height' if what else 'deleted a spot height')
+        elif (sel.node is not None and sel.way is not None
+              and (sel.square.name, sel.way.id) in self.layer.water):
+            # a point on a river: Delete takes its level, not the point. The
+            # vertex is upstream's and comes back on the next import - G5a -
+            # where the level is the mapper's and would not
+            node = sel.square.nodes.get(sel.node)
+            if node is None or 'ele' not in node.tags:
+                self.message.emit("no level at that point; a river's vertices are upstream's")
+                return
+            was = node.tags['ele']        # before the step: it replaces the tags
+            after = {k: v for k, v in node.tags.items() if k != 'ele'}
+            self.do(sel.square, edits.SetNodeTags(sel.node, dict(node.tags), after))
+            self.message.emit(f'removed the {was} m level')
         elif sel.node is not None:
             self.do(sel.square, edits.DeleteNode(sel.node))
             self.selection = Selection(sel.square, sel.way) if sel.way.id in sel.square.ways else None
@@ -824,6 +869,56 @@ class EditController(QObject):
             self.do(sel.square, edits.DeleteWay(sel.way.id))
             self.selection = None
             self.message.emit(f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None else 'deleted a way')
+        self.overlay.update()
+
+    def set_level(self):
+        """The active elevation, as the level of the selected water - R24 by
+        hand, G6a.
+
+        A still body takes one level: on its relation, or on the way when the
+        lake is a single closed way. A river takes a level at a point - the
+        vertex selected - because it descends, and one number on the way
+        could not say so. A river area is refused: it descends too, and R27
+        says flowing water is never held flat, which is what one level on it
+        would be. Grading gives a river all its levels at once, and is G6b.
+        """
+        sel = self.selection
+        if sel is None:
+            self.message.emit('nothing selected')
+            return
+        text = format_ele(self.elevation.value)
+        sq = sel.square
+        if sel.relation is not None:
+            rel = sel.relation
+            if rel.id not in sq.relations:
+                self.selection = None
+                self.message.emit('that relation is already gone')
+                return
+            name = rel.tags.get('name') or 'the lake'
+            if flows(rel.tags):
+                self.message.emit(f'{name} flows, so it has no one level (R27): grade it instead')
+                return
+            self.do(sq, edits.SetRelationTags(rel.id, dict(rel.tags), {**rel.tags, 'ele': text}))
+            self.message.emit(f'{name} set to {text} m')
+        elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
+            way = sel.way
+            name = way.tags.get('name')
+            if sel.node is not None and sel.node in sq.nodes:
+                node = sq.nodes[sel.node]
+                self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), {**node.tags, 'ele': text}))
+                self.message.emit(f'{text} m at a point on {name or "the river"}')
+            elif flows(way.tags) or not way.closed:
+                self.message.emit('a river descends, so its level is set at a point on it: '
+                                  'click one of its vertices, or grade it')
+            elif not _water_tags(way.tags):
+                self.message.emit('more than one water relation names this ring; '
+                                  'the level belongs to the lake, not to its ring')
+            else:
+                self.do(sq, edits.SetTags(way.id, dict(way.tags), {**way.tags, 'ele': text}))
+                self.message.emit(f'{name or "the lake"} set to {text} m')
+        else:
+            self.message.emit('setting a level is for water - a contour takes its level '
+                              'when it is drawn')
         self.overlay.update()
 
     def _delete_relation(self, sel: Selection):
