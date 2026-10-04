@@ -2706,8 +2706,9 @@ ending (a tributary drawn on to a river's side - 496, G6d-2's ground), where it
 comes back on itself (12), and where it ends (1,099). Its pieces are walked in
 one order, each against its drawing where it has to be, and never reversed;
 the grade finds downstream itself (G6b). A chain runs into the next square by
-an imported node's id, which is the same OSM node in both files - so **a level
-on a junction is written into both copies**, as one step across the squares.
+an imported node's id, which is the same OSM node in every file that holds it
+- so **a level on a junction is written into every copy**, the chain's squares
+and any other that holds it, as one step across them.
 A negative id belongs to one file and chains nothing next door.
 
 **Gaps of up to 5 m between free ends are walked across, for the grade only.**

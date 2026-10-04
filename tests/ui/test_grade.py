@@ -424,8 +424,8 @@ def test_only_water_is_offered_a_grade(window, sq):
 
 def test_a_way_with_no_crossings_of_its_own_is_graded_as_part_of_its_chain(window, sq):
     """Graded way by way it would get nothing; the next pieces have the
-    crossings. On the gobras set the 150 chains of three or more ways level
-    7,481 vertices this way instead of 4,090."""
+    crossings. On the gobras set the 149 chains of three or more ways level
+    7,478 points this way instead of 4,090."""
     three_contours(sq)                                   # at 125.325, 125.355, 125.385
     a = river(sq, [125.30, 125.31, 125.32, 125.33])      # crosses 100
     b = river(sq, [125.33, 125.34, 125.35])              # crosses nothing
@@ -553,3 +553,33 @@ def test_two_nodes_on_one_spot_are_said_as_that_not_as_a_gap(window, sq):
     rebuild(window)
     p = grade(window, sq, b)
     assert 'two nodes on one spot, not merged' in p.summary
+
+
+def test_a_gap_ahead_of_the_way_clicked_counts_as_distance_too(window, sq):
+    """The other direction from the test above: grading the first piece, the
+    gap is walked across going forward rather than back."""
+    three_contours(sq)
+    first = river(sq, [125.30, 125.31, 125.32, 125.33])
+    river(sq, [125.33, 125.34, 125.35, 125.36, 125.37, 125.38, 125.39], lat=LAT + 2.5 / 110540)
+    rebuild(window)
+    p = grade(window, sq, first)
+    steps = [d2 - d1 for d1, d2 in zip(p.dist, p.dist[1:], strict=False)]
+    assert any(abs(st - 2.5) < 0.3 for st in steps), 'the gap ahead is not distance'
+
+
+def test_a_junction_node_another_square_holds_gets_the_level_too(window, sq):
+    """A node a square outside the chain also holds - a contour there snapped
+    to it - is the same OSM node in that file, and the level goes there too,
+    or the files disagree."""
+    three_contours(sq)
+    r = river(sq, EAST)
+    shared = 7_100_001
+    n = sq.nodes.pop(r.refs[4])
+    sq.nodes[shared] = Node(id=shared, lon=n.lon, lat=n.lat)
+    r.refs[4] = shared
+    other = window.working_set.squares[SquareName(126, -24)]
+    other.nodes[shared] = Node(id=shared, lon=n.lon, lat=n.lat)
+    rebuild(window)
+    grade(window, sq, r)
+    window.editor.accept_proposal()
+    assert other.nodes[shared].tags.get('ele') == sq.nodes[shared].tags.get('ele') == '87.5'

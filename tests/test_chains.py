@@ -174,3 +174,13 @@ def test_only_river_and_stream_lines_chain():
     way(sq, 2, [12, 13], kind='riverbank')
     sq.ways[3] = Way(id=3, refs=[12, 13], tags={'ele': '40'})
     assert len(Network(w).chain_of(sq, sq.ways[1]).links) == 1
+
+
+def test_a_ring_closed_by_a_gap_ends_and_does_not_loop():
+    w = ws(); sq = w.squares[A]
+    for i, (lon, lat) in enumerate(((125.1, -23.5), (125.2, -23.5), (125.2, -23.4)), 10):
+        node(sq, i, lon, lat)
+    node(sq, 13, 125.1, -23.5 + 2 * M)        # 2 m from where the ring began
+    way(sq, 1, [10, 11]); way(sq, 2, [11, 12]); way(sq, 3, [12, 13])
+    chain = Network(w).chain_of(sq, sq.ways[1])
+    assert sorted(link.way.id for link in chain.links) == [1, 2, 3], 'a way was walked twice'

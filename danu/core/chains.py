@@ -4,8 +4,9 @@ Mappers split a river wherever they stopped, or a tag changed, or a bridge
 went over: on the gobras set 158 of 398 named rivers and streams are more than
 one way, the Bosco River thirty-eight. Graded way by way, a piece with one
 crossing gets nothing, though the next piece has five. Graded as the chain it
-belongs to - JOSM's *non-branching way sequence* - the 150 chains of three or
-more ways there level 7,481 vertices instead of 4,090.
+belongs to - JOSM's *non-branching way sequence* - the 149 chains of three or
+more ways there level 7,478 points instead of 4,090, measured through the
+editor's own grade.
 
 A chain runs end to end through nodes where exactly two waterway lines meet,
 both ending there. It stops where a third line meets it (a confluence, the

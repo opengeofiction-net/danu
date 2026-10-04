@@ -87,7 +87,10 @@ class Proposal:
     """
     square: Square
     feature: object                       # the Way or Relation it is for
-    command: object                       # what Accept does, as one step - a lake's
+    # what Accept does, as one step: a lake's, which is in one square. A
+    # river's is ``steps`` below, since a chain may span squares - a proposal
+    # carries one or the other, never both
+    command: object
     summary: str
     # a river's profile, for the panel to draw - metres along it, and per
     # vertex the level proposed and the level it has now
@@ -1137,16 +1140,17 @@ class EditController(QObject):
         # metre would make a slow river a staircase
         levels = [round(v, 1) if v is not None else None for v in levels]
         current = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
-        # a junction node an import placed in two squares is one OSM node in
-        # both files, and its level goes into both
-        squares = {link.square.name: link.square for link in chain.links}
+        # an imported node is one OSM node in every file that holds it - a
+        # junction in two squares of the chain, or a node a contour in a third
+        # square was snapped to - and its level goes into every one of them
+        everywhere = list(self.working_set.squares.values())
         changes: dict = {}
         replaced = 0
         for (s2, r), lv, cur in zip(seq, levels, current, strict=True):
             if lv is None:
                 continue
             text = format_ele(lv)
-            for holder in ([s2] if r < 0 else [x for x in squares.values() if r in x.nodes]):
+            for holder in ([s2] if r < 0 else [x for x in everywhere if r in x.nodes]):
                 tags = holder.nodes[r].tags
                 if tags.get('ele') == text or r in changes.get(holder.name, {}):
                     continue
@@ -1154,9 +1158,10 @@ class EditController(QObject):
                     replaced += cur is not None
                 changes.setdefault(holder.name, {})[r] = (dict(tags), {**tags, 'ele': text})
         steps = []
+        by_name = {x.name: x for x in everywhere}
         for sq_name, ch in changes.items():
             ids = tuple(link.way.id for link in chain.links if link.square.name == sq_name)
-            steps.append((squares[sq_name], edits.SetNodeLevels(ch, ids, f'grade {name}')))
+            steps.append((by_name[sq_name], edits.SetNodeLevels(ch, ids, f'grade {name}')))
         graded = [v for v in levels if v is not None]
         # points counted as nodes, not as places along the chain: a way that
         # passes through one of its own nodes twice - Wandrasoon Creek's
