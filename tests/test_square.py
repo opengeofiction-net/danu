@@ -542,3 +542,25 @@ def test_the_constraint_scan_sees_a_tag_split_across_a_read(tmp_path):
         "    <tag k='natural' v='water' />\n  </way>\n</osm>\n")
     for chunk in range(1, 80):
         assert has_constraints(str(path), chunk=chunk), f'missed at chunk {chunk}'
+
+
+def test_has_elevation_is_an_ele_anywhere_and_not_water_alone(tmp_path):
+    """The squares a build's grid is taken over - G6c. Water with no level on
+    it is drawn but holds no ground."""
+    from danu.core.square import has_constraints, has_elevation
+
+    def square(body, name):
+        path = tmp_path / name
+        path.write_text("<?xml version='1.0'?>\n<osm version='0.6' upload='never'>\n"
+                        f"{body}</osm>\n")
+        return path
+
+    river = ("  <node id='-1' lat='-23.5' lon='125.5' />\n  <node id='-2' lat='-23.4' lon='125.6' />\n"
+             "  <way id='-9'><nd ref='-1' /><nd ref='-2' /><tag k='waterway' v='river' /></way>\n")
+    water = square(river, 'S24E125_A.osm')
+    assert has_constraints(str(water)) and not has_elevation(str(water))
+    levelled = square(river.replace("lon='125.5' />", "lon='125.5'><tag k='ele' v='40' /></node>"),
+                      'S24E125_B.osm')
+    assert has_elevation(str(levelled)), 'a level on a river is an elevation'
+    contour = square("  <way id='-9'><tag k=\"ele\" v=\"100\" /></way>\n", 'S24E125_C.osm')
+    assert has_elevation(str(contour))

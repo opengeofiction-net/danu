@@ -55,7 +55,7 @@ def shell_run(tmp_path_factory):
     shutil.copy(SQUARE, base / 'osm-squares' / 'golden' / SQUARE.name)
     env = dict(os.environ, PYTHONPATH=str(ROOT), CONF=str(ROOT / 'server' / 'etc'), BASE=str(base),
                WORKBASE=str(tmp / 'work'), PUBROOT=str(tmp / 'pub'), ARCSEC=str(lock['arcsec']),
-               WATER_CONSTRAINTS='0' if not lock['water_constraints'] else '1', KEEP_WORK='1')
+               KEEP_WORK='1')
     run = subprocess.run(['bash', str(ROOT / 'server' / 'bin' / 'danu-build-zone'), 'golden'],
                          capture_output=True, text=True, env=env, timeout=900)
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]

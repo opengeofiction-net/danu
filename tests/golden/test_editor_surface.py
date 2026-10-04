@@ -94,7 +94,7 @@ def test_every_stage_is_named_and_documented():
     defs = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
             and not n.name.startswith('_')}
     stages = ['Grid', 'squares_with_constraints', 'grid_for', 'is_staging', 'lines_osmconf',
-              'check_long_ways', 'collect', 'rasterise', 'drawn_area', 'water_constraints',
+              'check_long_ways', 'collect', 'rasterise', 'drawn_area',
               'water_areas', 'water_mask', 'interpolate', 'clamp', 'first_pass_classes',
               'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
@@ -128,7 +128,7 @@ def test_the_editors_surface_is_the_shells_surface(tmp_path, library):
     shutil.copy(SQUARE, zone / SQUARE.name)
     p = params.load().with_arcsec(lock['arcsec'])
     lines = []
-    result = build.build_dem(zone, tmp_path / 'work', p, water=bool(lock['water_constraints']),
+    result = build.build_dem(zone, tmp_path / 'work', p,
                              log=lines.append, library=library)
     assert result.dem is not None, '\n'.join(lines)
     assert any('as a library' in l for l in lines) == library, '\n'.join(lines)
@@ -708,8 +708,7 @@ def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
     write_square(read_square(SQUARE), base / 'osm-squares' / 'golden' / SQUARE.name)
     assert (base / 'osm-squares' / 'golden' / SQUARE.name).read_bytes() != SQUARE.read_bytes()
     env = dict(os.environ, PYTHONPATH=str(ROOT), CONF=str(ROOT / 'server' / 'etc'), BASE=str(base),
-               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']),
-               WATER_CONSTRAINTS='0' if not lock['water_constraints'] else '1')
+               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']))
     run = subprocess.run(['bash', str(ROOT / 'server' / 'bin' / 'danu-build-zone'), 'golden'],
                          capture_output=True, text=True, env=env, timeout=900)
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
@@ -750,14 +749,13 @@ def test_a_square_drawn_from_blank_saved_by_the_editor_builds_on_the_server_path
     assert report.framed and not hist.dirty(sq)
     # the server's path
     env = dict(os.environ, PYTHONPATH=str(ROOT), CONF=str(ROOT / 'server' / 'etc'), BASE=str(base),
-               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']),
-               WATER_CONSTRAINTS='0' if not lock['water_constraints'] else '1')
+               WORKBASE=str(tmp_path / 'work'), PUBROOT=str(tmp_path / 'pub'), ARCSEC=str(lock['arcsec']))
     run = subprocess.run(['bash', str(ROOT / 'server' / 'bin' / 'danu-build-zone'), 'blank'],
                          capture_output=True, text=True, env=env, timeout=900)
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
     # the editor's path, on the same zone
     p = params.load().with_arcsec(lock['arcsec'])
-    result = build.build_dem(zone, tmp_path / 'ework', p, water=bool(lock['water_constraints']))
+    result = build.build_dem(zone, tmp_path / 'ework', p)
     assert result.dem is not None
     shell_ds, editor_ds = gdal.Open(str(tmp_path / 'pub' / 'blank' / 'dem-blank.tif')), gdal.Open(str(result.dem))
     a, b = shell_ds.GetRasterBand(1).ReadAsArray(), editor_ds.GetRasterBand(1).ReadAsArray()

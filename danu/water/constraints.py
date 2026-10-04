@@ -2,7 +2,13 @@
 #
 # Add the drawn water to the elevation constraints - see Admin:Elevation process
 #
-#   constraints.py <cont.tif> --bbox W,S,E,N [--mask drawn-mask.tif]
+#   constraints.py <cont.tif> --osm water.osm [--mask drawn-mask.tif]
+#
+# From a file and not from Overpass, since G6c. The nightly build never ran
+# this - server/etc/danu.conf held it off - and the editor now imports water
+# into the squares, where its levels reach the build as the spot heights they
+# are. What stays is the burn: G7's measure is that the editor's burn writes
+# the same constraints as this does over the same input, cell for cell.
 #
 # Contours describe the ground every 25 m of height and say nothing between,
 # which is where a river is: at the bottom of a valley the contours only
@@ -56,49 +62,20 @@ import collections
 import json
 import os
 import sys
-import urllib.request
 import warnings
 
 import numpy as np
 from osgeo import gdal, ogr, osr
 
 from danu.core.profile import densify, grade, seg_lengths
-from danu.water.overpass import FLOWING
+from danu.water.overpass import FLOWING, LINE_KINDS
 
 gdal.UseExceptions()
 ogr.UseExceptions()
 np.seterr(invalid='ignore')
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
 NODATA = -9999
-LINE_KINDS = ('river', 'stream')
-# what flows - see overpass.FLOWING, which the editor shares. GDAL exposes
-# these only in other_tags, as an hstore string
-MAX_RETRIES = 3
-
-
-def fetch(bbox, path):
-    w, s, e, n = bbox
-    box = f'{s},{w},{n},{e}'
-    kinds = '|'.join(LINE_KINDS)
-    q = (f'[timeout:600][maxsize:1000000000];('
-         f'way["waterway"~"^({kinds})$"]({box});'
-         f'way["natural"="water"]({box});way["landuse"="reservoir"]({box});'
-         f'relation["natural"="water"]({box});'
-         f'relation["landuse"="reservoir"]({box});'
-         f');(._;>>;);out body;')
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            req = urllib.request.Request(OVERPASS_URL, data=q.encode())
-            with urllib.request.urlopen(req, timeout=900) as resp, \
-                    open(path, 'wb') as fh:
-                while chunk := resp.read(1 << 20):
-                    fh.write(chunk)
-            return True
-        except Exception as exc:                      # noqa: BLE001
-            print(f'  overpass attempt {attempt} failed ({exc})', file=sys.stderr)
-    return False
 
 
 def ring_points(geom):
@@ -196,23 +173,19 @@ def burn_lakes(feats, template, inv_gt, cols, rows, arr, have, step, graded):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('cont')
-    ap.add_argument('--bbox', required=True)
     ap.add_argument('--mask', help='only write inside this mask')
     ap.add_argument('--report')
-    ap.add_argument('--osm', help='keep the fetched OSM here instead of a temp file')
+    ap.add_argument('--osm', required=True, help='the drawn water, as OSM XML')
     args = ap.parse_args()
 
-    bbox = tuple(float(v) for v in args.bbox.split(','))
     work = os.path.dirname(os.path.abspath(args.cont))
     # the OSM driver spills to CPL_TMPDIR past OSM_MAX_TMPFILE_SIZE and returns
     # an empty layer, silently, if it cannot write there
     os.environ.setdefault('CPL_TMPDIR', work)
     os.environ['OSM_USE_CUSTOM_INDEXING'] = 'NO'
 
-    osm = args.osm or os.path.join(work, 'water.osm')
-    if not fetch(bbox, osm):
-        sys.exit('could not fetch the water')
-    print(f'  fetched {os.path.getsize(osm) / 1048576:.1f} MB of drawn water')
+    osm = args.osm
+    print(f'  {os.path.getsize(osm) / 1048576:.1f} MB of drawn water')
 
     ds = gdal.Open(args.cont, gdal.GA_Update)
     band = ds.GetRasterBand(1)
@@ -338,8 +311,6 @@ def main():
     if args.report:
         with open(args.report, 'w') as fh:
             json.dump({'stats': dict(stats), 'rejected': notes}, fh, indent=1)
-    if not args.osm:
-        os.unlink(osm)
 
 
 if __name__ == '__main__':

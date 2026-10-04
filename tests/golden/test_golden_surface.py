@@ -64,7 +64,6 @@ def test_surface_matches_the_reference(tmp_path, lock):
         WORKBASE=str(tmp_path / "work"),
         PUBROOT=str(tmp_path / "pub"),
         ARCSEC=str(lock["arcsec"]),
-        WATER_CONSTRAINTS="0" if not lock["water_constraints"] else "1",
     )
     run = subprocess.run(
         ["bash", str(ROOT / "server" / "bin" / "danu-build-zone"), "golden"],

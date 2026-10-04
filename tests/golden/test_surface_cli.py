@@ -163,6 +163,40 @@ def test_the_blank_count_is_the_zones_and_not_a_working_sets(tmp_path):
     assert not any('squares, none with contours' in l for l in lines), lines
 
 
+def write_water(path: pathlib.Path) -> None:
+    """A square of a river and nothing else - what an import creates."""
+    xml = ('<?xml version="1.0"?>\n<osm version="0.6" generator="test">'
+           '<node id="-1" lat="-23.5" lon="124.2"/><node id="-2" lat="-23.4" lon="124.3"/>'
+           '<way id="-1"><nd ref="-1"/><nd ref="-2"/><tag k="waterway" v="river"/></way></osm>')
+    with lzma.open(path, 'wb') as fh:
+        fh.write(xml.encode())
+
+
+def test_a_square_of_water_alone_is_read_and_does_not_widen_the_grid(tmp_path):
+    """G6c. An import of the gobras set creates five squares of nothing but
+    water, three a degree west of the zone; counted in the grid, they widened
+    its raster by a quarter with nothing in it."""
+    from danu.core.square import SquareName
+    from danu.surface import build, params
+    if shutil.which('isofill') is None:
+        pytest.skip('isofill not on PATH')
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(zone / 'S24E125_Drawn.osm.xz', ele='100')
+    write_water(zone / 'S24E124_Water.osm.xz')
+    p = params.load().with_arcsec(30)
+    lines = []
+    r = build.build_dem(zone, tmp_path / 'w', p, log=lines.append)
+    assert r.dem is not None and len(r.squares) == 2 and r.blank == 0, 'the water square was not read'
+    assert (r.grid.west, r.grid.east) == (125, 126), f'the grid is {r.grid.west}..{r.grid.east}'
+    assert any('1 of water alone' in line for line in lines), lines
+    # and a working set of water alone has nothing to build, and says so
+    lines = []
+    none = build.build_dem(zone, tmp_path / 'w2', p, names=[SquareName(124, -24)],
+                           log=lines.append)
+    assert none.dem is None and any('water and no elevation' in line for line in lines), lines
+
+
 def test_a_different_parameter_file_can_be_given_for_one_run(tmp_path):
     """PARAMS is what FILL_METRES, BARRIER_CELLS and MAX_MEM used to be three
     separate environment overrides for. Trying a change on one zone before it

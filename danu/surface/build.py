@@ -46,7 +46,7 @@ import numpy as np
 from osgeo import gdal, ogr
 
 from ..core.save import STAGE_MARKER
-from ..core.square import SquareName, has_constraints, list_squares, loose_squares
+from ..core.square import SquareName, has_constraints, has_elevation, list_squares, loose_squares
 from . import NODATA, drawn_mask, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
@@ -699,37 +699,6 @@ def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
     return out
 
 
-def water_constraints(cont: Path, grid: Grid, mask: Path, work: Path, log: Log = _quiet) -> None:
-    """Rivers and lakes from Overpass written into the constraints, inside the
-    drawn area.
-
-    Contours describe the ground every 25 m of height and say nothing between,
-    which is exactly where a river is. The interpolator has no reason to put the
-    valley floor under the drawn water rather than anywhere else in the band, so
-    it does not. Reading the water as a constraint of its own puts it there.
-
-    After the mask, and not before it, for two reasons which are really the same
-    one. ``drawn_mask`` derives the envelope from the constraints, so water
-    written earlier grows the mask along every river and the fill then works
-    ground the contours never described. And the water is held inside that
-    envelope, because a graded river reaching past the last contour has nothing
-    to blend into: it came out as a 4.7 km strip of 449 m ground standing in a
-    void held at zero, which is a wall in the hillshade at the edge of the
-    mapped contours.
-
-    A failure is a warning and the build goes on, which is also what happens
-    with no network: a zone without this is the DEM we published yesterday.
-    Run as a command, because it is one."""
-    w, s, e, n = grid.te
-    run = subprocess.run([sys.executable, '-m', 'danu.water.constraints', str(cont),
-                          '--bbox', f'{w},{s},{e},{n}', '--mask', str(mask),
-                          '--report', str(work / 'water-report.json')],
-                         capture_output=True, text=True)
-    if run.returncode != 0:
-        log('  WARNING: water constraints failed, continuing without them')
-        log(run.stderr[-800:])
-
-
 def water_areas(water_file: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
     """Sea and lakes from a curated water file, as a byte mask.
 
@@ -1030,12 +999,12 @@ class Result:
 
 
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
-              water: bool = False, log: Log = _quiet, isofill: str = 'isofill',
+              log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
               keep_pass1: bool = False) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
-    constraints (off unless asked), water mask, interpolate, clamp. ``names``
+    mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
     called with each stage's name as it starts, which is where the timings come
     from. The DEM is None when there was nothing to build."""
@@ -1056,8 +1025,20 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         log(f'  {blank} squares, none with contours - nothing to build yet' if names is None
             else '  no contours in this working set - nothing to build')
         return Result(None, None, {}, None, None, None, None, blank=blank)
-    grid = grid_for(squares, params.arcsec)
-    log(f'  {len(squares)} squares with contours ({blank} blank), '
+    # the grid over the squares that hold an elevation: a square of water and
+    # nothing else is drawn, and read, but has no ground to give until a
+    # level is put on its water - and the five an import of the gobras set
+    # creates would have widened its raster by a degree of nothing (G6c)
+    elevated = [n for n, path in squares.items() if has_elevation(str(path))]
+    if not elevated:
+        log('  water and no elevation yet in this working set - nothing to build'
+            if names is not None else
+            f'  {len(squares)} squares of water and no elevation yet - nothing to build')
+        return Result(None, None, squares, None, None, None, None, blank=blank)
+    grid = grid_for(elevated, params.arcsec)
+    water_only = len(squares) - len(elevated)
+    log(f'  {len(elevated)} squares with contours ({blank} blank'
+        + (f', {water_only} of water alone' if water_only else '') + '), '
         f'{grid.west}..{grid.east} by {grid.south}..{grid.north}, '
         f'{grid.size[0]}x{grid.size[1]} at {params.arcsec:g}"')
     log(f'  fill bounded to {params.fill_metres:g} m = {params.fill_cells} cells')
@@ -1069,9 +1050,6 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     cont = rasterise(gpkg, grid, work)
     stage('drawn area')
     mask = drawn_area(cont, grid, work, log)
-    if water:
-        stage('water constraints from the drawn rivers and lakes')
-        water_constraints(cont, grid, mask, work, log)
     if water_file is not None:
         stage('water areas')
         wmask = water_areas(Path(water_file), grid, work, log)
@@ -1125,8 +1103,6 @@ def main(argv: list[str] | None = None) -> int:
                          'argument for the same reason --arcsec is: the caller may be overriding '
                          'it, and TE_HGT has to be the grid the caller then slices on')
     ap.add_argument('--params', type=Path, help='an elevation.toml other than the packaged one')
-    ap.add_argument('--water-constraints', action='store_true',
-                    help='read rivers and lakes from Overpass as constraints')
     ap.add_argument('--water-areas', type=Path, metavar='FILE',
                     help='a curated natural=water file, in place of the coastline direction')
     ap.add_argument('--isofill-extra', default='', metavar='FLAGS',
@@ -1158,7 +1134,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f'=== {prefix}{name} ===', flush=True)
 
     try:
-        result = build_dem(args.zone_dir, args.work, p, water=args.water_constraints,
+        result = build_dem(args.zone_dir, args.work, p,
                            log=log, water_file=args.water_areas,
                            extra=args.isofill_extra.split() or None, stage=stage)
     except (ValueError, FileExistsError, RuntimeError, isofill_lib.IsofillError) as e:

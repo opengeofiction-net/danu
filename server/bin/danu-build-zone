@@ -133,10 +133,6 @@ rm -f ${SURFACE}
 surface_args=(--arcsec "${ARCSEC}" --hgt-arcsec "${HGT_ARCSEC}" --zone "${ZONE}"
 	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}"
 	"${params_args[@]}")
-# Set WATER_CONSTRAINTS=0 to build a zone without the drawn rivers and lakes,
-# which is also what a failure inside the step falls back to: a zone without
-# them is the DEM we published yesterday
-[ "${WATER_CONSTRAINTS:-1}" = 0 ] || surface_args+=(--water-constraints)
 [ -z "${WATER}" ] || surface_args+=(--water-areas "${WATER}")
 # further isofill flags, for trying a change on one zone before it becomes the
 # default. Empty normally

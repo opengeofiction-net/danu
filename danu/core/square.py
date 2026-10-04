@@ -563,6 +563,7 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
 # and this file is read from wherever a mapper got it.
 _NATURAL = rb"""k=["']natural["']"""
 _WATERY = rb"""v=["'](?:water|coastline)["']"""
+_HAS_ELE = re.compile(rb"""k=["']ele["']""")
 _HAS_CONSTRAINT = re.compile(
     rb"""k=["']ele["']"""
     rb"""|k=["']waterway["']"""
@@ -614,13 +615,27 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     the file is compressed, so a blank template costs a few kilobytes rather
     than the whole file - and compressed is decided by the file's first bytes,
     not by its name."""
+    return _scan(path, _HAS_CONSTRAINT, chunk)
+
+
+def has_elevation(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
+    """True if the square carries an ``ele`` anywhere - a contour, a spot
+    height, a level on its water, a coastline's zero. The squares a build's
+    grid is taken over - G6c: a square of water and nothing else is drawn
+    (R42) but holds no ground, and an import of the gobras set creates five,
+    three of them a degree west of the zone, which stretched its raster by a
+    quarter with nothing in it."""
+    return _scan(path, _HAS_ELE, chunk)
+
+
+def _scan(path, pattern, chunk: int) -> bool:
     tail = b''
     with open_square_file(path) as f:
         while True:
             block = f.read(chunk)
             if not block:
                 return False
-            if _HAS_CONSTRAINT.search(tail + block):
+            if pattern.search(tail + block):
                 return True
             # the rolling tail, not this block's: a chunk smaller than the
             # token leaves `block[-n:]` shorter than the token, and a pair
