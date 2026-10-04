@@ -59,24 +59,32 @@ def test_too_few_crossings_grade_nothing():
 def test_it_agrees_with_the_batch_grader_where_index_is_distance():
     """Over points evenly spaced, distance and index are the same measure,
     and the two graders must give the same levels: two hundred random
-    profiles, the way densify's merge was checked."""
+    profiles drawn downstream, the way densify's merge was checked - and two
+    hundred drawn upstream, against the batch grader handed them downstream,
+    which is what finding downstream from the contours has to amount to."""
     rng = random.Random(20261004)
-    for _ in range(200):
+    tested = {False: 0, True: 0}
+    while min(tested.values()) < 200:
         n = rng.randint(5, 40)
         vals = [None] * n
         for i in sorted(rng.sample(range(n), rng.randint(2, min(6, n)))):
             vals[i] = rng.choice((10, 20, 30, 40, 50, 60))
         known = [v for v in vals if v is not None]
-        if known[0] < known[-1]:
-            continue                # the batch grader assumes drawn = downstream
+        upstream = known[0] < known[-1]
+        if tested[upstream] >= 200:
+            continue
+        tested[upstream] += 1
         seg = [10.0] * (n - 1)
-        batch, _ = profile.grade(vals, seg)
+        batch_in = list(reversed(vals)) if upstream else vals
+        batch, _ = profile.grade(batch_in, seg)
+        if upstream:                       # back into drawn order
+            batch = {n - 1 - i: v for i, v in batch.items()}
         mine, _, rev = profile.grade_along(
             [(i * 10.0, v) for i, v in enumerate(vals) if v is not None],
             [i * 10.0 for i in range(n)])
-        assert not rev
+        assert rev == upstream
         for i in range(n):
-            assert (batch.get(i) is None) == (mine[i] is None), (vals, i)
+            assert (batch.get(i) is None) == (mine[i] is None), (vals, i, upstream)
             if mine[i] is not None:
                 assert mine[i] == pytest.approx(batch[i])
 
@@ -88,3 +96,12 @@ def test_crossing_t_says_where_along_the_segment():
     t = geometry.crossing_t((0, 0), (1, 0), a, b)
     assert t[0] == pytest.approx(0.25) and t[1] == pytest.approx(0.75)
     assert np.isnan(t[2]), 'a parallel segment has no crossing'
+
+
+def test_crossing_t_is_along_p_q_when_the_two_cross_obliquely():
+    """Not a geometry where the two parameters coincide: p-q runs (0,0) to
+    (2,2) and a-b (0,1) to (4,1), meeting at (1,1) - halfway along p-q and a
+    quarter of the way along a-b."""
+    import numpy as np
+    t = geometry.crossing_t((0, 0), (2, 2), np.array([[0.0, 1.0]]), np.array([[4.0, 1.0]]))
+    assert t[0] == pytest.approx(0.5)

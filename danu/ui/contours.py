@@ -1162,9 +1162,10 @@ class ContourLayer(QGraphicsItem):
         """A still body's level - G6b, the batch grader's rule made per lake,
         and corrected for being per lake.
 
-        Two candidates. **The outlet**: a graded river only descends, so the
-        lowest level on a waterway inside the body, or on its shore, is where
-        water leaves it. **The rim**: the lowest contour its shore crosses,
+        Two candidates. **The outlet**: a river only descends, so the lowest
+        level on a waterway's points inside the body, or on its shore, is where
+        water leaves it - graded or set by hand, since a level a mapper put on
+        a river is a level on the river. **The rim**: the lowest contour its shore crosses,
         which is where it would spill - so a ceiling on the level.
 
         The batch grader takes the outlet when there is one and the rim

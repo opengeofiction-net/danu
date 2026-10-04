@@ -2591,7 +2591,8 @@ since it was worked out against the square as it was.
 **A river** is graded between the contours it crosses, by distance along it.
 `profile.grade_along` is the batch grader's `grade` over distance, not cell
 index, and on evenly spaced points the two agree over two hundred random
-profiles. The crossings are vector ones, `ContourLayer.crossings_of`:
+profiles drawn downstream and two hundred drawn upstream, the batch grader
+handed the latter downstream. The crossings are vector ones, `ContourLayer.crossings_of`:
 
 - **against every contour in the working set**, because a river near a
   degree line crosses the contours its neighbour holds;
