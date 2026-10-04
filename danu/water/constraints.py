@@ -63,6 +63,7 @@ import numpy as np
 from osgeo import gdal, ogr, osr
 
 from danu.core.profile import densify, grade, seg_lengths
+from danu.water.overpass import FLOWING
 
 gdal.UseExceptions()
 ogr.UseExceptions()
@@ -72,12 +73,8 @@ warnings.filterwarnings('ignore', category=RuntimeWarning)
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
 NODATA = -9999
 LINE_KINDS = ('river', 'stream')
-# natural=water covers still water and flowing water alike, and a river area is
-# not flat: it descends along its course. Flattening relation 89708, the Bosco
-# River, at the lowest contour its outline touches put the whole of it at 0 m -
-# the level near its mouth - and cost 1,262 m of river ascent on its own.
-# GDAL exposes these only in other_tags, as an hstore string
-FLOWING = ('river', 'stream', 'canal', 'ditch', 'drain', 'riverbank')
+# what flows - see overpass.FLOWING, which the editor shares. GDAL exposes
+# these only in other_tags, as an hstore string
 MAX_RETRIES = 3
 
 

@@ -383,7 +383,8 @@ class MainWindow(QMainWindow):
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
-                ('edit.import_water', '&Import water', self.import_water)):
+                ('edit.import_water', '&Import water', self.import_water),
+                ('edit.set_level', 'Set the &level of the water', ed.set_level)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             a.triggered.connect(fn)
@@ -401,6 +402,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['tool.spot'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.import_water'])
+        edit.addAction(self.edit_actions['edit.set_level'])
         edit.addAction(self.gone_dock.toggleViewAction())
         self._tool_changed('select')
         self._edited()

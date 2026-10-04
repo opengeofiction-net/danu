@@ -352,6 +352,34 @@ class DeleteWay(Command):
 
 
 @dataclass
+class SetRelationTags(Command):
+    """A relation's tags replaced - a lake's level set, most often (G6a).
+
+    ``ways()`` names the members, as ``DeleteRelation`` does and for the same
+    reason: the layer draws a lake's level on the lake, and the lake is
+    rebuilt from the ways the relation names - a change to the relation alone
+    names no way, so without them the level on the canvas would be the old
+    one until something else touched the lake."""
+    relation_id: int
+    before: dict[str, str]
+    after: dict[str, str]
+
+    def ways(self, square: Square) -> set[int]:
+        rel = square.relations.get(self.relation_id)
+        return {m.ref for m in rel.members if m.type == 'way'} if rel else set()
+
+    def apply(self, square: Square) -> None:
+        square.relations[self.relation_id].tags = dict(self.after)
+
+    def undo(self, square: Square) -> None:
+        square.relations[self.relation_id].tags = dict(self.before)
+
+    def describe(self) -> str:
+        a, b = self.before.get('ele'), self.after.get('ele')
+        return f'{a} m -> {b} m' if a != b else 'retag relation'
+
+
+@dataclass
 class DeleteRelation(Command):
     """A relation removed - the relation alone. ``delete_relation`` is what
     a mapper means by deleting a lake, and builds this into a step with the
