@@ -238,6 +238,10 @@ class SelectionPanel(QDockWidget):
         self.grade_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.grade_btn.clicked.connect(editor.grade)
         form.addRow('', self.grade_btn)
+        self.network_btn = QPushButton('Grade the river network (Shift+G)')
+        self.network_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.network_btn.clicked.connect(editor.grade_network)
+        form.addRow('', self.network_btn)
         self.proposal_box = QWidget()
         box = QVBoxLayout(self.proposal_box)
         box.setContentsMargins(0, 6, 0, 0)
@@ -282,6 +286,10 @@ class SelectionPanel(QDockWidget):
             or (sel.relation is None and sel.way is not None
                 and (sel.square.name, sel.way.id) in self.editor.layer.water))
         self.grade_btn.setVisible(water)
+        # a network is of lines: a river or a stream, not a lake
+        self.network_btn.setVisible(
+            sel is not None and sel.relation is None and sel.way is not None
+            and sel.way.tags.get('waterway') in ('river', 'stream'))
         self.refresh_proposal()
 
     def refresh_proposal(self) -> None:

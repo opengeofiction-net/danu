@@ -2747,3 +2747,57 @@ them survived the first tests - the gap's distance, the shared node and the
 drawing - and have tests of their own now: the proposal's distances read
 straight, and the chain's halo read from pixels on a piece that was not
 clicked.
+
+## G6d-2, networks
+
+**Shift+G grades the river network the selected river or stream belongs to**,
+as one proposal and one step; G still grades the chain. A network is every
+waterway line connected to it - by a shared node, by a gap end to end, or by
+an end that stops short of another line's side within 5 m. It is split into
+stems, and each stem is graded as a chain is, in an order that lets a
+tributary take the level its river has where they meet: a tributary with one
+crossing of its own, which neither G nor G6d-1 could grade, is graded from
+that crossing down to the river.
+
+**Stems by name first, then by length.** At a confluence a stem carries on
+into the one arm with its own name (`Network.stem_of`) - on the gobras set the
+name settles 445 of the 632 confluences, and agrees with the longer arm at 340
+of them. Where it does not, the stem stops, and stems are claimed named before
+unnamed, the longest name first, then the longest way. **A stem is graded
+after the stems its ends sit on**, at a shared node or beside a side; among
+stems ready together, named first, then longer. The level a stem inherits is
+exact at a shared node, and interpolated along the segment where a tributary
+stops short. A level set by an earlier stem is not changed by a later one.
+The network is named after its first named stem graded, not the line clicked.
+
+**Tributaries that stop short of a river's side are joined for the grade
+only** and reported with where they are, like G6d-1's gaps. On the gobras set
+four of the 93 networks with contours to grade from walk a gap: four
+tributaries short of a side, 0.7 to 5 m, and one gap end to end.
+
+**On the gobras set**: 280 networks, 187 with too few crossings to grade -
+said, and nothing proposed. Graded one network at a time, the rest level
+22,404 points, against 19,186 graded one chain at a time - 17% more. One
+point a chain levels the network does not: a lone 62.8 m on the Palaconsino
+River, whose two-way chain mostly climbs; followed through its confluences by
+name, the longer stem's grade leaves it out. The largest network - Prado
+River, 423 ways, 211 stems - is proposed in 1.0 s.
+
+**Two bugs the gobras set found.** A network asked for from its river did not
+include a tributary that stops short of it - the join was only found from the
+tributary's end, and one network was proposed three ways depending on the
+line clicked. Gaps and sides are now links both ways. And segments were
+looked up by the cell of their middle: a segment a kilometre long, beside a
+tributary's end near one of its own ends, was not found.
+
+`crossings_of` asked of every contour for each of a network's ways was 7.3 s
+for the largest; the contour segments by grid cell and contour vertices by
+node, built once per rebuild of the arrays, make it 0.48 s with the same
+answers on all 422 ways. Free ends are found by cell too.
+
+Eleven mutations, each failing at least one test, every one from a fresh copy:
+no inheritance at a shared node, none at a side, dependency order ignored, no
+name continuation, joins found one way only, a segment in one cell only, the
+network named after the line clicked, no refusal, a side with two lines in
+reach, a side for an end that already meets a line, and sides left out of the
+network.

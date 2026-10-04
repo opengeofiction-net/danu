@@ -38,6 +38,8 @@ DEFAULT_KEYS = {
     'edit.set_level': 'L',
     # G for grade: a level from the contours, proposed - G6b
     'edit.grade': 'G',
+    # and the river network it belongs to - G6d-2
+    'edit.grade_network': 'Shift+G',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

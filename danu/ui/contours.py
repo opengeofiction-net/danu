@@ -303,6 +303,7 @@ class ContourLayer(QGraphicsItem):
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._arrays_stale = False
+        self._grade_index = None             # see _graded_index
         self._text: dict[tuple[str, str], QPainterPath] = {}
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
@@ -724,6 +725,7 @@ class ContourLayer(QGraphicsItem):
         if self._arrays_stale:
             self._rebuild_arrays()
             self._arrays_stale = False
+            self._grade_index = None
 
     def _rebuild_arrays(self):
         """The flat segment and node arrays, from the per-way geometry.
@@ -1124,6 +1126,50 @@ class ContourLayer(QGraphicsItem):
         seg = profile.seg_lengths([(nodes[r].lon, nodes[r].lat) for r in refs])
         return refs, [0.0, *np.cumsum(seg).tolist()]
 
+    GRID = 2048.0          # scene units a cell, some 570 m at the gobras latitude
+
+    def _graded_index(self):
+        """What ``crossings_of`` asks of every contour, built once per build
+        of the arrays rather than on every call: the segments by grid cell, and
+        the contour vertices by node.
+
+        G6d-2 asks for the crossings of every way in a river network, and the
+        gobras set's largest is 422 ways. Asked of the arrays directly it was
+        7.3 s - 17 ms a way, most of it two things repeated per call: a
+        rectangle test over every contour segment in the set, and a scan of
+        every contour way, building a set of its nodes, for the ones a river
+        shares. Neither changes until an edit does, and an edit is what makes
+        the arrays stale, so the index is dropped with them.
+        """
+        self._ensure_arrays()
+        if self._grade_index is not None:
+            return self._grade_index
+        lo = np.minimum(self._seg_a, self._seg_b)
+        hi = np.maximum(self._seg_a, self._seg_b)
+        c0 = np.floor(lo / self.GRID).astype(np.int64)
+        c1 = np.floor(hi / self.GRID).astype(np.int64)
+        cells: dict[tuple[int, int], list] = {}
+        one = (c0 == c1).all(axis=1)
+        if one.any():
+            idx = np.flatnonzero(one)
+            keys = c0[idx]
+            order = np.lexsort((keys[:, 1], keys[:, 0]))
+            keys, idx = keys[order], idx[order]
+            cut = np.flatnonzero((np.diff(keys, axis=0) != 0).any(axis=1)) + 1
+            for part_k, part_i in zip(np.split(keys, cut), np.split(idx, cut), strict=True):
+                cells[(int(part_k[0, 0]), int(part_k[0, 1]))] = [part_i]
+        for i in np.flatnonzero(~one):
+            for cx in range(c0[i, 0], c1[i, 0] + 1):
+                for cy in range(c0[i, 1], c1[i, 1] + 1):
+                    cells.setdefault((cx, cy), []).append(np.array([i]))
+        grid = {k: np.concatenate(v) for k, v in cells.items()}
+        vertices = {}
+        for g in self._ways:
+            for r in g.refs:
+                vertices.setdefault((g.square.name, r), float(g.ele))
+        self._grade_index = (grid, vertices)
+        return self._grade_index
+
     def crossings_of(self, square: Square, way: Way) -> list[tuple[float, float]]:
         """Where contours cross a way, as (metres along it, elevation) - G6b.
 
@@ -1136,29 +1182,37 @@ class ContourLayer(QGraphicsItem):
         not a gap: a node id belongs to one square's file, and a -5 there is
         not the -5 next door, so a contour held next door cannot share one.
         """
-        self._ensure_arrays()
         refs, dist = self.along(square, way)
-        if len(refs) < 2 or not len(self._seg_ele):
+        if len(refs) < 2:
+            return []
+        self._ensure_arrays()
+        grid, vertices = self._graded_index()
+        if not len(self._seg_ele):
             return []
         nodes = square.nodes
         pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
-        lo, hi = pts.min(axis=0), pts.max(axis=0)
-        near = ((np.minimum(self._seg_a, self._seg_b) <= hi).all(axis=1)
-                & (np.maximum(self._seg_a, self._seg_b) >= lo).all(axis=1))
-        a, b, ele = self._seg_a[near], self._seg_b[near], self._seg_ele[near]
         out = []
         for k in range(len(pts) - 1):
-            hit = geometry.crossings(pts[k], pts[k + 1], a, b)
+            p, q = pts[k], pts[k + 1]
+            x0, y0 = np.floor(np.minimum(p, q) / self.GRID).astype(np.int64)
+            x1, y1 = np.floor(np.maximum(p, q) / self.GRID).astype(np.int64)
+            parts = [grid[(cx, cy)] for cx in range(x0, x1 + 1) for cy in range(y0, y1 + 1)
+                     if (cx, cy) in grid]
+            if not parts:
+                continue
+            cand = np.unique(np.concatenate(parts)) if len(parts) > 1 else parts[0]
+            a, b = self._seg_a[cand], self._seg_b[cand]
+            hit = geometry.crossings(p, q, a, b)
             if hit.any():
-                t = geometry.crossing_t(pts[k], pts[k + 1], a[hit], b[hit])
+                t = geometry.crossing_t(p, q, a[hit], b[hit])
                 step = dist[k + 1] - dist[k]
                 out.extend((dist[k] + float(tt) * step, float(e))
-                           for tt, e in zip(t, ele[hit], strict=True) if not np.isnan(tt))
-        index = {r: i for i, r in enumerate(refs)}
-        for g in self._ways:
-            if g.square is square and g.way is not way:
-                for r in index.keys() & set(g.refs):
-                    out.append((dist[index[r]], float(g.ele)))
+                           for tt, e in zip(t, self._seg_ele[cand][hit], strict=True)
+                           if not np.isnan(tt))
+        for i, r in enumerate(refs):
+            e = vertices.get((square.name, r))
+            if e is not None:
+                out.append((dist[i], e))
         return sorted(set(out))
 
     def outlet(self, square: Square, feature) -> tuple[float, str, float | None] | None:

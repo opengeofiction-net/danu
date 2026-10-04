@@ -390,7 +390,8 @@ class MainWindow(QMainWindow):
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
                 ('edit.import_water', '&Import water', self.import_water),
                 ('edit.set_level', 'Set the &level of the water', ed.set_level),
-                ('edit.grade', '&Grade from the contours', ed.grade)):
+                ('edit.grade', '&Grade from the contours', ed.grade),
+                ('edit.grade_network', 'Grade the river &network', ed.grade_network)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             a.triggered.connect(fn)
@@ -410,6 +411,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.import_water'])
         edit.addAction(self.edit_actions['edit.set_level'])
         edit.addAction(self.edit_actions['edit.grade'])
+        edit.addAction(self.edit_actions['edit.grade_network'])
         edit.addAction(self.gone_dock.toggleViewAction())
         self._tool_changed('select')
         self._edited()
