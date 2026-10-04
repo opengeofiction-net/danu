@@ -46,6 +46,9 @@ class Gone:
     id: int
     name: str | None         # what a mapper will recognise it by, if anything
     what: str                # the kind of water, or why it counted at all
+    # for a ring: the held water relation naming it, lowest id first, so the
+    # dock can list the ring under its lake rather than beside it
+    of: int | None = None
 
     def describe(self) -> str:
         label = f'{self.what} "{self.name}"' if self.name else self.what
@@ -66,11 +69,13 @@ def gone(working_set, answered_ways, answered_relations) -> list[Gone]:
     out: list[Gone] = []
     for name in sorted(working_set.squares, key=str):
         square = working_set.squares[name]
-        rings: set[int] = set()
-        for rel in square.relations.values():
+        rings: dict[int, int] = {}            # ring way -> a relation naming it
+        for rel in sorted(square.relations.values(), key=lambda r: r.id):
             if not asked_for('relation', rel.tags):
                 continue
-            rings.update(mem.ref for mem in rel.members if mem.type == 'way')
+            for mem in rel.members:
+                if mem.type == 'way':
+                    rings.setdefault(mem.ref, rel.id)
             if rel.id > 0 and rel.id not in answered_relations:
                 out.append(Gone(name, 'relation', rel.id, rel.tags.get('name'),
                                 _what('relation', rel.tags, False)))
@@ -80,6 +85,6 @@ def gone(working_set, answered_ways, answered_relations) -> list[Gone]:
             member = way.id in rings
             if member or asked_for('way', way.tags):
                 out.append(Gone(name, 'way', way.id, way.tags.get('name'),
-                                _what('way', way.tags, member)))
+                                _what('way', way.tags, member), rings.get(way.id)))
     out.sort(key=lambda g: (str(g.square), g.kind != 'relation', g.id))
     return out
