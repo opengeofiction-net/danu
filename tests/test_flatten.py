@@ -302,3 +302,23 @@ def test_relevel_carries_a_new_level_to_the_outline_and_fill_and_clearing_takes_
 def test_relevel_of_a_lake_never_flattened_is_nothing():
     w, sq = ws()
     assert flatten.relevel(sq, lake(sq), '50') == []
+
+
+def test_a_contour_in_and_out_of_the_water_twice_keeps_its_three_dry_runs():
+    """South of the lake, north into it, out, back in and out again: three
+    runs on land, two in the water, each shore crossing drawn back."""
+    w, sq = ws()
+    lk = lake(sq)
+    contour(sq, [(125.51, -22.52), (125.51, -22.48), (125.51, -22.44),       # in and out
+                 (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)  # in and out again
+    p = run(w, sq, lk, pull_back_m=100)
+    assert len(contours(sq, 120)) == 3 and p.pulled == 1
+    for x in contours(sq, 120):
+        assert all(not (125.50 < sq.nodes[r].lon < 125.54 and -22.50 < sq.nodes[r].lat < -22.46)
+                   for r in x.refs), 'a piece reaches into the water'
+
+
+def test_a_fill_spacing_that_is_not_positive_is_refused():
+    w, sq = ws()
+    with pytest.raises(ValueError, match='never stop'):
+        flatten.plan(w, sq, lake(sq), allocator(sq), fill_spacing_m=0)

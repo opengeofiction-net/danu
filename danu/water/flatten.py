@@ -233,6 +233,8 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
     """What flattening ``feature`` - a lake in ``square``, a closed way or a
     relation - at its level would do. ``alloc(square)`` gives the id
     allocator for a square. Raises ``Refused`` with why it cannot."""
+    if not fill_spacing_m > 0:
+        raise ValueError(f'fill lines {fill_spacing_m} m apart would never stop')
     tags = feature.tags
     if flows(tags):
         raise Refused('flowing water is never flattened - it descends along its course')
