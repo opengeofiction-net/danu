@@ -2248,3 +2248,55 @@ now caught me from the other side: there, a statistic hid a fault that was
 obvious on sight; here, a counter did. The test that pins this reads a pixel
 inside a contour ring, and the second one hands the pass a magenta brush and
 requires it back.
+
+## G5a, the merge rule
+
+R40's split of ownership, in `danu/core/reconcile.py`: upstream owns where the
+water is - refs, node positions, members, and the tags it is the authority for
+(`natural`, `water`, `waterway`, `name`, now `overpass.UPSTREAM_OWNS`). The
+mapper owns how high it is - `ele`, and any tag outside that set, since nothing
+else would have put one on an imported feature. Upstream's `ele` fills in only
+where the mapper has set none.
+
+Identity is free. An import lands under the upstream OSM ids, so a second
+import names exactly the ids the first wrote. On the gobras squares a first
+import overlaps nothing they hold - no way, no node, no node a contour uses -
+and a second overlaps everything.
+
+Before this, a second import overwrote a held feature whole. It took itself
+back exactly, which is what G4b set out to prove, and it threw away every
+elevation set since the first import, which is the fault G5 exists for.
+
+`ImportWater.upstream_owns` has no default. It is the line between the two
+owners, and an import that did not say where it fell would be choosing
+silently. The merge is worked out when the step is applied, against the square
+as it stands; a redo after an undo works it out again against the square the
+undo put back, which is the same square, so the same answer.
+
+What the merge does beyond the features it names:
+
+- **Vertices a re-route left behind** - named by the held way, not by
+  upstream's - are removed when untagged and named by nothing else in the
+  square. Tagged, they stay: a node with an `ele` is a spot height somebody
+  placed.
+- **A node a contour shares with a river moves with the river**, and the
+  contour is reported in `moved` so it is redrawn. `ways()` and `spots()` keep
+  answering after an undo, because the driver asks them then to know what moved
+  back. None of the gobras data does this yet; G7's burn will.
+- **Merged objects are new.** The undo holds the square's own, and one altered
+  in place would come back altered.
+
+Measured on N20E086, seventy per cent of the box's water: a first import 32 ms
+for 3,199 ways, 78 relations and 96,251 nodes. Then forty river levels set, ten
+lake levels, twenty-five vertices nudged by hand, and a second import: 89 ms,
+40/40 and 10/10 levels kept, 25/25 vertices back where upstream has them, and
+an undo of 11 ms that restores the square exactly. Nearly all of a second
+import's vertices carry no tags on either side and are written as upstream's
+own objects rather than new ones saying the same thing; that fast path is most
+of why 96,251 comparisons cost under a tenth of a second.
+
+Ten mutations of the rule were run against the seventeen tests and every one
+failed at least one: overwriting whole, merging in place, removing nothing,
+removing tagged vertices, ignoring a contour's hold on a vertex, not reporting
+moved contours, letting local `name` win, writing the mapper's tags first,
+forgetting what to redraw on undo, and letting upstream's `ele` win.

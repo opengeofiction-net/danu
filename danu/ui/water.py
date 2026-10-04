@@ -142,6 +142,7 @@ def commands(placed: dict, working_set) -> list[tuple[Square, object]]:
             continue
         water = placed[name]
         steps.append((square, edits.ImportWater(
+            upstream_owns=overpass.UPSTREAM_OWNS,
             new_nodes=dict(water.nodes), new_ways=dict(water.ways),
             new_relations=dict(water.relations),
             name=f'import water into {name}')))

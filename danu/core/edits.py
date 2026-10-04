@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .reconcile import Reconciled, reconcile
 from .square import Member, Node, Relation, Square, Way
 
 Coord = tuple[float, float]            # lon, lat
@@ -464,11 +465,18 @@ class ImportWater(Command):
     once over somebody's file; the answer to a bad one has to be Ctrl+Z and
     not an afternoon.
 
-    What it writes is what it is given. Deciding *what* to write when the
-    square already holds a feature of the same id is reconciliation, which is
-    G5 - this records whatever was there and puts it back on the undo, so a
-    second import replaces and takes itself back exactly, which is the floor
-    G5 builds on rather than the rule it will apply.
+    What it writes is the import *reconciled* with the square - G5a, and
+    ``danu/core/reconcile.py`` for the rule. A feature the square already
+    holds takes its geometry from upstream and keeps the elevation set on it
+    here; until G5a a second import overwrote it whole, which took itself back
+    exactly and threw away every elevation set since the first. The merge is
+    worked out when the step is applied, against the square as it then is, so
+    a redo after an undo works it out again against the square the undo put
+    back - the same square, and so the same answer.
+
+    ``upstream_owns`` has no default. It is the line between what upstream is
+    the authority for and what the mapper is, and an import that did not say
+    where it fell would be making the choice silently - so every caller says.
 
     The fields are ``new_*`` and not ``nodes``/``ways``/``relations`` because
     a dataclass field named ``ways`` would shadow the ``ways()`` every command
@@ -480,15 +488,25 @@ class ImportWater(Command):
     canvas draws them. A relation is carried and saved and not yet drawn, so
     adding the accessor now would be guessing at what its caller wants.
     """
+    upstream_owns: tuple[str, ...]
     new_nodes: dict[int, Node] = field(default_factory=dict)
     new_ways: dict[int, Way] = field(default_factory=dict)
     new_relations: dict[int, Relation] = field(default_factory=dict)
     name: str = 'import water'
     # what the square held at each id before, or None where it held nothing
     before: dict = field(default_factory=dict)
+    # what was written: the reconciled features, the vertices a re-route left
+    # behind, and the local ways a moved shared node redraws. The last two are
+    # kept across an undo, because the driver asks ways() and spots() *after*
+    # the undo to know what to redraw, and the answer is the same set
+    written: Reconciled | None = field(default=None, repr=False)
+    moved: set[int] = field(default_factory=set, repr=False)
+    _spots: set[int] | None = field(default=None, repr=False)
 
     def ways(self, square: Square) -> set[int]:
-        return set(self.new_ways)
+        # the ways it writes, and the local ones a node it moved redraws - a
+        # contour snapped to a river goes where the river goes
+        return set(self.new_ways) | self.moved
 
     def spots(self, square: Square) -> set[int]:
         """The nodes that carry an elevation, not every node imported.
@@ -500,6 +518,8 @@ class ImportWater(Command):
         walks this on the UI thread, where a hundred and fifty thousand
         no-ops is a stall rather than a saving.
         """
+        if self._spots is not None:
+            return self._spots
         return {i for i, n in self.new_nodes.items() if 'ele' in n.tags}
 
     def apply(self, square: Square) -> None:
@@ -510,18 +530,30 @@ class ImportWater(Command):
             # use, and a command owns its own invariant: applied twice with
             # no undo between, a second snapshot would record the import and
             # the original would be gone
-            square.nodes.update(self.new_nodes)
-            square.ways.update(self.new_ways)
-            square.relations.update(self.new_relations)
+            self._write(square, self.written)
             return
+        w = reconcile(square, self.new_nodes, self.new_ways, self.new_relations,
+                      self.upstream_owns)
         self.before = {
-            'nodes': {i: square.nodes.get(i) for i in self.new_nodes},
-            'ways': {i: square.ways.get(i) for i in self.new_ways},
-            'relations': {i: square.relations.get(i) for i in self.new_relations},
+            'nodes': {i: square.nodes.get(i) for i in (*w.nodes, *w.removed)},
+            'ways': {i: square.ways.get(i) for i in w.ways},
+            'relations': {i: square.relations.get(i) for i in w.relations},
         }
-        square.nodes.update(self.new_nodes)
-        square.ways.update(self.new_ways)
-        square.relations.update(self.new_relations)
+        self.written, self.moved = w, w.moved
+        # the spot heights among what was written, which is not always what
+        # was given: a vertex the mapper put an `ele` on keeps it, and a
+        # vertex upstream moved that carries one has to be redrawn where it
+        # went
+        self._spots = {i for i, n in w.nodes.items() if 'ele' in n.tags}
+        self._write(square, w)
+
+    @staticmethod
+    def _write(square: Square, w: Reconciled) -> None:
+        square.nodes.update(w.nodes)
+        square.ways.update(w.ways)
+        square.relations.update(w.relations)
+        for i in w.removed:
+            square.nodes.pop(i, None)
 
     def undo(self, square: Square) -> None:
         for kind, holder in (('nodes', square.nodes), ('ways', square.ways),
@@ -531,7 +563,10 @@ class ImportWater(Command):
                     holder.pop(i, None)
                 else:
                     holder[i] = was
-        self.before = {}
+        # `written` goes with the snapshot, so a redo works the merge out
+        # afresh; `moved` and the spots stay, because the driver asks for them
+        # after this returns to know what the undo just moved back
+        self.before, self.written = {}, None
 
     def describe(self) -> str:
         # ways and relations, not nodes, which is what a feature is here and
