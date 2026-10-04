@@ -18,6 +18,7 @@ bandwidth and no correctness.
 from __future__ import annotations
 
 import traceback
+from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
@@ -25,26 +26,56 @@ from ..core.square import Square
 from ..water import overpass
 
 
+@dataclass(frozen=True)
+class Answer:
+    """What an import brought back: the features placed by square, and the
+    ids of every way and relation the answer named, placed or not. G5b reads
+    absence from the second against what the set holds, and it has to be the
+    whole answer - a feature placed into a neighbour, or dropped for an anchor
+    outside the set, is not gone."""
+    placed: dict
+    ways: frozenset
+    relations: frozenset
+
+
+def held_by(working_set) -> dict:
+    """Which square holds each way and relation, as ``(kind, id)`` to name.
+
+    Taken on the UI thread when the import starts, because the squares are
+    the UI thread's: the worker places against this snapshot rather than
+    walking dictionaries a mapper may be editing. A feature deleted in the
+    second and a half the fetch takes is placed where it was, and written
+    there afresh - which is what importing it would have done anyway.
+    """
+    out = {}
+    for name, square in working_set.squares.items():
+        out.update((('way', i), name) for i in square.ways)
+        out.update((('relation', i), name) for i in square.relations)
+    return out
+
+
 class _Signals(QObject):
-    finished = Signal(object, int)      # {SquareName: Water}, the serial it was for
+    finished = Signal(object, int)      # Answer, the serial it was for
     failed = Signal(str, int)
 
 
 class _Job(QRunnable):
-    def __init__(self, fetch, bounds, working_set, serial: int, signals: _Signals):
+    def __init__(self, fetch, bounds, working_set, held: dict, serial: int,
+                 signals: _Signals):
         super().__init__()
         self.fetch, self.bounds, self.working_set = fetch, bounds, working_set
-        self.serial, self.signals = serial, signals
+        self.held, self.serial, self.signals = held, serial, signals
 
     def run(self):
         try:
-            placed = overpass.place(overpass.parse(self.fetch(self.bounds)),
-                                    self.working_set)
+            water = overpass.parse(self.fetch(self.bounds))
+            answer = Answer(overpass.place(water, self.working_set, self.held),
+                            frozenset(water.ways), frozenset(water.relations))
         except Exception as exc:      # noqa: BLE001 - reported as text, on the UI thread
             self._say(f'{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}')
             return
         try:
-            self.signals.finished.emit(placed, self.serial)
+            self.signals.finished.emit(answer, self.serial)
         except RuntimeError:
             pass                      # the window went; see _say
 
@@ -59,7 +90,7 @@ class WaterImporter(QObject):
     """One import at a time, newest wins."""
 
     started = Signal(object)           # the set the fetch now out is for
-    finished = Signal(object, object)  # {SquareName: Water}, the set it was asked for
+    finished = Signal(object, object)  # Answer, the set it was asked for
     failed = Signal(str)
 
     def __init__(self, parent=None, fetch=None, runner=None):
@@ -98,18 +129,19 @@ class WaterImporter(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        job = _Job(self._fetch, working_set.bounds, working_set, self._serial, sig)
+        job = _Job(self._fetch, working_set.bounds, working_set, held_by(working_set),
+                   self._serial, sig)
         job.setAutoDelete(False)       # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit(working_set)
         self._runner(job)
 
-    def _done(self, placed, serial: int):
+    def _done(self, answer, serial: int):
         self._running = False
         # the answer to a request that has been superseded is dropped rather
         # than shown: its bounds are not the ones the mapper is looking at
         if serial == self._serial:
-            self.finished.emit(placed, self._out)
+            self.finished.emit(answer, self._out)
         self._next()
 
     def _fail(self, text: str, serial: int):

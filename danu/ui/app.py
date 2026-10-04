@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, Q
 
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
+from ..water.gone import gone
 from . import config
 from . import mercator as m
 from .contours import ContourLayer
@@ -123,6 +124,9 @@ class MainWindow(QMainWindow):
         self.builder.finished.connect(self._surface_built)
         self.builder.failed.connect(self._surface_failed)
         self.water = WaterImporter(self)
+        # what the last import found held and no longer upstream - R40's
+        # "reported rather than deleted". G5c gives it a dock
+        self.gone_from_upstream: list = []
         self.water.started.connect(self._water_starting)
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
@@ -569,7 +573,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f'importing water for {w:g}..{e:g} by {s:g}..{n:g} from Overpass…')
 
-    def _water_imported(self, placed, working_set):
+    def _water_imported(self, answer, working_set):
         """One import, one step on the history - R40 - however many squares it
         landed in.
 
@@ -583,9 +587,15 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 'the working set changed while the water was fetched - import again')
             return
+        placed = answer.placed
+        # compared before the import is applied, while a held lake relation
+        # still names the ring upstream has since replaced - see water/gone.py
+        self.gone_from_upstream = gone(working_set, answer.ways, answer.relations)
+        kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+                if self.gone_from_upstream else '')
         steps = water_commands(placed, working_set)
         if not steps:
-            self.statusBar().showMessage('no water in this working set')
+            self.statusBar().showMessage(f'no water in this working set{kept}')
             return
         # the editor's own path, not a copy of it: see EditController.do_across
         self.editor.do_across(steps)
@@ -594,7 +604,8 @@ class MainWindow(QMainWindow):
         # one square takes seventy per cent of them
         where = ', '.join(f'{name} {len(placed[name])}' for name in sorted(placed, key=str))
         self.statusBar().showMessage(
-            f'imported {features} water features - {where}. Ctrl+Z takes them all back')
+            f'imported {features} water features - {where}{kept}. '
+            f'Ctrl+Z takes them all back')
 
     def _water_failed(self, why: str):
         self.statusBar().showMessage(f'water import failed: {why.splitlines()[0]}')

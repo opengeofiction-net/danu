@@ -76,6 +76,35 @@ UPSTREAM_OWNS = ('natural', 'water', 'waterway', 'name')
 KEEP = (*UPSTREAM_OWNS, 'ele')
 
 
+def asked_for(kind: str, tags: dict[str, str]) -> bool:
+    """Whether the query asks for a feature of this kind with these tags.
+
+    The question G5b's "gone from upstream" turns on. A feature the square
+    holds and the answer does not name is gone only if the query would have
+    returned it - otherwise every coastline and contour would be reported
+    missing on every import. So this is the query's own selection, said a
+    second time, and a test holds the two together.
+    """
+    if kind == 'way':
+        return (tags.get('waterway') in LINE_KINDS + AREA_KINDS
+                or tags.get('natural') == 'water')
+    if kind == 'relation':
+        return tags.get('natural') == 'water'
+    return False
+
+
+class IncompleteAnswer(OSError):
+    """Overpass ran out of time or memory and sent what it had.
+
+    It does that with an HTTP 200 and a ``<remark>`` saying *runtime error*,
+    so nothing below the parse can tell a truncated answer from a whole one.
+    Importing it would be harmless to the merge, which writes only what it is
+    given; it would not be harmless to G5b, which reads absence as deletion
+    and would report every feature the answer was cut short of as gone
+    upstream. An answer that says it is incomplete is refused whole.
+    """
+
+
 def query(bounds: tuple[float, float, float, float]) -> str:
     """The Overpass QL for a working set's bounds, as (west, south, east,
     north).
@@ -175,6 +204,8 @@ def parse(payload: bytes) -> Water:
     water = Water()
     root = ElementTree.fromstring(payload)
     for elem in root:
+        if elem.tag == 'remark' and 'runtime error' in (elem.text or ''):
+            raise IncompleteAnswer(' '.join((elem.text or '').split()))
         tags = {t.get('k'): t.get('v', '') for t in elem.findall('tag')}
         if elem.tag == 'node':
             water.nodes[int(elem.get('id'))] = Node(
@@ -195,7 +226,7 @@ def parse(payload: bytes) -> Water:
     return water
 
 
-def place(water: Water, working_set) -> dict:
+def place(water: Water, working_set, held: dict | None = None) -> dict:
     """Which square each feature belongs to, as ``{SquareName: Water}``.
 
     A feature goes whole into one square - the one holding its *anchor*, which
@@ -214,7 +245,19 @@ def place(water: Water, working_set) -> dict:
     the build reads the working set rather than a square. A feature whose
     anchor is outside the set is dropped: Overpass answers a bounding box and
     the set is not one, so some of what comes back is a river passing by.
+
+    **A feature the set already holds goes back where it is held** - G5b -
+    whatever its anchor now says. ``held`` maps ``(kind, id)`` to the square
+    holding it, snapshotted on the UI thread when the import was asked for.
+    The anchor is a way's first node, and upstream redrawing a river from
+    the other end, or a relation listing a different member first, moves it
+    across a degree line without the feature having moved at all. Placed by
+    anchor, the new copy would land in the neighbour as a feature it had
+    never held, with none of the elevation set on the old one, and the old
+    one would stay where it was: the same id in two files, which is the
+    duplication R40 says a second import must not make.
     """
+    held = held or {}
     out: dict = {}
     # Relations first, and everything they are made of goes with them rather
     # than where its own first node happens to fall. Otherwise a lake's outer
@@ -229,7 +272,8 @@ def place(water: Water, working_set) -> dict:
     for rel in _outermost_first(water):
         if rel.id in taken:
             continue                 # already placed, with the relation that names it
-        square = _square_of(working_set, _relation_anchor(water, rel))
+        square = (held.get(('relation', rel.id))
+                  or _square_of(working_set, _relation_anchor(water, rel)))
         if square is None:
             continue
         ways, rels = _put(out, square, water, relations=[rel])
@@ -238,7 +282,8 @@ def place(water: Water, working_set) -> dict:
     for way in water.ways.values():
         if way.id in claimed:
             continue
-        square = _square_of(working_set, _way_anchor(water, way))
+        square = (held.get(('way', way.id))
+                  or _square_of(working_set, _way_anchor(water, way)))
         if square is not None:
             _put(out, square, water, ways=[way])
     return out
