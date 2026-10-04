@@ -2481,7 +2481,8 @@ GDAL) so that the editor and the batch grader share one list.
 - The value first sat level with the mark, as a spot height's does. At z16
   that showed its white halo eating the diamond's right half, and the text
   sitting on the river line. Now it sits up and right, drawn before the mark.
-- A **lake's level is written on the lake**, centred, from z12.
+- A **lake's level is written on the lake**, centred, from `ZOOM_SPOTS` - the zoom spot
+  heights appear at.
 - `Spot.on_water` keeps a river's levels out of spot-height picking.
 - `_water_refs` counts water vertices so the layer can tell the two apart.
   It is built in `__init__`, not only `set_working_set`, after the
