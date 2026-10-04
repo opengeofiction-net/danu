@@ -184,3 +184,15 @@ def test_a_ring_closed_by_a_gap_ends_and_does_not_loop():
     way(sq, 1, [10, 11]); way(sq, 2, [11, 12]); way(sq, 3, [12, 13])
     chain = Network(w).chain_of(sq, sq.ways[1])
     assert sorted(link.way.id for link in chain.links) == [1, 2, 3], 'a way was walked twice'
+
+
+def test_a_way_whose_own_ends_are_within_reach_is_not_crossed_into_itself():
+    """A stream that nearly closes on itself: its two free ends 2 m apart. It
+    must not be walked across into its own other end."""
+    w = ws(); sq = w.squares[A]
+    for i, (lon, lat) in enumerate(((125.1, -23.5), (125.2, -23.5), (125.2, -23.4)), 10):
+        node(sq, i, lon, lat)
+    node(sq, 13, 125.1, -23.5 + 2 * M)
+    way(sq, 1, [10, 11, 12, 13])
+    chain = Network(w).chain_of(sq, sq.ways[1])
+    assert [link.way.id for link in chain.links] == [1] and chain.joins == []

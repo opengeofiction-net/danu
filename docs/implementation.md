@@ -2726,8 +2726,9 @@ side, which is a network join and G6d-2's.
 
 **Seen on the gobras set:** Wandrasoon Creek's summary said 429 points and
 wrote 428. Its way 30384414 passes through one of its own nodes twice, which
-gives that node two distances and two levels; the upstream visit's is the one
-written, and points are counted as nodes now, not as places along the chain.
+gives that node two distances and two levels; the first visit in walking order
+is the one written, and points are counted as nodes now, not as places along
+the chain.
 
 **And a G6b fix that never landed.** G6b's review commit said the Proposal's
 annotations matched their neighbours; on main they did not. A falsification

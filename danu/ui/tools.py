@@ -1166,7 +1166,10 @@ class EditController(QObject):
         # points counted as nodes, not as places along the chain: a way that
         # passes through one of its own nodes twice - Wandrasoon Creek's
         # 30384414 does - gives that node two distances and two levels, and the
-        # first, the upstream visit, is the one written above
+        # first visit in walking order is the one written above. That is not
+        # always the upstream one - the chain is walked in the direction the
+        # clicked way was drawn - but the two levels lie between the same two
+        # crossings, a few metres apart
         points = len({(s2.name, r) for s2, r in seq})
         levelled = len({(s2.name, r) for (s2, r), lv in zip(seq, levels, strict=True)
                         if lv is not None})
