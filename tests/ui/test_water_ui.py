@@ -18,7 +18,7 @@ from danu.core.square import Member, Node, Relation, SquareName, Way, WorkingSet
 from danu.ui import mercator as m
 from danu.ui.contours import ContourLayer
 from danu.ui.mapview import MapView
-from danu.ui.water import WaterImporter, commands
+from danu.ui.water import Answer, WaterImporter, commands
 
 TEN = SquareName(126, -24)
 HERE = SquareName(125, -24)
@@ -61,6 +61,14 @@ class FakeWater:
 
     def __len__(self):
         return len(self.ways) + len(self.relations)
+
+
+def answered(placed: dict) -> Answer:
+    """An answer naming exactly what was placed - so nothing held reads as
+    gone unless a test says so."""
+    return Answer(placed,
+                  frozenset(i for w in placed.values() for i in w.ways),
+                  frozenset(i for w in placed.values() for i in w.relations))
 
 
 def a_river(wid=9001, lon=126.5, lat=-23.7):
@@ -123,7 +131,7 @@ def test_an_import_across_squares_is_one_undo(window):
     placed = {here: a_river(9001, 125.5), east: a_river(9002, 126.5)}
 
     before = {n: len(w.working_set.squares[n].ways) for n in (here, east)}
-    w._water_imported(placed, w.working_set)
+    w._water_imported(answered(placed), w.working_set)
     assert len(w.working_set.squares[here].ways) == before[here] + 1
     assert len(w.working_set.squares[east].ways) == before[east] + 1
     assert 'imported 2 water features' in w.statusBar().currentMessage()
@@ -143,14 +151,14 @@ def test_an_import_across_squares_is_one_undo(window):
 def test_both_squares_are_dirty_after_an_import(window):
     w = window
     here, east = HERE, TEN
-    w._water_imported({here: a_river(9001, 125.5), east: a_river(9002, 126.5)},
+    w._water_imported(answered({here: a_river(9001, 125.5), east: a_river(9002, 126.5)}),
                       w.working_set)
     dirty = {sq.name for sq in w.editor.history.dirty_squares()}
     assert {here, east} <= dirty, 'a square an import wrote is not offered for saving'
 
 
 def test_an_import_of_nothing_says_so(window):
-    window._water_imported({}, window.working_set)
+    window._water_imported(answered({}), window.working_set)
     assert 'no water' in window.statusBar().currentMessage()
 
 
@@ -162,7 +170,7 @@ def test_an_answer_for_a_set_no_longer_open_is_refused(window):
     w = window
     stale, w.working_set = w.working_set, copy.copy(w.working_set)
     before = len(w.working_set.squares[HERE].ways)
-    w._water_imported({HERE: a_river(9001, 125.5)}, stale)
+    w._water_imported(answered({HERE: a_river(9001, 125.5)}), stale)
     assert len(w.working_set.squares[HERE].ways) == before, (
         'features from a set no longer open were applied'
     )
@@ -546,7 +554,7 @@ def test_an_import_still_tells_everyone_what_changed(window):
     w.editor.editedWays.connect(lambda sq, ways, spots: seen.append((sq.name, set(ways))))
     w.editor.edited.connect(lambda: edits_done.append(True))
 
-    w._water_imported({here: a_river(9001, 125.5), east: a_river(9002, 126.5)},
+    w._water_imported(answered({here: a_river(9001, 125.5), east: a_river(9002, 126.5)}),
                       w.working_set)
     assert {name for name, _ in seen} == {here, east}, (
         'a square an import wrote was not announced'
@@ -698,3 +706,87 @@ def _blank(view):
         item.setVisible(True)
     p.end()
     return img.pixelColor(img.width() // 2, img.height() // 2)
+
+
+# ------------------------------------------------- gone from upstream (G5b)
+
+def test_a_held_river_the_answer_drops_is_kept_and_reported(window):
+    """R40: reported rather than deleted. The square is somebody's work, and
+    an import is not entitled to throw it away."""
+    from danu.core.square import Way
+    w = window
+    sq = w.working_set.squares[HERE]
+    sq.ways[777] = Way(id=777, refs=[], tags={'waterway': 'river', 'name': 'Old Bed'})
+
+    w._water_imported(answered({HERE: a_river(9001, 125.5)}), w.working_set)
+    assert 777 in sq.ways, 'an import deleted a held river'
+    assert [(g.square, g.id, g.name) for g in w.gone_from_upstream] == [(HERE, 777, 'Old Bed')]
+    assert '1 held no longer upstream, kept' in w.statusBar().currentMessage()
+
+
+def test_an_answer_with_nothing_placed_still_reports_what_it_dropped(window):
+    """Upstream deleting every river in the set is an answer with nothing to
+    import - and the one where the report matters most."""
+    from danu.core.square import Way
+    w = window
+    w.working_set.squares[HERE].ways[777] = Way(id=777, refs=[], tags={'waterway': 'river'})
+    w._water_imported(answered({}), w.working_set)
+    assert len(w.gone_from_upstream) == 1
+    assert 'no longer upstream' in w.statusBar().currentMessage()
+
+
+def test_held_by_snapshots_which_square_holds_what(window):
+    from danu.core.square import Relation, Way
+    from danu.ui.water import held_by
+    w = window
+    w.working_set.squares[HERE].ways[777] = Way(id=777, refs=[])
+    w.working_set.squares[TEN].relations[888] = Relation(id=888, tags={}, members=[])
+    held = held_by(w.working_set)
+    assert held[('way', 777)] == HERE and held[('relation', 888)] == TEN
+
+
+def test_the_importer_places_against_what_the_set_holds(window):
+    """The worker places against a snapshot taken on the UI thread, so a held
+    river comes back to the square that holds it even when its first node is
+    now next door."""
+    from danu.core.square import Way
+    w = window
+    w.working_set.squares[HERE].ways[302] = Way(id=302, refs=[], tags={'waterway': 'river'})
+    payload = b'''<?xml version="1.0"?><osm version="0.6">
+      <node id="201" lat="-23.8" lon="126.6"/>
+      <node id="202" lat="-23.8" lon="125.8"/>
+      <way id="302"><nd ref="201"/><nd ref="202"/><tag k="waterway" v="river"/></way>
+    </osm>'''
+    jobs, got = [], []
+    imp = WaterImporter(fetch=lambda bounds: payload, runner=jobs.append)
+    imp.finished.connect(lambda answer, ws: got.append(answer))
+    imp.request(w.working_set)
+    jobs.pop(0).run()
+    assert got, 'the import did not answer'
+    assert 302 in got[0].placed[HERE].ways, 'placed by anchor rather than where it is held'
+    assert got[0].ways == frozenset({302})
+
+
+def test_a_replaced_lake_ring_is_reported_because_the_comparison_comes_first(window):
+    """Upstream redrew the ring under a new id. Compared after the import is
+    applied, the merged relation already names the new ring and the old way is
+    a line nothing names - found by nothing. Compared first, the held relation
+    still names it."""
+    from danu.core.square import Member, Node, Relation, Way
+    from danu.water.overpass import Water
+    w = window
+    sq = w.working_set.squares[HERE]
+    sq.ways[200] = Way(id=200, refs=[])
+    sq.relations[300] = Relation(id=300, tags={'natural': 'water'},
+                                 members=[Member('way', 200, 'outer')])
+    new = Water()
+    ids = [601, 602, 603]
+    for i, lon in zip(ids, (125.3, 125.4, 125.35), strict=True):
+        new.nodes[i] = Node(id=i, lat=-23.5 if i != 603 else -23.4, lon=lon)
+    new.ways[201] = Way(id=201, refs=ids + [ids[0]])
+    new.relations[300] = Relation(id=300, tags={'natural': 'water'},
+                                  members=[Member('way', 201, 'outer')])
+
+    w._water_imported(answered({HERE: new}), w.working_set)
+    assert [(g.kind, g.id, g.what) for g in w.gone_from_upstream] == [('way', 200, 'lake ring')]
+    assert 200 in sq.ways, 'the old ring was deleted rather than reported'

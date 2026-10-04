@@ -2300,3 +2300,62 @@ failed at least one: overwriting whole, merging in place, removing nothing,
 removing tagged vertices, ignoring a contour's hold on a vertex, not reporting
 moved contours, letting local `name` win, writing the mapper's tags first,
 forgetting what to redraw on undo, and letting upstream's `ele` win.
+
+## G5b, gone from upstream
+
+R40's other half: *a feature gone from upstream is reported rather than
+deleted.* `danu/water/gone.py` compares what the set holds against the
+answer and decides nothing; G5c gives the report a dock.
+
+A held feature is gone when the answer does not name it **and the query would
+have**. That second test is `overpass.asked_for`, the query's own selection
+said a second time, and a test holds the two together by reading the
+selectors out of `query()`. Without it every contour and coastline would be
+reported missing on every import. Re-importing the unchanged gobras answer
+reports nothing across 11,070 held features.
+
+Absence then means deleted upstream, or retagged out of what the query asks
+for (a river become a drain). The report says neither, because it cannot tell
+which.
+
+Three limits on what counts:
+
+- **Positive ids only.** A negative id was allocated in the editor for
+  something the mapper drew. It was never upstream, so it cannot have left.
+- **A way a held lake relation names counts, tagged or not.** A ring carries
+  no tags of its own. When upstream redraws it under a new id the relation
+  comes back naming the new one, and the old way is left as an untagged line
+  that nothing names. So the comparison runs *before* the import is applied,
+  while the held relation still names it. Computed after, the case is
+  invisible; the test that pins this was written after a first mutation that
+  only emptied the report, which proved nothing about the order.
+- **The whole answer, not the square's share of it.** Placement is per
+  square and identity is not. A feature placed next door is not gone.
+
+**An answer that says it is incomplete is refused.** Overpass sends what it
+had, with an HTTP 200 and a `<remark>` saying *runtime error*. `parse`
+ignored it, which was harmless to the merge and would not have been harmless
+here: absence from a truncated answer reads as deletion. `IncompleteAnswer`
+is an `OSError`, so it fails the import exactly as a network error does.
+
+**A held feature goes back where it is held.** `place` took a feature's
+square from its anchor, a way's first node. Upstream redrawing a river from
+its other end moves the anchor across a degree line without the river moving
+at all. The new copy would then land in the neighbour, without the elevation
+set on the held one, while the held one stayed put: one id, two files, which
+is the duplication R40 forbids. `held_by` snapshots which square holds each
+id on the UI thread when the import starts, and the worker places against
+that snapshot rather than walking dictionaries a mapper may be editing.
+
+Measured on the gobras set after a real import: `held_by` and `gone` each
+take 1.0 ms on the UI thread over 11,070 held features. Five rivers and a lake
+deleted from the answer are reported as exactly those six, by name. Deleting
+the lake realistically, so that its two untagged rings leave the answer with
+it, reports the relation and both rings.
+
+Eleven mutations, each failing at least one test: ignoring the remark,
+refusing any remark, placing by anchor, an empty snapshot, counting any tag as
+asked for, counting negative ids, losing the ring rule, deleting instead of
+reporting, comparing after the import was applied - and, against the selector
+test once the local review had it read the whole union, a selector in another
+syntax and one `asked_for` does not know.
