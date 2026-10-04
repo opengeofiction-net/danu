@@ -68,6 +68,13 @@ ZOOM_LABELS = 14
 # too coarse to place them against. The value beside one waits for
 # ZOOM_LABELS either way
 ZOOM_SPOTS = 12
+# a graded river's levels: every one labelled from here; at ZOOM_LABELS up
+# to it, only those with no label within WATER_LABEL_PX - a river graded at
+# every vertex wrote its numbers over each other at z14 and z15 (G6d-3). The
+# diamonds are all drawn at every zoom: where a level is matters as much as
+# what it is
+ZOOM_WATER_LABELS = 16
+WATER_LABEL_PX = 60.0
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9
@@ -256,6 +263,21 @@ class WayGeom:
         return self._node_ref
 
 
+def _room(taken: dict, px: float, py: float) -> bool:
+    """Whether a label at (px, py), in pixels, is clear of every label placed
+    so far by WATER_LABEL_PX - and if it is, take the place. Pixels at the
+    zoom painted, counted from the scene's origin and not the window's, so
+    the cells - and the labels kept - do not change as the map pans."""
+    cx, cy = math.floor(px / WATER_LABEL_PX), math.floor(py / WATER_LABEL_PX)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for qx, qy in taken.get((cx + dx, cy + dy), ()):
+                if (qx - px) ** 2 + (qy - py) ** 2 < WATER_LABEL_PX ** 2:
+                    return False
+    taken.setdefault((cx, cy), []).append((px, py))
+    return True
+
+
 class ContourLayer(QGraphicsItem):
     def __init__(self):
         super().__init__()
@@ -315,6 +337,7 @@ class ContourLayer(QGraphicsItem):
         self.drawn_labels = 0
         self.drawn_spots = 0
         self.drawn_water_levels = 0
+        self.labelled_water_levels = 0
         self.drawn_lake_levels = 0
         self.drawn_water = 0
         self.drawn_water_fills = 0
@@ -948,7 +971,7 @@ class ContourLayer(QGraphicsItem):
         finally:
             painter.restore()
 
-    def _paint_water_level(self, painter: QPainter, spot: Spot, scale: float, zoom: float,
+    def _paint_water_level(self, painter: QPainter, spot: Spot, scale: float, label: bool,
                            font: QFont):
         """A level on a river's vertex: a small diamond in the water's colour,
         hollow, and its value once there is room. Apart from a spot height's
@@ -964,7 +987,8 @@ class ContourLayer(QGraphicsItem):
         # for a point on its own; this point is on a line, which runs through
         # wherever that label would go - and the label's white halo, painted
         # after the mark, ate the right half of it. Seen at z16, not counted
-        if zoom >= ZOOM_LABELS:
+        if label:
+            self.labelled_water_levels += 1
             tp = self._text_path(f'{spot.ele:g}', font)
             painter.save()
             painter.translate(h + 4.0, -(h + 3.0))
@@ -1033,12 +1057,15 @@ class ContourLayer(QGraphicsItem):
             return
         font = QFont()
         font.setPointSize(FONT_PT)
-        self.drawn_water_levels = 0
+        self.drawn_water_levels = self.labelled_water_levels = 0
+        taken: dict = {}                     # label places so far, by cell, in pixels
         for spot in self.spots.values():
             if not rect.contains(QPointF(spot.x, spot.y)):
                 continue
             if spot.on_water:
-                self._paint_water_level(painter, spot, scale, zoom, font)
+                label = zoom >= ZOOM_WATER_LABELS or (
+                    zoom >= ZOOM_LABELS and _room(taken, spot.x * scale, spot.y * scale))
+                self._paint_water_level(painter, spot, scale, label, font)
                 continue
             colour = self.colour(spot.ele)
             painter.save()

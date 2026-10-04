@@ -57,6 +57,10 @@ APP_NAME = 'danu'
 HOME = (87.0, 20.5, 5)
 
 
+# the nearest the map goes to show something a grade found - G6d-3
+SHOW_ZOOM = 16
+
+
 def user_config_dir() -> Path:
     """~/.config/danu on Linux, the equivalent elsewhere, from Qt. Needs the
     application name set and no organisation name - see APP_NAME."""
@@ -164,6 +168,7 @@ class MainWindow(QMainWindow):
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
+        self.editor.placeAsked.connect(self._show_place)
         # what is selected, under the elevation panel: the active elevation is
         # what the tools will use, and this is what the selection already has
         self.selection_panel = SelectionPanel(self.editor, self)
@@ -664,6 +669,19 @@ class MainWindow(QMainWindow):
             self.map.fit_bounds(w - pad, s - pad, e + pad, n + pad)
         key = self.settings.key('edit.delete_way') or 'Shift+Delete'
         self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
+
+    def _show_place(self, w: float, s: float, e: float, n: float):
+        """The map to something a grade found - G6d-3. A margin round a span,
+        so it is seen against what is round it, and never nearer than z16: a
+        climb of a few hundred metres went to z19 and a gap to z18, too close
+        to see where on the river they are. A zoom and not a margin, since
+        the zoom a margin comes to depends on the size of the window."""
+        pad = max((e - w) * 0.15, (n - s) * 0.15)
+        if pad:
+            self.map.fit_bounds(w - pad, s - pad, e + pad, n + pad)
+        if not pad or self.map.zoom > SHOW_ZOOM:
+            self.map.set_zoom(SHOW_ZOOM)
+            self.map.center_on_lonlat((w + e) / 2, (s + n) / 2)
 
     def _water_failed(self, why: str):
         self.statusBar().showMessage(f'water import failed: {why.splitlines()[0]}')

@@ -2801,3 +2801,38 @@ name continuation, joins found one way only, a segment in one cell only, the
 network named after the line clicked, no refusal, a side with two lines in
 reach, a side for an end that already meets a line, and sides left out of the
 network.
+
+## G6d-3, what a grade found, on the map
+
+A grade's findings were a sentence: "81 spans left ungraded - 69 where the
+contours climb, 12 running over 5 km", and on the profile red bands that all
+looked the same. **Each is now an item with its place** (`tools.Issue`): a
+span left ungraded, told apart as a climb - the contours and the river
+disagreeing, a fault in one or the other - or a span over 5 km with no
+contour, which is only ground nobody contoured; and a gap walked across,
+between two ways or a tributary short of its river's side.
+
+- **The panel lists them** under the summary, gaps first since they are the
+  mapping errors to fix, then climbs, then long spans, each with a swatch in
+  its map colour. A click takes the map to it and outlines it in yellow. The
+  summary keeps the counts; the coordinates moved into the list.
+- **The profile shades a climb red and a long span grey.** Hover says which,
+  with how far along; a click takes the map there. A span is found within
+  3 px of its band - on the Bosco River's 86 km stem a climb of a hundred
+  metres is a pixel wide.
+- **On the map** the same two colours: red solid, grey dashed.
+- **The map goes no nearer than z16** to show one. Fitted to the window, a
+  climb of a few hundred metres went to z19 and a gap to z18, where the river
+  round it, which is what says where it is, was off the screen. A zoom and
+  not a margin, since the zoom a margin comes to depends on the window.
+
+**River level labels are thinned below z16.** A river graded at every vertex
+wrote its values over each other at z14 and z15. Now a value is written only
+where no other is within 60 px; every diamond is still drawn, and from z16
+every value. By cells of scene pixels, so the labels kept do not change as the
+map pans. On the gobras set after grading the Prado River network, a view at
+z14 draws 149 levels and labels 24, at z15 70 and 14, at z16 14 and 14.
+
+Thirteen mutations, each failing at least one test, every one from a fresh
+copy. Two survived the first tests - the z16 limit, and a network's spans in
+the list - and have tests of their own now.
