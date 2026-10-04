@@ -14,7 +14,5 @@ hgt_arcsec = 3
 fill_metres = 1850
 barrier_cells = 2
 pass2 = "diffuse"
-water_constraints = false   # off, so this compares against the pipeline as it
-                            # stands on ogf-server-scripts master
 isofill = "0.5.0"
 square = "gwynian/S24E125_Los_Pizarrales"

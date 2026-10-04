@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
 from ..core.square import parse_ele
 from ..water.overpass import flows
@@ -368,7 +369,7 @@ class SelectionPanel(QDockWidget):
         # a network is of lines: a river or a stream, not a lake
         self.network_btn.setVisible(
             sel is not None and sel.relation is None and sel.way is not None
-            and sel.way.tags.get('waterway') in ('river', 'stream'))
+            and sel.way.tags.get('waterway') in LINE_KINDS)
         self.refresh_proposal()
 
     def refresh_proposal(self) -> None:

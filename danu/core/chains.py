@@ -35,6 +35,8 @@ import math
 from dataclasses import dataclass, field
 from itertools import pairwise
 
+# the lines a chain is walked along, and the ones an import keeps as lines
+# (overpass.LINE_KINDS is this list)
 LINE_KINDS = ('river', 'stream')
 TOLERANCE_M = 5.0
 

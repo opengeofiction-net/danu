@@ -36,6 +36,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
+from ..core import chains
 from ..core.square import Member, Node, Relation, Way
 
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
@@ -54,7 +55,7 @@ RETRIES = 3
 # lines, for the same reason: a drain or a ditch is a dug channel, not what
 # the terrain is shaped around, and grading one as a valley floor would pull
 # the ground down along a thing somebody dug.
-LINE_KINDS = ('river', 'stream')
+LINE_KINDS = chains.LINE_KINDS        # one list, with the grade's (G6c)
 
 # and the one that is an area rather than a line. `waterway=riverbank` is
 # deprecated in favour of natural=water + water=river, and the data has not

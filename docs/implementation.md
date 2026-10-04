@@ -2836,3 +2836,46 @@ z14 draws 149 levels and labels 24, at z15 70 and 14, at z16 14 and 14.
 Thirteen mutations, each failing at least one test, every one from a fresh
 copy. Two survived the first tests - the z16 limit, and a network's spans in
 the list - and have tests of their own now.
+
+## G6c, the build reads the squares and nothing else
+
+**The Overpass switch is gone from the build.** `danu-build-zone` turned
+`--water-constraints` on unless `WATER_CONSTRAINTS=0`, and
+`server/etc/danu.conf` set it to 0, so the server never fetched - but the
+switch was there, a deployment away from every nightly build reaching the
+network. The editor imports water into the squares now, and a level on it
+reaches the build as a spot height with no build change (G6 decision 1). Gone:
+the option, the environment variable, the conf entry, `build.water_constraints`
+and `build_dem`'s `water` argument, and the golden lock's `water_constraints`,
+which was false. A test reads the server scripts, the surface build and
+`constraints.py` for Overpass, the network or the switch, as text, so it runs
+without GDAL.
+
+**`danu/water/constraints.py` stays, reading a file.** `fetch` is gone and
+`--osm` is required. G7's measure is that the editor's burn writes the same
+constraints as this does over the same input, cell for cell, so its burn is
+kept to compare against. Run on the gobras graded zone's contour raster with
+the raw Overpass answer as input it grades 892 waterways and adds 12,068 cells,
+as before.
+
+**A square of water alone no longer widens the grid.** The concern from G4 -
+water written after the envelope is taken lands outside it - went with the
+step. What a build of the gobras 3x3, every network graded and saved, showed
+instead: the import creates five squares of water and nothing else, none of
+which a grade levels (every graded point lies in a square with contours), and
+three of them a degree west of the zone - so the grid ran 85..88 where the
+ground is 86..88, 3601x3601 cells for 2401x2401 worth. Such a square is still
+drawn (R42) and read; `has_elevation`, an `ele` anywhere, decides which squares
+the grid is taken over. The envelopes are the same four, and the DEM over the
+common area differs by at most 0.1 m, the fill near the raster's moved edge. A
+working set of water alone has nothing to build, and says so. Once a level is
+put on such a square's water it is elevated, and counts.
+
+`LINE_KINDS` is one list, in `core.chains`, which `overpass` and
+`constraints.py` and the selection panel take; `core` does not import from
+`water`, so it lives on the lower side. `danu/checks/rivers.py` still fetches
+from Overpass - a check run by hand, not part of the build, and not touched.
+
+Four mutations, each failing a test, every one from a fresh copy: the grid
+over every drawn square, `has_elevation` answering for water, a working set of
+water alone built, and the switch put back into `danu-build-zone`.
