@@ -517,6 +517,12 @@ class ImportWater(Command):
         river network is 158,633 vertices on the gobras set and the driver
         walks this on the UI thread, where a hundred and fifty thousand
         no-ops is a stall rather than a saving.
+
+        Once applied, the answer is the elevation-carrying nodes among what
+        was *written* - which a held vertex's own `ele` can add to - and it is
+        kept across an undo on purpose: the driver asks after the undo to know
+        what to redraw, and the nodes the import touched are the ones that
+        moved back. It is the import's set, not a fresh look at the square.
         """
         if self._spots is not None:
             return self._spots

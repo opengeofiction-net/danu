@@ -237,3 +237,23 @@ def test_the_command_names_what_it_redraws_after_an_undo_too():
     cmd.undo(sq)
     assert -1 in cmd.ways(sq), 'after the undo the contour is not redrawn'
     assert 2 in cmd.spots(sq), 'after the undo the spot height is not redrawn'
+
+
+def test_a_feature_carrying_only_an_elevation_keeps_it():
+    """The case the merge exists for at its barest: nothing on the held
+    feature but the mapper's `ele`, and upstream with no tags at all, or with
+    an `ele` of its own. The fast path must not take it - `ele` is not a key
+    upstream owns, so a held `ele` is the mapper's and sends it to the merge."""
+    from danu.core.reconcile import _settled
+    assert not _settled({'ele': '120'}, {'ele': '95'}, OWNS)
+    assert not _settled({'ele': '42'}, {}, OWNS)
+
+    sq = Square(name=SquareName(125, -24), present=True, attrs={})
+    sq.nodes[1] = Node(id=1, lat=-23.5, lon=125.0, tags={'ele': '120'})
+    sq.ways[100] = Way(id=100, refs=[1, 2], tags={'ele': '42'})
+    sq.nodes[2] = Node(id=2, lat=-23.5, lon=125.01)
+    got = reconcile(sq, {1: Node(id=1, lat=-23.5, lon=125.0, tags={'ele': '95'}),
+                         2: Node(id=2, lat=-23.5, lon=125.01)},
+                    {100: Way(id=100, refs=[1, 2])}, {}, OWNS)
+    assert got.nodes[1].tags['ele'] == '120', "upstream's ele replaced the mapper's"
+    assert got.ways[100].tags == {'ele': '42'}, 'a way carrying only an ele lost it'
