@@ -14,16 +14,18 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, Qt, QThreadPool
+from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
+from ..checks import crossings
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten
 from ..water.gone import gone
 from . import config
 from . import mercator as m
+from .checks_dock import ChecksDock
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .gone_dock import GoneDock
@@ -119,6 +121,21 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.gone_dock)
         self.tabifyDockWidget(self.surface_panel, self.gone_dock)
         self.gone_dock.hide()
+        # the validation panel (G8a): crossing contours, kept as edited
+        self.checks_dock = ChecksDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.checks_dock)
+        self.tabifyDockWidget(self.surface_panel, self.checks_dock)
+        self.checks_dock.hide()
+        self.crossing_index = None
+        self._checks_due = QTimer(self)
+        self._checks_due.setSingleShot(True)
+        self._checks_due.setInterval(250)
+        self._checks_due.timeout.connect(self._refresh_checks)
+        self.checks_dock.chosen.connect(self._choose_crossing)
+        self.checks_dock.visibilityChanged.connect(self._checks_shown)
+        # opened from the menu, it comes to the front of the tabs it shares:
+        # shown alone it stayed behind the surface panel, and was never seen
+        self.checks_dock.toggleViewAction().toggled.connect(self._checks_opened)
         self.builder = SurfaceBuilder(self)
         from .preview import PreviewDriver
         self.preview = PreviewDriver(self)
@@ -165,6 +182,7 @@ class MainWindow(QMainWindow):
         self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
         self.editor.editedWays.connect(self.preview.edited)
+        self.editor.editedWays.connect(self._checks_edited)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(lambda: self.gone_dock.mark_deleted(self.working_set))
         self.editor.edited.connect(self.elevation_panel.refresh_advice)
@@ -423,6 +441,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.grade_network'])
         edit.addAction(self.edit_actions['edit.flatten'])
         edit.addAction(self.gone_dock.toggleViewAction())
+        edit.addAction(self.checks_dock.toggleViewAction())
         self._tool_changed('select')
         self._edited()
         elevation = self.menuBar().addMenu('&Elevation')
@@ -505,6 +524,12 @@ class MainWindow(QMainWindow):
         self.gone_from_upstream = []
         self.reshaped = []
         self.gone_dock.show_report([], imported=False)
+        # the crossing check's index waits for the panel to be opened: 3 s on
+        # gobras, which opening a working set should not pay for if the
+        # checks are not looked at (G8a)
+        self.crossing_index = None
+        if self.checks_dock.isVisible():
+            self._checks_shown(True)
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
@@ -688,6 +713,71 @@ class MainWindow(QMainWindow):
             return
         key = self.settings.key('edit.delete_way') or 'Shift+Delete'
         self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
+
+    def _checks_opened(self, on: bool) -> None:
+        """Opened from the menu: brought to the front of the tabs it shares,
+        once Qt has shown it - raised in the same call it is not yet there to
+        raise - and its crossings found."""
+        if on:
+            QTimer.singleShot(0, self.checks_dock.raise_)
+            self._checks_shown(True)
+
+    def _checks_shown(self, visible: bool) -> None:
+        """The panel opened: the working set's crossings found, once - after
+        that an edit keeps them."""
+        if visible and self.working_set is not None and (
+                self.crossing_index is None or self.crossing_index.working_set is not self.working_set):
+            QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+            try:
+                self.crossing_index = crossings.Index(self.working_set)
+            finally:
+                QApplication.restoreOverrideCursor()
+            self._refresh_checks()
+            return
+        self._refresh_marks()
+
+    def _checks_edited(self, square, ways, _spots) -> None:
+        """An edit's ways asked again at once - milliseconds a way - and the
+        panel redrawn a moment later, once a drag has stopped."""
+        if self.crossing_index is not None and ways:
+            self.crossing_index.update(square, ways)
+            self._checks_due.start()
+
+    def _refresh_checks(self) -> None:
+        found = self.crossing_index.crossings() if self.crossing_index is not None else []
+        self.checks_dock.show_crossings(found)
+        self._refresh_marks()
+
+    def _refresh_marks(self) -> None:
+        """The crossings marked on the map while the panel is open, and not
+        otherwise: 6,714 red crosses over gobras are what the panel is for,
+        not what drawing a contour is."""
+        on = self.checks_dock.isVisible() and self.crossing_index is not None
+        self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in self.crossing_index.crossings()]
+                             if on else [])
+        if not on:
+            self.editor.marks_focus = []
+        self.editor.overlay.update()
+
+    def _choose_crossing(self, key, found) -> None:
+        """A row of the checks panel chosen: its contour selected, its
+        crossings ringed and brought into view."""
+        ws = self.working_set
+        square = ws.squares.get(key[0]) if ws is not None else None
+        way = square.ways.get(key[1]) if square is not None else None
+        if way is None:
+            self.statusBar().showMessage(f'way {key[1]} is no longer in {key[0]}')
+            return
+        self.editor.set_tool('select')
+        self.editor.selection = Selection(square, way)
+        self.editor.marks_focus = [m.lonlat_to_scene(c.lon, c.lat) for c in found]
+        lons, lats = [c.lon for c in found], [c.lat for c in found]
+        self._show_place(min(lons), min(lats), max(lons), max(lats))
+        self.editor.overlay.update()
+        n = len(found)
+        self.statusBar().showMessage(
+            f'the {key[2]:g} m contour, way {key[1]} - {n} crossing{"s" * (n != 1)} ringed; '
+            'delete it or redraw over it, whichever of the two is wrong')
 
     def _show_place(self, w: float, s: float, e: float, n: float):
         """The map to something a grade found - G6d-3. A margin round a span,

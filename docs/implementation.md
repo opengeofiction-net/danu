@@ -2990,3 +2990,55 @@ flattened, finding the flattened lakes takes 3 ms and re-importing the same
 answer reports nothing.
 
 Seven mutations, each failing a test, every one from a fresh copy.
+
+## G8a, the checks panel: contours that cross
+
+Brought forward from phase 6, ahead of G7b's burn. Looking at the climbs the
+grade lists before designing the burn, gobras showed contours that cross
+dozens of others - and a river crossing one of those reads as a climb, which a
+burn would then bend real contours to fit. R16 was enforced on what is drawn
+and never asked of what the squares already hold.
+
+**Gobras holds 6,714 crossings between 279 contours**, none at the same level.
+Most come from a few dozen rogue ways in N20E086 and N20E087, of two kinds:
+wanderers - a 425 m contour (way -63580402) down the east side of the massif
+across 36 others from 300 to 500 m, 337 times - and edge-runners, 625 to 750 m
+contours along the square's southern edge across the 25 to 100 m ones that
+reach it, and a block in N20E087 crossing 13 to 16 contours each. Deleting the
+425 m wanderer alone takes the count to 6,377 among 261 contours: 18 others
+crossed nothing else.
+
+The first count was 2,292, and wrong: done in degrees, the orientation test's
+`EPS` was near the size of a 20 m segment's cross product, and missed most of
+them. In metres the check agrees with a brute-force walk of the worst contour,
+337 both ways. A crossing met twice - the same two segments in two cells, or a
+crossing on a vertex, where both segments meeting at it cross - is one.
+
+`danu/checks/crossings.py`, with no Qt: segments in 500 m cells, each cell's
+pairs tested at once; a long segment goes in the cells along its line rather
+than its box, which for a degree drawn diagonally was tens of thousands of
+cells and turned a 2 s test into 54 s. A full scan of gobras is 1.3 s; the
+`Index` keeps it as edited, an edit re-testing only the ways it touched against
+the segments in their cells - 1.4 ms for a typical way, 42 ms for the 425 m
+rogue's 613 segments, which tested against everything near it at once was
+400 ms. Tested equal to a fresh full scan after every kind of edit.
+
+**The panel**, *Checks*, in the Edit menu: one row per contour, the one crossing
+the most others first, with what it crosses under it - a rogue is one row at
+the top, not hundreds. A crossing does not say which of its two is wrong; one
+that crosses thirty-six others usually does, and the fix is the mapper's.
+Choosing a row selects the contour, rings its crossings and brings them into
+view; while the panel is open the map marks every crossing.
+
+**The index is built when the panel is first opened**, not with the working
+set: 3.6 s on gobras. Built in the loader's thread it added 70 ms to every
+window the UI tests open - the build competing for the interpreter with the
+thread waiting for it - and the suite went from 85 s to 163 s.
+
+Not in G8a, by decision: contours that touch at a node at different levels,
+which R16 also forbids - gobras has 4,266 such nodes - and the rest of the
+spec's checks.
+
+Thirteen mutations, each failing a test, every one from a fresh copy. Putting a
+long segment in its box of cells instead is slower, not wrong, and no test
+fails for it.
