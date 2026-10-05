@@ -84,7 +84,7 @@ def test_the_panel_follows_an_edit_and_its_undo(crossed, qtbot):
 
 def test_nothing_is_built_until_the_panel_is_opened(window):
     """Opening a working set does not pay for a check nobody is looking at:
-    3 s on gobras."""
+    3.6 s on gobras."""
     assert window.crossing_index is None
     draw(window, [(125.1, -22.7), (125.6, -22.7)], 425)
     assert window.crossing_index is None

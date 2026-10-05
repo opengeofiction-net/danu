@@ -2,8 +2,8 @@
 
 R16 says contours may not cross, and the editor refuses a crossing as it is
 drawn. Nothing asked it of what the squares already held, and gobras holds
-2,292 crossings between 275 contours: a 425 m contour wandering down a massif
-across 36 others, 333 times; 625 to 750 m contours run along a square's edge
+6,714 crossings between 279 contours: a 425 m contour wandering down a massif
+across 36 others, 337 times; 625 to 750 m contours run along a square's edge
 across the 25 to 100 m ones that reach it. No surface satisfies a crossing,
 and a river crossing a rogue contour reads as a climb - so this comes before
 anything that bends contours to fit the water.
@@ -199,7 +199,8 @@ class Index:
     Built once by ``find``; after that an edit asks only about the ways it
     touched - each re-read, its old crossings dropped, and its segments tested
     against the contours sharing a cell with it. On gobras the whole scan is
-    1.3 s, which an edit should not wait for; one way is a few milliseconds.
+    1.3 s - 3.6 s to build the index - which an edit should not wait for;
+    one way is a few milliseconds.
     """
 
     def __init__(self, working_set):
@@ -220,10 +221,10 @@ class Index:
         out = {c for cs in self._by_way.values() for c in cs}
         return sorted(out, key=lambda c: (c.lat, c.lon))
 
-    def _add(self, sq, wid, ele, p):
-        m = p * self.k
-        a, b = m[:-1], m[1:]
-        cells = set().union(*(_cells_of(p, q) for p, q in zip(a, b, strict=True)))
+    def _add(self, sq, wid, ele, lonlat):
+        metres = lonlat * self.k
+        a, b = metres[:-1], metres[1:]
+        cells = set().union(*(_cells_of(s, e) for s, e in zip(a, b, strict=True)))
         self._ways[(sq, wid)] = (ele, a, b, cells)
         for c in cells:
             self._cells[c].add((sq, wid))

@@ -524,7 +524,7 @@ class MainWindow(QMainWindow):
         self.gone_from_upstream = []
         self.reshaped = []
         self.gone_dock.show_report([], imported=False)
-        # the crossing check's index waits for the panel to be opened: 3 s on
+        # the crossing check's index waits for the panel to be opened: 3.6 s on
         # gobras, which opening a working set should not pay for if the
         # checks are not looked at (G8a)
         self.crossing_index = None
