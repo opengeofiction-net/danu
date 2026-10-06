@@ -3088,3 +3088,62 @@ Eleven mutations: ten fail a test, each from a fresh copy - among them the
 first version's rule, which the test of a crossing contour moving into a new
 crossing now fails. The eleventh, moving a ring's closing node twice, is
 equivalent - both moves are to the same place.
+
+## G7b, burn
+
+**B burns the climb chosen in the grade's list or on its profile; Shift+B every
+climb the grade found.** Proposed like any grade - the old line across the
+river struck through, the new lines drawn, pieces dropped greyed, what could
+not be burned listed with why - and accepted as one step. The setback is the
+strength, tried before it is accepted.
+
+**What a climb is, on cleaned gobras.** Of the 128 one-step climbs, 120 are a
+contour crossing the river twice with lower ground between: 85 where it
+crosses again just downstream, a bump of a contour a stream runs along or a
+hill's flank it runs into and out of; 35 where the pair is a proper crossing
+upstream and a wrong one downstream, a ridge's finger the river cuts the tip
+from. Eight cross only once (spurs) and are not burned yet; five are climbs of
+more than a step.
+
+**The cut.** The contour is cut at its two crossings and each piece closed
+along its own bank, set back from the river. The first design took the shorter
+part of a closed contour and moved it across; the mapper's question - why not
+split the closed way in two - was right: the strip across the river is ground
+the mapper drew, and if the river runs through the hill the hill is now two.
+So nothing is deleted that the setback leaves room for, and a piece too thin
+to survive it - narrower than twice the setback - is dropped and said.
+
+**The spur.** Built that way, 87 of the 128 were refused: the cut line ran into
+another contour. In 73 of them other contours cross the river between the pair
+- nearly all higher, +25 to +100 m: the river is not nicking a contour's tip,
+it runs over a whole spur, in through the 250 and the 275, 300, 325 and out
+again. So every contour crossing the river between the pair is cut, each set
+back one step further than the one below - the river's level plus one step at
+the setback, plus two at twice it - and the river runs in a V-shaped notch
+through the spur, its sides rising one contour every setback. 50 m a step is a
+steep side, some 27 degrees; it is the proposal's to change. Contours above the
+river's level that come nearer than their own setback without crossing it are
+pushed straight back to it, and a spur's inner contour wholly inside the notch
+is cut away with it.
+
+**On gobras**, one Shift+B on every river and then a second: 139 climbs, 3,473 m
+of climb, to 95 and 2,403 m, then 87 and 2,223 m - 36% less. The first pass
+burned 39 and the count fell by 44, a spur's cut taking its neighbours' climbs
+with it. A cut at Bass River, where the river ran over the 400 m hill's lower
+flank, lowered 171 cells at 1 arcsecond by up to 75 m, the rest of the surface
+untouched. What stops the rest is mostly the cut line running into a contour
+above and a lower contour crossing inside the stretch - another climb, to be
+burned first. Hands-on use is what will say whether it hits the spot.
+
+**Along the way**: a contour that crosses the river at a vertex of either line
+- a contour snapped to it shares a node - is a crossing, as the grade has it;
+the burn missed every one at first. Which bank is which is judged against the
+bank line, which runs from one crossing to the other in the contour's order -
+judged against the river's own direction it closed each piece on the wrong
+side whenever the contour was drawn the other way. A spur's contours are cut
+one after another and their new nodes took each other's ids until the plan
+kept one allocator a square. And F on a lake flattened with no pull-back at
+all: the action's triggered signal passes checked=False, which `flatten` took
+for 0 m - G7a's, found here, tested through the action now.
+
+Thirteen mutations, each failing a test, every one from a fresh copy.

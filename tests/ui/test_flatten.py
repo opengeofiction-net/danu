@@ -204,3 +204,12 @@ def test_a_reimport_with_nothing_flattened_reports_no_reshaping(window):
     imported(window, lake_answer())
     imported(window, lake_answer(dx=0.002))
     assert window.reshaped == []
+
+
+def test_f_from_the_menu_flattens_at_the_distance_set_not_at_none(lake):
+    """The action's triggered signal passes checked=False, and connected to
+    flatten directly it was taken for a pull-back of 0 m."""
+    w, sq, rel, _ = lake
+    select(w, sq, rel)
+    w.edit_actions['edit.flatten'].trigger()
+    assert w.editor.pull_back_m == 100 and 'drawn back 100 m' in w.editor.proposal.summary

@@ -42,6 +42,9 @@ DEFAULT_KEYS = {
     'edit.grade_network': 'Shift+G',
     # and flatten a lake at its level, through the contours - G7a
     'edit.flatten': 'F',
+    # burn a climb the grade found into the terrain, or every one - G7b
+    'edit.burn': 'B',
+    'edit.burn_all': 'Shift+B',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

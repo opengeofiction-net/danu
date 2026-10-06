@@ -351,7 +351,8 @@ class SelectionPanel(QDockWidget):
         self.pull_back_row = QWidget()
         row = QHBoxLayout(self.pull_back_row)
         row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(QLabel('Draw back from the shore'))
+        self.pull_back_label = QLabel('Draw back from the shore')
+        row.addWidget(self.pull_back_label)
         row.addWidget(self.pull_back)
         box.addWidget(self.summary)
         box.addWidget(self.pull_back_row)
@@ -404,6 +405,8 @@ class SelectionPanel(QDockWidget):
             return
         self.summary.setText(p.summary)
         self.pull_back_row.setVisible(p.pull_back_m is not None)
+        if p.strength_label:
+            self.pull_back_label.setText(p.strength_label)
         if p.pull_back_m is not None and self.pull_back.value() != round(p.pull_back_m):
             self.pull_back.blockSignals(True)
             self.pull_back.setValue(round(p.pull_back_m))
@@ -422,7 +425,11 @@ class SelectionPanel(QDockWidget):
         """The flatten proposed again at the new distance - the strength
         tried before it is accepted."""
         p = getattr(self.editor, 'proposal', None)
-        if p is not None and p.pull_back_m is not None:
+        if p is None or p.pull_back_m is None:
+            return
+        if p.kind == 'burn':
+            self.editor.burn(setback_m=value, again=True)
+        else:
             self.editor.flatten(pull_back_m=value)
 
     def keyPressEvent(self, event):
