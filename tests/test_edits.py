@@ -675,3 +675,46 @@ def test_an_empty_step_does_not_go_on_the_history():
     history.undo()
     history.do_across([])
     assert history.redo() is not None, 'an empty step cleared the redo stack'
+
+
+# ------------------------------------------------- a contour moved whole, G8b
+
+def _moving_square():
+    from danu.core.square import Node, Square, SquareName, Way
+    sq = Square(name=SquareName(125, -24), present=True, attrs={})
+    for i, (lon, lat) in enumerate(((125.1, -23.5), (125.2, -23.5), (125.3, -23.5), (125.3, -23.4)), 1):
+        sq.nodes[i] = Node(id=i, lon=lon, lat=lat)
+    sq.ways[10] = Way(id=10, refs=[1, 2, 3], tags={'ele': '100'})
+    sq.ways[11] = Way(id=11, refs=[3, 4], tags={'ele': '100'})      # shares node 3
+    return sq
+
+
+def test_a_way_moved_whole_and_its_undo_leave_the_square_as_it_was():
+    sq = _moving_square()
+    before = edits.snapshot(sq)
+    cmd = edits.translate_way(sq, 10, lambda lon, lat: (lon + 0.01, lat - 0.02), edits.IdAllocator(sq))
+    cmd.apply(sq)
+    got = [v for r in sq.ways[10].refs for v in (sq.nodes[r].lon, sq.nodes[r].lat)]
+    assert got == pytest.approx([125.11, -23.52, 125.21, -23.52, 125.31, -23.52])
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_node_shared_with_another_way_is_copied_not_moved():
+    sq = _moving_square()
+    cmd = edits.translate_way(sq, 10, lambda lon, lat: (lon + 0.01, lat), edits.IdAllocator(sq))
+    cmd.apply(sq)
+    assert sq.nodes[3].lon == 125.3, 'the other way was dragged along'
+    assert sq.ways[11].refs == [3, 4]
+    assert sq.ways[10].refs[-1] != 3 and sq.nodes[sq.ways[10].refs[-1]].lon == pytest.approx(125.31)
+    assert list(cmd.copies) == [3]
+
+
+def test_a_rings_closing_node_is_moved_once():
+    from danu.core.square import Node, Square, SquareName, Way
+    sq = Square(name=SquareName(125, -24), present=True, attrs={})
+    for i, (lon, lat) in enumerate(((125.1, -23.5), (125.2, -23.5), (125.2, -23.4)), 1):
+        sq.nodes[i] = Node(id=i, lon=lon, lat=lat)
+    sq.ways[10] = Way(id=10, refs=[1, 2, 3, 1], tags={'ele': '100'})
+    edits.translate_way(sq, 10, lambda lon, lat: (lon + 0.01, lat), edits.IdAllocator(sq)).apply(sq)
+    assert sq.nodes[1].lon == pytest.approx(125.11), 'moved twice, or not at all'

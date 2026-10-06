@@ -1111,6 +1111,7 @@ Recorded so the reasoning is not relitigated:
 | the wheel | zooms; ctrl and the wheel step the elevation, ctrl and shift by the big step, alt the overlay's opacity |
 | redrawing | a line from a contour back to it replaces the stretch it was drawn along, ends when the line ends, and never touches a coastline |
 | crossings | warned live, and refused on what results - so a redraw may cross the stretch it is replacing, which goes with it |
+| moving a contour whole | shift and a drag carries it, as one step; refused only if it would cross a contour it does not cross already, so a misplaced one can be walked into place; a node it shares with another way is copied, not moved, so it comes away |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 
 ## Open questions

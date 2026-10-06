@@ -3042,3 +3042,39 @@ spec's checks.
 Thirteen mutations, each failing a test, every one from a fresh copy. Putting a
 long segment in its box of cells instead is slower, not wrong, and no test
 fails for it.
+
+## G8b, moving a contour whole
+
+The checks panel found the rogue contours; for many of them the fix is not
+deleting one but putting it where it belongs - its shape right, its place not.
+The editor could drag one node at a time and redraw a stretch, and nothing
+moved a contour as a whole.
+
+**Shift and a drag carries a contour.** Shift already meant the line rather
+than a node of it; with a drag it carries the line. A dashed ghost follows the
+cursor and nothing in the square changes until the drop, which is one step -
+`edits.TranslateWay`, every node moved by the same offset in scene terms.
+
+**R16 asked of the move, not the contour.** A node drag is refused if what
+results crosses anything. A misplaced contour crosses its neighbours where it
+is, and the first drag towards the right place need not land it - so the move
+is refused only if it would cross a contour it does not cross already, and
+otherwise done with what it still crosses said: "still crosses 3 contours",
+then "crosses nothing now". A move that makes a crossing that was not there is
+a move the wrong way.
+
+**A node it shares is copied, not moved.** Moving a shared node drags the other
+way with it - a contour snapped to a neighbour, or to the coastline. A
+misplaced contour moved away from what it was snapped to comes away from it:
+it takes a new node at the new place and the other way keeps the old one, and
+the status says how many it left.
+
+**The selected contour is the one carried.** On gobras the first try carried
+a 575 m contour, not the 425 m rogue it was meant for: in a massif a press is
+near several, and the nearest wins a plain pick. A contour chosen in the checks
+panel is selected, and a shift-press that lands on it carries it, though
+another runs nearer. Dropping the rogue's 613 segments - the crossing test
+before and after, by the layer's segment grid - is 0.3 s.
+
+Eight mutations: seven fail a test, each from a fresh copy. The eighth, moving
+a ring's closing node twice, is equivalent - both moves are to the same place.

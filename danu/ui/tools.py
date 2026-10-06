@@ -248,6 +248,10 @@ class EditController(QObject):
         self._press: QPointF | None = None
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
         self._dragged = False
+        # carrying a whole contour - shift and drag (G8b): square, way, where
+        # the press was, and the contour as it would be, in scene points
+        self._carry: tuple[Square, Way, QPointF] | None = None
+        self.ghost: list | None = None
         view.tool = self
 
     @property
@@ -408,6 +412,14 @@ class EditController(QObject):
                 self._dragged = False
                 self.overlay.update()
                 return True
+        if whole and self._on_selected_contour(pos):
+            # the contour already selected - from the checks panel, as a rule
+            # - is the one carried, though another runs nearer the press: in
+            # a massif's thirty contours a press is near several (G8b)
+            sel = self.selection
+            self._carry = (sel.square, sel.way, pos)
+            self.ghost = None
+            return True
         hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
         wet = self.layer.pick_water(pos.x(), pos.y(), self._px(PICK_PX))
         # the nearer of the two. A river runs down the valley a contour bends
@@ -419,6 +431,11 @@ class EditController(QObject):
         if hit is not None:
             self.selection = Selection(hit[0], hit[1])
             self.elevation.pick_up(hit[1].ele)
+            if whole:
+                # shift is the line; shift and a drag carries it - a contour
+                # whose shape is right and whose place is not (G8b)
+                self._carry = (hit[0], hit[1], pos)
+                self.ghost = None
             self.overlay.update()
             return True
         if self.selection is not None:
@@ -463,6 +480,15 @@ class EditController(QObject):
             self._update_crossing()
             self.overlay.update()
             return True
+        if self._carry is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            square, way, start = self._carry
+            if self.ghost is None and (pos - start).manhattanLength() < self._px(DRAG_PX):
+                return True
+            dx, dy = pos.x() - start.x(), pos.y() - start.y()
+            self.ghost = [(x + dx, y + dy) for x, y in
+                          (self.layer.node_xy(square, r) for r in way.refs if r in square.nodes)]
+            self.overlay.update()
+            return True
         if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
             if not self._dragged and (pos - self._press).manhattanLength() < self._px(DRAG_PX):
                 return True
@@ -477,6 +503,13 @@ class EditController(QObject):
         return False
 
     def mouse_release(self, event, pos: QPointF) -> bool:
+        if self._carry is not None:
+            carry, self._carry = self._carry, None
+            ghost, self.ghost = self.ghost, None
+            if ghost is not None:
+                self._put_down(*carry, pos)
+            self.overlay.update()
+            return True
         if self._stroke is not None:
             stroke, self._stroke = self._stroke, None
             if len(stroke) > 1:
@@ -501,6 +534,60 @@ class EditController(QObject):
         self.do(square, edits.MoveNode(nid, before, after))
         self.message.emit(self._moved_what())
         return True
+
+    def _on_selected_contour(self, pos: QPointF) -> bool:
+        """Whether a press lands on the contour selected whole."""
+        sel = self.selection
+        if (sel is None or sel.way is None or sel.node is not None or sel.relation is not None
+                or sel.way.id not in sel.square.ways or sel.way.ele is None
+                or (sel.square.name, sel.way.id) in self.layer.water):
+            return False
+        pts = np.array([self.layer.node_xy(sel.square, r) for r in sel.way.refs if r in sel.square.nodes])
+        if len(pts) < 2:
+            return False
+        _, dist = geometry.nearest_point_on_segments((pos.x(), pos.y()), pts[:-1], pts[1:])
+        return float(dist.min()) <= self._px(PICK_PX)
+
+    def _put_down(self, square: Square, way: Way, start: QPointF, pos: QPointF) -> None:
+        """The contour carried, put where the drag ended - G8b.
+
+        R16 asked of the move, not of the contour: refused if it would cross
+        a contour it does not cross already, and otherwise done, saying what
+        it still crosses. A contour drawn in the wrong place crosses its
+        neighbours there, and the first drag towards the right place need not
+        land it - refusing every move that left a crossing would ask for one
+        perfect drag. One that makes a crossing that was not there is a move
+        the wrong way."""
+        dx, dy = pos.x() - start.x(), pos.y() - start.y()
+
+        def move(lon, lat):
+            x, y = m.lonlat_to_scene(lon, lat)
+            return m.scene_to_lonlat(x + dx, y + dy)
+        key = (square.name, way.id)
+        here = [self.layer.node_xy(square, r) for r in way.refs if r in square.nodes]
+        there = [(x + dx, y + dy) for x, y in here]
+        before = self.layer.crossed_by(here, skip=key)
+        after = self.layer.crossed_by(there, skip=key)
+        new = after - before
+        name = f'the {format_ele(way.ele)} m contour'
+        if new:
+            sq_name, wid = sorted(new, key=str)[0]
+            other = self.working_set.squares[sq_name].ways.get(wid)
+            what = f'the {format_ele(other.ele)} m contour' if other is not None else f'way {wid}'
+            self.message.emit(f'not moved: {name} would cross {what}, which it does not cross now'
+                              + (f', and {len(new) - 1} more' if len(new) > 1 else ''))
+            return
+        cmd = edits.translate_way(square, way.id, move, self.history.alloc(square))
+        self.do(square, cmd)
+        metres = math.hypot(*(np.subtract(m.scene_to_lonlat(pos.x(), pos.y()),
+                                          m.scene_to_lonlat(start.x(), start.y()))
+                              * (111320 * math.cos(math.radians(square.nodes[way.refs[0]].lat)), 110540)))
+        said = f'moved {name} {metres:,.0f} m'
+        if cmd.copies:
+            said += f'; it came away from {len(cmd.copies)} node{"s" * (len(cmd.copies) != 1)} it shared'
+        said += (f'; it still crosses {len(after)} contour{"s" * (len(after) != 1)}' if after
+                 else '; it crosses nothing now')
+        self.message.emit(said)
 
     def _moved_what(self) -> str:
         sel = self.selection
@@ -1902,6 +1989,13 @@ class EditOverlay(QGraphicsItem):
             self._paint_proposal(painter, ctl.proposal)
         if ctl.marks:
             self._paint_marks(painter, ctl, rect, px)
+        if ctl.ghost:
+            # the contour being carried, where it would go (G8b)
+            pen = QPen(QColor(255, 140, 0), 2.5, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(_path(ctl.ghost))
         if ctl.tool != 'draw':
             return
         anchor = ctl._anchor()

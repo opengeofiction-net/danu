@@ -870,6 +870,35 @@ class ContourLayer(QGraphicsItem):
                 out[id(g.way)] = (g.square, g.way, bool(proper[i]))
         return list(out.values())
 
+    def crossed_by(self, pts, skip=None) -> set:
+        """The contours a run of scene points properly crosses, as (square
+        name, way id) - for a contour about to be moved (G8b), so by the grid
+        ``crossings_of`` reads rather than every segment for every segment:
+        the 425 m rogue's 613 segments against all 420,000 is seconds.
+        ``skip`` is the way being moved, which its own old place does not
+        cross."""
+        self._ensure_arrays()
+        grid, _ = self._graded_index()
+        out = set()
+        if not len(self._seg_ele):
+            return out
+        pts = np.asarray(pts, dtype=float)
+        for p, q in zip(pts[:-1], pts[1:], strict=True):
+            x0, y0 = np.floor(np.minimum(p, q) / self.GRID).astype(np.int64)
+            x1, y1 = np.floor(np.maximum(p, q) / self.GRID).astype(np.int64)
+            parts = [grid[(cx, cy)] for cx in range(x0, x1 + 1) for cy in range(y0, y1 + 1)
+                     if (cx, cy) in grid]
+            if not parts:
+                continue
+            cand = np.unique(np.concatenate(parts)) if len(parts) > 1 else parts[0]
+            hit = geometry.crossings(p, q, self._seg_a[cand], self._seg_b[cand])
+            for i in cand[hit]:
+                g = self._ways[int(self._seg_way[i])]
+                key = (g.square.name, g.way.id)
+                if key != skip:
+                    out.add(key)
+        return out
+
     def node_xy(self, square: Square, node_id: int) -> tuple[float, float]:
         n = square.nodes[node_id]
         return m.lonlat_to_scene(n.lon, n.lat)
