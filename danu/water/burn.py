@@ -14,8 +14,8 @@ closed along its own bank, set back ``d`` from the river.** A closed contour
 becomes two closed contours, the river in a notch between them - the hill cut
 in two. An open one becomes its main line, now running along the near bank,
 and a closed piece on the far side - the tip of the finger, a knoll the river
-cut off. A piece too thin to survive the setback - narrower than twice ``d`` -
-would close over itself, and is dropped, and said.
+cut off. A piece with nothing left once its vertices within the setback are
+taken off - a bump thinner than the setback - is dropped, and said.
 
 Not burned, and said: a contour that crosses the river only once in the wrong
 place (a spur - eight on gobras), a climb of more than one step, and a
@@ -147,10 +147,9 @@ def climbs(working_set, river: list) -> list:
     found = _crossings(working_set, river, 0.0)
     if found is None:
         return []
-    _, _, _, crossings, dist = found
+    proj, R, _, crossings, dist = found
     if len(crossings) < 2:
         return []
-    proj, R = found[0], found[1]
     _, rejected, upstream = profile.grade_along([(c.r, c.ele) for c in crossings], list(dist))
     return [proj.back(_at(R, dist, (d0 + d1) / 2)) for d0, d1, e0, e1 in rejected
             if (e0 > e1 if upstream else e1 > e0)]

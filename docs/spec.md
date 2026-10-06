@@ -924,8 +924,8 @@ Three parts, in this order:
   climb: the contour the river climbs onto crosses it twice, with lower ground
   between, and so does every contour of the spur the river runs over. Each is
   cut at its two crossings and each piece closed along its own bank - a closed
-  contour becomes two, an open one its main line and a closed piece across the
-  water - set back from the river one step further for each contour above the
+  contour becomes two, an open one its main line, set back, and a closed piece
+  across the water - set back from the river one step further for each contour above the
   river's level, so the river runs in a notch whose sides rise one contour per
   setback. The setback is the strength. Contours near the river that it does
   not cross are pushed back to theirs; one wholly inside the notch is cut away.

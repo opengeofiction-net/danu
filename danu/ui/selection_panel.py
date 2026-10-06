@@ -405,8 +405,7 @@ class SelectionPanel(QDockWidget):
             return
         self.summary.setText(p.summary)
         self.pull_back_row.setVisible(p.pull_back_m is not None)
-        if p.strength_label:
-            self.pull_back_label.setText(p.strength_label)
+        self.pull_back_label.setText(p.strength_label or 'Draw back from the shore')
         if p.pull_back_m is not None and self.pull_back.value() != round(p.pull_back_m):
             self.pull_back.blockSignals(True)
             self.pull_back.setValue(round(p.pull_back_m))

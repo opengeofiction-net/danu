@@ -3110,8 +3110,9 @@ along its own bank, set back from the river. The first design took the shorter
 part of a closed contour and moved it across; the mapper's question - why not
 split the closed way in two - was right: the strip across the river is ground
 the mapper drew, and if the river runs through the hill the hill is now two.
-So nothing is deleted that the setback leaves room for, and a piece too thin
-to survive it - narrower than twice the setback - is dropped and said.
+So nothing is deleted that the setback leaves room for, and a piece with
+nothing left once its vertices within the setback are taken off is dropped and
+said.
 
 **The spur.** Built that way, 87 of the 128 were refused: the cut line ran into
 another contour. In 73 of them other contours cross the river between the pair

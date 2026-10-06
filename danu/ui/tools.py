@@ -1635,8 +1635,9 @@ class EditController(QObject):
         """B: burn the climb chosen in the grade's list or on its profile -
         G7b, R25. Shift+B: every climb the grade found. Proposed, not
         applied: each contour of the spur the river runs over cut at its
-        crossings and closed along its own bank, set back ``setback_m`` a
-        contour step; the contours near it pushed back to theirs. Enter
+        crossings and closed along its own bank, set back ``setback_m`` for
+        each step it stands above the climb's lower level; the contours near
+        it pushed back to theirs. Enter
         accepts it as one step.
 
         ``again`` proposes the last burn again at a new setback - the
