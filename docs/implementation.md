@@ -3057,11 +3057,19 @@ cursor and nothing in the square changes until the drop, which is one step -
 
 **R16 asked of the move, not the contour.** A node drag is refused if what
 results crosses anything. A misplaced contour crosses its neighbours where it
-is, and the first drag towards the right place need not land it - so the move
-is refused only if it would cross a contour it does not cross already, and
-otherwise done with what it still crosses said: "still crosses 3 contours",
-then "crosses nothing now". A move that makes a crossing that was not there is
-a move the wrong way.
+is, and the first drag towards the right place need not land it. The first
+version refused any move that made a crossing the contour did not already
+have - and in use the 425 m rogue could go nowhere: threaded through 36
+contours, 50 m south crossed four new ones, 50 m north three, 200 m east two.
+The refusal named "the 425 m contour" - another 425 m rogue, way -63580714 -
+which read as the contour crossing itself. So a contour that already crosses
+others is in breach of R16 and moves freely, the mapper repairing it, told
+how it went: "crosses 31 contours, was 36", "still crosses 2", "crosses nothing
+now". A contour that crosses nothing may not be moved into a crossing - that is
+good data - and the refusal names the other contour's level and way and rings
+where. On gobras the rogue moved 50 m south now: 38 contours, was 36, and it
+came away from the one node it shared. A drop that moves the rogue is about
+1 s, most of it the edit redrawing a 614-node way.
 
 **A node it shares is copied, not moved.** Moving a shared node drags the other
 way with it - a contour snapped to a neighbour, or to the coastline. A
@@ -3076,5 +3084,7 @@ panel is selected, and a shift-press that lands on it carries it, though
 another runs nearer. Dropping the rogue's 613 segments - the crossing test
 before and after, by the layer's segment grid - is 0.3 s.
 
-Eight mutations: seven fail a test, each from a fresh copy. The eighth, moving
-a ring's closing node twice, is equivalent - both moves are to the same place.
+Eleven mutations: ten fail a test, each from a fresh copy - among them the
+first version's rule, which the test of a crossing contour moving into a new
+crossing now fails. The eleventh, moving a ring's closing node twice, is
+equivalent - both moves are to the same place.

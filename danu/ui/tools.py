@@ -551,13 +551,15 @@ class EditController(QObject):
     def _put_down(self, square: Square, way: Way, start: QPointF, pos: QPointF) -> None:
         """The contour carried, put where the drag ended - G8b.
 
-        R16 asked of the move, not of the contour: refused if it would cross
-        a contour it does not cross already, and otherwise done, saying what
-        it still crosses. A contour drawn in the wrong place crosses its
-        neighbours there, and the first drag towards the right place need not
-        land it - refusing every move that left a crossing would ask for one
-        perfect drag. One that makes a crossing that was not there is a move
-        the wrong way."""
+        R16 asked of the move, not of the contour. A contour that already
+        crosses others is in breach of it, and the mapper moving it is
+        repairing that: it moves freely, and the status says how the move
+        went - fewer crossings, more, or none. The first version refused any
+        move that made a crossing it did not have, and the 425 m rogue on
+        gobras, threaded through thirty-six contours, could then go nowhere:
+        50 m any way crossed three or four new ones. A contour that crosses
+        nothing may not be moved into a crossing - that is good data, and the
+        refusal names the contour and rings where."""
         dx, dy = pos.x() - start.x(), pos.y() - start.y()
 
         def move(lon, lat):
@@ -568,15 +570,18 @@ class EditController(QObject):
         there = [(x + dx, y + dy) for x, y in here]
         before = self.layer.crossed_by(here, skip=key)
         after = self.layer.crossed_by(there, skip=key)
-        new = after - before
         name = f'the {format_ele(way.ele)} m contour'
-        if new:
-            sq_name, wid = sorted(new, key=str)[0]
+        if after and not before:
+            sq_name, wid = sorted(after, key=str)[0]
             other = self.working_set.squares[sq_name].ways.get(wid)
-            what = f'the {format_ele(other.ele)} m contour' if other is not None else f'way {wid}'
-            self.message.emit(f'not moved: {name} would cross {what}, which it does not cross now'
-                              + (f', and {len(new) - 1} more' if len(new) > 1 else ''))
+            what = (f'the {format_ele(other.ele)} m contour, way {wid}' if other is not None
+                    else f'way {wid}')
+            self.marks_focus = self.layer.crossing_points(there, (sq_name, wid))
+            self.message.emit(f'not moved: {name} crosses nothing now, and would cross {what}'
+                              + (f' and {len(after) - 1} more' if len(after) > 1 else '')
+                              + ' - ringed')
             return
+        self.marks_focus = []
         cmd = edits.translate_way(square, way.id, move, self.history.alloc(square))
         self.do(square, cmd)
         (lon0, lat0), (lon1, lat1) = (m.scene_to_lonlat(start.x(), start.y()),
@@ -586,8 +591,13 @@ class EditController(QObject):
         said = f'moved {name} {metres:,.0f} m'
         if cmd.copies:
             said += f'; it came away from {len(cmd.copies)} node{"s" * (len(cmd.copies) != 1)} it shared'
-        said += (f'; it still crosses {len(after)} contour{"s" * (len(after) != 1)}' if after
-                 else '; it crosses nothing now')
+        n = f'{len(after)} contour{"s" * (len(after) != 1)}'
+        if not after:
+            said += '; it crosses nothing now'
+        elif len(after) == len(before):
+            said += f'; it still crosses {n}'
+        else:
+            said += f'; it crosses {n}, was {len(before)}'
         self.message.emit(said)
 
     def _moved_what(self) -> str:

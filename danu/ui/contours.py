@@ -899,6 +899,25 @@ class ContourLayer(QGraphicsItem):
                     out.add(key)
         return out
 
+    def crossing_points(self, pts, key) -> list:
+        """Where a run of scene points properly crosses one contour, as scene
+        points - to ring what a refused move would have crossed (G8b)."""
+        self._ensure_arrays()
+        mine = np.flatnonzero([(self._ways[int(i)].square.name, self._ways[int(i)].way.id) == key
+                               for i in range(len(self._ways))])
+        if not len(mine):
+            return []
+        segs = np.flatnonzero(np.isin(self._seg_way, mine))
+        a, b = self._seg_a[segs], self._seg_b[segs]
+        out = []
+        pts = np.asarray(pts, dtype=float)
+        for p, q in zip(pts[:-1], pts[1:], strict=True):
+            hit = geometry.crossings(p, q, a, b)
+            if hit.any():
+                t = geometry.crossing_t(p, q, a[hit], b[hit])
+                out += [tuple(p + (q - p) * tt) for tt in t if not np.isnan(tt)]
+        return out
+
     def node_xy(self, square: Square, node_id: int) -> tuple[float, float]:
         n = square.nodes[node_id]
         return m.lonlat_to_scene(n.lon, n.lat)

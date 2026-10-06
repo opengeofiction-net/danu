@@ -79,14 +79,29 @@ def test_shift_and_a_drag_carries_a_contour_clear_and_ctrl_z_puts_it_back(board)
     assert edits.snapshot(sq) == before, 'one Ctrl+Z did not put it back'
 
 
-def test_a_move_that_would_cross_a_contour_it_does_not_cross_now_is_refused(board):
+def test_a_contour_that_crosses_nothing_may_not_be_moved_into_a_crossing(board):
+    """That is good data, and the refusal says what it would cross and rings
+    where."""
     w, sq, a, b, rogue = board
-    c = draw(w, [(125.38, -22.75), (125.38, -22.65)], 150)
-    was = place(sq, rogue)
-    drag(w, (125.32, -22.70), (125.36, -22.70))                  # east, across the 150 m
-    assert place(sq, rogue) == was
-    assert 'not moved' in w.statusBar().currentMessage() and '150 m' in w.statusBar().currentMessage()
-    assert c.id in sq.ways
+    clean = draw(w, [(125.38, -22.75), (125.38, -22.65)], 150)
+    was = place(sq, clean)
+    drag(w, (125.38, -22.66), (125.33, -22.66))                  # west, across the rogue
+    assert place(sq, clean) == was
+    said = w.statusBar().currentMessage()
+    assert 'not moved' in said and 'crosses nothing now' in said and f'way {rogue.id}' in said
+    assert len(w.editor.marks_focus) == 1, 'where it would cross is not ringed'
+
+
+def test_a_contour_already_crossing_others_moves_even_into_a_new_crossing(board):
+    """It is in breach of R16 already, and the mapper is repairing it: on
+    gobras the 425 m rogue crossed three or four new contours 50 m any way,
+    and refusing those left it nowhere to go."""
+    w, sq, a, b, rogue = board
+    draw(w, [(125.39, -22.75), (125.39, -22.65)], 150)
+    drag(w, (125.32, -22.70), (125.36, -22.70))                  # east: off the 100 m, across the 150 m
+    (west, _), (east, _) = place(sq, rogue)
+    assert west == pytest.approx(125.32, abs=2e-4) and east == pytest.approx(125.40, abs=2e-4)
+    assert 'it still crosses 2 contours' in w.statusBar().currentMessage()
 
 
 def test_a_move_that_leaves_a_crossing_it_already_had_is_done_and_says_so(board):
@@ -94,7 +109,7 @@ def test_a_move_that_leaves_a_crossing_it_already_had_is_done_and_says_so(board)
     drag(w, (125.32, -22.70), (125.30, -22.70))                  # west: clears the 125 m, still on the 100 m
     (west, _), (east, _) = place(sq, rogue)
     assert west == pytest.approx(125.26, abs=2e-4) and east == pytest.approx(125.34, abs=2e-4)
-    assert 'still crosses 1 contour' in w.statusBar().currentMessage()
+    assert 'it crosses 1 contour, was 2' in w.statusBar().currentMessage()
 
 
 def test_a_contour_comes_away_from_a_node_it_shares(board):
