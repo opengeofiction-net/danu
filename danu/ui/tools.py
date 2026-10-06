@@ -224,6 +224,10 @@ class EditController(QObject):
         self.proposal: Proposal | None = None
         self.focused_issue: Issue | None = None   # the one the map was last taken to
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
+        # where contours cross, for the map to mark while the checks panel is
+        # open (G8a): scene points, and those of the row chosen
+        self.marks: list = []
+        self.marks_focus: list = []
         # a proposal is of the square as it was and the feature then selected
         self.selectionChanged.connect(self._drop_proposal)
         self.edited.connect(self._drop_proposal)
@@ -1814,6 +1818,27 @@ class EditOverlay(QGraphicsItem):
             painter.setPen(pen)
             painter.drawPolygon(diamond)
 
+    def _paint_marks(self, painter: QPainter, ctl, rect: QRectF, px: float) -> None:
+        """Every crossing in view as a small red cross, and those of the row
+        chosen in the checks panel larger, ringed - G8a. In pixels, as a
+        spot height is: a crossing is a point at any zoom."""
+        pen = QPen(QColor(210, 20, 20), 1.6)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        h = 3.5 * px
+        for x, y in ctl.marks:
+            if rect.contains(QPointF(x, y)):
+                painter.drawLine(QPointF(x - h, y - h), QPointF(x + h, y + h))
+                painter.drawLine(QPointF(x - h, y + h), QPointF(x + h, y - h))
+        if ctl.marks_focus:
+            ring = QPen(QColor(210, 20, 20), 2.2)
+            ring.setCosmetic(True)
+            painter.setPen(ring)
+            for x, y in ctl.marks_focus:
+                if rect.contains(QPointF(x, y)):
+                    painter.drawEllipse(QPointF(x, y), 7 * px, 7 * px)
+
     def paint(self, painter: QPainter, option, widget=None):
         ctl = self.ctl
         scale = painter.worldTransform().m11()
@@ -1875,6 +1900,8 @@ class EditOverlay(QGraphicsItem):
         # being graded, which is the river it is on
         if ctl.proposal is not None:
             self._paint_proposal(painter, ctl.proposal)
+        if ctl.marks:
+            self._paint_marks(painter, ctl, rect, px)
         if ctl.tool != 'draw':
             return
         anchor = ctl._anchor()

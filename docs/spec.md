@@ -943,8 +943,12 @@ The notes on what this phase has done so far are in `implementation.md`, under
 
 ### Phase 6
 
-**Phase 6 - checks and polish.** The validation panel, measure, profile,
-difference, magnify, autosave and crash recovery, session files.
+**Phase 6 - checks and polish.** The validation panel - its first check,
+crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
+gobras holds contours that cross dozens of others, and a river crossing one
+reads as a climb a burn would bend real contours to fit. Here, the panel's
+other checks, then measure, profile, difference, magnify, autosave and crash
+recovery, session files.
 
 **Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
 stops there (`mercator.MAX_ZOOM`), but the editor's own layers are vector and
