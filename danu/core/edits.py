@@ -284,6 +284,68 @@ class MoveNode(Command):
 
 
 @dataclass
+class TranslateWay(Command):
+    """A whole way moved - G8b: a contour drawn in the wrong place, its shape
+    right, put where it belongs as one step.
+
+    ``moves`` holds the way's own nodes, before and after. A node the way
+    shares with another is not moved, which would drag the other with it:
+    the way takes a copy at the new place instead (``copies``, old id to new
+    id and place), and leaves the other way where it was - a misplaced
+    contour moved away from the contours it was snapped to comes away from
+    them."""
+    way_id: int
+    moves: dict[int, tuple[Coord, Coord]]
+    copies: dict[int, tuple[int, Coord]]
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
+
+    def spots(self, square: Square) -> set[int]:
+        # what it writes: the nodes it moves and the copies it makes; a
+        # shared node it copied from is left as it was
+        return set(self.moves) | {new for new, _ in self.copies.values()}
+
+    def apply(self, square: Square) -> None:
+        for nid, (_, (lon, lat)) in self.moves.items():
+            n = square.nodes[nid]
+            n.lon, n.lat = lon, lat
+        for new, (lon, lat) in self.copies.values():
+            square.nodes[new] = Node(id=new, lat=lat, lon=lon)
+        way = square.ways[self.way_id]
+        way.refs = [self.copies[r][0] if r in self.copies else r for r in way.refs]
+
+    def undo(self, square: Square) -> None:
+        back = {new: old for old, (new, _) in self.copies.items()}
+        way = square.ways[self.way_id]
+        way.refs = [back.get(r, r) for r in way.refs]
+        for new in back:
+            del square.nodes[new]
+        for nid, ((lon, lat), _) in self.moves.items():
+            n = square.nodes[nid]
+            n.lon, n.lat = lon, lat
+
+    def describe(self) -> str:
+        return 'move contour'
+
+
+def translate_way(square: Square, way_id: int, move, alloc: IdAllocator) -> TranslateWay:
+    """The command that moves a way by ``move`` - a function from a node's
+    (lon, lat) to where it goes - copying the nodes it shares with another
+    way rather than moving them."""
+    way = square.ways[way_id]
+    moves, copies = {}, {}
+    for r in dict.fromkeys(way.refs):          # a ring's first node once
+        n = square.nodes[r]
+        to = move(n.lon, n.lat)
+        if ways_holding(square, r) - {way_id}:
+            copies[r] = (alloc.take(), to)
+        else:
+            moves[r] = ((n.lon, n.lat), to)
+    return TranslateWay(way_id, moves, copies)
+
+
+@dataclass
 class DeleteNode(Command):
     """A node removed from every way that references it, and from the square.
     A way left with one node is removed too, as part of the same command, so
