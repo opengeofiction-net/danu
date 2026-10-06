@@ -302,7 +302,9 @@ class TranslateWay(Command):
         return {self.way_id}
 
     def spots(self, square: Square) -> set[int]:
-        return set(self.moves) | {new for new, _ in self.copies.values()} | set(self.copies)
+        # what it writes: the nodes it moves and the copies it makes; a
+        # shared node it copied from is left as it was
+        return set(self.moves) | {new for new, _ in self.copies.values()}
 
     def apply(self, square: Square) -> None:
         for nid, (_, (lon, lat)) in self.moves.items():

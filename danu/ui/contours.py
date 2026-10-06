@@ -875,8 +875,8 @@ class ContourLayer(QGraphicsItem):
         name, way id) - for a contour about to be moved (G8b), so by the grid
         ``crossings_of`` reads rather than every segment for every segment:
         the 425 m rogue's 613 segments against all 420,000 is seconds.
-        ``skip`` is the way being moved, which its own old place does not
-        cross."""
+        ``skip`` is the (square name, way id) of the way being moved, which
+        its own old place does not cross."""
         self._ensure_arrays()
         grid, _ = self._graded_index()
         out = set()

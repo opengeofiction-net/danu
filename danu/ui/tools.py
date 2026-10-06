@@ -579,9 +579,10 @@ class EditController(QObject):
             return
         cmd = edits.translate_way(square, way.id, move, self.history.alloc(square))
         self.do(square, cmd)
-        metres = math.hypot(*(np.subtract(m.scene_to_lonlat(pos.x(), pos.y()),
-                                          m.scene_to_lonlat(start.x(), start.y()))
-                              * (111320 * math.cos(math.radians(square.nodes[way.refs[0]].lat)), 110540)))
+        (lon0, lat0), (lon1, lat1) = (m.scene_to_lonlat(start.x(), start.y()),
+                                      m.scene_to_lonlat(pos.x(), pos.y()))
+        metres = math.hypot((lon1 - lon0) * 111320 * math.cos(math.radians(lat0)),
+                            (lat1 - lat0) * 110540)
         said = f'moved {name} {metres:,.0f} m'
         if cmd.copies:
             said += f'; it came away from {len(cmd.copies)} node{"s" * (len(cmd.copies) != 1)} it shared'
