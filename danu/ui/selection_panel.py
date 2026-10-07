@@ -137,7 +137,8 @@ def describe(sel, layer) -> Info:
 
 
 # the profile's shading, the map's colours lighter: a climb red, unknown grey
-SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'far': QColor(120, 120, 120, 70)}
+SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'steep': QColor(230, 120, 0, 70),
+             'far': QColor(120, 120, 120, 70)}
 
 
 class ProfileView(QWidget):
@@ -260,14 +261,15 @@ class ProfileView(QWidget):
 
 def _mark(kind: str) -> QIcon:
     """A swatch in the colour the map and the profile give the kind: red a
-    climb, grey a span no contour reaches, brown a gap - its ring's colour."""
+    climb, orange a level a contour beside it contradicts, grey a span no
+    contour reaches, brown a gap - its ring's colour."""
     pix = QPixmap(12, 12)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    colour = {'climb': QColor(200, 30, 30), 'far': QColor(110, 110, 110)}.get(
-        kind, QColor(120, 60, 0))
-    if kind in ('climb', 'far'):
+    colour = {'climb': QColor(200, 30, 30), 'steep': QColor(230, 120, 0),
+              'far': QColor(110, 110, 110)}.get(kind, QColor(120, 60, 0))
+    if kind in ('climb', 'steep', 'far'):
         painter.fillRect(1, 4, 10, 4, colour)
     else:
         painter.setPen(QPen(colour, 2.0))

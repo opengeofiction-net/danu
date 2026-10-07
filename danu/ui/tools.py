@@ -33,7 +33,7 @@ from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
-from ..water import burn, flatten
+from ..water import burn, contradict, flatten
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
@@ -84,20 +84,22 @@ class Issue:
     or a gap it walked across. Each has its place, so the panel's list and
     the profile can take the map to it rather than leave a mapper to search
     for a coordinate."""
-    kind: str                 # 'side', 'gap', 'climb' or 'far'
+    kind: str                 # 'side', 'gap', 'climb', 'steep' or 'far'
     text: str
     path: tuple               # scene points: the span, or the one point of a gap
     span: tuple | None = None  # (d0, d1) along the profile, when on the stem it shows
     river: tuple | None = None  # a climb's: its stem, scene points, for the burn (G7b)
 
 
-ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'far': 3, 'unburned': 4}
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'far': 4, 'unburned': 5}
 # said when a flattened lake's new level is carried to its outline and fill
 # lines; its contours were clipped against the old one
 _FOLLOW = ' - its outline and fill lines follow; F flattens it again to redo its contours'
 # on the map, and lighter in the profile: a climb is a fault, red; ground no
 # contour reaches is only unknown, grey
-ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'far': QColor(110, 110, 110, 200)}
+# a level a contour beside it contradicts (G7c) is a fault too, orange
+ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'steep': QColor(230, 120, 0, 220),
+             'far': QColor(110, 110, 110, 200)}
 
 
 def _path(points) -> QPainterPath:
@@ -138,6 +140,27 @@ def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
         out.append(Issue(kind, text, tuple(run), (d0, d1) if shown else None,
                          stem if kind == 'climb' else None))
     return out
+
+
+def steep_issues(label, scene, dist, found, shown) -> list:
+    """Where a contour beside the river contradicts its level - G7c: each
+    stretch of river, said with the worst of it."""
+    out = []
+    for c in found:
+        run = [_point_at(scene, dist, c.d0)]
+        run += [pt for pt, x in zip(scene, dist, strict=True) if c.d0 < x < c.d1]
+        run.append(_point_at(scene, dist, c.d1))
+        way = 'above' if c.diff > 0 else 'below'
+        text = (f'{label}: the {c.ele:g} m contour comes {c.apart_m:.0f} m from it, '
+                f'up to {abs(c.diff):.0f} m {way} its level, {c.level:g} m there - a cell apart; '
+                'move the contour or fix the level')
+        out.append(Issue('steep', text, tuple(run), (c.d0, c.d1) if shown else None))
+    return out
+
+
+def steep_part(n: int) -> str:
+    return (f'{n} place{"s" * (n != 1)} where a contour within {contradict.CELL_M:g} m is over '
+            f'{contradict.LIMIT_M:g} m off its level')
 
 
 def gap_issue(kind, label, gap_m, lon, lat) -> Issue:
@@ -1504,6 +1527,10 @@ class EditController(QObject):
         if why:
             parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded - '
                          + ', '.join(why))
+        river = [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
+        steep = contradict.find(self.working_set, river, dist, levels)
+        if steep:
+            parts.append(steep_part(len(steep)))
         if upstream:
             parts.append('drawn upstream - graded from its higher end')
         if chain.joins:
@@ -1521,6 +1548,7 @@ class EditController(QObject):
         # six of the seven gaps on the gobras set are two nodes on one spot,
         # never merged - "a 0 m gap" would say nothing a mapper can act on
         issues = sorted(span_issues(name, pts, dist, rejected, upstream, True)
+                        + steep_issues(name, pts, dist, steep, True)
                         + [gap_issue('gap', name, j.gap_m, j.lon, j.lat) for j in chain.joins],
                         key=lambda i: ISSUE_ORDER[i.kind])
         chain_paths = []
@@ -1617,7 +1645,8 @@ class EditController(QObject):
         levels_at: dict = {}
         mine = None                                   # the selected way's stem, for the profile
         issues, all_rejected, joins = [], [], []
-        crossings = climbs = far = 0
+        crossings = climbs = far = steep = 0
+        contours = contradict.gather(self.working_set)
         for i in sequence:
             seq, dist, known = profiles[i]
             if len(seq) < 2:
@@ -1656,6 +1685,10 @@ class EditController(QObject):
             shown = any((link.square.name, link.way.id) == (sq0.name, way0.id)
                         for link in stems[i].links)
             issues += span_issues(label, scene, dist, rejected, upstream, shown)
+            found = contradict.find(self.working_set, [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq],
+                                    dist, lv, contours)
+            steep += len(found)
+            issues += steep_issues(label, scene, dist, found, shown)
             if shown:
                 cur = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
                 mine = (dist, [levels_at.get(node_key(s2, r)) for s2, r in seq], cur, pts, rejected)
@@ -1703,6 +1736,8 @@ class EditController(QObject):
         if why:
             parts.append(f'{climbs + far} span{"s" * (climbs + far != 1)} left ungraded - '
                          + ', '.join(why))
+        if steep:
+            parts.append(steep_part(steep))
         gaps = [x for x in issues if x.kind in ('side', 'gap')]
         if gaps:
             # each in the list, with where it is, so it is fixed where it was made

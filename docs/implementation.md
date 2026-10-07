@@ -3296,3 +3296,41 @@ and not the one chosen, an end split, a join across levels, a join onto a
 middle node, the other way not turned to meet, a join without ctrl, a join
 across a contour, the dragged node taken for the target, the pinch still on P,
 the other way's tags lost, and a ring split through a node it holds twice.
+
+## G7c, a level a contour beside the river contradicts
+
+**What neither the grade nor the burn sees**: a contour that runs beside the
+river without crossing it, at a level the river is nowhere near. On gobras the
+Merta River crosses N21E086's southern edge where 25, 50 and 75 m contours run
+in a dead-straight stack along it a metre apart, the 75 m 1 m from the river and
+48 m above its graded level; the Semes touches a 110 m contour 29 m below its
+own. The surface has to put both in a cell or two - a cliff nobody drew, or a
+river perched above the ground beside it.
+
+**The rule** is a contour within one cell of the river - 30 m, the build's 1
+arcsecond - at a level more than 25 m, a contour step, from the river's there,
+either way. A survey of every graded chain on gobras, sampled every 10 m, set
+it: within 30 m nothing was more than 50 m off, and a step or less a cell away
+is a steep bank - hundreds of samples of it. More than a step is a fault: 14
+places across the set, 12 with the contour above. Only between graded vertices;
+an ungraded span says why already.
+
+**Listed with what a grade found**, G and Shift+G alike, orange on the map and
+in the profile - a stretch of river and one contour, said with its nearest
+approach and the worst difference - and counted in the summary. Nothing is
+proposed: the fix is the mapper's, a contour to move or a level to set.
+
+**Kept to a grade's time.** Measuring every 5 m sample against every segment of
+every contour whose box met the river took Shift+G on the Prado network, 211
+stems, from 1.1 s to 155 s. The contours are read once a network, their boxes
+stacked; a stem's samples sorted by x, so a contour's are found by halves; and
+the samples taken in strips of 64, each paired only with the segments reaching
+it: 1.5 s.
+
+Nine mutations, every one from a fresh copy. Eight fail a test: a contour
+below not seen, any distance a contradiction, the nearness said at the worst
+and not the nearest, the samples in reach picked wrong, the segments in reach
+picked wrong, the level not graded between vertices, Shift+G not listing them,
+and G not saying how many. The ninth - a sample measured with only one of its
+vertices graded - is equivalent: its level is not a number, and no comparison
+passes it.
