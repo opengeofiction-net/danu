@@ -12,8 +12,8 @@ Found where a contour comes within one cell of the river - ``CELL_M``, the
 build's 1 arcsecond - at a level more than ``LIMIT_M`` from the river's
 there, more than a contour step either way. A cell away a contour a step
 above or below is a steep bank, and there are dozens; more than a step is a
-fault in the contour or the level, and on cleaned gobras there are some
-twenty places. Each is one stretch of river and one contour, said with the
+fault in the contour or the level, and on cleaned gobras there are 14
+places. Each is one stretch of river and one contour, said with the
 worst of it, for the mapper to move the contour or fix the level.
 
 No Qt and no GDAL: metres on the burn's projection about the river.
@@ -27,6 +27,8 @@ import numpy as np
 
 from . import burn
 
+# the server's build, 1 arcsecond, whatever the editor's own surface is set to:
+# the server's is the surface that is published
 CELL_M = 30.0
 LIMIT_M = 25.0
 STEP_M = 5.0                    # along the river between samples
@@ -64,6 +66,8 @@ def gather(working_set) -> Contours:
     keys, eles, pts, boxes = [], [], [], []
     for sq in working_set.squares.values():
         for way in sq.contours():
+            # a square holds every node of its ways; one that does not is broken
+            # and skipped, as the burn and the crossings check skip it
             run = [(sq.nodes[r].lon, sq.nodes[r].lat) for r in way.refs if r in sq.nodes]
             if len(run) == len(way.refs) and len(run) >= 2:
                 run = np.asarray(run)

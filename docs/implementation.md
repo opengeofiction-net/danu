@@ -3311,8 +3311,10 @@ river perched above the ground beside it.
 arcsecond - at a level more than 25 m, a contour step, from the river's there,
 either way. A survey of every graded chain on gobras, sampled every 10 m, set
 it: within 30 m nothing was more than 50 m off, and a step or less a cell away
-is a steep bank - hundreds of samples of it. More than a step is a fault: 14
-places across the set, 12 with the contour above. Only between graded vertices;
+is a steep bank - hundreds of samples of it. More than a step is a fault: the
+check itself, sampling every 5 m, finds 14 places across the set, 12 with the
+contour above - after the mapper's later tidying, from some twenty in the
+survey. Only between graded vertices;
 an ungraded span says why already.
 
 **Listed with what a grade found**, G and Shift+G alike, orange on the map and
