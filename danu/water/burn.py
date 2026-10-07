@@ -197,9 +197,8 @@ def _contacts(R, dist, P):
     crossings: (metres along the river, position along the contour).
 
     A contour snapped to a river shares a node with it, and one snapped along
-    it shares a run of them - each a contact, and on gobras a contour counted
-    as crossing a river six or twelve times inside one climb, which the burn
-    then refused. So a run of contacts next to each other along the contour is
+    it shares a run of them - each a contact, which would count it as crossing
+    the river several times and have the burn refuse its spur. So a run of contacts next to each other along the contour is
     one, and it is a crossing only if the contour is on one side of the river
     before it and the other after; touching and turning back is not one."""
     hits = sorted(_on_vertices(R, dist, P), key=lambda h: h[1])
@@ -210,11 +209,15 @@ def _contacts(R, dist, P):
         if not run:
             return
         s0, s1 = run[0][1], run[-1][1]
-        before, after = s0 - 0.5, s1 + 0.5
-        if before < 0 or after > n:
+        if s0 <= 1e-9 or s1 >= n - 1e-9:
             return                              # the contour ends on the river
+        # just before and just after the run, on the contour - half a segment
+        # away, or half way to the end where the run is nearer it than that
+        before, after = s0 - min(0.5, s0 / 2), s1 + min(0.5, (n - s1) / 2)
         sides = [_side(R, _point(P, x)) for x in (before, after)]
         if sides[0] * sides[1] < 0:
+            # the middle of the run: the contour goes over somewhere along it,
+            # and the middle is as good a place to cut as any
             out.append(run[len(run) // 2])
 
     for h in hits:

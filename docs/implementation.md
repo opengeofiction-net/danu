@@ -3155,7 +3155,7 @@ an allocator a cut, no clash check, the farthest climb burned instead of the
 nearest, the setback not re-proposing, F through its action, and what was not
 burned left out of the list.
 
-**After PR 108's review.** Six points held:
+**After PR 108's review.** Four points held, and two small ones:
 
 - **A second Shift+B found nothing.** Accepting a burn replaces the grade, and
   Shift+B took its climbs from the grade in front of it - the second pass,

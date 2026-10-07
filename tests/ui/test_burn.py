@@ -144,3 +144,6 @@ def test_a_second_shift_b_grades_again_rather_than_finding_nothing(two_climbs):
     p = w.editor.proposal
     assert p is not None and p.kind == 'burn', w.statusBar().currentMessage()
     assert p.summary.startswith('burn: 1 climb')
+    w.editor.accept_proposal()
+    for f in (finger, second):                   # each now stays north of the river
+        assert min(sq.nodes[r].lat for r in sq.ways[f.id].refs) > LAT, 'a climb was left unburned'

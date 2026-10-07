@@ -312,3 +312,18 @@ def test_the_strike_through_takes_in_the_vertices_the_setback_drops():
     east = next(r for r in p.removed if all(round(lon, 4) == 125.355 for lon, _ in r))
     lats = sorted(lat for _, lat in east)
     assert lats[0] == pytest.approx(LAT - 0.02) and lats[-1] == pytest.approx(LAT + 0.02), lats
+
+
+def test_a_contour_crossing_on_its_first_segment_is_a_crossing_and_one_ending_on_the_river_not():
+    """In metres, exactly: the river along y = 0 with a vertex at (10, 0); a
+    contour whose first segment passes through that vertex a tenth of the way
+    along goes over there. Half a segment back from it is before the contour
+    starts, which once dropped it as a contour ending on the river."""
+    import numpy as np
+    R = np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
+    dist = burn._along(R)
+    over = np.array([[9.0, 1.0], [19.0, -9.0], [19.0, -30.0]])
+    ((r, s_),) = burn._contacts(R, dist, over)
+    assert r == pytest.approx(10.0) and s_ == pytest.approx(0.1)
+    ends = np.array([[5.0, 20.0], [10.0, 0.0]])                     # stops on the river
+    assert burn._contacts(R, dist, ends) == []
