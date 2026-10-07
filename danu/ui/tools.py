@@ -32,7 +32,7 @@ from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
-from ..water import flatten
+from ..water import burn, flatten
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
@@ -87,9 +87,10 @@ class Issue:
     text: str
     path: tuple               # scene points: the span, or the one point of a gap
     span: tuple | None = None  # (d0, d1) along the profile, when on the stem it shows
+    river: tuple | None = None  # a climb's: its stem, scene points, for the burn (G7b)
 
 
-ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'far': 3}
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'far': 3, 'unburned': 4}
 # said when a flattened lake's new level is carried to its outline and fill
 # lines; its contours were clipped against the old one
 _FOLLOW = ' - its outline and fill lines follow; F flattens it again to redo its contours'
@@ -119,6 +120,7 @@ def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
     and the river disagreeing, which is a fault in one or the other; a long
     span is ground nobody contoured - the lowland run of a river, mostly."""
     out = []
+    stem = tuple(tuple(p) for p in scene)
     for d0, d1, e0, e1 in rejected:
         run = [_point_at(scene, dist, d0)]
         run += [pt for pt, x in zip(scene, dist, strict=True) if d0 < x < d1]
@@ -132,7 +134,8 @@ def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
             kind = 'far'
             text = (f'{label}: {(d1 - d0) / 1000:.1f} km between the {hi:g} and {lo:g} m '
                     f'contours, over {profile.MAX_SEGMENT_M / 1000:g} km - left ungraded')
-        out.append(Issue(kind, text, tuple(run), (d0, d1) if shown else None))
+        out.append(Issue(kind, text, tuple(run), (d0, d1) if shown else None,
+                         stem if kind == 'climb' else None))
     return out
 
 
@@ -187,7 +190,13 @@ class Proposal:
     # it draws the contours back
     removed: list | None = None
     fill: list | None = None
-    pull_back_m: float | None = None
+    pull_back_m: float | None = None      # the strength the proposal was made at
+    # what kind of proposal it is, and the strength's name in the panel; and
+    # a burn's (G7b): the lines it draws and the pieces it drops
+    kind: str = 'grade'
+    strength_label: str | None = None
+    added: list | None = None
+    dropped: list | None = None
     joins: list | None = None             # (scene x, y, gap metres)
 
     @property
@@ -224,6 +233,8 @@ class EditController(QObject):
         self.proposal: Proposal | None = None
         self.focused_issue: Issue | None = None   # the one the map was last taken to
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
+        self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
+        self._burn_job: list | None = None            # what the last burn was asked to burn
         # where contours cross, for the map to mark while the checks panel is
         # open (G8a): scene points, and those of the row chosen
         self.marks: list = []
@@ -1620,6 +1631,88 @@ class EditController(QObject):
             preview, sorted(issues, key=lambda x: ISSUE_ORDER[x.kind]),
             steps=steps, chain_paths=chain_paths, joins=joins))
 
+    def burn(self, setback_m: float | None = None, every: bool = False, again: bool = False):
+        """B: burn the climb chosen in the grade's list or on its profile -
+        G7b, R25. Shift+B: every climb the grade found. Proposed, not
+        applied: each contour of the spur the river runs over cut at its
+        crossings and closed along its own bank, set back ``setback_m`` for
+        each step it stands above the climb's lower level; the contours near
+        it pushed back to theirs. Enter
+        accepts it as one step.
+
+        ``again`` proposes the last burn again at a new setback - the
+        strength tried before it is accepted."""
+        if setback_m is not None:
+            self.setback_m = float(setback_m)
+        if again and self._burn_job is not None:
+            job = self._burn_job
+        else:
+            p = self.proposal
+            climbs = [i for i in (p.issues or ()) if i.kind == 'climb' and i.river] if p else []
+            if every:
+                if not climbs:
+                    self.message.emit('grade a river or a network first (G or Shift+G): '
+                                      'Shift+B burns the climbs it finds')
+                    return
+                rivers = {i.river: None for i in climbs}
+                job = [(river, None) for river in rivers]
+            else:
+                issue = self.focused_issue
+                if issue is None or issue.kind != 'climb' or not issue.river:
+                    self.message.emit('choose a climb in the grade\'s list or on its profile, '
+                                      'then B burns it - Shift+B burns them all')
+                    return
+                mid = issue.path[len(issue.path) // 2]
+                job = [(issue.river, m.scene_to_lonlat(*mid))]
+        self._burn_job = job
+        steps, used = [], set()
+        total = burn.Plan()
+        for river, only in job:
+            lonlat = [m.scene_to_lonlat(x, y) for x, y in river]
+            p = burn.plan(self.working_set, lonlat, self.history.alloc, setback_m=self.setback_m,
+                          only=only)
+            # two rivers may share a contour; it is cut once, and the second
+            # is left for another burn
+            for sq, compound in p.steps:
+                keep = [c for c in compound.commands if not ({(sq.name, w) for w in c.ways(sq)} & used)]
+                if len(keep) < len(compound.commands):
+                    total.skipped.append(('shares a contour with another river burned - burn again',
+                                          *lonlat[len(lonlat) // 2]))
+                for c in keep:
+                    used |= {(sq.name, w) for w in c.ways(sq)}
+                if keep:
+                    steps.append((sq, edits.Compound(keep, name=compound.name)))
+            for name in ('burned', 'contours_cut', 'pushed'):
+                setattr(total, name, getattr(total, name) + getattr(p, name))
+            total.removed += p.removed
+            total.added += p.added
+            total.dropped += p.dropped
+            total.skipped += p.skipped
+        parts = []
+        if total.burned:
+            parts.append(f'burn: {total.burned} climb{"s" * (total.burned != 1)}, '
+                         f'{total.contours_cut} contour{"s" * (total.contours_cut != 1)} cut and closed '
+                         f'along the river {self.setback_m:g} m a step back')
+            if total.pushed:
+                parts.append(f'{total.pushed} near it pushed back')
+            if total.dropped:
+                parts.append(f'{len(total.dropped)} piece{"s" * (len(total.dropped) != 1)} too thin '
+                             'to keep, dropped')
+        else:
+            parts.append('nothing burned')
+        if total.skipped:
+            parts.append(f'{len(total.skipped)} not burned - see the list')
+        issues = [Issue('unburned', f'not burned: {why}, at {lat:.5f}, {lon:.5f}',
+                        (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in total.skipped]
+        scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
+        sel = self.selection
+        square = sel.square if sel is not None else (steps[0][0] if steps else None)
+        self._set_proposal(Proposal(
+            square, sel.way if sel is not None else None, None, '; '.join(parts),
+            issues=issues, steps=steps or None, removed=scene(total.removed),
+            pull_back_m=self.setback_m, kind='burn', strength_label='Setback per contour step',
+            added=scene(total.added), dropped=scene(total.dropped)))
+
     def flatten(self, pull_back_m: float | None = None):
         """F: flatten the selected lake at its level - G7a, R26 - proposed, not
         applied. The level goes on its outline, which the build reads as a
@@ -1673,7 +1766,7 @@ class EditController(QObject):
             chain_paths=[[m.lonlat_to_scene(lon, lat) for lon, lat in ring] for ring in p.outline],
             removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
             fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
-            pull_back_m=self.pull_back_m))
+            pull_back_m=self.pull_back_m, kind='flatten', strength_label='Draw back from the shore'))
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
@@ -1748,7 +1841,7 @@ class EditController(QObject):
         else:
             self.do(p.square, p.command)
         self.message.emit(f'accepted: {p.summary}')
-        if p.pull_back_m is not None:
+        if p.kind == 'flatten':
             self.flattened.emit(p.square, p.feature)
         self.proposalChanged.emit()
         self.overlay.update()
@@ -1848,6 +1941,19 @@ class EditOverlay(QGraphicsItem):
         cut.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(cut)
         for run in proposal.removed or ():
+            if len(run) >= 2:
+                painter.drawPath(_path(run))
+        # a burn's new lines, solid, and the pieces it drops, grey (G7b)
+        made = QPen(QColor(120, 60, 0), 2.0)
+        made.setCosmetic(True)
+        painter.setPen(made)
+        for run in proposal.added or ():
+            if len(run) >= 2:
+                painter.drawPath(_path(run))
+        gone = QPen(QColor(110, 110, 110, 200), 2.0, Qt.PenStyle.DotLine)
+        gone.setCosmetic(True)
+        painter.setPen(gone)
+        for run in proposal.dropped or ():
             if len(run) >= 2:
                 painter.drawPath(_path(run))
         # and what it lays across the water: its fill lines, in the lake's own
