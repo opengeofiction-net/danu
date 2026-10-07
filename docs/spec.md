@@ -927,7 +927,7 @@ Three parts, in this order:
   contour becomes two, an open one its main line, set back, and a closed piece
   across the water - set back from the river one step further for each contour above the
   river's level, so the river runs in a notch whose sides rise one contour per
-  setback. The setback is the strength. Contours near the river that it does
+  setback. The setback, metres per contour step, is the strength. Contours near the river that it does
   not cross are pushed back to theirs; one wholly inside the notch is cut away.
   Running it again burns what the first could not reach.
 - **G7c, what is left.** A river level that contradicts a contour beside it -

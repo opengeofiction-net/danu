@@ -181,7 +181,7 @@ def _crossings(working_set, river, margin):
             # and where one passes through the other's vertex - a contour
             # snapped to the river shares a node with it, which the proper
             # test does not count and the grade does
-            here += _on_vertices(R, dist, P)
+            here += _contacts(R, dist, P)
             seen = []
             for r, sp in sorted(here):
                 if seen and abs(r - seen[-1]) < 0.01:
@@ -190,6 +190,50 @@ def _crossings(working_set, river, margin):
                 crossings.append(_Crossing(r, float(way.ele), key, sp))
     crossings.sort(key=lambda c: c.r)
     return proj, R, contours, crossings, dist
+
+
+def _contacts(R, dist, P):
+    """Where a contour meets the river at a vertex of either line, as
+    crossings: (metres along the river, position along the contour).
+
+    A contour snapped to a river shares a node with it, and one snapped along
+    it shares a run of them - each a contact, which would count it as crossing
+    the river several times and have the burn refuse its spur. So a run of contacts next to each other along the contour is
+    one, and it is a crossing only if the contour is on one side of the river
+    before it and the other after; touching and turning back is not one."""
+    hits = sorted(_on_vertices(R, dist, P), key=lambda h: h[1])
+    n = len(P) - 1
+    out, run = [], []
+
+    def close_run():
+        if not run:
+            return
+        s0, s1 = run[0][1], run[-1][1]
+        if s0 <= 1e-9 or s1 >= n - 1e-9:
+            return                              # the contour ends on the river
+        # just before and just after the run, on the contour - half a segment
+        # away, or half way to the end where the run is nearer it than that
+        before, after = s0 - min(0.5, s0 / 2), s1 + min(0.5, (n - s1) / 2)
+        sides = [_side(R, _point(P, x)) for x in (before, after)]
+        if sides[0] * sides[1] < 0:
+            # the middle of the run: the contour goes over somewhere along it,
+            # and the middle is as good a place to cut as any
+            out.append(run[len(run) // 2])
+
+    for h in hits:
+        if run and h[1] - run[-1][1] > 1.0 + 1e-9:
+            close_run()
+            run = []
+        run.append(h)
+    close_run()
+    return out
+
+
+def _point(P, s):
+    """The point at a position along a contour."""
+    i = int(np.clip(math.floor(s), 0, len(P) - 2))
+    t = s - i
+    return P[i] + (P[i + 1] - P[i]) * t
 
 
 def _on_vertices(R, dist, P, tol=1e-3):
@@ -354,9 +398,10 @@ def _push(bank, P, d):
         away = P[i] - foot
         length = float(np.hypot(*away))
         if length < 1e-6:
-            return None                         # on the river: that is a crossing, not a push
+            continue                            # on the river: a crossing, not one to push
+
         out[int(i)] = foot + away / length * d
-    return out
+    return out or None
 
 
 def _clash(group, contours, cut_keys, proj):
@@ -457,10 +502,22 @@ def _cut(held, c1, c2, R, dist, d, proj, alloc):
         dropped.append([proj.back(p) for p in P])
         return {'cmd': edits.ReplaceWay(way.id, [], {}), 'lines': [], 'added': [],
                 'dropped': dropped, 'removed': [[proj.back(p) for p in P]]}
-    # what goes, for the proposal to strike through: the old line across the
-    # river, from the vertex before its first crossing to the one after its
-    # second - every vertex can be kept and the line still change
-    removed = [[proj.back(P[i]) for i in range(math.floor(a.s), min(math.ceil(b.s), n) + 1)]]
+    # what goes, for the proposal to strike through: at each crossing, the
+    # old line from the last vertex kept before it to the first kept after -
+    # round the ring when it straddles the start. Every vertex can be kept and
+    # the line still change, and on a ring the arc between the crossings is
+    # not what is replaced
+    keep = {r for refs in built for r in refs}
+    removed = []
+    for c in (a, b):
+        lo_i, hi_i = math.floor(c.s), math.ceil(c.s)
+        if hi_i == lo_i:
+            hi_i += 1
+        while way.refs[lo_i % n if closed else lo_i] not in keep and (closed or lo_i > 0) and hi_i - lo_i < n:
+            lo_i -= 1
+        while way.refs[hi_i % n if closed else hi_i] not in keep and (closed or hi_i < n) and hi_i - lo_i < n:
+            hi_i += 1
+        removed.append([proj.back(P[i % n if closed else i]) for i in range(lo_i, hi_i + 1)])
     pieces_out = [(way.id if k == 0 else ids.take(), refs) for k, refs in enumerate(built)]
     return {'cmd': edits.ReplaceWay(way.id, pieces_out, new_nodes), 'lines': lines,
             'added': added, 'dropped': dropped, 'removed': [r for r in removed if r]}

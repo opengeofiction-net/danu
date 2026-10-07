@@ -3147,4 +3147,33 @@ kept one allocator a square. And F on a lake flattened with no pull-back at
 all: the action's triggered signal passes checked=False, which `flatten` took
 for 0 m - G7a's, found here, tested through the action now.
 
-Thirteen mutations, each failing a test, every one from a fresh copy.
+Thirteen mutations, each failing a test, every one from a fresh copy: which
+bank judged against the river's direction, one setback for every contour of a
+spur, only the climbing contour cut, a lower contour inside not waited for, no
+push, a contour inside the notch a refusal, crossings at a vertex not counted,
+an allocator a cut, no clash check, the farthest climb burned instead of the
+nearest, the setback not re-proposing, F through its action, and what was not
+burned left out of the list.
+
+**After PR 108's review.** Four points held, and two small ones:
+
+- **A second Shift+B found nothing.** Accepting a burn replaces the grade, and
+  Shift+B took its climbs from the grade in front of it - the second pass,
+  the way a spur's neighbours are reached, said to grade first. It grades
+  again now: the same kind of grade as last time, of what is selected.
+- **The strike-through on a ring was the wrong part.** It ran the arc between
+  the crossings, which on a hill is half of it. It is the old line at each
+  crossing, out to the first vertex kept on either side.
+- **A push gave up on the whole contour** for one vertex on the river; it
+  skips that one.
+- **Contacts were counted node by node.** A contour snapped along the river
+  for a stretch shares a run of its nodes, each a crossing, and a touch that
+  turns back counted as one. A run is one contact now, and a crossing only if
+  the contour goes over. The gobras refusals for a contour crossing four, six
+  or twelve times inside a climb are not this - those weave across the river
+  properly, and are still refused.
+- The spec says the setback is per contour step; the mutations are listed.
+
+Five more mutations, each failing a test, every one from a fresh copy: the
+second Shift+B not grading again, a touch counted, a run counted node by node,
+a push dropped for one vertex, and the strike-through not reaching out.

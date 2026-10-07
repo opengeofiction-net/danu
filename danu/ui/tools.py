@@ -235,6 +235,7 @@ class EditController(QObject):
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
         self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
         self._burn_job: list | None = None            # what the last burn was asked to burn
+        self._last_grade: str | None = None           # 'chain' or 'network': what G last did
         # where contours cross, for the map to mark while the checks panel is
         # open (G8a): scene points, and those of the row chosen
         self.marks: list = []
@@ -1272,6 +1273,7 @@ class EditController(QObject):
         ``ContourLayer.outlet``, the batch grader's rule again. A river area is
         refused - R27, and it is graded through the river that runs down it.
         """
+        self._last_grade = 'chain'
         sel = self.selection
         if sel is None:
             self.message.emit('nothing selected')
@@ -1449,6 +1451,7 @@ class EditController(QObject):
         that wait on each other in a ring are taken in that order too. A
         level set by an earlier stem is not changed by a later one.
         """
+        self._last_grade = 'network'
         sel = self.selection
         if (sel is None or sel.way is None or sel.relation is not None
                 or sel.way.tags.get('waterway') not in LINE_KINDS):
@@ -1649,6 +1652,14 @@ class EditController(QObject):
         else:
             p = self.proposal
             climbs = [i for i in (p.issues or ()) if i.kind == 'climb' and i.river] if p else []
+            if every and not climbs and self._last_grade and self.selection is not None:
+                # the grade is gone - a burn accepted replaced it - so a second
+                # Shift+B, the way a spur's neighbours are reached, grades again:
+                # the same kind of grade as last time (G or Shift+G), of what is
+                # selected now
+                (self.grade if self._last_grade == 'chain' else self.grade_network)()
+                p = self.proposal
+                climbs = [i for i in (p.issues or ()) if i.kind == 'climb' and i.river] if p else []
             if every:
                 if not climbs:
                     self.message.emit('grade a river or a network first (G or Shift+G): '

@@ -108,3 +108,42 @@ def test_a_climb_not_burnable_is_listed_with_why(window):
     assert p.summary.startswith('nothing burned') and not p.acceptable
     (why,) = [i for i in p.issues if i.kind == 'unburned']
     assert 'crosses the river only here' in why.text
+
+
+@pytest.fixture
+def two_climbs(climbing):
+    """A second finger downstream, a 75 m between the two."""
+    w, sq, finger = climbing
+    draw(w, [(125.3675, LAT - 0.02), (125.3675, LAT + 0.02)], 75)
+    second = draw(w, [(125.37, LAT + 0.02), (125.37, LAT - 0.01), (125.38, LAT - 0.01),
+                      (125.38, LAT + 0.02)], 100)
+    w.editor.selection = Selection(sq, sq.ways[100])
+    w.editor.grade()
+    return w, sq, finger, second
+
+
+def test_shift_b_burns_both_climbs_and_b_only_the_one_chosen(two_climbs):
+    w, sq, finger, second = two_climbs
+    w.editor.show_issue(climb(w))
+    w.editor.burn()
+    assert w.editor.proposal.summary.startswith('burn: 1 climb')
+    w.editor.selection = Selection(sq, sq.ways[100])
+    w.editor.grade()
+    w.edit_actions['edit.burn_all'].trigger()
+    assert w.editor.proposal.summary.startswith('burn: 2 climbs')
+
+
+def test_a_second_shift_b_grades_again_rather_than_finding_nothing(two_climbs):
+    """After a burn is accepted its grade is gone; two passes - the way a
+    spur's neighbours are reached - should not need G between."""
+    w, sq, finger, second = two_climbs
+    w.editor.show_issue(climb(w))
+    w.editor.burn()
+    w.editor.accept_proposal()
+    w.edit_actions['edit.burn_all'].trigger()
+    p = w.editor.proposal
+    assert p is not None and p.kind == 'burn', w.statusBar().currentMessage()
+    assert p.summary.startswith('burn: 1 climb')
+    w.editor.accept_proposal()
+    for f in (finger, second):                   # each now stays north of the river
+        assert min(sq.nodes[r].lat for r in sq.ways[f.id].refs) > LAT, 'a climb was left unburned'
