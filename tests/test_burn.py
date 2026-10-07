@@ -263,3 +263,52 @@ def test_a_spurs_inner_contour_wholly_inside_the_notch_is_cut_away():
     p = run(w, sq)
     assert p.burned == 1, p.skipped
     assert knoll.id not in sq.ways and len(p.dropped) >= 1
+
+
+# ------------------------------------------------- contacts, PR 108's review
+
+def test_a_contour_snapped_along_the_river_is_one_crossing_and_a_touch_none():
+    """It shares three of the river's nodes in a row and goes over: one
+    crossing. Another touches one node and turns back: none. Counted node by
+    node, the first crossed three times and the burn refused its spur."""
+    w, sq = ws()
+    snapped = way(sq, [(125.3475, LAT + 0.01), *[(125.30 + 0.0025 * k, LAT) for k in (19, 20, 21)],
+                       (125.3525, LAT - 0.01)], 100)
+    touch = way(sq, [(125.36, LAT + 0.01), (125.3625, LAT), (125.365, LAT + 0.01)], 75)
+    _, _, _, crossings, _ = burn._crossings(w, RIVER, 0)
+    assert [c.key[1] for c in crossings] == [snapped.id], [(c.key[1], round(c.r)) for c in crossings]
+    assert touch.id not in {c.key[1] for c in crossings}
+
+
+def test_a_vertex_on_the_river_is_skipped_and_the_rest_still_pushed():
+    import numpy as np
+    bank = np.array([[0.0, 0.0], [100.0, 0.0]])
+    P = np.array([[10.0, 0.0], [20.0, 10.0], [30.0, 80.0]])          # on it, near it, clear of it
+    push = burn._push(bank, P, 50.0)
+    assert push is not None and set(push) == {1}, push
+    assert push[1][1] == pytest.approx(50.0)
+
+
+def test_a_hills_strike_through_is_what_is_replaced_not_half_the_ring():
+    w, sq = ws()
+    descent(sq)
+    way(sq, [(125.345, LAT - 0.02), (125.355, LAT - 0.02), (125.355, LAT + 0.02),
+             (125.345, LAT + 0.02)], 100, closed=True)
+    p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s))
+    assert len(p.removed) == 2
+    for run_ in p.removed:
+        lons = {round(lon, 4) for lon, _ in run_}
+        assert len(lons) == 1, f'a strike-through runs across the hill: {run_}'
+
+
+def test_the_strike_through_takes_in_the_vertices_the_setback_drops():
+    """Vertices 20 m either side of the river are within the 50 m setback and
+    go; the strike-through reaches out to the first kept on either side."""
+    w, sq = ws()
+    descent(sq)
+    way(sq, [(125.345, LAT - 0.02), (125.355, LAT - 0.02), (125.355, LAT - 20 * M_LAT),
+             (125.355, LAT + 20 * M_LAT), (125.355, LAT + 0.02), (125.345, LAT + 0.02)], 100, closed=True)
+    p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s))
+    east = next(r for r in p.removed if all(round(lon, 4) == 125.355 for lon, _ in r))
+    lats = sorted(lat for _, lat in east)
+    assert lats[0] == pytest.approx(LAT - 0.02) and lats[-1] == pytest.approx(LAT + 0.02), lats
