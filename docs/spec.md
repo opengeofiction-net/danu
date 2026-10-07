@@ -1119,7 +1119,7 @@ Recorded so the reasoning is not relitigated:
 | moving a contour whole | shift and a drag carries it, as one step; one that already crosses others moves freely, being repaired, and is told how many it crosses now; one that crosses nothing may not be moved into a crossing; a node it shares with another way is copied, not moved, so it comes away |
 | a contour crossing itself | listed in the checks panel, a row a place - a crossing, or a node passed through twice; O proposes the loop cut out, a node put where the strands cross, the shorter side of a closed contour |
 | splitting a contour | P at a node, as JOSM's: an open contour becomes two, a closed one opens there; the new ends are unglued and drawn 5 m back along their own lines, a third of a short segment at most |
-| joining contours | ctrl and a drag of an end onto another contour's end, as JOSM's: one way, the first's id kept; onto its own other end, it closes; another level, a middle node, a ring, another square or a crossing refuse it and say why; without ctrl the drop is a move |
+| joining contours | ctrl and a drag of an end onto another contour's end, as JOSM's: one way, the first's id kept and both's tags; onto its own other end, it closes; another level, tags that disagree, a middle node, a ring, another square or a crossing refuse it and say why; without ctrl the drop is a move |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

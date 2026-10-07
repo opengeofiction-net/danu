@@ -374,14 +374,14 @@ def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
     if node_id not in refs:
         return 'that node is not on it'
     closed = refs[0] == refs[-1] and len(refs) > 3
+    if (refs[:-1] if closed else refs).count(node_id) > 1:
+        return 'it passes through that node twice - cut out the loop first'
     if closed:
         k = refs.index(node_id)
         line = refs[k:-1] + refs[:k] + [node_id]           # from the node round to it
         n1, n2 = alloc.take(), alloc.take()
         new = {n1: _back(square, node_id, line[1], gap_m), n2: _back(square, node_id, line[-2], gap_m)}
         return ReplaceWay(way_id, [(way_id, [n1, *line[1:-1], n2])], new)
-    if refs.count(node_id) > 1:
-        return 'it passes through that node twice - cut out the loop first'
     k = refs.index(node_id)
     if k in (0, len(refs) - 1):
         return 'that is an end already'
@@ -405,14 +405,20 @@ def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -
             return 'only an end joins - that node is in the middle of its contour'
     if way.tags.get('ele') != other.tags.get('ele'):
         return f'the levels differ - {way.tags.get("ele")} m and {other.tags.get("ele")} m'
+    clash = sorted(k for k in set(way.tags) & set(other.tags) if way.tags[k] != other.tags[k])
+    if clash:
+        return f'their tags differ - {clash[0]}: {way.tags[clash[0]]} and {other.tags[clash[0]]}'
     mine = list(way.refs) if way.refs[-1] == end else list(reversed(way.refs))
     if way_id == other_id:
         if len(mine) < 4:
             return 'too short to close'
         return ReplaceWay(way_id, [(way_id, [*mine[:-1], mine[0]])], {})
     theirs = list(other.refs) if other.refs[0] == onto else list(reversed(other.refs))
-    return Compound([ReplaceWay(way_id, [(way_id, [*mine[:-1], *theirs])], {}), DeleteWay(other_id)],
-                    name='join')
+    # the tags of both, neither's lost: they agree where they share a key
+    steps = [ReplaceWay(way_id, [(way_id, [*mine[:-1], *theirs])], {}), DeleteWay(other_id)]
+    if set(other.tags) - set(way.tags):
+        steps.append(SetTags(way_id, dict(way.tags), {**other.tags, **way.tags}))
+    return Compound(steps, name='join')
 
 
 @dataclass

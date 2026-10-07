@@ -3285,9 +3285,14 @@ passing over the one dragged, which is under the cursor itself.
 **The surface's pinch moves from P to C.** A key already rebound in the INI
 keeps its own.
 
-Eleven mutations, each failing a test, every one from a fresh copy: drawn back
+**After the local review**: the joined way keeps both contours' tags, and a
+join whose tags disagree on a key - beyond the level, said first - is refused,
+naming it; and a closed contour through the node twice is not split there, as
+an open one already was not.
+
+Thirteen mutations, each failing a test, every one from a fresh copy: drawn back
 past the next node, the ends not drawn apart, a ring opened at its first node
 and not the one chosen, an end split, a join across levels, a join onto a
 middle node, the other way not turned to meet, a join without ctrl, a join
-across a contour, the dragged node taken for the target, and the pinch still on
-P.
+across a contour, the dragged node taken for the target, the pinch still on P,
+the other way's tags lost, and a ring split through a node it holds twice.

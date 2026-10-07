@@ -120,3 +120,26 @@ def test_join_refuses_other_levels_middles_and_rings():
     assert 'only an end' in edits.join_ways(sq, w1.id, w1.refs[-1], w3.id, w3.refs[1])
     ring = way(sq, [(125.30, LAT + 0.1), (125.31, LAT + 0.1), (125.31, LAT + 0.11)], closed=True)
     assert 'closed contour' in edits.join_ways(sq, w1.id, w1.refs[-1], ring.id, ring.refs[0])
+
+
+def test_join_keeps_both_tags_and_refuses_a_disagreement():
+    sq = sq_()
+    w1 = way(sq, [(125.30, LAT), (125.31, LAT)])
+    w2 = way(sq, [(125.32, LAT), (125.311, LAT)])
+    w2.tags['source'] = 'survey'
+    before = edits.snapshot(sq)
+    cmd = edits.join_ways(sq, w1.id, w1.refs[-1], w2.id, w2.refs[-1])
+    cmd.apply(sq)
+    assert sq.ways[w1.id].tags == {'ele': '100', 'source': 'survey'}, 'the other way\'s tags were lost'
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+    w1.tags['source'] = 'sketch'
+    assert 'tags differ - source' in edits.join_ways(sq, w1.id, w1.refs[-1], w2.id, w2.refs[-1])
+
+
+def test_a_ring_through_the_node_twice_is_not_split_there():
+    sq = sq_()
+    w = way(sq, [(125.30, LAT), (125.31, LAT), (125.31, LAT + 0.01)])
+    p, q, r = w.refs
+    w.refs = [p, q, r, q, p]                         # through q twice, closed on p
+    assert 'twice' in edits.split_way(sq, w.id, q, edits.IdAllocator(sq))
