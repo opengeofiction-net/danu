@@ -1654,7 +1654,9 @@ class EditController(QObject):
             climbs = [i for i in (p.issues or ()) if i.kind == 'climb' and i.river] if p else []
             if every and not climbs and self._last_grade and self.selection is not None:
                 # the grade is gone - a burn accepted replaced it - so a second
-                # Shift+B, the way a spur's neighbours are reached, grades again
+                # Shift+B, the way a spur's neighbours are reached, grades again:
+                # the same kind of grade as last time (G or Shift+G), of what is
+                # selected now
                 (self.grade if self._last_grade == 'chain' else self.grade_network)()
                 p = self.proposal
                 climbs = [i for i in (p.issues or ()) if i.kind == 'climb' and i.river] if p else []

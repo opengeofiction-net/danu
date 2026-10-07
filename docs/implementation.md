@@ -3160,7 +3160,7 @@ burned left out of the list.
 - **A second Shift+B found nothing.** Accepting a burn replaces the grade, and
   Shift+B took its climbs from the grade in front of it - the second pass,
   the way a spur's neighbours are reached, said to grade first. It grades
-  again now, the way G or Shift+G last did, from the selection.
+  again now: the same kind of grade as last time, of what is selected.
 - **The strike-through on a ring was the wrong part.** It ran the arc between
   the crossings, which on a hill is half of it. It is the old line at each
   crossing, out to the first vertex kept on either side.
