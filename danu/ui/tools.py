@@ -28,6 +28,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem
 
+from ..checks import loops
 from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
@@ -1091,6 +1092,33 @@ class EditController(QObject):
                           else f'deleted a way of {nodes} nodes')
         self.overlay.update()
 
+    def cut_loop(self, loop):
+        """O: the loop chosen in the checks panel cut out of its contour - G8c.
+        Proposed with what goes struck through, accepted as one step: on a
+        closed contour it is the shorter of the two sides that goes, and
+        which that is should be seen before it is done."""
+        if loop is None:
+            self.message.emit('choose a contour that crosses itself in the checks panel, '
+                              'then O cuts out the loop')
+            return
+        square = self.working_set.squares.get(loop.contour[0]) if self.working_set else None
+        way = square.ways.get(loop.contour[1]) if square is not None else None
+        if way is None:
+            self.message.emit(f'way {loop.contour[1]} is no longer there')
+            return
+        c = loops.cut(square, way, loop, self.history.alloc)
+        if isinstance(c, str):
+            self.message.emit(f'not cut: {c}')
+            return
+        self.set_tool('select')
+        self.selection = Selection(square, way)
+        nodes = f'{c.nodes} node{"s" * (c.nodes != 1)}'
+        self._set_proposal(Proposal(
+            square, way, c.command,
+            f'cut out the loop: {c.metres:,.0f} m of the {format_ele(way.ele)} m contour and {nodes} '
+            'go', issues=[], removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in c.removed]],
+            kind='loop'))
+
     def delete_selected(self):
         sel = self.selection
         if sel is None:
@@ -1853,6 +1881,9 @@ class EditController(QObject):
         self.message.emit(f'accepted: {p.summary}')
         if p.kind == 'flatten':
             self.flattened.emit(p.square, p.feature)
+        if p.kind == 'loop' and p.feature.id in p.square.ways:
+            # the cut replaced the way: the selection is the contour as it is now
+            self.selection = Selection(p.square, p.square.ways[p.feature.id])
         self.proposalChanged.emit()
         self.overlay.update()
         return True

@@ -3228,3 +3228,38 @@ pair crossing before refused, and sampling too coarse. A change to Shift+B's
 filter for contours shared between rivers was made and taken out: mutated, no
 test noticed, because it compares each square's commands against what earlier
 rivers used, never against its own.
+
+## G8c, a contour crossing itself
+
+**The checks panel's second check.** R16 asked of one contour: two of its
+segments properly crossing, or the contour passing through one node twice.
+On the gobras originals, 23 crossings in 7 contours and 61 pinches; after the
+cleaning, none and 12, in 6 contours. The pinches are three shapes: a loop
+through a node; a spike, out along a segment and back over it; and, where the
+contour area meets N20E087's edge at lon 87.2617, contours running out along
+the edge and back over the same nodes - a pinch at every node of the run.
+One row a place under the crossings; choosing one selects the contour and
+rings it, and the list follows edits as the crossings do.
+
+**O cuts out the loop**, proposed with what goes struck through: the part of
+the contour between the two visits, a node put where the strands cross. A
+closed contour has two such parts and loses the shorter - which is why it is
+proposed and not done. A run out and back goes whole with its outermost pinch;
+cutting an inner one first leaves the outer to cut.
+
+**The scan** is every contour's segments grouped by contour and 500 m cell,
+the pairs of every group tested together: 1.1 s over gobras, from 3.6 s a cell
+at a time, since nearly every group holds a few segments and a numpy call a
+group was most of it. It runs when the panel opens, with the crossings; an
+edit asks again of the ways it touched.
+
+**Along the way**: the cut is handed the way and reads it again from the
+square, since an edit replaces the object - a second cut on the same contour
+was refused as a loop no longer there. And after a cut the selection is the
+contour as it now stands, not the way it replaced.
+
+Nine mutations, each failing a test, every one from a fresh copy: a ring's
+closing node counted as a pinch, an open line's ends taken for neighbours, the
+longer side of a ring cut, no node where the strands cross, a loop already
+gone cut anyway, the way handed in used, the panel not following an edit, the
+selection left on the old way, and an empty list shown.
