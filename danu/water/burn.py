@@ -400,7 +400,7 @@ def _runs(crossings, rejected, upstream):
         else:
             found.append((base, *sorted((seq[i].r, seq[j].r)), sp))
     runs: list = []
-    for base, lo, hi, sp in sorted(found, key=lambda f: f[1] - f[2]):
+    for base, lo, hi, sp in sorted(found, key=lambda f: f[2] - f[1], reverse=True):     # longest first
         home = next((r for r in runs if r.lo - 1e-6 <= lo and hi <= r.hi + 1e-6), None)
         if home is None:
             runs.append(_Run(base, lo, hi, [sp]))
@@ -426,6 +426,7 @@ def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=
     got = {'cut': set(), 'pushed': 0, 'added': [], 'dropped': [], 'removed': []}
     if not inside:
         return got
+    # all above the run's level: it ends at the first crossing back at or below it
     levels = sorted({run.base, *(c.ele for c in inside)})
     step = min(b - a for a, b in zip(levels, levels[1:], strict=False))
 
