@@ -949,8 +949,9 @@ The notes on what this phase has done so far are in `implementation.md`, under
 **Phase 6 - checks and polish.** The validation panel - its first check,
 crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
 gobras holds contours that cross dozens of others, and a river crossing one
-reads as a climb a burn would bend real contours to fit. Here, the panel's
-other checks, then measure, profile, difference, magnify, autosave and crash
+reads as a climb a burn would bend real contours to fit. A contour crossing
+itself followed as G8c, with the loop cut out. Here, the panel's other
+checks, then measure, profile, difference, magnify, autosave and crash
 recovery, session files.
 
 **Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
@@ -1115,6 +1116,7 @@ Recorded so the reasoning is not relitigated:
 | redrawing | a line from a contour back to it replaces the stretch it was drawn along, ends when the line ends, and never touches a coastline |
 | crossings | warned live, and refused on what results - so a redraw may cross the stretch it is replacing, which goes with it |
 | moving a contour whole | shift and a drag carries it, as one step; one that already crosses others moves freely, being repaired, and is told how many it crosses now; one that crosses nothing may not be moved into a crossing; a node it shares with another way is copied, not moved, so it comes away |
+| a contour crossing itself | listed in the checks panel, a row a place - a crossing, or a node passed through twice; O proposes the loop cut out, a node put where the strands cross, the shorter side of a closed contour |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 
 ## Open questions

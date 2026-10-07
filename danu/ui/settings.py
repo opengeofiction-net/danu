@@ -45,6 +45,9 @@ DEFAULT_KEYS = {
     # burn a climb the grade found into the terrain, or every one - G7b
     'edit.burn': 'B',
     'edit.burn_all': 'Shift+B',
+    # O for loop: a contour crossing itself, chosen in the checks panel, the
+    # loop cut out - G8c
+    'edit.cut_loop': 'O',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'P',

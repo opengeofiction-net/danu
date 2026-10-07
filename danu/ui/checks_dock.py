@@ -12,12 +12,24 @@ wrong; one that crosses thirty-six others usually does. The fix is the
 mapper's: delete it, or redraw over it. Choosing a row selects that contour
 and brings its crossings into view; the map marks every crossing while the
 panel is open.
+
+The second check (G8c) is a contour crossing itself, or passing through one
+of its nodes twice: one row a place, and O, or the button, proposes the loop
+cut out.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QDockWidget, QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QLabel,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..checks.crossings import by_contour
 
@@ -27,6 +39,9 @@ _ROW = Qt.ItemDataRole.UserRole
 class ChecksDock(QDockWidget):
     # (contour key, the crossings to show) for the row chosen
     chosen = Signal(object, object)
+    # a contour crossing itself, chosen; and the loop to cut out
+    loopChosen = Signal(object)
+    cutLoop = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__('Checks', parent)
@@ -40,10 +55,23 @@ class ChecksDock(QDockWidget):
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         box.addWidget(self.summary)
-        box.addWidget(self.tree)
+        box.addWidget(self.tree, 3)
+        self.loops_summary = QLabel()
+        self.loops_summary.setWordWrap(True)
+        self.loops_tree = QTreeWidget()
+        self.loops_tree.setHeaderHidden(True)
+        self.loops_tree.setColumnCount(1)
+        self.cut_btn = QPushButton('Cut out the loop')
+        self.cut_btn.setToolTip('the loop chosen, proposed cut out of its contour - O')
+        self.cut_btn.setEnabled(False)
+        box.addWidget(self.loops_summary)
+        box.addWidget(self.loops_tree, 1)
+        box.addWidget(self.cut_btn)
         self.setWidget(body)
         self.groups: list = []
         self.tree.currentItemChanged.connect(self._current)
+        self.loops_tree.currentItemChanged.connect(self._current_loop)
+        self.cut_btn.clicked.connect(lambda: self.cutLoop.emit(self.current_loop()))
 
     def show_crossings(self, found: list) -> None:
         """The crossings as they stand, replacing what was listed. The row
@@ -76,8 +104,46 @@ class ChecksDock(QDockWidget):
         if keep is not None:
             self.tree.setCurrentItem(keep)
         self.tree.blockSignals(False)
+        self.tree.setVisible(bool(found))
 
     def _current(self, item, _previous):
         if item is not None and item.data(0, _ROW) is not None:
             key, found = item.data(0, _ROW)
             self.chosen.emit(key, found)
+
+    def show_loops(self, found: list) -> None:
+        """The contours crossing themselves, a row a place, replacing what
+        was listed; the row that was current stays so where its contour and
+        place are still listed."""
+        was = self.current_loop()
+        self.loops_summary.setText(
+            'No contour crosses itself.' if not found else
+            f'{len(found):,} place{"s" * (len(found) != 1)} where a contour crosses itself or passes '
+            f'through a node twice, in {len({lp.contour for lp in found})} contours - choose one, '
+            'and O cuts out the loop.')
+        self.loops_tree.blockSignals(True)
+        self.loops_tree.clear()
+        keep = None
+        for lp in sorted(found, key=lambda lp: (lp.contour[2], str(lp.contour[0]), lp.contour[1], lp.i)):
+            row = QTreeWidgetItem([lp.describe()])
+            row.setData(0, _ROW, lp)
+            row.setToolTip(0, f'{lp.explain()}\nchoose it to see where; O proposes the loop cut out')
+            self.loops_tree.addTopLevelItem(row)
+            if was is not None and (lp.contour, lp.lon, lp.lat) == (was.contour, was.lon, was.lat):
+                keep = row
+        if keep is not None:
+            self.loops_tree.setCurrentItem(keep)
+        self.loops_tree.blockSignals(False)
+        # an empty list is a box of nothing taking half the panel
+        self.loops_tree.setVisible(bool(found))
+        self.cut_btn.setVisible(bool(found))
+        self.cut_btn.setEnabled(self.current_loop() is not None)
+
+    def current_loop(self):
+        item = self.loops_tree.currentItem()
+        return item.data(0, _ROW) if item is not None else None
+
+    def _current_loop(self, item, _previous):
+        self.cut_btn.setEnabled(item is not None)
+        if item is not None:
+            self.loopChosen.emit(item.data(0, _ROW))
