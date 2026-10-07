@@ -929,8 +929,9 @@ Three parts, in this order:
   contour the river runs through becomes two, a contour wholly inside is cut
   away. The setback, metres per contour step, is the strength.
 - **G7c, what is left.** A river level that contradicts a contour beside it -
-  a level tens of metres below the contour a cell away - listed with the rest
-  of what a grade found, to burn or to fix the level.
+  a contour within a cell of the river, more than a contour step above or below
+  its level - listed with the rest of what a grade found, for the mapper to move
+  the contour or fix the level.
 
 Ends on three measurements. A flattened lake has one elevation, in the editor's
 surface and the server's alike. The climbing ascent left on the spans a burn
