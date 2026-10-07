@@ -137,5 +137,5 @@ def test_right_click_and_the_key_pinch_on_the_active_elevation(window):
     w.elevation.set(333)
     w.map.setFocus()
     from PySide6.QtTest import QTest
-    QTest.keyClick(w, 'p')
+    QTest.keyClick(w, 'c')                        # C since G8d; P splits
     assert w.surface.style.scaling.centre == 333 and w.surface_panel.centre.value() == 333

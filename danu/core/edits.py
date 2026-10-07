@@ -14,6 +14,7 @@ file, and JOSM treats a negative id the same way.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .reconcile import Reconciled, reconcile
@@ -343,6 +344,75 @@ def translate_way(square: Square, way_id: int, move, alloc: IdAllocator) -> Tran
         else:
             moves[r] = ((n.lon, n.lat), to)
     return TranslateWay(way_id, moves, copies)
+
+
+SPLIT_GAP_M = 5.0
+
+
+def _back(square: Square, frm: int, toward: int, metres: float):
+    """The point ``metres`` from node ``frm`` along the line to ``toward`` -
+    at most a third of the way, so a short segment keeps a stretch."""
+    a, b = square.nodes[frm], square.nodes[toward]
+    kx = 111320.0 * math.cos(math.radians(a.lat))
+    length = math.hypot((b.lon - a.lon) * kx, (b.lat - a.lat) * 110540.0)
+    t = min(metres / length, 1 / 3) if length > 0 else 0.0
+    return a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t
+
+
+def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
+              gap_m: float = SPLIT_GAP_M) -> ReplaceWay | str:
+    """A way split at one of its nodes, the two new ends unglued and drawn
+    back ``gap_m`` along their own lines, so they come apart where a mapper
+    can see and take hold of them. An open way becomes two, the first
+    keeping its id; a closed one opens into one line from the node round to
+    it. The node itself goes, unless another way holds it. Why not, as a
+    string."""
+    way = square.ways.get(way_id)
+    if way is None:
+        return 'that way is no longer there'
+    refs = way.refs
+    if node_id not in refs:
+        return 'that node is not on it'
+    closed = refs[0] == refs[-1] and len(refs) > 3
+    if closed:
+        k = refs.index(node_id)
+        line = refs[k:-1] + refs[:k] + [node_id]           # from the node round to it
+        n1, n2 = alloc.take(), alloc.take()
+        new = {n1: _back(square, node_id, line[1], gap_m), n2: _back(square, node_id, line[-2], gap_m)}
+        return ReplaceWay(way_id, [(way_id, [n1, *line[1:-1], n2])], new)
+    if refs.count(node_id) > 1:
+        return 'it passes through that node twice - cut out the loop first'
+    k = refs.index(node_id)
+    if k in (0, len(refs) - 1):
+        return 'that is an end already'
+    n1, n2 = alloc.take(), alloc.take()
+    new = {n1: _back(square, node_id, refs[k - 1], gap_m), n2: _back(square, node_id, refs[k + 1], gap_m)}
+    return ReplaceWay(way_id, [(way_id, [*refs[:k], n1]), (alloc.take(), [n2, *refs[k + 1:]])], new)
+
+
+def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -> Command | str:
+    """A way's end ``end`` put onto ``onto``, an end of ``other_id`` - or the
+    way's own other end, which closes it. The two become one way, keeping
+    the first's id; the dragged end goes, unless another way holds it. Why
+    not, as a string."""
+    way, other = square.ways.get(way_id), square.ways.get(other_id)
+    if way is None or other is None:
+        return 'that way is no longer there'
+    for w, n in ((way, end), (other, onto)):
+        if w.refs[0] == w.refs[-1]:
+            return 'a closed contour has no end to join'
+        if n not in (w.refs[0], w.refs[-1]):
+            return 'only an end joins - that node is in the middle of its contour'
+    if way.tags.get('ele') != other.tags.get('ele'):
+        return f'the levels differ - {way.tags.get("ele")} m and {other.tags.get("ele")} m'
+    mine = list(way.refs) if way.refs[-1] == end else list(reversed(way.refs))
+    if way_id == other_id:
+        if len(mine) < 4:
+            return 'too short to close'
+        return ReplaceWay(way_id, [(way_id, [*mine[:-1], mine[0]])], {})
+    theirs = list(other.refs) if other.refs[0] == onto else list(reversed(other.refs))
+    return Compound([ReplaceWay(way_id, [(way_id, [*mine[:-1], *theirs])], {}), DeleteWay(other_id)],
+                    name='join')
 
 
 @dataclass

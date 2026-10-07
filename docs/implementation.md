@@ -3263,3 +3263,31 @@ closing node counted as a pinch, an open line's ends taken for neighbours, the
 longer side of a ring cut, no node where the strands cross, a loop already
 gone cut anyway, the way handed in used, the panel not following an edit, the
 selection left on the old way, and an empty list shown.
+
+## G8d, split and join
+
+**P splits the contour selected at the node selected**, as JOSM's does. An
+open contour becomes two, the first keeping the way's id; a closed one opens
+there into one line, from the node round to it. The two new ends are unglued
+- a node each, the old one going unless another way holds it - and drawn 5 m
+back along their own lines, a third of a short segment at most, so they come
+apart where a mapper can see and take hold of them: 34 px at z19.
+
+**Ctrl and a drag of an end onto another contour's end joins them**, as
+JOSM's merge does: one way, keeping the dragged contour's id, the other turned
+to meet it. Onto the contour's own other end, it closes. Refused, the end put
+back and the reason said: another level, a node in the middle of a contour, a
+closed contour, an end in another square - squares meet at their edges - and
+a joining segment that would cross a contour (R16). Dropped where no node is,
+or without ctrl, it is a move as before. The node under the drop is found
+passing over the one dragged, which is under the cursor itself.
+
+**The surface's pinch moves from P to C.** A key already rebound in the INI
+keeps its own.
+
+Eleven mutations, each failing a test, every one from a fresh copy: drawn back
+past the next node, the ends not drawn apart, a ring opened at its first node
+and not the one chosen, an end split, a join across levels, a join onto a
+middle node, the other way not turned to meet, a join without ctrl, a join
+across a contour, the dragged node taken for the target, and the pinch still on
+P.

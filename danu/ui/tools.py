@@ -534,6 +534,8 @@ class EditController(QObject):
         self._drag = None
         if not self._dragged:
             return True
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._join(square, nid, before, pos):
+            return True
         n = square.nodes[nid]
         after = (n.lon, n.lat)
         bad = self._node_crossings(square, nid)
@@ -547,6 +549,76 @@ class EditController(QObject):
         self.do(square, edits.MoveNode(nid, before, after))
         self.message.emit(self._moved_what())
         return True
+
+    def _join(self, square: Square, nid: int, before, pos: QPointF) -> bool:
+        """Ctrl and a drag of a contour's end onto another's: the two joined
+        into one way - or onto its own other end, which closes it (G8d). False
+        when no node is under the drop, which leaves it an ordinary move; a
+        join refused puts the end back and says why."""
+        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX), skip=(square.name, nid))
+        if hit is None:
+            return False
+        there, target, _ = hit
+        n = square.nodes[nid]
+
+        def refuse(why):
+            n.lon, n.lat = before
+            self.layer.refresh(square, self._ways_holding(square, nid))
+            self.message.emit(f'not joined: {why}')
+            self.overlay.update()
+            return True
+        if there is not square:
+            return refuse('that end is in another square - a contour joins its neighbour at the '
+                          'square\'s edge, not here')
+        mine = [w for w in self._ways_holding(square, nid) if square.ways[w].ele is not None]
+        theirs = [w for w in self._ways_holding(square, target) if square.ways[w].ele is not None]
+        if len(mine) != 1 or len(theirs) != 1:
+            return refuse('only the end of one contour joins the end of another')
+        wid, oid = mine[0], theirs[0]
+        cmd = edits.join_ways(square, wid, nid, oid, target)
+        if isinstance(cmd, str):
+            return refuse(cmd)
+        # R16 for the one segment that changes: from the end's neighbour to
+        # the node it joins
+        way = square.ways[wid]
+        near = way.refs[-2] if way.refs[-1] == nid else way.refs[1]
+        bad = self.layer.crossings(self.layer.node_xy(square, near), self.layer.node_xy(square, target),
+                                   way.ele)
+        if bad:
+            return refuse(self._describe_crossing(bad))
+        n.lon, n.lat = before                      # the command does it, so undo has it exact
+        self.do(square, cmd)
+        self.selection = Selection(square, square.ways[wid])
+        name = f'the {format_ele(way.ele)} m contour'
+        self.message.emit(f'closed {name}' if wid == oid else f'joined {name} to way {oid} - one way now')
+        self.overlay.update()
+        return True
+
+    def split(self):
+        """P: the contour selected split at the node selected, its two new
+        ends unglued and drawn back apart - or, closed, opened there into
+        one line (G8d). Ctrl and a drag of one end onto the other joins it
+        again."""
+        sel = self.selection
+        if sel is None or sel.relation is not None or sel.way is None or sel.node is None:
+            self.message.emit('choose a node of a contour, then P splits it there')
+            return
+        if sel.way.ele is None or (sel.square.name, sel.way.id) in self.layer.water:
+            self.message.emit('only a contour splits here')
+            return
+        closed = sel.way.closed
+        cmd = edits.split_way(sel.square, sel.way.id, sel.node, self.history.alloc(sel.square))
+        if isinstance(cmd, str):
+            self.message.emit(f'not split: {cmd}')
+            return
+        self.do(sel.square, cmd)
+        self.selection = Selection(sel.square, sel.square.ways[sel.way.id])
+        name = f'the {format_ele(sel.way.ele)} m contour'
+        apart = f'its ends drawn {edits.SPLIT_GAP_M:g} m back either side'
+        self.message.emit((f'opened {name} at the node, {apart}' if closed else
+                           f'split {name} in two at the node, {apart}')
+                          + ' - ctrl and a drag of one end onto the other joins it again')
+        self.overlay.update()
 
     def _on_selected_contour(self, pos: QPointF) -> bool:
         """Whether a press lands on the contour selected whole."""
