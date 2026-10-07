@@ -136,7 +136,8 @@ def describe(sel, layer) -> Info:
                 where=where + node_note, tags=_others(way.tags))
 
 
-# the profile's shading, the map's colours lighter: a climb red, unknown grey
+# the profile's shading, the map's colours lighter: a climb red, a level a
+# contour beside it contradicts orange, unknown grey
 SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'steep': QColor(230, 120, 0, 70),
              'far': QColor(120, 120, 120, 70)}
 

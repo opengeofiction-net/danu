@@ -105,3 +105,9 @@ def test_on_a_chain_walked_over_a_gap_the_stretch_drawn_is_beside_the_contour(wi
     assert max(lons) == pytest.approx(125.36 + 0.0003, abs=0.0002)
     assert math.isclose(issue.span[1] - issue.span[0], (0.01 + 0.0006) * 111320 * math.cos(math.radians(LAT)),
                         abs_tol=25)
+    # and the network's grade, over the same gap
+    window.editor.selection = Selection(sq, sq.ways[100])
+    window.editor.grade_network()
+    (issue,) = steep(window)
+    lons = [m.scene_to_lonlat(x, y)[0] for x, y in issue.path]
+    assert min(lons) == pytest.approx(125.35 - 0.0003, abs=0.0002)
