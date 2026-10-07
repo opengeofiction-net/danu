@@ -92,7 +92,7 @@ def find(working_set, river: list, dist: list, levels: list, contours: Contours 
     R = proj.to(river)
     d = np.asarray(dist, dtype=float)
     lv = np.array([np.nan if v is None else float(v) for v in levels])
-    samples = np.arange(0.0, float(d[-1]) + 1e-9, STEP_M)
+    samples = np.arange(float(d[0]), float(d[-1]) + 1e-9, STEP_M)      # from where the river starts
     i = np.clip(np.searchsorted(d, samples, side='right') - 1, 0, len(d) - 2)
     graded = ~np.isnan(lv[i]) & ~np.isnan(lv[i + 1])
     if not graded.any():
