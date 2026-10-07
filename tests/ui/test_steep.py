@@ -73,3 +73,35 @@ def test_moved_clear_it_is_not_listed(beside):
     w.editor.selection = Selection(sq, sq.ways[100])
     w.editor.grade()
     assert steep(w) == []
+
+
+def test_on_a_chain_walked_over_a_gap_the_stretch_drawn_is_beside_the_contour(window):
+    """The river in two ways, 3 m apart end to end - a gap the chain is
+    walked across, so its distances jump there. The stretch said and drawn is
+    still the one beside the contour, after the gap."""
+    import math
+
+    from danu.ui import mercator as m
+    water = overpass.Water()
+    for k in range(41):
+        water.nodes[k + 1] = Node(id=k + 1, lon=125.30 + 0.0025 * k + 0.0001, lat=LAT)
+    # the second way starts 3 m on from where the first ends - under the
+    # chain's 5 m, so it is walked across
+    water.nodes[100] = Node(id=100, lon=water.nodes[20].lon + 0.00003, lat=LAT)
+    water.ways[100] = Way(id=100, refs=list(range(1, 21)), tags={'waterway': 'river', 'name': 'Merta'})
+    water.ways[101] = Way(id=101, refs=[100, *range(21, 42)], tags={'waterway': 'river', 'name': 'Merta'})
+    window._water_imported(Answer({NORTH: water}, frozenset(water.ways), frozenset()), window.working_set)
+    for lon, ele in ((125.31, 100), (125.33, 75), (125.37, 50)):
+        draw(window, [(lon, LAT - 0.02), (lon, LAT + 0.02)], ele)
+    draw(window, [(125.35, LAT + 10 * M_LAT), (125.36, LAT + 10 * M_LAT)], 125)
+    sq = window.working_set.squares[NORTH]
+    window.editor.selection = Selection(sq, sq.ways[100])
+    window.editor.grade()
+    assert 'walked across 1 gap' in window.editor.proposal.summary, window.editor.proposal.summary
+    (issue,) = steep(window)
+    lons = [m.scene_to_lonlat(x, y)[0] for x, y in issue.path]
+    # the contour's 125.35 to 125.36, and a cell (~0.0003 degrees) either end
+    assert min(lons) == pytest.approx(125.35 - 0.0003, abs=0.0002)
+    assert max(lons) == pytest.approx(125.36 + 0.0003, abs=0.0002)
+    assert math.isclose(issue.span[1] - issue.span[0], (0.01 + 0.0006) * 111320 * math.cos(math.radians(LAT)),
+                        abs_tol=25)
