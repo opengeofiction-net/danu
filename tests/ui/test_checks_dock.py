@@ -53,7 +53,8 @@ def test_opening_the_panel_lists_the_contour_that_crosses_most_first(crossed):
 
 def test_the_map_marks_crossings_only_while_the_panel_is_open(crossed):
     w, _ = crossed
-    assert len(w.editor.marks) == 3
+    # the 3 crossings, and the touches the golden square holds (G8e)
+    assert len(w.editor.marks) == 3 + len(w.touch_index.touches())
     w.checks_dock.hide()
     assert w.editor.marks == []
 

@@ -617,6 +617,25 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
+    def unglue(self):
+        """U: the node selected left to its contour alone - every other
+        contour holding it given a node of its own, drawn a few metres back
+        into its own bend (G8e). R16: contours of two levels may not meet."""
+        sel = self.selection
+        if sel is None or sel.relation is not None or sel.way is None or sel.node is None:
+            self.message.emit('choose a node contours share, then U unglues it')
+            return
+        cmd = edits.unglue_node(sel.square, sel.way.id, sel.node, self.history.alloc(sel.square))
+        if isinstance(cmd, str):
+            self.message.emit(f'not unglued: {cmd}')
+            return
+        n = len(cmd.commands)
+        self.do(sel.square, cmd)
+        self.selection = Selection(sel.square, sel.square.ways[sel.way.id], sel.node)
+        self.message.emit(f'unglued {n} contour{"s" * (n != 1)} from the node, each drawn '
+                          f'{edits.SPLIT_GAP_M:g} m back into its own line')
+        self.overlay.update()
+
     def split(self):
         """P: the contour selected split at the node selected, its two new
         ends unglued and drawn back apart - or, closed, opened there into

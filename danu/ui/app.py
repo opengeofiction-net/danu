@@ -18,7 +18,7 @@ from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
-from ..checks import crossings, loops
+from ..checks import crossings, loops, touches
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten
@@ -128,12 +128,14 @@ class MainWindow(QMainWindow):
         self.checks_dock.hide()
         self.crossing_index = None
         self.loop_index = None                  # contours crossing themselves (G8c)
+        self.touch_index = None                 # touching or lying on one another (G8e)
         self._checks_due = QTimer(self)
         self._checks_due.setSingleShot(True)
         self._checks_due.setInterval(250)
         self._checks_due.timeout.connect(self._refresh_checks)
         self.checks_dock.chosen.connect(self._choose_crossing)
         self.checks_dock.loopChosen.connect(self._choose_loop)
+        self.checks_dock.touchChosen.connect(self._choose_touch)
         # the editor is made below: looked up when the button is pressed
         self.checks_dock.cutLoop.connect(lambda loop: self.editor.cut_loop(loop))
         self.checks_dock.visibilityChanged.connect(self._checks_shown)
@@ -428,6 +430,7 @@ class MainWindow(QMainWindow):
                 ('edit.burn', '&Burn the climb chosen', lambda: ed.burn()),
                 ('edit.burn_all', 'Burn every climb the grade &found', lambda: ed.burn(every=True)),
                 ('edit.split', 'S&plit the contour at the node', ed.split),
+                ('edit.unglue', '&Unglue the node from the other contours', ed.unglue),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop()))):
             a = QAction(text, self)
@@ -442,6 +445,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.delete'])
         edit.addAction(self.edit_actions['edit.delete_way'])
         edit.addAction(self.edit_actions['edit.split'])
+        edit.addAction(self.edit_actions['edit.unglue'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])
@@ -544,6 +548,7 @@ class MainWindow(QMainWindow):
         # checks are not looked at (G8a)
         self.crossing_index = None
         self.loop_index = None
+        self.touch_index = None
         if self.checks_dock.isVisible():
             self._checks_shown(True)
         self.squares.set_working_set(ws)
@@ -747,6 +752,7 @@ class MainWindow(QMainWindow):
             try:
                 self.crossing_index = crossings.Index(self.working_set)
                 self.loop_index = loops.Index(self.working_set)
+                self.touch_index = touches.Index(self.working_set)
             finally:
                 QApplication.restoreOverrideCursor()
             self._refresh_checks()
@@ -760,12 +766,15 @@ class MainWindow(QMainWindow):
             self.crossing_index.update(square, ways)
             if self.loop_index is not None:
                 self.loop_index.update(square, ways)
+            if self.touch_index is not None:
+                self.touch_index.update(square, ways)
             self._checks_due.start()
 
     def _refresh_checks(self) -> None:
         found = self.crossing_index.crossings() if self.crossing_index is not None else []
         self.checks_dock.show_crossings(found)
         self.checks_dock.show_loops(self.loop_index.loops() if self.loop_index is not None else [])
+        self.checks_dock.show_touches(self.touch_index.touches() if self.touch_index is not None else [])
         self._refresh_marks()
 
     def _refresh_marks(self) -> None:
@@ -776,6 +785,8 @@ class MainWindow(QMainWindow):
         self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in self.crossing_index.crossings()]
                              + [m.lonlat_to_scene(lp.lon, lp.lat)
                                 for lp in (self.loop_index.loops() if self.loop_index is not None else [])]
+                             + [m.lonlat_to_scene(t.lon, t.lat)
+                                for t in (self.touch_index.touches() if self.touch_index is not None else [])]
                              if on else [])
         if not on:
             self.editor.marks_focus = []
@@ -817,6 +828,24 @@ class MainWindow(QMainWindow):
         self.editor.overlay.update()
         key = self.settings.key('edit.cut_loop') or 'O'
         self.statusBar().showMessage(f'{loop.explain()} - ringed; {key} proposes the loop cut out')
+
+    def _choose_touch(self, touch) -> None:
+        """Contours that touch, chosen in the checks panel: the first of
+        them selected - at the node, for one two levels share, so U unglues
+        it - the place ringed and brought into view (G8e)."""
+        ws = self.working_set
+        square = ws.squares.get(touch.a[0]) if ws is not None else None
+        way = square.ways.get(touch.a[1]) if square is not None else None
+        if way is None:
+            self.statusBar().showMessage(f'way {touch.a[1]} is no longer in {touch.a[0]}')
+            return
+        self.editor.set_tool('select')
+        node = touch.node if touch.kind == 'shared' and touch.node in way.refs else None
+        self.editor.selection = Selection(square, way, node)
+        self.editor.marks_focus = [m.lonlat_to_scene(touch.lon, touch.lat)]
+        self._show_place(touch.lon, touch.lat, touch.lon, touch.lat)
+        self.editor.overlay.update()
+        self.statusBar().showMessage(f'{touch.explain()} - ringed')
 
     def _show_place(self, w: float, s: float, e: float, n: float):
         """The map to something a grade found - G6d-3. A margin round a span,

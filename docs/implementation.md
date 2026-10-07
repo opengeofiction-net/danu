@@ -3336,3 +3336,58 @@ picked wrong, the level not graded between vertices, Shift+G not listing them,
 and G not saying how many. The ninth - a sample measured with only one of its
 vertices graded - is equivalent: its level is not a number, and no comparison
 passes it.
+
+## G8e, contours that touch or lie on one another
+
+**R16's other half.** A contour may not cross one of another level at all, and
+the editor counts a touch as a crossing while drawing; the crossings check
+(G8a) finds only proper crossings in what the squares hold. Two more, the
+checks panel's third list:
+
+- **a node two levels share** - 47 on cleaned gobras, 35 of them N21E086's
+  straight edge line at lon 86.4127, where 25 to 200 m contours run in a stack
+  a metre apart sharing nodes; over 4,000 in the originals. Contours of one
+  level meeting at a node are two ways of a contour joined, and not listed.
+- **a stretch of one contour within 1 m of another** for a segment or more -
+  the validation table's duplicate coincident contours, and more: 51 on
+  gobras, 10 of them at one level (two closed 100 m knolls sharing a side, a
+  100 m triangle lying on the 100 m line beside it), 41 at two (the edge
+  stack, up to 1.9 km). The golden square holds 39 contours duplicated whole.
+
+These are what made the surface depend on the order of a square's ways: two
+levels in one 1" cell, and the way written last wins it. A shared node inside a
+stretch of the same two is said once, as the stretch.
+
+**U unglues a shared node**: the contour selected keeps it, and every other one
+holding it gets a node of its own, drawn 5 m - a third of the way at most -
+toward the middle of its own neighbours, into its own bend, so the two come
+apart where they met. One running straight through moves square to its line,
+away from the way kept. Choosing a shared row selects the contour at the node,
+ready for U. A stretch is the mapper's to mend: delete a duplicate, move a
+contour lying on another.
+
+**Kept as edited.** The index keeps every contour's points and box by square;
+an edit reads its ways again and asks them against the ways whose boxes come
+near, and only in the cells about them - 9 ms an edit on gobras, the worst 73.
+Checked against a full scan after an unglue and an undo of every shared node
+on gobras: the same, once two faults were out. What was said for a pair with a
+stretch each way round, and whether its shared node was said as well, hung on
+the order the square held its ways - and an undo, which puts a way back at the
+end, changed the list; it is now the longest stretch, the lower way id of two
+as long, and a node is not said where any stretch of the pair holds it. And an
+edit to one of three contours sharing a node asked again the pair of the other
+two, without their stretch.
+
+**The mutation runner** had run stale code: a mutation that changes no
+length, restored within the second, leaves Python's cached bytecode - checked
+by size and modification time - the mutated one, and the next run tested that.
+Runs now write no bytecode, and the suites of G7b, G7c, G8c and G8d were run
+again so - 45 mutations, each still failing its own test.
+
+Ten mutations, each failing a test, every one from a fresh copy and with no
+bytecode: one level sharing a node a fault, coincident at any distance, a
+stretch of no length, a stretch round a ring's start in two, a shared node in a
+stretch said twice, the index keeping an edited way's old points, unglued out
+of its bend, a straight one moved toward the way kept, a shared row not
+selecting the node, and the panel not following an edit. And the two faults
+above, each mutated back in, failing its own test.

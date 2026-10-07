@@ -143,3 +143,42 @@ def test_a_ring_through_the_node_twice_is_not_split_there():
     p, q, r = w.refs
     w.refs = [p, q, r, q, p]                         # through q twice, closed on p
     assert 'twice' in edits.split_way(sq, w.id, q, edits.IdAllocator(sq))
+
+
+# ------------------------------------------------------- unglue, G8e
+
+def test_unglue_gives_the_other_contour_its_own_node_drawn_into_its_bend():
+    """A 125 m V whose tip is on the 100 m line, sharing its node: the 100 m
+    keeps the node, the V's tip comes 5 m back toward its own arms."""
+    sq = sq_()
+    line = way(sq, [(125.30, LAT), (125.31, LAT), (125.32, LAT)], 100)
+    tip = line.refs[1]
+    v = way(sq, [(125.305, LAT + 0.01), (125.31, LAT), (125.315, LAT + 0.01)], 125)
+    del sq.nodes[v.refs[1]]
+    v.refs[1] = tip
+    before = edits.snapshot(sq)
+    cmd = edits.unglue_node(sq, line.id, tip, edits.IdAllocator(sq))
+    cmd.apply(sq)
+    assert sq.ways[line.id].refs[1] == tip and tip not in sq.ways[v.id].refs
+    new = sq.nodes[sq.ways[v.id].refs[1]]
+    assert new.lat > LAT, 'not drawn into its own bend'
+    assert metres(sq, tip, new.id) == pytest.approx(edits.SPLIT_GAP_M, abs=0.01)
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_unglue_moves_one_straight_through_square_to_its_line_away_from_the_kept():
+    sq = sq_()
+    v = way(sq, [(125.30, LAT + 0.01), (125.31, LAT + 0.0001), (125.32, LAT + 0.02)], 100)    # the kept, a V above
+    node = v.refs[1]
+    straight = way(sq, [(125.30, LAT + 0.0001), (125.32, LAT + 0.0001)], 125)
+    straight.refs.insert(1, node)
+    edits.unglue_node(sq, v.id, node, edits.IdAllocator(sq)).apply(sq)
+    new = sq.nodes[sq.ways[straight.id].refs[1]]
+    assert new.lat < LAT + 0.0001, 'moved toward the way it came off'
+
+
+def test_unglue_a_node_nobody_else_holds_says_so():
+    sq = sq_()
+    w = line(sq)
+    assert 'no other way' in edits.unglue_node(sq, w.id, w.refs[1], edits.IdAllocator(sq))
