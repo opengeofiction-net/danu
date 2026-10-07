@@ -772,7 +772,8 @@ class MainWindow(QMainWindow):
         not what drawing a contour is."""
         on = self.checks_dock.isVisible() and self.crossing_index is not None
         self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in self.crossing_index.crossings()]
-                             + [m.lonlat_to_scene(lp.lon, lp.lat) for lp in self.loop_index.loops()]
+                             + [m.lonlat_to_scene(lp.lon, lp.lat)
+                                for lp in (self.loop_index.loops() if self.loop_index is not None else [])]
                              if on else [])
         if not on:
             self.editor.marks_focus = []

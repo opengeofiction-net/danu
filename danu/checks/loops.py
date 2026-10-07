@@ -7,8 +7,8 @@ found on gobras:
 
 - **a crossing** - two segments of the one contour properly crossing: 23 in
   7 contours of the originals, none once they were cleaned;
-- **a pinch** - the contour passing through one node twice: 20 in the
-  originals, 6 after. Some are a loop through a node; some a spike, out along
+- **a pinch** - the contour passing through one node twice: 61 places in 20
+  contours of the originals, 12 in 6 after. Some are a loop through a node; some a spike, out along
   a segment and back over it; some a run out along a straight edge and back
   over the same nodes, one pinch for each node of it.
 

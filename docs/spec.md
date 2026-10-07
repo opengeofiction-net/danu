@@ -950,7 +950,8 @@ The notes on what this phase has done so far are in `implementation.md`, under
 crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
 gobras holds contours that cross dozens of others, and a river crossing one
 reads as a climb a burn would bend real contours to fit. A contour crossing
-itself followed as G8c, with the loop cut out. Here, the panel's other checks, then measure, profile, difference, magnify, autosave and crash
+itself followed as G8c, with the loop cut out. Here, the panel's other
+checks, then measure, profile, difference, magnify, autosave and crash
 recovery, session files.
 
 **Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
