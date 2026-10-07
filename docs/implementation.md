@@ -3197,8 +3197,8 @@ its pairs. The run is the river burned down to its level from one end to the
 other, so every contour above that level is kept its setback from the whole
 stretch: what lies nearer is clipped out, and the ends are joined along the
 notch's rim on the high side. One rule then does the cut, every pair of a
-weave, the old push of a contour that only comes near, and the cut-away of
-one wholly inside. Which side is high is read from the contour's direction
+weave, a contour that only comes near - `_push` went, the rim does it - and
+the cut-away of one wholly inside. Which side is high is read from the contour's direction
 where it crosses the river, rising across the first crossing; reading it
 from the river below each stretch of rim failed on the Bosco's 100 m, which
 touches the river at one node without crossing it.

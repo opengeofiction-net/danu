@@ -428,7 +428,7 @@ def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=
         return got
     # all above the run's level: it ends at the first crossing back at or below it
     levels = sorted({run.base, *(c.ele for c in inside)})
-    step = min(b - a for a, b in zip(levels, levels[1:], strict=False))
+    step = min((b - a for a, b in zip(levels, levels[1:], strict=False)), default=1.0)
 
     def refuse(why, xy):
         for sq, cmd in reversed(applied[mark:]):

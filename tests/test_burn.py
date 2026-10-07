@@ -329,17 +329,20 @@ def test_a_contour_crossing_on_its_first_segment_is_a_crossing_and_one_ending_on
 
 # ------------------------------------------------- a run burned whole, #110
 
-def test_any_climb_of_a_run_burns_the_whole_run():
+@pytest.mark.parametrize('walked', ['downstream', 'upstream'])
+def test_any_climb_of_a_run_burns_the_whole_run(walked):
     """The river climbs onto the 100 m and on onto the 125 m inside it: two
     climbs, one run. Either asked for burns both - burned one at a time,
-    the first's cut ran into the other."""
+    the first's cut ran into the other. The way the river is drawn does not
+    matter: the run's foot is the climb's lower end either way."""
     w, sq = ws()
     descent(sq)
     spur(sq)
-    places = burn.climbs(w, RIVER)
+    river = RIVER if walked == 'downstream' else RIVER[::-1]
+    places = burn.climbs(w, river)
     assert len(places) == 2
     for place in places:
-        p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s), only=place)
+        p = burn.plan(w, river, lambda s: edits.IdAllocator(s), only=place)
         assert p.burned == 2 and p.contours_cut == 2, p.skipped
 
 
