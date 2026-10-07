@@ -122,7 +122,7 @@ def test_a_contour_that_crosses_the_river_only_once_is_not_burned_and_said():
     ns(sq, 125.35, 100)                                  # a spur: once, in the wrong place
     p = run(w, sq)
     assert p.burned == 0 and p.steps == []
-    assert any('only here' in why for why, _, _ in p.skipped)
+    assert any('crosses the river only once' in why for why, _, _ in p.skipped)
 
 
 def test_a_cut_that_would_cross_another_contour_is_left_and_said():
@@ -208,7 +208,7 @@ def test_a_spur_is_cut_whole_each_contour_set_back_a_step_further():
     descent(sq)
     outer, inner = spur(sq)
     p = run(w, sq)
-    assert p.burned == 1 and p.contours_cut == 2, p.skipped
+    assert p.burned == 2 and p.contours_cut == 2, p.skipped          # the climbs onto each, one run
     assert min(lats_of(sq, sq.ways[outer.id])) == pytest.approx(LAT + 50 * M_LAT, abs=1e-6)
     assert min(lats_of(sq, sq.ways[inner.id])) == pytest.approx(LAT + 100 * M_LAT, abs=1e-6)
     tips = [x for x in sq.ways.values() if x.refs[0] == x.refs[-1]]
@@ -226,7 +226,9 @@ def test_the_setback_is_metres_per_contour_step():
     assert min(lats_of(sq, sq.ways[inner.id])) == pytest.approx(LAT + 160 * M_LAT, abs=1e-6)
 
 
-def test_a_lower_contour_inside_the_stretch_is_another_climb_burned_first():
+def test_a_lower_contour_inside_the_finger_is_refused():
+    """The 75 m inside the 100 m finger: the river is back down to 75 m
+    before the finger's second crossing - nothing a cut can mend."""
     w, sq = ws()
     descent(sq)
     way(sq, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.365, LAT - 0.01),
@@ -234,7 +236,9 @@ def test_a_lower_contour_inside_the_stretch_is_another_climb_burned_first():
     way(sq, [(125.352, LAT + 0.02), (125.352, LAT - 0.005), (125.358, LAT - 0.005),
              (125.358, LAT + 0.02)], 75)                      # lower, inside it
     p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s))
-    assert any('another climb' in why for why, _, _ in p.skipped)
+    assert p.burned == 0
+    assert any('100 m contour crosses the river only once before it is back down to 75 m' in why
+               for why, _, _ in p.skipped)
 
 
 def test_a_higher_contour_near_the_river_is_pushed_back_to_its_setback():
@@ -261,7 +265,7 @@ def test_a_spurs_inner_contour_wholly_inside_the_notch_is_cut_away():
     knoll = way(sq, [(125.354, LAT - 40 * M_LAT), (125.356, LAT - 40 * M_LAT), (125.356, LAT + 40 * M_LAT),
                      (125.354, LAT + 40 * M_LAT)], 125, closed=True)        # a knoll the river runs over
     p = run(w, sq)
-    assert p.burned == 1, p.skipped
+    assert p.burned == 2, p.skipped
     assert knoll.id not in sq.ways and len(p.dropped) >= 1
 
 
@@ -280,15 +284,6 @@ def test_a_contour_snapped_along_the_river_is_one_crossing_and_a_touch_none():
     assert touch.id not in {c.key[1] for c in crossings}
 
 
-def test_a_vertex_on_the_river_is_skipped_and_the_rest_still_pushed():
-    import numpy as np
-    bank = np.array([[0.0, 0.0], [100.0, 0.0]])
-    P = np.array([[10.0, 0.0], [20.0, 10.0], [30.0, 80.0]])          # on it, near it, clear of it
-    push = burn._push(bank, P, 50.0)
-    assert push is not None and set(push) == {1}, push
-    assert push[1][1] == pytest.approx(50.0)
-
-
 def test_a_hills_strike_through_is_what_is_replaced_not_half_the_ring():
     w, sq = ws()
     descent(sq)
@@ -303,7 +298,8 @@ def test_a_hills_strike_through_is_what_is_replaced_not_half_the_ring():
 
 def test_the_strike_through_takes_in_the_vertices_the_setback_drops():
     """Vertices 20 m either side of the river are within the 50 m setback and
-    go; the strike-through reaches out to the first kept on either side."""
+    go; the strike-through runs from rim to rim, 50 m either side, through
+    them."""
     w, sq = ws()
     descent(sq)
     way(sq, [(125.345, LAT - 0.02), (125.355, LAT - 0.02), (125.355, LAT - 20 * M_LAT),
@@ -311,7 +307,9 @@ def test_the_strike_through_takes_in_the_vertices_the_setback_drops():
     p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s))
     east = next(r for r in p.removed if all(round(lon, 4) == 125.355 for lon, _ in r))
     lats = sorted(lat for _, lat in east)
-    assert lats[0] == pytest.approx(LAT - 0.02) and lats[-1] == pytest.approx(LAT + 0.02), lats
+    assert len(lats) == 4, lats
+    assert lats[0] == pytest.approx(LAT - 50 * M_LAT, abs=1e-6)
+    assert lats[-1] == pytest.approx(LAT + 50 * M_LAT, abs=1e-6)
 
 
 def test_a_contour_crossing_on_its_first_segment_is_a_crossing_and_one_ending_on_the_river_not():
@@ -327,3 +325,115 @@ def test_a_contour_crossing_on_its_first_segment_is_a_crossing_and_one_ending_on
     assert r == pytest.approx(10.0) and s_ == pytest.approx(0.1)
     ends = np.array([[5.0, 20.0], [10.0, 0.0]])                     # stops on the river
     assert burn._contacts(R, dist, ends) == []
+
+
+# ------------------------------------------------- a run burned whole, #110
+
+def test_any_climb_of_a_run_burns_the_whole_run():
+    """The river climbs onto the 100 m and on onto the 125 m inside it: two
+    climbs, one run. Either asked for burns both - burned one at a time,
+    the first's cut ran into the other."""
+    w, sq = ws()
+    descent(sq)
+    spur(sq)
+    places = burn.climbs(w, RIVER)
+    assert len(places) == 2
+    for place in places:
+        p = burn.plan(w, RIVER, lambda s: edits.IdAllocator(s), only=place)
+        assert p.burned == 2 and p.contours_cut == 2, p.skipped
+
+
+def crosses_between(w, lon0, lon1):
+    """The contours crossing the river between two longitudes."""
+    proj, R, _, crossings, dist = burn._crossings(w, RIVER, 0)
+    return [c for c in crossings if lon0 < proj.back(burn._at(R, dist, c.r))[0] < lon1]
+
+
+def test_a_contour_weaving_across_the_river_is_cut_at_every_crossing():
+    """The 125 m crosses four times inside the run, dipping 40 m north of the
+    river between - under its setback. All of it nearer than 100 m goes: the
+    line north is set back the whole way, and each lobe south is a ring."""
+    w, sq = ws()
+    descent(sq)
+    way(sq, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.375, LAT - 0.01),
+             (125.375, LAT + 0.02)], 100)
+    weave = way(sq, [(125.35, LAT + 0.02), (125.35, LAT - 0.005), (125.355, LAT - 0.005),
+                     (125.355, LAT + 40 * M_LAT), (125.36, LAT + 40 * M_LAT), (125.36, LAT - 0.005),
+                     (125.37, LAT - 0.005), (125.37, LAT + 0.02)], 125)
+    p = run(w, sq)
+    assert p.burned >= 1 and p.contours_cut == 2, p.skipped
+    assert crosses_between(w, 125.33, 125.39) == []
+    pieces = [x for x in sq.ways.values() if x.tags['ele'] == '125']
+    rings = [x for x in pieces if x.refs[0] == x.refs[-1]]
+    (line,) = [x for x in pieces if x.refs[0] != x.refs[-1]]
+    assert line.id == weave.id and len(rings) == 2
+    assert min(lats_of(sq, line)) == pytest.approx(LAT + 100 * M_LAT, abs=1e-6)
+    assert all(max(lats_of(sq, r)) == pytest.approx(LAT - 100 * M_LAT, abs=1e-6) for r in rings)
+
+
+def test_a_contour_touching_the_river_without_crossing_it_is_cut_round():
+    """The hill's south side comes up to the river in a V and touches it at
+    one of its nodes - on gobras the Bosco's 100 m. The V's tip goes, and
+    the hill south of the river is two rings either side of it."""
+    w, sq = ws()
+    descent(sq)
+    way(sq, [(125.345, LAT - 0.02), (125.353, LAT - 0.02), (125.355, LAT), (125.357, LAT - 0.02),
+             (125.365, LAT - 0.02), (125.365, LAT + 0.02), (125.345, LAT + 0.02)], 100, closed=True)
+    p = run(w, sq)
+    assert p.burned == 1, p.skipped
+    rings = [x for x in sq.ways.values() if x.tags['ele'] == '100' and x.refs[0] == x.refs[-1]]
+    assert len(rings) == 3
+    assert crosses_between(w, 125.33, 125.39) == []
+    north = [r for r in rings if min(lats_of(sq, r)) > LAT]
+    assert len(north) == 1 and min(lats_of(sq, north[0])) == pytest.approx(LAT + 50 * M_LAT, abs=1e-6)
+    for r in rings:
+        if r is not north[0]:
+            assert max(lats_of(sq, r)) <= LAT - 50 * M_LAT + 1e-6
+
+
+def test_the_rim_inside_a_bend_tighter_than_the_setback_does_not_fold_back():
+    """Offset 250 m inside a bend of 100 m the line loops back on itself;
+    those points are nearer the river than 250 m, and not on the rim."""
+    import numpy as np
+    stretch = np.array([[0.0, 0.0], [300.0, 0.0], [400.0, 100.0], [400.0, 400.0]])
+    rim = burn._Rim(stretch, 250.0)
+    left = rim.path(1, rim.L - 1)                   # the stretch turns left: its inside
+    assert (burn._distance(stretch, left) >= 250 * 0.995).all()
+
+
+def test_a_river_that_never_comes_back_down_is_not_burned_and_said():
+    w, sq = ws()
+    ns(sq, 125.31, 100)
+    ns(sq, 125.33, 75)
+    ns(sq, 125.35, 100)                                   # and nothing below it after
+    p = run(w, sq)
+    assert p.burned == 0
+    assert any('never comes back down to 75 m' in why for why, _, _ in p.skipped), p.skipped
+
+
+def test_a_rim_may_cross_a_contour_its_own_contour_crossed_before():
+    """A rogue 60 m already crosses the finger; the finger's rim crosses it
+    too. Not the burn's to refuse - that pair was crossing before it."""
+    w, sq = ws()
+    descent(sq)
+    way(sq, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.355, LAT - 0.01),
+             (125.355, LAT + 0.02)], 100)
+    way(sq, [(125.34, LAT + 0.005), (125.35, LAT + 30 * M_LAT)], 60)
+    p = run(w, sq)
+    assert p.burned == 1, p.skipped
+
+
+def test_a_rim_that_would_cross_the_river_where_it_comes_back_is_refused():
+    """A hairpin: the river comes back west 130 m north of the run. The
+    125 m between, set back 160 m, would be closed across it."""
+    hairpin = [(125.30 + 0.0025 * k, LAT) for k in range(41)] + \
+              [(125.30 + 0.0025 * k, LAT + 130 * M_LAT) for k in range(40, 7, -1)] + [(125.32, LAT + 0.02)]
+    w, sq = ws()
+    for lon, ele in ((125.31, 100), (125.33, 75), (125.39, 50)):
+        way(sq, [(lon, LAT - 0.02), (lon, LAT + 40 * M_LAT)], ele)
+    way(sq, [(125.345, LAT - 0.02), (125.345, LAT + 20 * M_LAT), (125.355, LAT + 20 * M_LAT),
+             (125.355, LAT - 0.02)], 100)
+    way(sq, [(125.30, LAT + 60 * M_LAT), (125.395, LAT + 60 * M_LAT)], 125)
+    p = burn.plan(w, hairpin, lambda s: edits.IdAllocator(s), setback_m=80)
+    assert p.burned == 0
+    assert any('125 m contour would cross the river' in why for why, _, _ in p.skipped), p.skipped

@@ -107,7 +107,7 @@ def test_a_climb_not_burnable_is_listed_with_why(window):
     p = window.editor.proposal
     assert p.summary.startswith('nothing burned') and not p.acceptable
     (why,) = [i for i in p.issues if i.kind == 'unburned']
-    assert 'crosses the river only here' in why.text
+    assert 'crosses the river only once' in why.text
 
 
 @pytest.fixture
@@ -147,3 +147,29 @@ def test_a_second_shift_b_grades_again_rather_than_finding_nothing(two_climbs):
     w.editor.accept_proposal()
     for f in (finger, second):                   # each now stays north of the river
         assert min(sq.nodes[r].lat for r in sq.ways[f.id].refs) > LAT, 'a climb was left unburned'
+
+
+def test_two_runs_cutting_one_contour_are_both_burned(window):
+    """The 100 m reaches across the river twice, a 75 m between: two runs,
+    one contour. The second cuts what the first left of it - which Shift+B
+    once took for another river's and left."""
+    water = overpass.Water()
+    for k in range(41):
+        water.nodes[k + 1] = Node(id=k + 1, lon=125.30 + 0.0025 * k + 0.0001, lat=LAT)
+    water.ways[100] = Way(id=100, refs=list(range(1, 42)), tags={'waterway': 'river'})
+    window._water_imported(Answer({NORTH: water}, frozenset(water.ways), frozenset()), window.working_set)
+    for lon, ele in ((125.31, 100), (125.33, 75), (125.39, 50)):
+        draw(window, [(lon, LAT - 0.02), (lon, LAT + 0.02)], ele)
+    draw(window, [(125.3625, LAT - 0.02), (125.3625, LAT + 0.003)], 75)
+    w_ = draw(window, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.355, LAT - 0.01),
+                       (125.355, LAT + 0.005), (125.37, LAT + 0.005), (125.37, LAT - 0.01),
+                       (125.38, LAT - 0.01), (125.38, LAT + 0.02)], 100)
+    sq = window.working_set.squares[NORTH]
+    window.editor.selection = Selection(sq, sq.ways[100])
+    window.editor.grade()
+    window.edit_actions['edit.burn_all'].trigger()
+    p = window.editor.proposal
+    assert p.summary.startswith('burn: 2 climbs'), p.summary
+    assert not [i for i in p.issues if i.kind == 'unburned'], [i.text for i in p.issues]
+    window.editor.accept_proposal()
+    assert min(sq.nodes[r].lat for r in sq.ways[w_.id].refs) > LAT
