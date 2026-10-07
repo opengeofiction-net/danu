@@ -921,15 +921,13 @@ Three parts, in this order:
   re-import changes a flattened lake's outline, the lake is reported for
   flattening again.
 - **G7b, burn** (R25). From a span the grade left ungraded because the contours
-  climb: the contour the river climbs onto crosses it twice, with lower ground
-  between, and so does every contour of the spur the river runs over. Each is
-  cut at its two crossings and each piece closed along its own bank - a closed
-  contour becomes two, an open one its main line, set back, and a closed piece
-  across the water - set back from the river one step further for each contour above the
-  river's level, so the river runs in a notch whose sides rise one contour per
-  setback. The setback, metres per contour step, is the strength. Contours near the river that it does
-  not cross are pushed back to theirs; one wholly inside the notch is cut away.
-  Running it again burns what the first could not reach.
+  climb, the whole run it is part of: from where the river leaves its level to
+  where it is back down to it. Every contour above that level is kept back from
+  the whole stretch, one step further for each contour above it, so the river
+  runs in a notch whose sides rise one contour per setback; what lies nearer is
+  clipped out and closed along the notch's edge on the high side - a closed
+  contour the river runs through becomes two, a contour wholly inside is cut
+  away. The setback, metres per contour step, is the strength.
 - **G7c, what is left.** A river level that contradicts a contour beside it -
   a level tens of metres below the contour a cell away - listed with the rest
   of what a grade found, to burn or to fix the level.

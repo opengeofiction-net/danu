@@ -1,25 +1,31 @@
 """Burn a river into the terrain, through the contours - G7b, R25.
 
 Where a river climbs against the contours, the grade leaves the span ungraded
-(G6b). On gobras, once the rogue contours were cleaned out, 120 of the 128
-one-step climbs left are one shape: **a contour that crosses the same river
-twice, with lower ground between** - a ridge's finger the river cuts across
-the tip of, a hill's flank it runs into and out of, a bump of a contour a
-stream runs along. The contour says the ground there is above its level; the
-river says it is below.
+(G6b). On gobras, once the rogue contours were cleaned out, most climbs are a
+contour the river crosses twice with lower ground between - a ridge's finger
+it cuts the tip from, a hill's flank it runs into and out of - and most of
+those are one step of a **run**: the river leaves its level, climbs over a
+spur through several contours, and comes back down to it. The Bosco River
+goes 75 m to 225 m and back to 75 m over two kilometres; the grade sees six
+climbs, and each cut alone runs into the next contour up.
 
-The burn makes them agree the way the river says, without throwing away what
-the mapper drew: **the contour is cut at its two crossings and each piece is
-closed along its own bank, set back ``d`` from the river.** A closed contour
-becomes two closed contours, the river in a notch between them - the hill cut
-in two. An open one becomes its main line, now running along the near bank,
-and a closed piece on the far side - the tip of the finger, a knoll the river
-cut off. A piece with nothing left once its vertices within the setback are
-taken off - a bump thinner than the setback - is dropped, and said.
+So the run is the unit. It goes from the crossing the river climbs from to
+the first downstream back at or below that level, and every contour above
+that level is kept its setback from the whole stretch - ``d`` for the first
+contour above, twice that for the next, the river burned down to the run's
+level from one end to the other, in a notch whose sides rise a contour every
+``d``. **What of a contour lies nearer is clipped out, and its ends joined
+along the notch's rim on the side the ground is higher.** One rule covers it
+all: a closed contour the river runs through becomes two; an open one, its
+main line set back and a closed piece across the water; one weaving over the
+river a pair of crossings at a time, as one; one that only comes near,
+pushed back along the rim; one wholly inside, cut away. A piece of ground
+the notch takes whole - a bump thinner than the setback - is dropped, and
+said.
 
-Not burned, and said: a contour that crosses the river only once in the wrong
-place (a spur - eight on gobras), a climb of more than one step, and a
-contour with more than one pair to cut - burn again for the next.
+Not burned, and said: a run the river never comes back down from, a contour
+crossing it an odd number of times inside the run (a spur), and a rim that
+would cross another contour or the river.
 
 No Qt and no GDAL: metres on a local projection about the river.
 """
@@ -63,19 +69,32 @@ class _Projection:
 
 def _hits(a1, b1, a2, b2):
     """Proper crossings of one set of segments with another: for each, the
-    segment of each and the fraction along it."""
-    d1 = _orient(a2[None, :], b2[None, :], a1[:, None])
-    d2 = _orient(a2[None, :], b2[None, :], b1[:, None])
-    d3 = _orient(a1[:, None], b1[:, None], a2[None, :])
-    d4 = _orient(a1[:, None], b1[:, None], b2[None, :])
+    segment of each and the fraction along it. Only segments whose boxes
+    overlap are tested."""
+    lo1, hi1 = np.minimum(a1, b1), np.maximum(a1, b1)
+    lo2, hi2 = np.minimum(a2, b2), np.maximum(a2, b2)
+    s1 = np.flatnonzero(((hi1 >= lo2.min(0)) & (lo1 <= hi2.max(0))).all(1))
+    s2 = np.flatnonzero(((hi2 >= lo1.min(0)) & (lo2 <= hi1.max(0))).all(1))
+    none = np.zeros(0, dtype=int)
+    if not len(s1) or not len(s2):
+        return none, none, np.zeros(0), np.zeros(0)
+    box = ((hi1[s1][:, None] >= lo2[s2][None]) & (lo1[s1][:, None] <= hi2[s2][None])).all(2)
+    pi, pj = np.nonzero(box)
+    i, j = s1[pi], s2[pj]
+    A1, B1, A2, B2 = a1[i], b1[i], a2[j], b2[j]
+    d1 = _orient(A2, B2, A1)
+    d2 = _orient(A2, B2, B1)
+    d3 = _orient(A1, B1, A2)
+    d4 = _orient(A1, B1, B2)
     hit = (((d1 > EPS) & (d2 < -EPS)) | ((d1 < -EPS) & (d2 > EPS))) & \
           (((d3 > EPS) & (d4 < -EPS)) | ((d3 < -EPS) & (d4 > EPS)))
-    ii, jj = np.nonzero(hit)
+    order = np.lexsort((j[hit], i[hit]))
+    ii, jj = i[hit][order], j[hit][order]
     r = b1[ii] - a1[ii]
-    s = b2[jj] - a2[jj]
+    s_ = b2[jj] - a2[jj]
     w = a2[jj] - a1[ii]
-    den = r[:, 0] * s[:, 1] - r[:, 1] * s[:, 0]
-    t = (w[:, 0] * s[:, 1] - w[:, 1] * s[:, 0]) / den
+    den = r[:, 0] * s_[:, 1] - r[:, 1] * s_[:, 0]
+    t = (w[:, 0] * s_[:, 1] - w[:, 1] * s_[:, 0]) / den
     u = (w[:, 0] * r[:, 1] - w[:, 1] * r[:, 0]) / den
     return ii, jj, t, u
 
@@ -162,8 +181,31 @@ def _crossings(working_set, river, margin):
     proj = _Projection(float(np.mean([lat for _, lat in river])))
     R = proj.to(river)
     dist = _along(R)
+    contours, crossings = _near(working_set, proj, R, margin), []
+    for key, (_, way, P) in contours.items():
+        here = []
+        ii, jj, t, u = _hits(R[:-1], R[1:], P[:-1], P[1:])
+        for i, j, tt, uu in zip(ii, jj, t, u, strict=True):
+            here.append((float(dist[i] + tt * (dist[i + 1] - dist[i])), float(j + uu)))
+        # and where one passes through the other's vertex - a contour snapped
+        # to the river shares a node with it, which the proper test does not
+        # count and the grade does
+        here += _contacts(R, dist, P)
+        seen = []
+        for r, sp in sorted(here):
+            if seen and abs(r - seen[-1]) < 0.01:
+                continue
+            seen.append(r)
+            crossings.append(_Crossing(r, float(way.ele), key, sp))
+    crossings.sort(key=lambda c: c.r)
+    return proj, R, contours, crossings, dist
+
+
+def _near(working_set, proj, R, margin):
+    """The contours in the box about the river, ``2 * margin`` out, by
+    (square name, way id): (square, way, points in metres)."""
     lo, hi = R.min(0) - 2 * margin, R.max(0) + 2 * margin
-    contours, crossings = {}, []
+    out = {}
     for sq in working_set.squares.values():
         for way in sq.contours():
             pts = [(sq.nodes[r].lon, sq.nodes[r].lat) for r in way.refs if r in sq.nodes]
@@ -172,24 +214,8 @@ def _crossings(working_set, river, margin):
             P = proj.to(pts)
             if (P.max(0) < lo).any() or (P.min(0) > hi).any():
                 continue
-            key = (sq.name, way.id)
-            contours[key] = (sq, way, P)
-            here = []
-            ii, jj, t, u = _hits(R[:-1], R[1:], P[:-1], P[1:])
-            for i, j, tt, uu in zip(ii, jj, t, u, strict=True):
-                here.append((float(dist[i] + tt * (dist[i + 1] - dist[i])), float(j + uu)))
-            # and where one passes through the other's vertex - a contour
-            # snapped to the river shares a node with it, which the proper
-            # test does not count and the grade does
-            here += _contacts(R, dist, P)
-            seen = []
-            for r, sp in sorted(here):
-                if seen and abs(r - seen[-1]) < 0.01:
-                    continue
-                seen.append(r)
-                crossings.append(_Crossing(r, float(way.ele), key, sp))
-    crossings.sort(key=lambda c: c.r)
-    return proj, R, contours, crossings, dist
+            out[(sq.name, way.id)] = (sq, way, P)
+    return out
 
 
 def _contacts(R, dist, P):
@@ -239,134 +265,100 @@ def _point(P, s):
 def _on_vertices(R, dist, P, tol=1e-3):
     """Crossings at a vertex of either line: (metres along the river,
     position along the contour) for each contour vertex on the river and
-    each river vertex on the contour, to a millimetre. All the vertices of
-    one against all the segments of the other at once."""
+    each river vertex on the contour, to a millimetre. Only a vertex inside a
+    segment's box is measured against it - a contour near a river is near it
+    in few places."""
     out = []
     for pts, a, b, contour_vertex in ((P, R[:-1], R[1:], True), (R, P[:-1], P[1:], False)):
-        ab = b - a
-        L2 = np.maximum((ab * ab).sum(1), 1e-12)
-        w = pts[:, None, :] - a[None, :, :]
-        t = np.clip((w * ab[None]).sum(2) / L2[None], 0.0, 1.0)
-        d = np.hypot(*(a[None] + ab[None] * t[..., None] - pts[:, None, :]).transpose(2, 0, 1))
-        for k, j in zip(*np.nonzero(d <= tol), strict=True):
+        lo, hi = np.minimum(a, b) - tol, np.maximum(a, b) + tol
+        keep = ((pts >= lo.min(0)) & (pts <= hi.max(0))).all(1)
+        if not keep.any():
+            continue
+        kk = np.flatnonzero(keep)
+        q = pts[kk]
+        seg = ((hi >= q.min(0)) & (lo <= q.max(0))).all(1)
+        jj = np.flatnonzero(seg)
+        if not len(jj):
+            continue
+        inbox = ((q[:, None, :] >= lo[jj][None]) & (q[:, None, :] <= hi[jj][None])).all(2)
+        ki, ji = np.nonzero(inbox)
+        if not len(ki):
+            continue
+        k, j = kk[ki], jj[ji]
+        ab = b[j] - a[j]
+        t = np.clip(((pts[k] - a[j]) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0.0, 1.0)
+        d = np.hypot(*(a[j] + ab * t[:, None] - pts[k]).T)
+        for k_, j_, t_ in zip(k[d <= tol], j[d <= tol], t[d <= tol], strict=True):
             if contour_vertex:                     # contour vertex k on river segment j
-                out.append((float(dist[j] + t[k, j] * (dist[j + 1] - dist[j])), float(k)))
+                out.append((float(dist[j_] + t_ * (dist[j_ + 1] - dist[j_])), float(k_)))
             else:                                  # river vertex k on contour segment j
-                out.append((float(dist[k]), float(j + t[k, j])))
+                out.append((float(dist[k_]), float(j_ + t_)))
     return out
 
 
 def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=None) -> Plan:
     """What burning the climbs along ``river`` - (lon, lat) points in walking
-    order, a chain or a stem - would do. ``only`` is a (lon, lat): the climb
-    nearest it is burned alone - the grade's list names a climb by its place. ``alloc(square)`` gives the id
-    allocator for a square. ``setback_m`` is metres across per contour step:
-    the first contour above the river's level is set back that far, the next
-    twice as far - the steepness of the notch's sides."""
+    order, a chain or a stem - would do. ``only`` is a (lon, lat): the run
+    holding the climb nearest it is burned alone - the grade's list names a
+    climb by its place. ``alloc(square)`` gives the id allocator for a square.
+    ``setback_m`` is metres across per contour step: the first contour above
+    the run's level is set back that far, the next twice as far - the
+    steepness of the notch's sides.
+
+    Each run is cut on the squares themselves, one pair of crossings at a
+    time, the crossings found again after each cut - a contour weaving across
+    the river has a pair for each time over, and a cut can make a piece that
+    still crosses. Everything is undone before it returns: the plan's steps
+    do it again."""
     out = Plan()
-    found = _crossings(working_set, river, setback_m * 6)
+    margin = setback_m * 12
+    found = _crossings(working_set, river, margin)
     if found is None:
         return out
-    proj, R, contours, crossings, dist = found
+    proj, R, _, crossings, dist = found
     if len(crossings) < 2:
         return out
     _, rejected, upstream = profile.grade_along([(c.r, c.ele) for c in crossings], list(dist))
+    runs, lost = _runs(crossings, rejected, upstream)
+
+    def middle(sp):
+        return _at(R, dist, (sp[0] + sp[1]) / 2)
     if only is not None:
         target = proj.to(only)
-        ups = [sp for sp in rejected if (sp[2] > sp[3] if upstream else sp[3] > sp[2])]
+        ups = [(sp, run) for run in runs for sp in run.climbs] + [(sp, None) for sp in lost]
         if not ups:
             return out
-        rejected = [min(ups, key=lambda sp: float(np.hypot(*(_at(R, dist, (sp[0] + sp[1]) / 2) - target))))]
-    used: set = set()
-    cmds = []
-    # one allocator a square for the whole plan: a spur's contours are cut
-    # one after another, and each one's new nodes must not take another's ids
+        sp, run = min(ups, key=lambda u: float(np.hypot(*(middle(u[0]) - target))))
+        runs, lost = ([run], []) if run else ([], [sp])
+    for sp in lost:
+        out.skipped.append((f'the river climbs to {max(sp[2], sp[3]):g} m and never comes back down '
+                            f'to {min(sp[2], sp[3]):g} m', *proj.back(middle(sp))))
+    # one allocator a square for the whole plan: a run's contours are cut one
+    # after another, and each one's new nodes must not take another's ids
     allocs: dict = {}
-    alloc_once = alloc
 
-    def alloc(sq):
-        return allocs.setdefault(sq.name, alloc_once(sq))
-    for d0, d1, e0, e1 in rejected:
-        if not (e0 > e1 if upstream else e1 > e0):
-            continue                                    # a long span, not a climb
-        base, top = min(e0, e1), max(e0, e1)
-        r_hi = d1 if not upstream else d0
-        where = proj.back(_at(R, dist, r_hi))
-        c_hi = next((c for c in crossings if abs(c.r - r_hi) < 1e-6 and c.ele == top), None)
-        if c_hi is None:
-            continue
-        if top - base > 25.0 + 1e-6:
-            out.skipped.append((f'a climb of {top - base:g} m, more than one step', *where))
-            continue
-        same = [c for c in crossings if c.key == c_hi.key and c is not c_hi]
-        if not same:
-            out.skipped.append((f'the {top:g} m contour crosses the river only here', *where))
-            continue
-        partner = min(same, key=lambda c: abs(c.r - c_hi.r))
-        lo, hi = sorted((c_hi.r, partner.r))
-        # the spur: every contour crossing the river between the pair, the
-        # pair's own included - each cut at its two crossings
-        inside: dict = {}
-        for c in crossings:
-            if lo - 1e-6 <= c.r <= hi + 1e-6:
-                inside.setdefault(c.key, []).append(c)
-        why = None
-        for key, cs in inside.items():
-            level = cs[0].ele
-            if level <= base:
-                why = f'the {level:g} m contour crosses inside it - another climb, burn that first'
-            elif len(cs) != 2:
-                why = f'the {level:g} m contour crosses the river {len(cs)} times inside it'
-            elif key in used:
-                why = f'the {level:g} m contour is cut already - burn again'
-            if why:
-                break
-        if why:
-            out.skipped.append((why, *where))
-            continue
-        step = top - base
-        group, failed = [], None
-        for key, (c1, c2) in sorted(inside.items(), key=lambda kv: kv[1][0].ele):
-            setback = setback_m * (c1.ele - base) / step
-            cut = _cut(contours[key], c1, c2, R, dist, setback, proj, alloc)
-            if isinstance(cut, str):
-                failed = cut
-                break
-            group.append((key, cut))
-        if failed:
-            out.skipped.append((failed, *where))
-            continue
-        # and the contours above the river's level that do not cross it but
-        # come nearer than their setback: pushed straight back to it, or the
-        # cut lines run into them
-        stretch = _section(R, dist, lo, hi)
-        for key, (_, way_, P_) in contours.items():
-            if key in inside or way_.ele <= base:
+    def alloc_once(sq):
+        return allocs.setdefault(sq.name, alloc(sq))
+    applied: list = []
+    try:
+        for run in runs:
+            # the first run sees the squares as they were found; each after
+            # it, as the runs before left them
+            got = _burn_run(working_set, river, run, setback_m, margin, alloc_once, applied,
+                            None if applied else found)
+            if isinstance(got, tuple):
+                out.skipped.append(got)
                 continue
-            setback = setback_m * (way_.ele - base) / step
-            push = _push(stretch, P_, setback)
-            if push is not None:
-                moves = [edits.MoveNode(way_.refs[i], proj.back(P_[i]), proj.back(to))
-                         for i, to in push.items()]
-                Q = P_.copy()
-                for i, to in push.items():
-                    Q[i] = to
-                group.append((key, {'cmd': edits.Compound(moves, name='push back'), 'lines': [Q],
-                                    'added': [], 'dropped': [], 'removed': []}))
-        clash = _clash(group, contours, set(inside) | {k for k, _ in group}, proj)
-        if clash:
-            out.skipped.append(clash)
-            continue
-        for key, cut in group:
-            cmds.append((contours[key][0], cut['cmd']))
-            if key not in inside:
-                out.pushed += 1
-            out.added += cut['added']
-            out.dropped += cut['dropped']
-            out.removed += cut['removed']
-            used.add(key)
-        out.burned += 1
-        out.contours_cut += len(inside)
+            out.burned += len(run.climbs)
+            out.contours_cut += len(got['cut'])
+            out.pushed += got['pushed']
+            out.added += got['added']
+            out.dropped += got['dropped']
+            out.removed += got['removed']
+        cmds = list(applied)
+    finally:
+        for sq, cmd in reversed(applied):
+            cmd.undo(sq)
     # one Compound per square, the order kept
     by_sq: dict = {}
     for sq, cmd in cmds:
@@ -376,148 +368,450 @@ def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=Non
     return out
 
 
-def _push(bank, P, d):
-    """A contour's vertices nearer the bank than ``d``, and where each goes:
-    straight away from the nearest point of the bank to ``d``. None when none
-    are."""
-    a, b = bank[:-1], bank[1:]
-    ab = b - a
-    L2 = np.maximum((ab * ab).sum(1), 1e-12)
-    w = P[:, None, :] - a[None]
-    t = np.clip((w * ab[None]).sum(2) / L2[None], 0.0, 1.0)
-    near = a[None] + ab[None] * t[..., None]
-    dist = np.hypot(*(near - P[:, None, :]).transpose(2, 0, 1))
-    j = dist.argmin(1)
-    k = np.arange(len(P))
-    close = dist[k, j] < d - 1e-6
-    if not close.any():
-        return None
-    out = {}
-    for i in np.flatnonzero(close):
-        foot = near[i, j[i]]
-        away = P[i] - foot
-        length = float(np.hypot(*away))
-        if length < 1e-6:
-            continue                            # on the river: a crossing, not one to push
-
-        out[int(i)] = foot + away / length * d
-    return out or None
+@dataclass
+class _Run:
+    """The river from the crossing it climbs from to the first downstream
+    back at or below that level - everything between stands above it."""
+    base: float
+    lo: float                                   # metres along the river, its ends
+    hi: float
+    climbs: list                                # the grade's spans in it
 
 
-def _clash(group, contours, cut_keys, proj):
-    """Where the new lines of a spur's cut would cross a contour not being
-    cut, or each other's - (why, lon, lat), or None."""
-    for key, cut in group:
-        level = contours[key][1].ele
-        for pts in cut['lines']:
-            others = [(contours[k][1], Q) for k, (_, _, Q) in contours.items() if k not in cut_keys]
-            others += [(contours[k][1], q) for k, c in group if k != key for q in c['lines']]
-            for other, Q in others:
-                ii, _, _, _ = _hits(pts[:-1], pts[1:], Q[:-1], Q[1:])
-                touch = _on_vertices(pts, _along(pts), Q)
-                if len(ii) or touch:
-                    at = pts[ii[0]] if len(ii) else _at(pts, _along(pts), touch[0][0])
-                    return (f'cut back, the {level:g} m contour would cross the '
-                            f'{other.ele:g} m contour, way {other.id}', *proj.back(at))
-    return None
+def _runs(crossings, rejected, upstream):
+    """The runs the climbs are part of, and the climbs in none - the river
+    never comes back down. Runs nest or keep apart; each climb goes with the
+    largest holding it, so a hill the river runs over is burned whole, not
+    one step of it at a time."""
+    seq = crossings[::-1] if upstream else crossings
+    found, lost = [], []
+    for sp in rejected:
+        d0, d1, e0, e1 = sp
+        if not (e0 > e1 if upstream else e1 > e0):
+            continue                                    # a long span, not a climb
+        base = min(e0, e1)
+        r_base = d0 if e0 < e1 else d1
+        i = next((i for i, c in enumerate(seq) if abs(c.r - r_base) < 1e-6 and c.ele == base), None)
+        if i is None:
+            continue
+        j = next((j for j in range(i + 1, len(seq)) if seq[j].ele <= base), None)
+        if j is None:
+            lost.append(sp)
+        else:
+            found.append((base, *sorted((seq[i].r, seq[j].r)), sp))
+    runs: list = []
+    for base, lo, hi, sp in sorted(found, key=lambda f: f[2] - f[1], reverse=True):     # longest first
+        home = next((r for r in runs if r.lo - 1e-6 <= lo and hi <= r.hi + 1e-6), None)
+        if home is None:
+            runs.append(_Run(base, lo, hi, [sp]))
+        else:
+            home.climbs.append(sp)
+    return runs, lost
 
 
-def _cut(held, c1, c2, R, dist, d, proj, alloc):
-    """One contour cut at two crossings of the river and each piece closed
-    along its own bank, set back ``d`` - its command, the lines it makes, and
-    what it drops and removes; or why not, as a string."""
-    sq, way, P = held
-    closed = way.refs[0] == way.refs[-1] and len(way.refs) > 3
-    a, b = sorted((c1, c2), key=lambda c: c.s)
+def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=None):
+    """Burn one run on the squares, its commands added to ``applied``: what
+    it cut, pushed and drew - or why not, (why, lon, lat), with its own
+    commands undone.
+
+    The notch: every contour above the run's level is kept its setback from
+    the whole stretch - the river burned down to the run's level from one end
+    to the other. What of a contour lies nearer is clipped out, and its ends
+    joined along the notch's rim on the side the ground is higher. That is
+    the cut of a contour crossing the river, each pair of crossings of one
+    weaving across it, and the push of one that only comes near, alike."""
+    mark = len(applied)
+    proj, R, contours, crossings, dist = found or _crossings(working_set, river, margin)
+    inside = [c for c in crossings if run.lo + 1e-6 < c.r < run.hi - 1e-6]
+    got = {'cut': set(), 'pushed': 0, 'added': [], 'dropped': [], 'removed': []}
+    if not inside:
+        return got
+    # all above the run's level: it ends at the first crossing back at or below it
+    levels = sorted({run.base, *(c.ele for c in inside)})
+    step = min((b - a for a, b in zip(levels, levels[1:], strict=False)), default=1.0)
+
+    def refuse(why, xy):
+        for sq, cmd in reversed(applied[mark:]):
+            cmd.undo(sq)
+        del applied[mark:]
+        return (why, *proj.back(xy))
+    over: dict = {}
+    for c in inside:
+        over.setdefault(c.key, []).append(c)
+    for cs in over.values():
+        if len(cs) % 2:
+            times = 'only once' if len(cs) == 1 else f'{len(cs)} times'
+            return refuse(f'the {cs[0].ele:g} m contour crosses the river {times} before it is back '
+                          f'down to {run.base:g} m', _at(R, dist, cs[0].r))
+    stretch = _section(R, dist, run.lo, run.hi)
+    lo, hi = stretch.min(0), stretch.max(0)
+    before = {k: P for k, (_, _, P) in contours.items()}
+    origin: dict = {}
+    rims: dict = {}
+    for key, (sq, way_, P) in contours.items():
+        if way_.ele <= run.base:
+            continue
+        d = setback_m * (way_.ele - run.base) / step
+        if d > margin or (P.max(0) < lo - d).any() or (P.min(0) > hi + d).any():
+            continue
+        rim = _Rim(stretch, d)
+        cut = _clip(sq, way_, P, rim, [(c.r - run.lo, c.s) for c in over.get(key, [])], proj, alloc)
+        if cut is None:
+            continue
+        if isinstance(cut, str):
+            return refuse(cut, P[0])
+        cut['cmd'].apply(sq)
+        applied.append((sq, cut['cmd']))
+        for wid, _ in cut['cmd'].pieces:
+            origin[(sq.name, wid)] = key
+        origin[key] = key
+        if key in over:
+            got['cut'].add(key)
+        else:
+            got['pushed'] += 1
+        for name in ('added', 'dropped', 'removed'):
+            got[name] += cut[name]
+        rims[key] = (way_.ele, cut['rims'])
+        # the rim must not run over the river where it bends back
+        for line in cut['rims']:
+            at = _meet(line, R)
+            if at is not None:
+                return refuse(f'cut back, the {way_.ele:g} m contour would cross the river', at)
+    # and what it made must not cross a contour it did not cross before
+    clash = _clash(_near(working_set, proj, R, margin), origin, before, rims)
+    if clash:
+        why, xy = clash
+        return refuse(why, xy)
+    return got
+
+
+class _Rim:
+    """The edge of the notch - everything within ``d`` of the stretch -
+    walked round it clockwise as one loop: along the stretch's left side
+    from its start, round its far end, back along its right side and round
+    its start. A place on it is the distance round."""
+
+    def __init__(self, stretch, d):
+        self.S, self.d = stretch, d
+        self.sd = _along(stretch)
+        self.L = float(self.sd[-1])
+        self.cap = math.pi * d
+        self.round = 2 * self.L + 2 * self.cap
+
+    def _ends(self):
+        S = self.S
+        t0 = (S[1] - S[0]) / max(float(np.hypot(*(S[1] - S[0]))), 1e-9)
+        t1 = (S[-1] - S[-2]) / max(float(np.hypot(*(S[-1] - S[-2]))), 1e-9)
+        return t0, t1
+
+    def foot(self, p):
+        """The nearest place on the stretch, as metres along it, and which
+        side p is: positive left."""
+        a, b = self.S[:-1], self.S[1:]
+        ab = b - a
+        t = np.clip(((p - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0, 1)
+        near = a + ab * t[:, None]
+        i = int(np.argmin(np.hypot(*(near - p).T)))
+        return float(self.sd[i] + t[i] * (self.sd[i + 1] - self.sd[i])), float(_orient(a[i], b[i], p))
+
+    def where(self, p) -> float:
+        """How far round the rim a point on it is."""
+        s, side = self.foot(p)
+        t0, t1 = self._ends()
+        if s <= 1e-6 and float(np.dot(p - self.S[0], t0)) < -1e-6:
+            v = p - self.S[0]
+            n = np.array([-t0[1], t0[0]])
+            return 2 * self.L + self.cap + math.atan2(-float(v @ t0), -float(v @ n)) * self.d
+        if s >= self.L - 1e-6 and float(np.dot(p - self.S[-1], t1)) > 1e-6:
+            v = p - self.S[-1]
+            n = np.array([-t1[1], t1[0]])
+            return self.L + math.atan2(float(v @ t1), float(v @ n)) * self.d
+        return s if side > 0 else self.L + self.cap + (self.L - s)
+
+    def path(self, a, b):
+        """The rim from ``a`` round to ``b``, its points in order."""
+        if b < a:
+            b += self.round
+        out = []
+        k = math.floor(a / self.round)
+        base = k * self.round
+        while base < b:
+            for lo, hi, kind in ((0, self.L, 'left'), (self.L, self.L + self.cap, 'far'),
+                                 (self.L + self.cap, 2 * self.L + self.cap, 'right'),
+                                 (2 * self.L + self.cap, self.round, 'near')):
+                x0, x1 = max(a, base + lo), min(b, base + hi)
+                if x1 - x0 <= 1e-9:
+                    continue
+                u0, u1 = x0 - base - lo, x1 - base - lo
+                if kind == 'left':
+                    out += list(_offset(_section(self.S, self.sd, u0, u1), self.d))
+                elif kind == 'right':
+                    out += list(_offset(_section(self.S, self.sd, self.L - u0, self.L - u1), self.d))
+                else:
+                    t0, t1 = self._ends()
+                    if kind == 'far':
+                        c, t = self.S[-1], t1
+                        n = np.array([-t[1], t[0]])
+                        ang = np.linspace(u0 / self.d, u1 / self.d, max(2, int((u1 - u0) / self.d * 8) + 2))
+                        out += [c + self.d * (math.cos(g) * n + math.sin(g) * t) for g in ang]
+                    else:
+                        c, t = self.S[0], t0
+                        n = np.array([-t[1], t[0]])
+                        ang = np.linspace(u0 / self.d, u1 / self.d, max(2, int((u1 - u0) / self.d * 8) + 2))
+                        out += [c - self.d * (math.cos(g) * n + math.sin(g) * t) for g in ang]
+            base += self.round
+        # inside a bend tighter than d the offset folds back on itself: those
+        # points are nearer the river than d, and not on the rim
+        if not out:
+            return np.zeros((0, 2))
+        out = np.asarray(out)
+        on = _distance(self.S, out) >= self.d * 0.995
+        on[0] = on[-1] = True
+        keep = [out[0]]
+        for q in out[1:][on[1:]]:
+            if float(np.hypot(*(q - keep[-1]))) > 1e-3:
+                keep.append(q)
+        return np.asarray(keep)
+
+
+def _high_side(P, closed, over, rim):
+    """+1 when the ground above a contour is on its left, walking it forward;
+    -1 on its right; None when its crossings disagree. Read where it crosses
+    the river - rising across the first, falling across the second - or, for
+    one that only comes near, from the river being below it."""
     n = len(P) - 1
-    bank = _section(R, dist, a.r, b.r)                 # the river from a's crossing to b's
 
-    def run(s0, s1):
-        """Vertex indices strictly between two contour positions, walking
-        forward - round the ring when s1 < s0 on a closed contour."""
-        first = math.floor(s0) + 1
-        last = math.ceil(s1) - 1
-        if s1 >= s0:
-            return list(range(first, last + 1))
-        return [i % n for i in range(first, last + 1 + n)]
+    def ahead(s):
+        a, b = max(s - 1e-3, 0.0), min(s + 1e-3, float(n))
+        return _point(P, b) - _point(P, a)
+    if over:
+        seen = set()
+        for k, (f, s) in enumerate(over):
+            tr = _at(rim.S, rim.sd, min(f + 1e-3, rim.L)) - _at(rim.S, rim.sd, max(f - 1e-3, 0.0))
+            tc = ahead(s)
+            left = tc[0] * tr[1] - tc[1] * tr[0] > 0        # the river heads off to its left
+            seen.add(1 if left == (k % 2 == 0) else -1)
+        return seen.pop() if len(seen) == 1 else None
+    dist = _distance(rim.S, P)
+    i = int(np.argmin(np.where(dist > 1e-2, dist, np.inf)))
+    foot = _at(rim.S, rim.sd, rim.foot(P[i])[0])
+    t = ahead(float(i)) if 0 < i < n or closed else ahead(min(max(i, 1e-3), n - 1e-3))
+    u = foot - P[i]
+    return -1 if t[0] * u[1] - t[1] * u[0] > 0 else 1
 
-    def kept(idx):
-        """Of a piece's vertices, the ones set back from the river."""
-        if not idx:
-            return []
-        far = _distance(bank, P[idx]) >= d
-        return [i for i, f in zip(idx, far, strict=True) if f]
 
-    pieces = []
+def _clip(sq, way, P, rim, over, proj, alloc):
+    """One contour clipped to the notch and its ends joined along the rim -
+    its command, the lines it makes, and what it drops and removes; None when
+    it keeps clear; or why not, as a string. ``over`` is where it crosses the
+    stretch, as metres along it: the river is higher than the contour between
+    the first and second of them, the third and fourth - the ground the rim
+    keeps."""
+    d = rim.d
+    closed = way.refs[0] == way.refs[-1] and len(way.refs) > 3
+    n = len(P) - 1
+    # each segment sampled, a few metres apart, and each sample in or out
+    step = max(1.0, min(10.0, d / 4))
+    seg = np.hypot(*np.diff(P, axis=0).T)
+    k = np.maximum(1, np.ceil(seg / step)).astype(int)
+    s = np.concatenate([i + np.arange(k[i]) / k[i] for i in range(n)] + [[float(n)]])
+    pts = np.array([_point(P, x) for x in s])
+    near = _distance(rim.S, pts) < d
+    if not near.any():
+        return None
+    if near.all():
+        return _gone(way, P, proj)
+
+    def edge(s0, s1):
+        """Where the contour crosses the rim between two positions, one in
+        and one out - by halves."""
+        out0 = _distance(rim.S, _point(P, s0)[None])[0] >= d
+        for _ in range(30):
+            m_ = (s0 + s1) / 2
+            if (_distance(rim.S, _point(P, m_)[None])[0] >= d) == out0:
+                s0 = m_
+            else:
+                s1 = m_
+        return (s0 + s1) / 2
+    # the outside runs, each from where it comes out of the notch (or the
+    # contour's start) to where it goes in (or its end)
+    flips = [edge(s[i], s[i + 1]) for i in range(len(s) - 1) if near[i] != near[i + 1]]
     if closed:
-        # the two arcs between the crossings, each closed along its own bank
-        for s0, s1, rev in ((a.s, b.s, False), (b.s, a.s, True)):
-            pieces.append(('ring', kept(run(s0, s1)), rev))
+        # start the walk round the ring outside the notch
+        first_out = next(i for i in range(len(s)) if not near[i])
+        start = s[first_out]
+        flips = sorted(f if f > start else f + n for f in flips)
+        # out from the last flip round through the start to the first
+        pieces = [(flips[-1], flips[0] + n)] + [(flips[i], flips[i + 1]) for i in range(1, len(flips) - 1, 2)]
+        gaps = [(flips[i], flips[i + 1]) for i in range(0, len(flips) - 1, 2)]
+        free = set()
     else:
-        pieces.append(('main', kept(list(range(0, math.floor(a.s) + 1))),
-                       kept(list(range(math.ceil(b.s), n + 1)))))
-        pieces.append(('ring', kept(run(a.s, b.s)), False))
+        cuts = [0.0, *flips, float(n)]
+        if near[0]:
+            cuts = cuts[1:]
+        if near[-1]:
+            cuts = cuts[:-1]
+        pieces = [(cuts[i], cuts[i + 1]) for i in range(0, len(cuts) - 1, 2)]
+        gaps = [(pieces[i][1], pieces[i + 1][0]) for i in range(len(pieces) - 1)]
+        free = {x for x in (0.0, float(n)) if x in cuts}
+        if near[0]:
+            gaps.insert(0, (0.0, cuts[0]))
+        if near[-1]:
+            gaps.append((cuts[-1], float(n)))
+    if len(pieces) == 0:
+        return _gone(way, P, proj)
+
+    def at(x):
+        return _point(P, x % n if closed else x)
+
+    def verts(a, b):
+        """The contour's own vertices strictly between two positions."""
+        first, last = math.floor(a) + 1, math.ceil(b) - 1
+        return [i % n if closed else i for i in range(first, last + 1)
+                if a + 1e-9 < i < b - 1e-9]
+    # the ends on the rim, in order round it
+    ends = []                                   # (round, piece, 0 start / 1 end)
+    for j, (a, b) in enumerate(pieces):
+        for e, x in ((0, a), (1, b)):
+            if x not in free:
+                ends.append((rim.where(at(x)), j, e))
+    ends.sort()
+    # which side of the contour is high; the notch, low, is on the right
+    # going forward round the rim - so a piece's end joins the next end
+    # forward round the rim when high is on the contour's left, the one
+    # before when on its right, and that must be where a piece starts
+    high = _high_side(P, closed, over, rim)
+    if high is None:
+        return f'cut back, the {way.ele:g} m contour has its high side both ways'
+    joins = {}
+    for i, (_, _, e) in enumerate(ends):
+        if e != 1:
+            continue
+        k_ = (i + high) % len(ends)
+        if ends[k_][2] != 0 or k_ in joins.values():
+            return f'cut back, the {way.ele:g} m contour could not be closed along the river'
+        joins[i] = k_
+    # trace pieces and rim joins into lines and rings
     new_nodes: dict = {}
     ids = alloc(sq)
-    built, lines, added, dropped = [], [], [], []
+    point_id: dict = {}
+
+    def rim_node(x):
+        if x not in point_id:
+            nid = ids.take()
+            new_nodes[nid] = proj.back(at(x))
+            point_id[x] = nid
+        return point_id[x]
 
     def node(xy):
         nid = ids.take()
         new_nodes[nid] = proj.back(xy)
         return nid
 
-    for piece in pieces:
-        if piece[0] == 'main':
-            head, tail = piece[1], piece[2]
-            if not head or not tail:
-                dropped.append([proj.back(p) for p in P])
-                continue
-            # judged against the bank line, which runs from a's crossing to
-            # b's - against the river's own direction when a is downstream
-            side = math.copysign(1.0, _side(bank, P[head[len(head) // 2]]))
-            line = _offset(bank, side * d)              # a's end to b's end
-            refs = [way.refs[i] for i in head] + [node(p) for p in line] + [way.refs[i] for i in tail]
-            built.append(refs)
-            lines.append(np.vstack([P[head], line, P[tail]]))
-            added.append([proj.back(p) for p in line])
-        else:
-            idx, rev = piece[1], piece[2]
-            if len(idx) < 2:
-                gone = [proj.back(P[i]) for i in run(a.s, b.s)]
-                dropped.append(gone or [proj.back(_at(R, dist, a.r)), proj.back(_at(R, dist, b.r))])
-                continue
-            side = math.copysign(1.0, _side(bank, P[idx[len(idx) // 2]]))
-            line = _offset(bank, side * d)
-            # the arc runs a -> b (or b -> a round the ring); its bank line
-            # closes it back the other way
-            line = line if rev else line[::-1]
-            refs = [way.refs[i] for i in idx] + [node(p) for p in line]
+    def piece_refs(j):
+        a, b = pieces[j]
+        refs = [way.refs[0] if a in free else rim_node(a), *(way.refs[i] for i in verts(a, b)),
+                way.refs[-1] if b in free else rim_node(b)]
+        return refs, [at(a), *(P[i] for i in verts(a, b)), at(b)]
+    built, lines, rims, added, dropped = [], [], [], [], []
+    done = set()
+    start_of = {(j, e): i for i, (_, j, e) in enumerate(ends)}
+    # a line starts at the piece from the contour's start; the rest are rings
+    order = sorted(range(len(pieces)), key=lambda j: pieces[j][0] not in free)
+    for j0 in order:
+        if j0 in done:
+            continue
+        refs, xy, j, ring = [], [], j0, False
+        while True:
+            done.add(j)
+            r_, p_ = piece_refs(j)
+            refs += r_[1:] if refs and refs[-1] == r_[0] else r_
+            xy += p_
+            b = pieces[j][1]
+            if b in free or start_of[(j, 1)] not in joins:
+                break                               # the contour's end, or it stops at the rim
+            i = start_of[(j, 1)]
+            k_ = joins[i]
+            _, jn, _ = ends[k_]
+            line = rim.path(ends[i][0], ends[k_][0]) if high > 0 else rim.path(ends[k_][0], ends[i][0])[::-1]
+            inner = line[1:-1] if len(line) > 2 else line[:0]
+            refs += [node(q) for q in inner]
+            xy += list(inner)
+            rims.append(np.vstack([[at(b)], *([inner] if len(inner) else []), [at(pieces[jn][0])]]))
+            added.append([proj.back(q) for q in rims[-1]])
+            if jn == j0:
+                ring = True
+                break
+            if jn in done:
+                return f'cut back, the {way.ele:g} m contour could not be closed along the river'
+            j = jn
+        if ring:
             refs.append(refs[0])
-            built.append(refs)
-            lines.append(np.vstack([P[idx], line, P[idx[:1]]]))
-            added.append([proj.back(p) for p in line])
-    if not built:
-        # wholly inside the notch: a narrow spur's inner contour, cut away
-        # with it
-        dropped.append([proj.back(p) for p in P])
-        return {'cmd': edits.ReplaceWay(way.id, [], {}), 'lines': [], 'added': [],
-                'dropped': dropped, 'removed': [[proj.back(p) for p in P]]}
-    # what goes, for the proposal to strike through: at each crossing, the
-    # old line from the last vertex kept before it to the first kept after -
-    # round the ring when it straddles the start. Every vertex can be kept and
-    # the line still change, and on a ring the arc between the crossings is
-    # not what is replaced
-    keep = {r for refs in built for r in refs}
+            if len(set(refs)) < 3:
+                dropped.append([proj.back(q) for q in xy])
+                continue
+        built.append(refs)
+        lines.append(np.asarray(xy))
+    # what goes, for the proposal to strike through: the contour inside the
+    # notch; a stretch of it that goes over the river and back to the same
+    # side held ground the notch has taken whole - dropped, and said
     removed = []
-    for c in (a, b):
-        lo_i, hi_i = math.floor(c.s), math.ceil(c.s)
-        if hi_i == lo_i:
-            hi_i += 1
-        while way.refs[lo_i % n if closed else lo_i] not in keep and (closed or lo_i > 0) and hi_i - lo_i < n:
-            lo_i -= 1
-        while way.refs[hi_i % n if closed else hi_i] not in keep and (closed or hi_i < n) and hi_i - lo_i < n:
-            hi_i += 1
-        removed.append([proj.back(P[i % n if closed else i]) for i in range(lo_i, hi_i + 1)])
-    pieces_out = [(way.id if k == 0 else ids.take(), refs) for k, refs in enumerate(built)]
-    return {'cmd': edits.ReplaceWay(way.id, pieces_out, new_nodes), 'lines': lines,
-            'added': added, 'dropped': dropped, 'removed': [r for r in removed if r]}
+    for a, b in gaps:
+        run_ = [proj.back(at(a))] + [proj.back(P[i]) for i in verts(a, b)] + [proj.back(at(b))]
+        removed.append(run_)
+    if not built:
+        return _gone(way, P, proj)
+    for a, b in gaps:
+        if a in free or b in free:
+            continue
+        side = math.copysign(1, rim.foot(at(a))[1])
+        if side == math.copysign(1, rim.foot(at(b))[1]):
+            span = [at(a), *[P[i] for i in verts(a, b)], at(b)]
+            if any(rim.foot(q)[1] * side < -1e-6 for q in span):
+                dropped.append([proj.back(q) for q in span])
+    pieces_out = [(way.id if k_ == 0 else ids.take(), refs) for k_, refs in enumerate(built)]
+    return {'cmd': edits.ReplaceWay(way.id, pieces_out, new_nodes), 'lines': lines, 'rims': rims,
+            'added': added, 'dropped': dropped, 'removed': removed}
+
+
+def _gone(way, P, proj):
+    """A contour wholly inside the notch - a knoll the river runs over, a
+    spur's tip - cut away."""
+    whole = [proj.back(p) for p in P]
+    return {'cmd': edits.ReplaceWay(way.id, [], {}), 'lines': [], 'rims': [], 'added': [],
+            'dropped': [whole], 'removed': [whole]}
+
+
+def _meet(P, Q):
+    """Where one line crosses or touches another, or None."""
+    lo, hi = np.maximum(P.min(0), Q.min(0)), np.minimum(P.max(0), Q.max(0))
+    if (lo > hi + 1e-3).any():
+        return None
+    ii, _, t, _ = _hits(P[:-1], P[1:], Q[:-1], Q[1:])
+    if len(ii):
+        return P[ii[0]] + (P[ii[0] + 1] - P[ii[0]]) * t[0]
+    touch = _on_vertices(P, _along(P), Q)
+    return _at(P, _along(P), touch[0][0]) if touch else None
+
+
+def _clash(contours, origin, before, rims):
+    """Where a rim the run drew crosses a contour - its own contour's other
+    pieces aside, and one its contour crossed before - (why, where), or None.
+    What else of a contour is kept was there before."""
+    met: dict = {}
+    for was, (level, lines) in rims.items():
+        for line in lines:
+            for other, (_, ow, Q) in contours.items():
+                o = origin.get(other, other)
+                if o == was:
+                    continue
+                at = _meet(line, Q)
+                if at is None:
+                    continue
+                pair = frozenset((was, o))
+                if pair not in met:
+                    met[pair] = o in before and _meet(before[was], before[o]) is not None
+                if not met[pair]:
+                    return (f'cut back, the {level:g} m contour would cross the '
+                            f'{ow.ele:g} m contour, way {ow.id}', at)
+    return None

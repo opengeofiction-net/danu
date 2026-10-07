@@ -3177,3 +3177,54 @@ burned left out of the list.
 Five more mutations, each failing a test, every one from a fresh copy: the
 second Shift+B not grading again, a touch counted, a run counted node by node,
 a push dropped for one vertex, and the strike-through not reaching out.
+
+## G7b, a run burned whole
+
+**At the Bosco River the burn refused all but one of six climbs.** The river
+climbs from 75 m over a spur to 225 m and back down to 75 m in two
+kilometres; the grade sees a climb per step, and the burn took each with its
+own contour's other crossing, so the 100 m's cut line ran into the 125 m
+still crossing inside it. The mapper's point: the unit is the run, not the
+climb. A run goes from the crossing the river climbs from to the first
+downstream back at or below that level; runs nest or keep apart, and each
+climb goes with the largest holding it, so B on any of the six burns the
+hill.
+
+**Cutting a run pair by pair did not do it.** The 125 m weaves - over the river
+and back four times, 20 to 90 m north of it between - and the 100 m's line,
+50 m back the whole length of the run, crossed the part of the 125 m between
+its pairs. The run is the river burned down to its level from one end to the
+other, so every contour above that level is kept its setback from the whole
+stretch: what lies nearer is clipped out, and the ends are joined along the
+notch's rim on the high side. One rule then does the cut, every pair of a
+weave, a contour that only comes near - `_push` went, the rim does it - and
+the cut-away of one wholly inside. Which side is high is read from the contour's direction
+where it crosses the river, rising across the first crossing; reading it
+from the river below each stretch of rim failed on the Bosco's 100 m, which
+touches the river at one node without crossing it.
+
+**The rim** is the stretch's offset either side and a half circle round each
+end. Inside a bend tighter than the setback the offset folds back on itself;
+those points are nearer the river than the setback and are left out. A rim
+that would cross the river where it comes back, or a contour it did not cross
+before, refuses the run.
+
+**On gobras**, one Shift+B on every river: 133 climbs and 3,390 m of climb, to
+46 and 1,285 m - 62% less, against 36% from two passes before, and a second
+pass now finds nothing more. Refused: 10 contours crossing only once in a run,
+9 rivers never back down to the run's level, and 4 rims that would cross a
+contour or the river. At the Bosco the river now runs in a gorge through the
+spur, its tip left a hill of its own south of it; the plan takes 1.1 s there,
+from 13.7 s, once proper and vertex crossings test only segments whose boxes
+meet.
+
+Fifteen mutations, each failing a test, every one from a fresh copy: each climb
+its own run, a run ending only below its level, the high side flipped for a
+contour crossing and for one only near, a ring losing its piece through its
+start, the fold kept, a piece taken whole not said, an odd crossing count not
+refused, a run never back down not said, no clash check, a rim over the river
+not refused, one setback for every contour, rim joins the wrong way round, a
+pair crossing before refused, and sampling too coarse. A change to Shift+B's
+filter for contours shared between rivers was made and taken out: mutated, no
+test noticed, because it compares each square's commands against what earlier
+rivers used, never against its own.

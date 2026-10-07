@@ -1637,11 +1637,10 @@ class EditController(QObject):
     def burn(self, setback_m: float | None = None, every: bool = False, again: bool = False):
         """B: burn the climb chosen in the grade's list or on its profile -
         G7b, R25. Shift+B: every climb the grade found. Proposed, not
-        applied: each contour of the spur the river runs over cut at its
-        crossings and closed along its own bank, set back ``setback_m`` for
-        each step it stands above the climb's lower level; the contours near
-        it pushed back to theirs. Enter
-        accepts it as one step.
+        applied: the whole run the climb is part of, every contour above the
+        run's level kept ``setback_m`` back from the river for each step it
+        stands above it, and closed along the notch's edge. Enter accepts it
+        as one step.
 
         ``again`` proposes the last burn again at a new setback - the
         strength tried before it is accepted."""
