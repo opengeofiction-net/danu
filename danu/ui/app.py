@@ -427,6 +427,7 @@ class MainWindow(QMainWindow):
                 ('edit.flatten', '&Flatten the lake', lambda: ed.flatten()),
                 ('edit.burn', '&Burn the climb chosen', lambda: ed.burn()),
                 ('edit.burn_all', 'Burn every climb the grade &found', lambda: ed.burn(every=True)),
+                ('edit.split', 'S&plit the contour at the node', ed.split),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop()))):
             a = QAction(text, self)
@@ -440,6 +441,7 @@ class MainWindow(QMainWindow):
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.delete'])
         edit.addAction(self.edit_actions['edit.delete_way'])
+        edit.addAction(self.edit_actions['edit.split'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])

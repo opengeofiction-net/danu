@@ -48,9 +48,12 @@ DEFAULT_KEYS = {
     # O for loop: a contour crossing itself, chosen in the checks panel, the
     # loop cut out - G8c
     'edit.cut_loop': 'O',
+    # P splits a contour at the node selected, as JOSM's does - G8d; the
+    # surface's pinch, which had P, moves to C
+    'edit.split': 'P',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
-    'surface.pinch': 'P',
+    'surface.pinch': 'C',
 }
 
 

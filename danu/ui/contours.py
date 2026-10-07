@@ -837,18 +837,23 @@ class ContourLayer(QGraphicsItem):
         g = self._ways[int(self._seg_way[i])]
         return g.square, g.way, float(dist[i]), int(self._seg_i[i])
 
-    def pick_node(self, x: float, y: float, tolerance: float) -> tuple[Square, int, float] | None:
+    def pick_node(self, x: float, y: float, tolerance: float,
+                  skip: tuple | None = None) -> tuple[Square, int, float] | None:
         """The node - of a contour or a coastline, R15's two snap targets -
-        nearest a scene point within a tolerance, as (square, id, distance)."""
+        nearest a scene point within a tolerance, as (square, id, distance).
+        ``skip`` is a (square name, node id) passed over - the node being
+        dragged, which is under the cursor itself."""
         self._ensure_arrays()
         if not len(self._node_xy):
             return None
         dist = np.hypot(*(self._node_xy - (x, y)).T)
-        i = int(dist.argmin())
-        if dist[i] > tolerance:
-            return None
-        square, ref = self._node_ref[i]
-        return square, ref, float(dist[i])
+        for i in np.argsort(dist):
+            if dist[i] > tolerance:
+                return None
+            square, ref = self._node_ref[int(i)]
+            if skip is None or (square.name, ref) != skip:
+                return square, ref, float(dist[i])
+        return None
 
     def crossings(self, p: tuple[float, float], q: tuple[float, float], ele: float) -> list[tuple[Square, Way, bool]]:
         """R16 for one prospective segment: the contours it would cross, and

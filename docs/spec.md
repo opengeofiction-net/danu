@@ -950,7 +950,8 @@ The notes on what this phase has done so far are in `implementation.md`, under
 crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
 gobras holds contours that cross dozens of others, and a river crossing one
 reads as a climb a burn would bend real contours to fit. A contour crossing
-itself followed as G8c, with the loop cut out. Here, the panel's other
+itself followed as G8c, with the loop cut out, and G8d split and join to mend
+what the checks find. Here, the panel's other
 checks, then measure, profile, difference, magnify, autosave and crash
 recovery, session files.
 
@@ -1117,6 +1118,9 @@ Recorded so the reasoning is not relitigated:
 | crossings | warned live, and refused on what results - so a redraw may cross the stretch it is replacing, which goes with it |
 | moving a contour whole | shift and a drag carries it, as one step; one that already crosses others moves freely, being repaired, and is told how many it crosses now; one that crosses nothing may not be moved into a crossing; a node it shares with another way is copied, not moved, so it comes away |
 | a contour crossing itself | listed in the checks panel, a row a place - a crossing, or a node passed through twice; O proposes the loop cut out, a node put where the strands cross, the shorter side of a closed contour |
+| splitting a contour | P at a node, as JOSM's: an open contour becomes two, a closed one opens there; the new ends are unglued and drawn 5 m back along their own lines, a third of a short segment at most |
+| joining contours | ctrl and a drag of an end onto another contour's end, as JOSM's: one way, the first's id kept and both's tags; onto its own other end, it closes; another level, tags that disagree, a middle node, a ring, another square or a crossing refuse it and say why; without ctrl the drop is a move |
+| the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 
 ## Open questions
