@@ -203,26 +203,65 @@ def test_the_point_barrier_costs_no_reach(tmp_path):
             f'{name}: the spot height gave reach to {gained} cells, not the disc it should')
 
 
-def test_a_spot_height_outside_the_contours_joins_the_envelope(tmp_path):
-    """Pinned because it is a decision, not an accident. ``drawn_area`` takes
-    the convex hull of the constraints raster per degree square, and a spot
-    height is in that raster - so one placed beyond the contours stretches the
-    hull and the ground between is filled.
+def test_a_spot_height_outside_the_contours_does_not_stretch_the_envelope(tmp_path):
+    """Pinned because it is a decision, not an accident. The envelope is the
+    contour lines' alone: a spot height constrains the ground inside it and
+    never extends it. G1 had it the other way, a spot height in the hull the
+    same as a contour way; the main map's peaks imported over gobras then
+    widened its surface to ground nothing describes, and the mapper said so.
 
-    That follows from R36 reading a spot height as a constraint *the same as a
-    contour way*, and a contour way out there would stretch the hull too. The
-    alternative - the envelope being the contour lines' alone, with spot heights
-    constraining inside it but never extending it - is coherent as well, since
-    isofill counts constraints outside the mask as evidence either way. This
-    says which one is in force.
-    """
+    The one out there is still burned - a constraint where it stands, as
+    isofill counts constraints beyond the mask either way."""
+    from osgeo import gdal as g
     _, inside, _, _ = built(a_hill((LON, LAT, 200)), tmp_path, name='in')
-    _, outside, _, _ = built(a_hill((LON + 0.45, LAT, 60)), tmp_path, name='out')
+    _, outside, gt, r = built(a_hill((LON + 0.45, LAT, 60)), tmp_path, name='out')
     _, plain, _, _ = built(a_hill(), tmp_path, name='plain')
     assert int(inside.sum()) == int(plain.sum()), (
         'a spot height inside the contours changed the envelope')
-    assert int(outside.sum()) > int(plain.sum()) * 1.1, (
-        'a spot height beyond the contours did not stretch the envelope')
+    assert int(outside.sum()) == int(plain.sum()), (
+        'a spot height beyond the contours stretched the envelope')
+    ds = g.Open(str(r.constraints))
+    cgt = ds.GetGeoTransform()
+    col, row = int((LON + 0.45 - cgt[0]) / cgt[1]), int((LAT - cgt[3]) / cgt[5])
+    assert int(ds.GetRasterBand(1).ReadAsArray(col, row, 1, 1)[0, 0]) == 60, 'not burned'
+
+
+def test_a_square_of_spot_heights_alone_does_not_widen_the_grid(tmp_path):
+    """The main map's peaks fall in squares nobody has contoured - four of
+    the nine round gobras - and a square holding them and nothing else is
+    no more ground to build than a square of water alone (G6c). A set of
+    nothing else builds nothing: there is no envelope to fill."""
+    from danu.core.square import Node, Square, SquareName, Way, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write_square(a_hill(), zone / 'S24E125.osm.xz')
+    peaks = Square(name=SquareName(124, -24), present=True, attrs={'version': '0.6'})
+    peaks.nodes[-1] = Node(id=-1, lon=124.5, lat=-23.5, tags={'natural': 'peak', 'ele': '300'})
+    # and the main map's Kettle Lake, its level in feet: a way with an ele
+    # the build drops, which counted put a square of it in the grid
+    for i, (lon, lat) in enumerate(((124.2, -23.8), (124.3, -23.8), (124.3, -23.7)), start=2):
+        peaks.nodes[-i] = Node(id=-i, lon=lon, lat=lat)
+    peaks.ways[-9] = Way(id=-9, refs=[-2, -3, -4, -2], tags={'natural': 'water', 'ele': '1,853 Ft'})
+    write_square(peaks, zone / 'S24E124.osm.xz')
+    lines = []
+    r = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(30), log=lines.append)
+    assert r.dem is not None and len(r.squares) == 2, 'the square of peaks was not read'
+    assert (r.grid.west, r.grid.east) == (125, 126), f'the grid is {r.grid.west}..{r.grid.east}'
+    assert any('1 with heights and no contour' in line for line in lines), lines
+    # the peaks' square is read first and has no way: the contour layer is
+    # made on it even so, empty, and rasterise's first call - the one the
+    # envelope is taken after - is the contours'
+    from osgeo import ogr
+    ds = ogr.Open(str(r.contours_gpkg))
+    names = [ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
+    del ds
+    assert names[0] == 'contour' and 'spot' in names, names
+    lines = []
+    none = build.build_dem(zone, tmp_path / 'w2', sp.load().with_arcsec(30),
+                           names=[SquareName(124, -24)], log=lines.append)
+    assert none.dem is None and any('spot heights and no contour yet' in line for line in lines), lines
 
 
 def test_the_scan_counts_every_ele_outside_a_way_element(tmp_path):
@@ -425,51 +464,6 @@ def test_the_preview_copies_the_spot_layers_own_geometry_type(tmp_path):
     assert contours.spots.GetGeomType() == want, (
         f'the preview calls the spot layer {contours.spots.GetGeomType()} '
         f'where the build has {want}')
-
-
-def test_a_square_of_nothing_but_spot_heights_builds(tmp_path):
-    """``collect`` returns a GeoPackage when either layer has features, so a
-    set with spot heights and no contour ways is a thing that reaches
-    ``rasterise``. It arrives as both layers even so - the lines translate runs
-    for every square and creates ``contour`` on the first, empty if that square
-    had none - which is what makes ``rasterise``'s first call the contour one
-    whatever the squares hold.
-    """
-    from osgeo import ogr
-
-    from danu.core import edits
-    from danu.core.square import Node, Square, SquareName, write_square
-    from danu.surface import build
-    from danu.surface import params as sp
-
-    sq = Square(name=SquareName(125, -24), present=True,
-                attrs={'version': '0.6', 'upload': 'never'})
-    alloc = edits.IdAllocator(sq)
-    for lon, lat, ele in ((LON - 0.1, LAT - 0.1, 300), (LON + 0.1, LAT + 0.1, 350)):
-        nid = alloc.take()
-        sq.nodes[nid] = Node(id=nid, lon=lon, lat=lat, tags={'ele': str(ele)})
-    zone = tmp_path / 'zone'
-    zone.mkdir()
-    write_square(sq, zone / 'S24E125.osm.xz')
-
-    said = []
-    result = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3), log=said.append)
-    assert result.dem is not None, f'a square of spot heights built nothing: {said}'
-    assert any('2 spot heights' in line for line in said)
-
-    ds = ogr.Open(str(result.contours_gpkg))
-    names = [ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
-    del ds
-    assert names[0] == 'contour' and 'spot' in names, (
-        f'{names}: rasterise would not be creating the raster from the contour layer')
-
-    cds = gdal.Open(str(result.constraints))
-    cons = cds.GetRasterBand(1).ReadAsArray()
-    gt = cds.GetGeoTransform()
-    del cds
-    x = int((LON - 0.1 - gt[0]) / gt[1])
-    y = int((LAT - 0.1 - gt[3]) / gt[5])
-    assert cons[y, x] == 300, f'the spot height reads {cons[y, x]}'
 
 
 def box_round(cgt, lon, lat, half=30):

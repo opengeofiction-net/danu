@@ -408,10 +408,12 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tup
     return ele_ways, ele_loose
 
 
-def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> Path | None:
+def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
+            lined: set | None = None) -> Path | None:
     """Every square's constraints into one GeoPackage: the ways with a numeric
     ``ele`` as ``contour``, the nodes with one as ``spot``. None when there are
-    neither.
+    neither. ``lined``, given, gets the names of the squares that brought a
+    way - the ones the grid is taken over.
 
     Every way carrying a numeric ``ele`` is a constraint: contours, and the
     water edges at ele 0. Ways without one - the frame, stray tagging - are
@@ -443,7 +445,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                               # with a non-zero exit code nowhere
                               'CPL_TMPDIR': str(work)}):
         # sorted by name, so a zone build reads its squares in the same order every run
-        for _name, path in sorted(squares.items()):
+        for name, path in sorted(squares.items()):
             # GDAL has no VSI handler for xz - there is one for zip, gzip and
             # 7z, but not this - so a compressed square is expanded into the
             # working directory, read, and dropped again. One at a time, so the
@@ -465,6 +467,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
             # expanded regardless, so the square is decompressed once a build
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
             spots_before = _feature_count(gpkg, 'spot')
+            top = _last_line(gpkg)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
@@ -518,6 +521,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet) -> P
                     f'{path.name} has {ele_ways} way(s) tagged ele but converted to none. '
                     f'Check the run for "Cannot create" - the OSM driver loses a square '
                     f'silently when its temporary file cannot be written')
+            # by a numeric ele, which the cleanup below keeps: the main map's
+            # Kettle Lake, ele=1,853 Ft, is a way that converts and is then
+            # dropped, and counted it put N19E085 in the gobras grid
+            if lined is not None and _numeric_lines(gpkg, top):
+                lined.add(name)
             before = now
     if not gpkg.exists():
         return None
@@ -577,6 +585,31 @@ def _layer_count(ds, layer_name: str) -> int:
     return int(n)
 
 
+def _last_line(gpkg: Path) -> int:
+    """The highest fid in the contour layer, 0 where there is none yet: an
+    append numbers on from it, so what one square brought is the rows past."""
+    return _contour_sql(gpkg, 'SELECT COALESCE(MAX(fid), 0) FROM contour')
+
+
+def _numeric_lines(gpkg: Path, since: int) -> int:
+    """How many contour features past fid ``since`` carry an ele that is a
+    number - the ones the cleanup keeps."""
+    return _contour_sql(gpkg, f'SELECT COUNT(*) FROM contour WHERE fid > {int(since)} AND NOT ({NONNUM})')
+
+
+def _contour_sql(gpkg: Path, sql: str) -> int:
+    if not gpkg.exists():
+        return 0
+    ds = ogr.Open(str(gpkg))
+    if ds is None or ds.GetLayerByName('contour') is None:
+        return 0
+    found = ds.ExecuteSQL(sql, dialect='SQLite')
+    n = found.GetNextFeature().GetField(0)
+    ds.ReleaseResultSet(found)
+    ds = None
+    return int(n)
+
+
 def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
     """A layer's feature count, or 0 where the file or the layer is not there
     yet - which is the state a square that converted to nothing leaves."""
@@ -593,7 +626,9 @@ def _feature_count(gpkg: Path, layer_name: str = 'contour') -> int:
 # ------------------------------------------------------------- rasterise
 
 def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
-    """The constraints as an Int16 raster of metres, nodata where none.
+    """The constraints as an Int16 raster of metres, nodata where none - and,
+    taken from it between the contours and the spot heights, ``drawn.geojson``,
+    the envelope ``drawn_area`` masks to.
 
     Int16, not Int32: elevations fit with room to spare and so does the nodata,
     and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set.
@@ -610,6 +645,12 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     statement. It is also the case R37 exists for -
     a summit inside the top ring is higher than the ring, and a contour burned
     over it would flatten the thing the spot height is there to raise.
+
+    The envelope is the contour lines' alone. A spot height constrains the
+    ground inside it and never stretches it: the main map's peaks, imported
+    over a working set, stand beyond the contours as often as among them, and
+    each one out there widened the surface to ground nothing describes - 29
+    in gobras's drawn squares, and 20 more in four squares holding no contour.
     """
     out = work / 'cont.tif'
     ds = ogr.Open(str(gpkg))
@@ -652,6 +693,8 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
                 initValues=[NODATA], layers=[name],
                 outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res,
                 outputBounds=list(grid.te), creationOptions=CREATE))
+            if name == 'contour':
+                drawn_mask.envelopes(str(out), str(work / 'drawn.geojson'))
             continue
         into = gdal.Open(str(out), gdal.GA_Update)
         gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
@@ -661,7 +704,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     return out
 
 
-def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
+def drawn_area(grid: Grid, work: Path, log: Log = _quiet) -> Path:
     """Where the contours describe ground, as a byte mask on the same grid.
 
     The zone raster is the bounding box of the squares holding contours, and a
@@ -688,8 +731,8 @@ def drawn_area(cont: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
     sparse contours span their square: the hull covers 95.1% of it and masks out
     none of its terrain. Contours inside the mask still inform cells outside it,
     so its edge is not a wall to the ground beyond."""
-    geojson = work / 'drawn.geojson'
-    n = drawn_mask.envelopes(str(cont), str(geojson))
+    geojson = work / 'drawn.geojson'         # rasterise wrote it, from the contours alone
+    n = len(json.loads(geojson.read_text())['features'])
     log(f'  drawn area: {n} square envelopes')
     out = work / 'drawn-mask.tif'
     gdal.Rasterize(str(out), str(geojson), options=gdal.RasterizeOptions(
@@ -1024,31 +1067,40 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         log(f'  {blank} squares, none with contours - nothing to build yet' if names is None
             else '  no contours in this working set - nothing to build')
         return Result(None, None, {}, None, None, None, None, blank=blank)
-    # the grid over the squares that hold an elevation: a square of water and
-    # nothing else is drawn, and read, but has no ground to give until a
-    # level is put on its water - and the five an import of the gobras set
-    # creates would have widened its raster by a degree of nothing (G6c)
+    # anything to build only where a square holds an elevation: a square of
+    # water and nothing else is drawn, and read, but has no ground to give
+    # until a level is put on its water - and the five an import of the gobras
+    # set creates would have widened its raster by a degree of nothing (G6c)
     elevated = [n for n, path in squares.items() if has_elevation(str(path))]
     if not elevated:
         log('  water and no elevation yet in this working set - nothing to build'
             if names is not None else
             f'  {len(squares)} squares of water and no elevation yet - nothing to build')
         return Result(None, None, squares, None, None, None, None, blank=blank)
-    grid = grid_for(elevated, params.arcsec)
+    stage('collect')
+    lined: set = set()
+    gpkg = collect(squares, work, log, lined)
+    if gpkg is None:
+        return Result(None, None, squares, None, None, None, None, blank=blank)
+    # and over the squares holding a contour, of those: a spot height is a
+    # constraint inside the contours and does not widen what they describe -
+    # nor does a square of the main map's peaks and nothing else
+    if not lined:
+        log('  spot heights and no contour yet - nothing to build')
+        return Result(None, None, squares, None, None, None, None, blank=blank)
+    grid = grid_for(lined, params.arcsec)
     water_only = len(squares) - len(elevated)
-    log(f'  {len(elevated)} squares with elevations ({blank} blank'
-        + (f', {water_only} of water alone' if water_only else '') + '), '
+    spots_only = len(elevated) - len(lined)
+    log(f'  {len(lined)} squares with contours ({blank} blank'
+        + (f', {water_only} of water alone' if water_only else '')
+        + (f', {spots_only} with heights and no contour' if spots_only else '') + '), '
         f'{grid.west}..{grid.east} by {grid.south}..{grid.north}, '
         f'{grid.size[0]}x{grid.size[1]} at {params.arcsec:g}"')
     log(f'  fill bounded to {params.fill_metres:g} m = {params.fill_cells} cells')
-    stage('collect')
-    gpkg = collect(squares, work, log)
-    if gpkg is None:
-        return Result(None, grid, squares, None, None, None, None, blank=blank)
     stage(f'rasterise at {params.arcsec:g}"')
     cont = rasterise(gpkg, grid, work)
     stage('drawn area')
-    mask = drawn_area(cont, grid, work, log)
+    mask = drawn_area(grid, work, log)
     if water_file is not None:
         stage('water areas')
         wmask = water_areas(Path(water_file), grid, work, log)
