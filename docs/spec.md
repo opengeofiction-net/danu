@@ -1137,6 +1137,9 @@ Recorded so the reasoning is not relitigated:
 | contours that touch | listed in the checks panel: a node two levels share, a place a row, and a stretch of one contour within 1 m of another for a segment or more - a duplicate at one level, two levels in one place at two; U unglues a shared node, the contours other than the one selected each given a node of its own drawn 5 m back into its own line, a third of the way to its neighbours at most |
 | a spot height the contours contradict | listed in the checks panel, judged against the innermost closed contour round it and the one round that - a hill or a hollow; on a hill it lies between that ring's level and the ladder's next rung up, turned over in a hollow; one in no ring is not judged; choosing it selects it, for its height to be set |
 | a spot height beyond the contours | burned, and stretches nothing: the envelope is the contour lines', and the grid the squares that hold a way with a numeric ele - a square of peaks alone, or of a lake whose level is in feet, builds nothing |
+| saving | the text taken on the UI thread, compressed and written on a thread of its own, one square at a time in the order asked; a square is clean once its own file has landed, at the history as it stood when its text was taken; a write that fails says so and leaves it dirty; a close or an open waits for the writes |
+| dirty | by the last step done on the square, not how many: saved, undone and edited again is dirty |
+| the checks' first scan | on a worker, the panel saying it is finding them; an edit made meanwhile is put to the indexes when they land |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

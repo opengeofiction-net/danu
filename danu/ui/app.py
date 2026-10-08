@@ -25,6 +25,7 @@ from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config
 from . import mercator as m
+from .background import Job
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
@@ -75,6 +76,20 @@ def user_cache_dir() -> Path:
     """~/.cache/danu on Linux; tiles and, later, Overpass live under it."""
     return Path(QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.CacheLocation))
+
+
+def find_checks(ws, tries: int = 5):
+    """The four checks' indexes over a working set - on a worker, while the
+    set goes on being edited on the UI thread. An edit that changes a dict
+    under the scan stops it, and it starts again; one that changes a way it
+    has read is put to the indexes when they land, so what was read of that
+    way is asked again."""
+    for attempt in range(tries):
+        try:
+            return (crossings.Index(ws), loops.Index(ws), touches.Index(ws), spots.Index(ws))
+        except RuntimeError:                   # changed size during iteration
+            if attempt == tries - 1:
+                raise
 
 
 class MainWindow(QMainWindow):
@@ -130,6 +145,19 @@ class MainWindow(QMainWindow):
         self.loop_index = None                  # contours crossing themselves (G8c)
         self.touch_index = None                 # touching or lying on one another (G8e)
         self.spot_index = None                  # spot heights the rings contradict (R38)
+        # the first scan over a set runs on a worker - 9.3 s on gobras - and
+        # the edits made while it runs are put to it when it lands
+        self._checks_runner = QThreadPool.globalInstance().start
+        self._checks_job = None
+        self._checks_missed: list = []
+        # saves compress and write on a thread of their own, one at a time and
+        # in the order asked, so two saves of one square land in that order
+        self._write_pool = QThreadPool(self)
+        self._write_pool.setMaxThreadCount(1)
+        self._write_runner = self._write_pool.start
+        self._writes: list = []                 # jobs out, kept until they answer
+        self._written: list = []                # reports of a save still landing
+        self._asking = False
         self._checks_due = QTimer(self)
         self._checks_due.setSingleShot(True)
         self._checks_due.setInterval(250)
@@ -286,18 +314,23 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------------- save
     def save_all(self) -> bool:
         """Every dirty square to its file; one with no file yet asks where.
-        Returns False if a save was declined, so a close can stop."""
+        Returns False if a save was declined, so a close can stop. The files
+        are written off the UI thread; each square is clean once its own has
+        landed, and the status line says so when the last does."""
         dirty = self.editor.history.dirty_squares()
         if not dirty:
             self.statusBar().showMessage('nothing to save')
             return True
-        reports = []
-        for sq in dirty:
-            path = sq.path if sq.path is not None else self._ask_path(sq)
-            if path is None:
-                return False
-            reports.append(self._save(sq, path))
-        self.statusBar().showMessage('; '.join(r.describe() for r in reports))
+        self._asking = True                      # the report waits for the last of these
+        try:
+            for sq in dirty:
+                path = sq.path if sq.path is not None else self._ask_path(sq)
+                if path is None:
+                    return False
+                self._save(sq, path)
+        finally:
+            self._asking = False
+            self._saved()
         return True
 
     def save_as(self):
@@ -309,15 +342,58 @@ class MainWindow(QMainWindow):
             return
         path = self._ask_path(sq)
         if path is not None:
-            self.statusBar().showMessage(self._save(sq, path).describe())
+            self._save(sq, path)
+            self._saved()
 
-    def _save(self, sq: Square, path: Path) -> save.SaveReport:
-        report = save.save_square(sq, self.editor.history, path, self.elevation.model.ladder
-                                  if self.elevation.square is sq else None)
-        self.contours.refresh(sq, set(sq.ways))          # a frame or a split changed what is drawn
-        self.squares.set_working_set(self.working_set)   # a blank square is present now
-        self._edited()
-        return report
+    def _save(self, sq: Square, path: Path) -> None:
+        """The square's text taken here, its file written on the writer."""
+        pending = save.prepare(sq, self.editor.history, path, self.elevation.model.ladder
+                               if self.elevation.square is sq else None)
+        if pending.report.framed or pending.report.split:
+            self.contours.refresh(sq, set(sq.ways))      # a frame or a split changed what is drawn
+        job = None
+
+        def done(_path):
+            self._writes.remove(job)
+            self._written.append(save.finish(pending, self.editor.history))
+            self.squares.set_working_set(self.working_set)   # a blank square is present now
+            self._edited()
+            self._saved()
+
+        def failed(why):
+            self._writes.remove(job)
+            first = why.splitlines()[0]
+            self.statusBar().showMessage(f'{pending.path.name} not saved: {first}')
+            QMessageBox.warning(self, 'Danu', f'{pending.path} was not saved - it is unchanged on disk, '
+                                f'and {sq.name} still has its edits:\n\n{first}')
+
+        job = Job(lambda: save.write(pending), done, failed)
+        self._writes.append(job)
+        self._write_runner(job)
+
+    def _saved(self) -> None:
+        """The status line: what is still being written, or, once the last
+        has landed, what each save did."""
+        if self._asking:
+            return
+        if self._writes:
+            n = len(self._writes)
+            self.statusBar().showMessage(f'saving {n} square{"s" * (n != 1)}…')
+        elif self._written:
+            self.statusBar().showMessage('; '.join(r.describe() for r in self._written))
+            self._written = []
+
+    def wait_for_writes(self) -> None:
+        """Every save asked for landed, and its answer taken - before a read
+        of the files, or a close."""
+        if not self._writes:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            self._write_pool.waitForDone()
+            QApplication.processEvents()                 # the answers, queued to this thread
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _ask_path(self, sq: Square) -> Path | None:
         if sq.path is None and self.zone_dir is None:
@@ -355,6 +431,7 @@ class MainWindow(QMainWindow):
         self.open_working_set(self.zone_dir, self.working_set.centre, self.working_set.size)
 
     def closeEvent(self, event):
+        self.wait_for_writes()
         if self.prompt_on_close and self.editor.dirty():
             names = ', '.join(str(sq.name) for sq in self.editor.history.dirty_squares())
             answer = QMessageBox.question(
@@ -364,6 +441,10 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Cancel or (
                     answer == QMessageBox.StandardButton.Save and not self.save_all()):
                 event.ignore()
+                return
+            self.wait_for_writes()
+            if answer == QMessageBox.StandardButton.Save and self.editor.dirty():
+                event.ignore()                           # a write failed, and said so
                 return
         self.territory.abort()
         self.fetcher.abort()
@@ -537,6 +618,7 @@ class MainWindow(QMainWindow):
         """Read the grid on a worker and show it when it arrives. Returns
         False if a read is already running; the status line says so."""
         zone_dir = Path(zone_dir)
+        self.wait_for_writes()                           # what is read is what was saved
         if not self.loader.load(zone_dir, centre, size):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
@@ -812,25 +894,43 @@ class MainWindow(QMainWindow):
             self._checks_shown(True)
 
     def _checks_shown(self, visible: bool) -> None:
-        """The panel opened: the working set's crossings found, once - after
-        that an edit keeps them."""
-        if visible and self.working_set is not None and (
+        """The panel opened: the working set's checks found, once, on a
+        worker - after that an edit keeps them."""
+        if visible and self.working_set is not None and self._checks_job is None and (
                 self.crossing_index is None or self.crossing_index.working_set is not self.working_set):
-            QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
-            try:
-                self.crossing_index = crossings.Index(self.working_set)
-                self.loop_index = loops.Index(self.working_set)
-                self.touch_index = touches.Index(self.working_set)
-                self.spot_index = spots.Index(self.working_set)
-            finally:
-                QApplication.restoreOverrideCursor()
-            self._refresh_checks()
+            ws = self.working_set
+            self._checks_missed = []
+            self.checks_dock.finding()
+            job = None
+
+            def done(indexes):
+                self._checks_job = None
+                if ws is not self.working_set:
+                    self._checks_shown(self.checks_dock.isVisible())   # a set opened meanwhile
+                    return
+                self.crossing_index, self.loop_index, self.touch_index, self.spot_index = indexes
+                missed, self._checks_missed = self._checks_missed, []
+                for square, ways, spot_ids in missed:
+                    self._checks_edited(square, ways, spot_ids)
+                self._refresh_checks()
+
+            def failed(why):
+                self._checks_job = None
+                self.statusBar().showMessage(f'the checks failed: {why.splitlines()[0]}')
+
+            job = Job(lambda: find_checks(ws), done, failed)
+            self._checks_job = job
+            self._checks_runner(job)
             return
         self._refresh_marks()
 
     def _checks_edited(self, square, ways, spot_ids) -> None:
         """An edit's ways asked again at once - milliseconds a way - and the
-        panel redrawn a moment later, once a drag has stopped."""
+        panel redrawn a moment later, once a drag has stopped. One made while
+        the first scan runs is kept for it."""
+        if self._checks_job is not None:
+            self._checks_missed.append((square, set(ways or ()), set(spot_ids or ())))
+            return
         if self.spot_index is not None and (ways or spot_ids):
             # a spot height moved or re-levelled, or a ring round one changed
             self.spot_index.update(square, ways or (), spot_ids or ())
