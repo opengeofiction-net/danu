@@ -951,8 +951,10 @@ The notes on what this phase has done so far are in `implementation.md`, under
 crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
 gobras holds contours that cross dozens of others, and a river crossing one
 reads as a climb a burn would bend real contours to fit. A contour crossing
-itself followed as G8c, with the loop cut out, and G8d split and join to mend
-what the checks find. Here, the panel's other
+itself followed as G8c, with the loop cut out; G8d split and join to mend
+what the checks find; and G8e the rest of R16 - a node two levels share, which
+unglues, and contours lying on one another, the duplicate coincident contours
+of the validation table. Here, the panel's other
 checks, then measure, profile, difference, magnify, autosave and crash
 recovery, session files.
 
@@ -1121,6 +1123,7 @@ Recorded so the reasoning is not relitigated:
 | a contour crossing itself | listed in the checks panel, a row a place - a crossing, or a node passed through twice; O proposes the loop cut out, a node put where the strands cross, the shorter side of a closed contour |
 | splitting a contour | P at a node, as JOSM's: an open contour becomes two, a closed one opens there; the new ends are unglued and drawn 5 m back along their own lines, a third of a short segment at most |
 | joining contours | ctrl and a drag of an end onto another contour's end, as JOSM's: one way, the first's id kept and both's tags; onto its own other end, it closes; another level, tags that disagree, a middle node, a ring, another square or a crossing refuse it and say why; without ctrl the drop is a move |
+| contours that touch | listed in the checks panel: a node two levels share, a place a row, and a stretch of one contour within 1 m of another for a segment or more - a duplicate at one level, two levels in one place at two; U unglues a shared node, the contours other than the one selected each given a node of its own drawn 5 m back into its own line, a third of the way to its neighbours at most |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

@@ -390,6 +390,62 @@ def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
     return ReplaceWay(way_id, [(way_id, [*refs[:k], n1]), (alloc.take(), [n2, *refs[k + 1:]])], new)
 
 
+def unglue_node(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
+                gap_m: float = SPLIT_GAP_M) -> Command | str:
+    """A node shared by several ways, left to ``way_id`` alone - G8e. Each
+    other way holding it gets a node of its own, drawn ``gap_m`` from it into
+    its own bend - toward the middle of its two neighbours - so the contours
+    come apart where they met, a third of the way there at most. A way that
+    runs straight through the node is moved square to its line, away from the
+    way that keeps it. Why not, as a string."""
+    way = square.ways.get(way_id)
+    if way is None or node_id not in way.refs:
+        return 'that node is not on the way selected'
+    others = sorted(ways_holding(square, node_id) - {way_id})
+    if not others:
+        return 'no other way holds that node'
+    n = square.nodes[node_id]
+    kx = 111320.0 * math.cos(math.radians(n.lat))
+    k = (kx, 110540.0)
+
+    def neighbours(refs):
+        """The node's neighbours along a way, in metres from it - a ring's
+        closing node has one at each end of its refs."""
+        out = []
+        for i, r in enumerate(refs):
+            if r != node_id:
+                continue
+            for j in (i - 1, i + 1):
+                if 0 <= j < len(refs) and refs[j] != node_id:
+                    m = square.nodes[refs[j]]
+                    out.append(((m.lon - n.lon) * k[0], (m.lat - n.lat) * k[1]))
+        return out
+    mine = neighbours(way.refs)
+    steps = []
+    for oid in others:
+        refs = list(square.ways[oid].refs)
+        near = neighbours(refs)
+        mx = sum(p[0] for p in near) / len(near) if near else 0.0
+        my = sum(p[1] for p in near) / len(near) if near else 0.0
+        length = math.hypot(mx, my)
+        if length < 1e-3 and len(near) >= 2:
+            # straight through: square to its line, away from the way kept
+            dx, dy = near[0][0] - near[-1][0], near[0][1] - near[-1][1]
+            ux, uy = -dy, dx
+            norm = math.hypot(ux, uy) or 1.0
+            ux, uy = ux / norm, uy / norm
+            if mine and sum(ux * p[0] + uy * p[1] for p in mine) > 0:
+                ux, uy = -ux, -uy
+            d = gap_m
+        else:
+            ux, uy = (mx / length, my / length) if length else (1.0, 0.0)
+            d = min(gap_m, length / 3) if near else gap_m
+        nid = alloc.take()
+        to = (n.lon + ux * d / k[0], n.lat + uy * d / k[1])
+        steps.append(ReplaceWay(oid, [(oid, [nid if r == node_id else r for r in refs])], {nid: to}))
+    return Compound(steps, name='unglue')
+
+
 def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -> Command | str:
     """A way's end ``end`` put onto ``onto``, an end of ``other_id`` - or the
     way's own other end, which closes it. The two become one way, keeping

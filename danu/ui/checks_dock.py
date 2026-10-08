@@ -15,7 +15,9 @@ panel is open.
 
 The second check (G8c) is a contour crossing itself, or passing through one
 of its nodes twice: one row a place, and O, or the button, proposes the loop
-cut out.
+cut out. The third (G8e) is contours that touch or lie on one another: a node
+two levels share, which U unglues, and a stretch of one within a metre of
+another - a duplicate, or two levels in one place.
 """
 
 from __future__ import annotations
@@ -42,6 +44,8 @@ class ChecksDock(QDockWidget):
     # a contour crossing itself, chosen; and the loop to cut out
     loopChosen = Signal(object)
     cutLoop = Signal(object)
+    # contours that touch or lie on one another, chosen (G8e)
+    touchChosen = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__('Checks', parent)
@@ -67,11 +71,19 @@ class ChecksDock(QDockWidget):
         box.addWidget(self.loops_summary)
         box.addWidget(self.loops_tree, 1)
         box.addWidget(self.cut_btn)
+        self.touches_summary = QLabel()
+        self.touches_summary.setWordWrap(True)
+        self.touches_tree = QTreeWidget()
+        self.touches_tree.setHeaderHidden(True)
+        self.touches_tree.setColumnCount(1)
+        box.addWidget(self.touches_summary)
+        box.addWidget(self.touches_tree, 1)
         self.setWidget(body)
         self.groups: list = []
         self.tree.currentItemChanged.connect(self._current)
         self.loops_tree.currentItemChanged.connect(self._current_loop)
         self.cut_btn.clicked.connect(lambda: self.cutLoop.emit(self.current_loop()))
+        self.touches_tree.currentItemChanged.connect(self._current_touch)
 
     def show_crossings(self, found: list) -> None:
         """The crossings as they stand, replacing what was listed. The row
@@ -147,3 +159,38 @@ class ChecksDock(QDockWidget):
         self.cut_btn.setEnabled(item is not None)
         if item is not None:
             self.loopChosen.emit(item.data(0, _ROW))
+
+    def show_touches(self, found: list) -> None:
+        """The contours that touch or lie on one another, a row a place; the
+        row that was current stays so where it is still listed."""
+        item = self.touches_tree.currentItem()
+        was = item.data(0, _ROW) if item is not None else None
+        shared = sum(t.kind == 'shared' for t in found)
+        dupes = sum(t.kind == 'coincident' and t.a[2] == t.b[2] for t in found)
+        on_top = len(found) - shared - dupes
+        parts = [f'{shared:,} node{"s" * (shared != 1)} two levels share'] if shared else []
+        if on_top:
+            parts.append(f'{on_top:,} stretch{"es" * (on_top != 1)} of one level on another')
+        if dupes:
+            parts.append(f'{dupes:,} duplicate{"s" * (dupes != 1)}')
+        self.touches_summary.setText(
+            'No contour touches or lies on another.' if not found else
+            ', '.join(parts) + ' - choose one to see it; U unglues a shared node.')
+        self.touches_tree.blockSignals(True)
+        self.touches_tree.clear()
+        keep = None
+        for t in found:
+            row = QTreeWidgetItem([t.describe()])
+            row.setData(0, _ROW, t)
+            row.setToolTip(0, t.explain())
+            self.touches_tree.addTopLevelItem(row)
+            if was is not None and t == was:
+                keep = row
+        if keep is not None:
+            self.touches_tree.setCurrentItem(keep)
+        self.touches_tree.blockSignals(False)
+        self.touches_tree.setVisible(bool(found))
+
+    def _current_touch(self, item, _previous):
+        if item is not None:
+            self.touchChosen.emit(item.data(0, _ROW))

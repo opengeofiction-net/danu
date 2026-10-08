@@ -51,6 +51,8 @@ DEFAULT_KEYS = {
     # P splits a contour at the node selected, as JOSM's does - G8d; the
     # surface's pinch, which had P, moves to C
     'edit.split': 'P',
+    # U unglues a node contours of two levels share - G8e
+    'edit.unglue': 'U',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'C',
