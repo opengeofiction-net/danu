@@ -632,7 +632,7 @@ class EditController(QObject):
         n = len(cmd.commands)
         self.do(sel.square, cmd)
         self.selection = Selection(sel.square, sel.square.ways[sel.way.id], sel.node)
-        self.message.emit(f'unglued {n} contour{"s" * (n != 1)} from the node, each drawn '
+        self.message.emit(f'unglued {n} contour{"s" * (n != 1)} from the node, each drawn up to '
                           f'{edits.SPLIT_GAP_M:g} m back into its own line')
         self.overlay.update()
 

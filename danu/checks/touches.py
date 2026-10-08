@@ -4,9 +4,9 @@ spec's duplicate coincident contours, as a check (G8e).
 R16 says a contour may not cross one of another level at all; the crossings
 check (G8a) finds proper crossings, and these are the rest of it:
 
-- **shared** - a node held by contours at different levels: 115 on cleaned
-  gobras, 88 of them N21E086's southern edge, where 25 to 175 m contours run in
-  a stack along it a metre apart; over 4,000 in the originals;
+- **shared** - a node held by contours at different levels: 47 on cleaned
+  gobras, 35 of them N21E086's straight edge line, where 25 to 200 m contours
+  run in a stack along it a metre apart; over 4,000 in the originals;
 - **coincident** - two contours running within ``NEAR_M`` of each other for a
   segment or more: two closed 100 m knolls sharing a side, a 100 m triangle on
   top of the 100 m line beside it, that edge stack again. At one level it is a
@@ -93,8 +93,8 @@ def _scan(square, held, only) -> list[Touch]:
     ways = [w for w, _ in held]
     if not ways:
         return []
-    k = _k(square.name.lat + 0.5)
     by_id = {w.id: w for w in ways}
+    metres_of = {w.id: P for w, P in held}
     key = {w.id: (square.name, w.id, w.ele) for w in ways}
     out = []
     # shared nodes, between ways of different levels - only the nodes of
@@ -193,7 +193,7 @@ def _scan(square, held, only) -> list[Touch]:
         for run in runs:
             if len(run) < 2:
                 continue
-            xy = np.array([pts_of(square, w, i) for i in run]) * k
+            xy = metres_of[wid][run]                # the points held, not read again
             metres = float(np.hypot(*np.diff(xy, axis=0).T).sum())
             if metres <= NEAR_M:
                 continue                            # vertices on one spot, not a stretch
@@ -217,11 +217,6 @@ def _scan(square, held, only) -> list[Touch]:
             out.append(Touch('shared', key[x], key[y], n.lon, n.lat, node=r))
     out.sort(key=lambda t: (t.kind, t.lat, t.lon))
     return out
-
-
-def pts_of(square, way, i):
-    n = square.nodes[way.refs[i]]
-    return n.lon, n.lat
 
 
 def find(working_set) -> list[Touch]:
