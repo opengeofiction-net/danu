@@ -647,11 +647,12 @@ def has_constraints(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
 
 def has_elevation(path: str | os.PathLike, chunk: int = 1 << 20) -> bool:
     """True if the square carries an ``ele`` anywhere - a contour, a spot
-    height, a level on its water, a coastline's zero. The squares a build's
-    grid is taken over - G6c: a square of water and nothing else is drawn
-    (R42) but holds no ground, and an import of the gobras set creates five,
-    three of them a degree west of the zone, which stretched its raster by a
-    quarter with nothing in it."""
+    height, a level on its water, a coastline's zero. Whether a build has
+    anything to read at all - G6c: a square of water and nothing else is
+    drawn (R42) but holds no ground, and an import of the gobras set creates
+    five, three of them a degree west of the zone, which stretched its raster
+    by a quarter with nothing in it. The grid itself is then taken over those
+    of them that brought a way with a numeric ``ele``."""
     return _scan(path, _HAS_ELE, chunk)
 
 

@@ -115,7 +115,8 @@ the tools for everything else.
   useful thing it can tell a mapper: *here is ground your contours do not
   describe*.
 - **R21** The envelope the contours describe, as `danu.surface.drawn_mask` computes it,
-  is drawn as an outline. Beyond it the fill does not reach.
+  is drawn as an outline. Beyond it the fill does not reach, and a spot height
+  constrains the ground inside it but never extends it.
 - **R22** Ground outside the working set is shown from the **published** DEM and
   hillshade, fetched as tiles from `data.opengeofiction.net`. Live surface for
   the 3x3, last night's build for everything else, with a visible seam between
@@ -1135,6 +1136,7 @@ Recorded so the reasoning is not relitigated:
 | joining contours | ctrl and a drag of an end onto another contour's end, as JOSM's: one way, the first's id kept and both's tags; onto its own other end, it closes; another level, tags that disagree, a middle node, a ring, another square or a crossing refuse it and say why; without ctrl the drop is a move |
 | contours that touch | listed in the checks panel: a node two levels share, a place a row, and a stretch of one contour within 1 m of another for a segment or more - a duplicate at one level, two levels in one place at two; U unglues a shared node, the contours other than the one selected each given a node of its own drawn 5 m back into its own line, a third of the way to its neighbours at most |
 | a spot height the contours contradict | listed in the checks panel, judged against the innermost closed contour round it and the one round that - a hill or a hollow; on a hill it lies between that ring's level and the ladder's next rung up, turned over in a hollow; one in no ring is not judged; choosing it selects it, for its height to be set |
+| a spot height beyond the contours | burned, and stretches nothing: the envelope is the contour lines', and the grid the squares that hold a way with a numeric ele - a square of peaks alone, or of a lake whose level is in feet, builds nothing |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

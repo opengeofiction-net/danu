@@ -1461,7 +1461,8 @@ would stretch the hull too. The alternative is coherent as well - the envelope
 being the lines' alone, with spot heights constraining inside it and never
 extending it, which isofill supports either way because a constraint outside
 the mask still counts as evidence - and a test now says which one is in force
-so that changing it is a decision someone makes.
+so that changing it is a decision someone makes. It was changed after G9 - see *The envelope
+is the contours'*, below.
 
 **The preview had to follow, which was not the plan.** G1 was to be the
 pipeline alone. But `preview.Contours` burns its box from a layer of contours
@@ -3464,3 +3465,22 @@ below and above swapped, the next contour an off-ladder value, one past it not
 found, a river's vertex taken for a spot height, inside taken as any crossing,
 a ring edited not asking the spot heights in it again, the panel not following
 an edit, and a row not selecting the spot height.
+
+## The envelope is the contours'
+
+**G1's decision reversed.** The main map's heights imported over gobras: of the
+253, 29 stand in the drawn squares beyond their contours and 20 more in four
+squares that hold none, and a spot height stretching the envelope widened the
+surface to all of it - eight envelopes to the contours' four, 3.8 million mask
+cells at 3″ to 0.9 million, and the grid from the drawn 86..88 by 20..22 to
+the whole 3x3. The mapper saw the surface grow and said so. The envelope is now
+taken from the contour lines alone, between `rasterise`'s two burns, and a spot
+height constrains inside it and is still burned where it stands outside.
+
+**The grid follows**: the squares that brought a way with a numeric `ele`, as
+`collect` reads them, not every square with an `ele` anywhere. Which caught one
+more: N19E085 holds nothing of gobras's but the main map's Kettle Lake,
+`ele=1,853 Ft`, a way the cleanup drops - and `has_elevation`, an `ele`
+anywhere, had it in the grid. `has_elevation` still says whether there is
+anything to read. The editor's fresh-ground rebuild already asked of contours
+alone, so it agrees.
