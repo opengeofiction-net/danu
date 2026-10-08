@@ -154,6 +154,9 @@ Numbered from R36 because the earlier numbers are cited from the code.
   A node carrying `ele` is a constraint, the same as a contour way.
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
+- **R41** The main map's peaks, volcanoes and saddles with a height are
+  imported from Overpass into the squares as spot heights; a second import
+  reconciles as R40 says, the height set in the square kept.
 
 ### Checks
 
@@ -932,6 +935,12 @@ Three parts, in this order:
   a contour within a cell of the river, more than a contour step above or below
   its level - listed with the rest of what a grade found, for the mapper to move
   the contour or fix the level.
+
+**G9, spot heights from the main map** (R41). As water is imported, the main
+map's peaks, volcanoes and saddles with a height that reads as metres or feet,
+by their own action; one with none, or an unreadable one, is skipped and
+counted, and one the set holds that upstream no longer answers is reported and
+kept.
 
 Ends on three measurements. A flattened lake has one elevation, in the editor's
 surface and the server's alike. The climbing ascent left on the spans a burn

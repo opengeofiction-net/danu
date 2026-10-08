@@ -94,6 +94,21 @@ def _water(p: QPainter, colour: QColor):
     p.drawPolygon([QPointF(6.4, 6.2), QPointF(11.6, 6.2), QPointF(9, 9.4)])
 
 
+def _peak(p: QPainter, colour: QColor):
+    """A peak with an arrow coming down onto it - fetch spot heights, as the
+    water button fetches water, not place one."""
+    pen = QPen(colour, 1.4)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPolyline([QPointF(2.0, 16.0), QPointF(7.0, 9.5), QPointF(9.5, 12.0), QPointF(12.5, 8.0),
+                    QPointF(16.0, 16.0)])
+    p.drawLine(QPointF(12.5, 1.5), QPointF(12.5, 4.6))
+    p.setBrush(colour)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawPolygon([QPointF(10.2, 3.8), QPointF(14.8, 3.8), QPointF(12.5, 6.6)])
+
+
 class MapControls(QWidget):
     """The tools, and the one action that is not a tool.
 
@@ -103,6 +118,7 @@ class MapControls(QWidget):
     """
 
     importWater = Signal()
+    importHeights = Signal()
 
     def __init__(self, view, editor=None, settings=None):
         super().__init__(view)
@@ -138,6 +154,11 @@ class MapControls(QWidget):
                           'edit.import_water'),
             column, icon=_icon(_water, ink))
         self.water.clicked.connect(self.importWater)
+        self.heights = self._button(
+            '', self._tip("Import the main map's peaks and saddles as spot heights",
+                          'edit.import_heights'),
+            column, icon=_icon(_peak, ink))
+        self.heights.clicked.connect(self.importHeights)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
         self.zoom_out.clicked.connect(lambda: view.set_zoom(view.zoom - 1))

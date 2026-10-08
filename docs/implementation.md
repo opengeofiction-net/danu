@@ -3391,3 +3391,41 @@ stretch said twice, the index keeping an edited way's old points, unglued out
 of its bend, a straight one moved toward the way kept, a shared row not
 selecting the node, and the panel not following an edit. And the two faults
 above, each mutated back in, failing its own test.
+
+## G9, spot heights from the main map
+
+**The gap**: phase 5's last measurement wants a hill with a spot height on it,
+and the editor could only place one by hand, while the main map holds them -
+near Gobras, 556 peaks and 8 saddles, 231 and 2 with an `ele`. Ctrl+Shift+I, or
+the peak button under the water one, imports them as the water import does
+(R23, R40): under their OSM ids, one undoable step, placed in the square they
+fall in or the one already holding them. The mapper's decisions: the height set
+in the square wins on a second import, as on water, upstream's filling in only
+where there is none; and a peak with no height is skipped, not imported to be
+set later.
+
+**What lands** is `natural=peak`, `volcano` or `saddle`, with `natural`, `name`
+and the height in metres - a saddle is a ridge's low point, and shapes the
+surface as surely as a summit. A height reads as metres or feet, thousands
+separators aside: "8,635 Ft" lands as 2,632 m, feet to the metre, since a height
+in feet is good to a third of one at best. Anything else is skipped and
+counted. A held spot height upstream no longer answers - deleted, or its height
+taken off - goes in the gone-from-upstream report, and choosing it selects it
+for Delete or to keep.
+
+**On gobras**: over the 3x3 working set, 253 spot heights - 251 peaks and 2
+saddles - in 0.2 s, 174 of them in N20E086; the 556 and 231 above are the 2x2
+degrees north-east of N20E086 asked by hand. The water import keeps a
+`natural=peak` on a river's vertex that carries one, with no height, and the
+first run reported two such vertices as gone from upstream: what the import
+holds is a kind asked for with a height, which every one it brings carries -
+not a node no way passes through, which a spot height a mapper snapped a line
+to would stop being.
+
+**What the heights say against the contours**, measured but not yet listed: of
+the 173 peaks inside a closed contour, 82 agree with the innermost; 82 are below
+a ring they are inside - 51 of them by 5 m or less, a 349 m peak inside the
+350 m, 28 by up to 25 m, 3 by more - and 9 are more than two steps above
+theirs, Colonie Hill 698 m inside a 250 m ring. Each is a constraint the
+surface has to meet. R38's check, a spot height which contradicts the contours
+around it, is what lists them.
