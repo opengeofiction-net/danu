@@ -916,7 +916,10 @@ class MainWindow(QMainWindow):
 
             def failed(why):
                 self._checks_job = None
-                self.statusBar().showMessage(f'the checks failed: {why.splitlines()[0]}')
+                first = why.splitlines()[0]
+                self.statusBar().showMessage(f'the checks failed: {first}')
+                self.checks_dock.summary.setText(f'The checks could not be found: {first}. '
+                                                 'Close the panel and open it again to try again.')
 
             job = Job(lambda: find_checks(ws), done, failed)
             self._checks_job = job

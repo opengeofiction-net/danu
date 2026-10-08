@@ -118,3 +118,14 @@ def test_a_scan_a_dict_changed_under_is_started_again(window, monkeypatch):
         return real(ws)
     monkeypatch.setattr(app.crossings, 'Index', flaky)
     assert app.find_checks(window.working_set)[0] is not None and len(calls) == 2
+
+
+def test_a_scan_that_fails_says_so_in_the_panel(window, monkeypatch):
+    from danu.ui import app
+
+    def broken(ws):
+        raise ValueError('a square with no name')
+    monkeypatch.setattr(app, 'find_checks', broken)
+    window.checks_dock.toggleViewAction().trigger()
+    assert 'could not be found: ValueError: a square with no name' in window.checks_dock.summary.text()
+    assert window._checks_job is None
