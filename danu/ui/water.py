@@ -40,6 +40,7 @@ class Answer:
     # skipped, and the skipped with why - (id, ele as written, lon, lat)
     nodes: frozenset = frozenset()
     skipped: tuple = ()
+    beyond: int = 0                    # spot heights beyond the contours, not imported
 
 
 def water_work(payload: bytes, working_set, held: dict) -> Answer:
@@ -48,11 +49,19 @@ def water_work(payload: bytes, working_set, held: dict) -> Answer:
                   frozenset(water.ways), frozenset(water.relations))
 
 
-def heights_work(payload: bytes, working_set, held: dict) -> Answer:
-    """A spot-height answer, placed - G9."""
-    got = peaks.parse(payload)
-    return Answer(peaks.place(got, working_set, held), frozenset(), frozenset(),
-                  nodes=got.answered, skipped=tuple(got.skipped))
+def heights_held(working_set) -> tuple:
+    """What the spot-height import snapshots on the UI thread: where each one
+    it holds is, and where the contours are."""
+    return peaks.held(working_set), peaks.envelopes(working_set)
+
+
+def heights_work(payload: bytes, working_set, held: tuple) -> Answer:
+    """A spot-height answer, the ones beyond the contours taken out, placed
+    - G9."""
+    at, boxes = held
+    got = peaks.within(peaks.parse(payload), boxes, at)
+    return Answer(peaks.place(got, working_set, at), frozenset(), frozenset(),
+                  nodes=got.answered, skipped=tuple(got.skipped), beyond=len(got.beyond))
 
 
 def fetch_heights(bounds) -> bytes:

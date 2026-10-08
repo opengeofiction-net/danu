@@ -156,8 +156,9 @@ Numbered from R36 because the earlier numbers are cited from the code.
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
 - **R41** The main map's peaks, volcanoes and saddles with a height are
-  imported from Overpass into the squares as spot heights; a second import
-  reconciles as R40 says, the height set in the square kept.
+  imported from Overpass into the squares as spot heights, where the contours
+  are; a second import reconciles as R40 says, the height set in the square
+  kept.
 
 ### Checks
 
@@ -1140,6 +1141,7 @@ Recorded so the reasoning is not relitigated:
 | saving | the text taken on the UI thread, compressed and written on a thread of its own, one square at a time in the order asked; a square is clean once its own file has landed, at the history as it stood when its text was taken; a write that fails says so and leaves it dirty; a close or an open waits for the writes |
 | dirty | by the last step done on the square, not how many: saved, undone and edited again is dirty |
 | the checks' first scan | on a worker, the panel saying it is finding them; an edit made meanwhile is put to the indexes when they land |
+| a main-map spot height beyond the contours | not imported, and counted: a new one in a square with no contour line, or past the box of its square's contour vertices - the build's envelope to the cell; one the set holds is reconciled wherever it stands |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

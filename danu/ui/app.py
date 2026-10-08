@@ -45,7 +45,7 @@ from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
-from .water import WaterImporter, fetch_heights, height_commands, heights_work
+from .water import WaterImporter, fetch_heights, height_commands, heights_held, heights_work
 from .water import commands as water_commands
 
 APP_NAME = 'danu'
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
         # the main map's spot heights, on the same footing (G9)
-        self.heights = WaterImporter(self, fetch=fetch_heights, work=heights_work, held=peaks.held)
+        self.heights = WaterImporter(self, fetch=fetch_heights, work=heights_work, held=heights_held)
         self.heights.started.connect(lambda ws: self.statusBar().showMessage(
             'importing spot heights from Overpass…'))
         self.heights.finished.connect(self._heights_imported)
@@ -778,7 +778,11 @@ class MainWindow(QMainWindow):
             said = (f'imported {n} spot height{"s" * (n != 1)} - '
                     + ', '.join(f'{k} {kinds[k]}' for k in peaks.KINDS if k in kinds))
         else:
-            said = 'no peak or saddle with a height in this working set'
+            said = ('no peak or saddle with a height within the contours' if answer.beyond
+                    else 'no peak or saddle with a height in this working set')
+        if answer.beyond:
+            said += (f'; {answer.beyond} beyond the contours, not imported - an import once '
+                     'they are drawn out to brings them')
         if answer.skipped:
             said += (f'; {len(answer.skipped)} skipped, a height that reads as neither metres nor '
                      'feet')

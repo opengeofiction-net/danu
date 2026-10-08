@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip('PySide6')
 
 from danu.core import edits
-from danu.core.square import Node, SquareName
+from danu.core.square import Node, SquareName, Way
 
 NORTH = SquareName(125, -23)
 
@@ -23,7 +23,20 @@ def answer(*nodes) -> bytes:
     return '\n'.join(out).encode()
 
 
+def contoured(w):
+    """A 100 m ring round the peaks below, in the fixture's blank square: a
+    spot height is imported only where there are contours."""
+    sq = w.working_set.squares[NORTH]
+    if -7001 in sq.ways:
+        return
+    corners = ((125.45, -22.55), (125.75, -22.55), (125.75, -22.25), (125.45, -22.25))
+    for i, (lon, lat) in enumerate(corners):
+        sq.nodes[-7100 - i] = Node(id=-7100 - i, lon=lon, lat=lat)
+    sq.ways[-7001] = Way(id=-7001, refs=[-7100, -7101, -7102, -7103, -7100], tags={'ele': '100'})
+
+
 def importing(w, payload):
+    contoured(w)
     w.heights._fetch = lambda bounds: payload
     w.heights._runner = lambda job: job.run()
     w.edit_actions['edit.import_heights'].trigger()
@@ -37,6 +50,7 @@ PEAKS = answer((501, 125.5, -22.5, {'natural': 'peak', 'name': 'Welfare Peak', '
 def test_the_import_brings_peaks_and_saddles_in_as_spot_heights_one_step(window):
     w = window
     sq = w.working_set.squares[NORTH]
+    contoured(w)
     before = edits.snapshot(sq)
     importing(w, PEAKS)
     assert sq.nodes[501].tags == {'natural': 'peak', 'name': 'Welfare Peak', 'ele': '430'}
@@ -79,3 +93,14 @@ def test_the_key_and_the_button(window):
     window.heights._runner = lambda job: None          # asked for, not run
     window.controls.heights.click()
     assert window.heights.busy
+
+
+def test_one_beyond_the_contours_is_not_imported_and_is_counted(window):
+    w = window
+    sq = w.working_set.squares[NORTH]
+    importing(w, answer((501, 125.5, -22.5, {'natural': 'peak', 'ele': '430'}),
+                        (504, 125.9, -22.9, {'natural': 'peak', 'name': 'Far Peak', 'ele': '300'})))
+    assert 501 in sq.nodes and 504 not in sq.nodes
+    said = w.statusBar().currentMessage()
+    assert 'imported 1 spot height' in said and '1 beyond the contours, not imported' in said
+    assert w.gone_from_upstream == [], 'one beyond the contours is not gone from upstream'
