@@ -3519,3 +3519,22 @@ bursts, and the save's is the text being taken.
 Seven mutations, each failing a test: marked clean as it stands rather than as
 it was written, the edits made during the scan not put to it, dirty by count in
 either history, no second scan, a close not waiting, a failed write not said.
+
+## The import brings spot heights only where the contours are
+
+With the envelope the contours' alone, a spot height beyond them shapes
+nothing the build publishes - and one near its edge can still pull at the
+ground inside it, as isofill counts a constraint outside the mask. So the
+import leaves them out: a new one in a square with no contour line, or past
+the box of its square's contour vertices, which is the build's envelope to the
+cell, is not imported and the status line counts it. Near Gobras that is 49 of
+the 253 - the 20 in four squares with no contour and the 29 beyond them in
+the drawn ones - and 204 come in. The boxes are taken on the UI thread with
+the rest of the import's snapshot, 0.26 s over the 3x3. A spot height the set
+already holds is reconciled wherever it stands: an import never deletes. One
+left out is answered all the same, so it is not reported gone; drawn out to,
+the next import brings it.
+
+Five mutations, each failing a test: nothing left out, a held one left out, a
+lake whose level is in feet taken for a contour, one left out reported gone,
+a vertex counted in its way's square rather than the one it falls in.

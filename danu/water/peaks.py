@@ -16,6 +16,12 @@ as 2,632 m. One with no height, or one that reads as neither, is skipped and
 counted - a node with no `ele` is no constraint (R36), and an import is not
 the place to guess one.
 
+**Only where the contours are.** The build's envelope is the contour lines'
+(R21), and a spot height beyond it describes nothing yet: one in a square with
+no contour, or past the box of its square's contours, is not imported, and
+counted - near Gobras, 49 of the 253. Drawn out to it, a second import brings
+it. One the set already holds is reconciled wherever it stands.
+
 A spot height the set holds that upstream no longer answers - deleted, or its
 height taken off - is reported, never deleted, as water is (G5b).
 
@@ -24,12 +30,13 @@ No Qt and no GDAL. The fetch is the water import's, over the same server.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
 from ..core.ladder import format_ele
-from ..core.square import Node
+from ..core.square import Node, SquareName, parse_ele
 from .gone import Gone
 from .overpass import QUERY_TIMEOUT, IncompleteAnswer
 
@@ -70,12 +77,13 @@ class Heights:
     for a height that does not read - with where, for the report."""
     nodes: dict = field(default_factory=dict)          # id -> Node, `ele` in metres
     skipped: list = field(default_factory=list)        # (id, ele as written, lon, lat)
+    beyond: list = field(default_factory=list)         # ids beyond the contours, not imported
 
     @property
     def answered(self) -> frozenset:
         """Every spot height the answer named, imported or not: one skipped
-        for its height is not gone."""
-        return frozenset(self.nodes) | frozenset(i for i, *_ in self.skipped)
+        for its height, or beyond the contours, is not gone."""
+        return frozenset(self.nodes) | frozenset(i for i, *_ in self.skipped) | frozenset(self.beyond)
 
 
 def parse(payload: bytes) -> Heights:
@@ -114,6 +122,42 @@ def held(working_set) -> dict:
     """Which square holds each imported spot height, snapshotted where the
     import is asked for, as water's is."""
     return {i: name for name, sq in working_set.squares.items() for i, _ in _imported(sq)}
+
+
+def envelopes(working_set) -> dict:
+    """Where the contours are, per degree square: the box of the vertices of
+    every way with a numeric ``ele`` falling in it, as ``{SquareName: (west,
+    south, east, north)}``. The build's envelope (R21) is this box to the
+    cell. Taken on the UI thread, where the import is asked for."""
+    out: dict = {}
+    for sq in working_set.squares.values():
+        for w in sq.ways.values():
+            if parse_ele(w.tags.get('ele')) is None:
+                continue
+            for r in w.refs:
+                n = sq.nodes.get(r)
+                if n is None:
+                    continue
+                name = SquareName((math.floor(n.lon) + 180) % 360 - 180, math.floor(n.lat))
+                box = out.get(name)
+                out[name] = ((n.lon, n.lat, n.lon, n.lat) if box is None else
+                             (min(box[0], n.lon), min(box[1], n.lat), max(box[2], n.lon), max(box[3], n.lat)))
+    return out
+
+
+def within(heights: Heights, boxes: dict, held_at: dict | None = None) -> Heights:
+    """The answer with the spot heights beyond the contours taken out and
+    counted: a new one in a square with no box, or outside its box. One the
+    set holds stays, to be reconciled where it is."""
+    held_at = held_at or {}
+    out = Heights(skipped=list(heights.skipped), beyond=list(heights.beyond))
+    for i, n in heights.nodes.items():
+        box = boxes.get(SquareName((math.floor(n.lon) + 180) % 360 - 180, math.floor(n.lat)))
+        if i in held_at or (box is not None and box[0] <= n.lon <= box[2] and box[1] <= n.lat <= box[3]):
+            out.nodes[i] = n
+        else:
+            out.beyond.append(i)
+    return out
 
 
 def place(heights: Heights, working_set, held_at: dict | None = None) -> dict:

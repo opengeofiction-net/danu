@@ -138,3 +138,35 @@ def test_a_spot_height_a_line_has_since_been_drawn_through_is_still_held():
     sq.ways[-2] = Way(id=-2, refs=[9, -1], tags={'ele': '300'})
     assert peaks.held(w) == {9: A}
     assert [g.id for g in peaks.gone(w, frozenset())] == [9]
+
+
+def contour(sq, pts, ele='100', wid=-50):
+    from danu.core.square import Way
+    refs = []
+    for k, (lon, lat) in enumerate(pts):
+        sq.nodes[wid * 100 - k] = Node(id=wid * 100 - k, lon=lon, lat=lat)
+        refs.append(wid * 100 - k)
+    sq.ways[wid] = Way(id=wid, refs=refs, tags={'ele': ele})
+
+
+def test_where_the_contours_are_is_the_box_of_their_vertices_per_degree_square():
+    """Every way with a numeric ele - and only those: the main map's Kettle
+    Lake, ele=1,853 Ft, is no contour. A vertex in the next square counts
+    there, as the build's envelope is taken per degree square."""
+    w = ws()
+    contour(w.squares[A], [(125.2, -22.8), (125.6, -22.4), (126.1, -22.5)])
+    contour(w.squares[B], [(126.7, -22.9), (126.8, -22.8)], ele='1,853 Ft', wid=-51)
+    boxes = peaks.envelopes(w)
+    assert boxes == {A: (125.2, -22.8, 125.6, -22.4), B: (126.1, -22.5, 126.1, -22.5)}
+
+
+def test_one_beyond_the_contours_is_counted_not_imported_and_one_held_stays():
+    w = ws()
+    contour(w.squares[A], [(125.2, -22.8), (125.6, -22.4)])
+    got = peaks.parse(answer((1, 125.5, -22.5, {'natural': 'peak', 'ele': '100'}),       # inside
+                             (2, 125.8, -22.5, {'natural': 'peak', 'ele': '200'}),       # past the box
+                             (3, 126.5, -22.5, {'natural': 'peak', 'ele': '300'}),       # no contour in B
+                             (4, 125.9, -22.9, {'natural': 'peak', 'ele': '400'})))      # beyond, but held
+    kept = peaks.within(got, peaks.envelopes(w), {4: A})
+    assert set(kept.nodes) == {1, 4} and sorted(kept.beyond) == [2, 3]
+    assert kept.answered == {1, 2, 3, 4}, 'one beyond the contours is not gone from upstream'
