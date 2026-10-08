@@ -157,3 +157,19 @@ def test_a_height_the_main_map_gives_otherwise_is_listed_and_taken_with_a_button
     w.editor.undo()
     assert (sq.nodes[501].tags['ele'], sq.nodes[502].tags['ele'], east.nodes[505].tags['ele']) == \
         ('698', '300', '200'), 'all of them, across squares, one step'
+
+
+def test_a_height_written_otherwise_but_reading_the_same_is_settled_for_the_button_too(window):
+    """300.0 set by hand where the main map says 300: the row is struck, and
+    the button has nothing to do for it."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    importing(w, answer((502, 125.6, -22.4, {'natural': 'saddle', 'ele': '300'})))
+    importing(w, answer((502, 125.6, -22.4, {'natural': 'saddle', 'ele': '310'})))
+    (row,) = differs_rows(w.gone_dock)
+    n = sq.nodes[502]
+    w.editor.do(sq, edits.SetNodeTags(502, dict(n.tags), {**n.tags, 'ele': '310.0'}))
+    assert row.font(0).strikeOut()
+    steps = len(w.editor.history._done)
+    w.gone_dock.take_all_btn.click()
+    assert len(w.editor.history._done) == steps and sq.nodes[502].tags['ele'] == '310.0'

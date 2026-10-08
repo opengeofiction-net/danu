@@ -207,6 +207,12 @@ class Differs:
         label = f'{self.what} "{self.name}"' if self.name else f'{self.what} {self.id}'
         return f'{label} - {self.here} m here, {self.upstream} m on the main map'
 
+    def settled(self, node) -> bool:
+        """Whether a node's height is now the main map's - the one test of
+        it, for the button and the row alike: 300 is 300.0."""
+        here = parse_ele(node.tags.get('ele')) if node is not None else None
+        return here is not None and abs(here - parse_ele(self.upstream)) < 1e-6
+
 
 def differ(placed: dict, working_set) -> list[Differs]:
     """The held spot heights whose height the answer gives otherwise. The

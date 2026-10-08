@@ -859,7 +859,7 @@ class MainWindow(QMainWindow):
         for d in rows:
             square = ws.squares.get(d.square) if d is not None and ws is not None else None
             node = square.nodes.get(d.id) if square is not None else None
-            if node is None or node.tags.get('ele') == d.upstream:
+            if node is None or d.settled(node):
                 continue
             by_square.setdefault(d.square, (square, []))[1].append(
                 edits.SetNodeTags(d.id, dict(node.tags), {**node.tags, 'ele': d.upstream}))

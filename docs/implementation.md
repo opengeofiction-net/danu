@@ -3559,8 +3559,10 @@ there, and unstruck by the undo that puts it back. A height that reads the
 same - 300 against 300.0 - is no row, and nor is a spot height with no height
 of its own, which takes upstream's.
 
-Six mutations, each failing a test: the same height listed, one button taking
-every row, all of them taken a step a square, an undo leaving a row struck,
-a row not settled from the square - and the first version's claim that the
-rows had to be asked before the import was applied, which survived its
-mutation: the import keeps the square's height, so before and after agree.
+Five mutations, each failing a test: the same height listed, one button
+taking every row, all of them taken a step a square, an undo leaving a row
+struck, a row not settled from the square. A sixth survived, and showed a
+claim of the first version wrong - that the rows had to be asked before the
+import was applied: the import keeps the square's height, so before and
+after agree. The button and the row ask one test of whether a height is the
+main map's, so 300 against 300.0 is settled for both.

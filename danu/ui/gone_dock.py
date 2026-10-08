@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.square import Way, parse_ele
+from ..core.square import Way
 from ..water.gone import Gone
 from ..water.peaks import Differs
 
@@ -200,8 +200,7 @@ class GoneDock(QDockWidget):
             item = self._items.get((d.square, 'node', d.id, 'differs'))
             square = working_set.squares.get(d.square) if working_set else None
             node = square.nodes.get(d.id) if square is not None else None
-            here = parse_ele(node.tags.get('ele')) if node is not None else None
-            took = here is not None and abs(here - parse_ele(d.upstream)) < 1e-6
+            took = d.settled(node)
             if node is None or took:
                 self._taken.add((d.square, d.id))
             if item is None:
