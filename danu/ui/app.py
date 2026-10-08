@@ -18,7 +18,7 @@ from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
-from ..checks import crossings, loops, touches
+from ..checks import crossings, loops, spots, touches
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten, peaks
@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
         self.crossing_index = None
         self.loop_index = None                  # contours crossing themselves (G8c)
         self.touch_index = None                 # touching or lying on one another (G8e)
+        self.spot_index = None                  # spot heights the rings contradict (R38)
         self._checks_due = QTimer(self)
         self._checks_due.setSingleShot(True)
         self._checks_due.setInterval(250)
@@ -136,6 +137,7 @@ class MainWindow(QMainWindow):
         self.checks_dock.chosen.connect(self._choose_crossing)
         self.checks_dock.loopChosen.connect(self._choose_loop)
         self.checks_dock.touchChosen.connect(self._choose_touch)
+        self.checks_dock.spotChosen.connect(self._choose_spot)
         # the editor is made below: looked up when the button is pressed
         self.checks_dock.cutLoop.connect(lambda loop: self.editor.cut_loop(loop))
         self.checks_dock.visibilityChanged.connect(self._checks_shown)
@@ -559,6 +561,7 @@ class MainWindow(QMainWindow):
         self.crossing_index = None
         self.loop_index = None
         self.touch_index = None
+        self.spot_index = None
         if self.checks_dock.isVisible():
             self._checks_shown(True)
         self.squares.set_working_set(ws)
@@ -818,15 +821,20 @@ class MainWindow(QMainWindow):
                 self.crossing_index = crossings.Index(self.working_set)
                 self.loop_index = loops.Index(self.working_set)
                 self.touch_index = touches.Index(self.working_set)
+                self.spot_index = spots.Index(self.working_set)
             finally:
                 QApplication.restoreOverrideCursor()
             self._refresh_checks()
             return
         self._refresh_marks()
 
-    def _checks_edited(self, square, ways, _spots) -> None:
+    def _checks_edited(self, square, ways, spot_ids) -> None:
         """An edit's ways asked again at once - milliseconds a way - and the
         panel redrawn a moment later, once a drag has stopped."""
+        if self.spot_index is not None and (ways or spot_ids):
+            # a spot height moved or re-levelled, or a ring round one changed
+            self.spot_index.update(square, ways or (), spot_ids or ())
+            self._checks_due.start()
         if self.crossing_index is not None and ways:
             self.crossing_index.update(square, ways)
             if self.loop_index is not None:
@@ -840,6 +848,7 @@ class MainWindow(QMainWindow):
         self.checks_dock.show_crossings(found)
         self.checks_dock.show_loops(self.loop_index.loops() if self.loop_index is not None else [])
         self.checks_dock.show_touches(self.touch_index.touches() if self.touch_index is not None else [])
+        self.checks_dock.show_spots(self.spot_index.contradictions() if self.spot_index is not None else [])
         self._refresh_marks()
 
     def _refresh_marks(self) -> None:
@@ -852,6 +861,8 @@ class MainWindow(QMainWindow):
                                 for lp in (self.loop_index.loops() if self.loop_index is not None else [])]
                              + [m.lonlat_to_scene(t.lon, t.lat)
                                 for t in (self.touch_index.touches() if self.touch_index is not None else [])]
+                             + [m.lonlat_to_scene(c.lon, c.lat)
+                                for c in (self.spot_index.contradictions() if self.spot_index is not None else [])]
                              if on else [])
         if not on:
             self.editor.marks_focus = []
@@ -911,6 +922,22 @@ class MainWindow(QMainWindow):
         self._show_place(touch.lon, touch.lat, touch.lon, touch.lat)
         self.editor.overlay.update()
         self.statusBar().showMessage(f'{touch.explain()} - ringed')
+
+    def _choose_spot(self, c) -> None:
+        """A spot height the rings round it contradict, chosen: it selected,
+        as a click on it would - its height in the panel to set - and ringed
+        and brought into view (R38)."""
+        ws = self.working_set
+        square = ws.squares.get(c.square) if ws is not None else None
+        if square is None or c.node not in square.nodes:
+            self.statusBar().showMessage(f'that spot height is no longer in {c.square}')
+            return
+        self.editor.set_tool('select')
+        self.editor.selection = Selection(square, None, c.node)
+        self.editor.marks_focus = [m.lonlat_to_scene(c.lon, c.lat)]
+        self._show_place(c.lon, c.lat, c.lon, c.lat)
+        self.editor.overlay.update()
+        self.statusBar().showMessage(f'{c.explain()} - ringed')
 
     def _show_place(self, w: float, s: float, e: float, n: float):
         """The map to something a grade found - G6d-3. A margin round a span,

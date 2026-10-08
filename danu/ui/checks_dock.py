@@ -17,7 +17,8 @@ The second check (G8c) is a contour crossing itself, or passing through one
 of its nodes twice: one row a place, and O, or the button, proposes the loop
 cut out. The third (G8e) is contours that touch or lie on one another: a node
 two levels share, which U unglues, and a stretch of one within a metre of
-another - a duplicate, or two levels in one place.
+another - a duplicate, or two levels in one place. The fourth (R38) is a spot
+height which contradicts the ring it stands inside.
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ class ChecksDock(QDockWidget):
     cutLoop = Signal(object)
     # contours that touch or lie on one another, chosen (G8e)
     touchChosen = Signal(object)
+    # a spot height the rings round it contradict, chosen (R38)
+    spotChosen = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__('Checks', parent)
@@ -78,12 +81,21 @@ class ChecksDock(QDockWidget):
         self.touches_tree.setColumnCount(1)
         box.addWidget(self.touches_summary)
         box.addWidget(self.touches_tree, 1)
+        self.spots_summary = QLabel()
+        self.spots_summary.setWordWrap(True)
+        self.spots_tree = QTreeWidget()
+        self.spots_tree.setHeaderHidden(True)
+        self.spots_tree.setColumnCount(1)
+        box.addWidget(self.spots_summary)
+        box.addWidget(self.spots_tree, 1)
         self.setWidget(body)
         self.groups: list = []
         self.tree.currentItemChanged.connect(self._current)
         self.loops_tree.currentItemChanged.connect(self._current_loop)
         self.cut_btn.clicked.connect(lambda: self.cutLoop.emit(self.current_loop()))
         self.touches_tree.currentItemChanged.connect(self._current_touch)
+        self.spots_tree.currentItemChanged.connect(
+            lambda item, _prev: item is not None and self.spotChosen.emit(item.data(0, _ROW)))
 
     def show_crossings(self, found: list) -> None:
         """The crossings as they stand, replacing what was listed. The row
@@ -194,3 +206,32 @@ class ChecksDock(QDockWidget):
     def _current_touch(self, item, _previous):
         if item is not None:
             self.touchChosen.emit(item.data(0, _ROW))
+
+    def show_spots(self, found: list) -> None:
+        """The spot heights the rings round them contradict, worst first; the
+        row that was current stays so where it is still listed."""
+        item = self.spots_tree.currentItem()
+        was = item.data(0, _ROW) if item is not None else None
+        below = sum(c.kind == 'below' for c in found)
+        above = len(found) - below
+        parts = [f'{below:,} below the ring round {"them" if below != 1 else "it"}'] if below else []
+        if above:
+            parts.append(f'{above:,} past the next contour')
+        self.spots_summary.setText(
+            'No spot height contradicts the contours round it.' if not found else
+            f'{len(found):,} spot height{"s" * (len(found) != 1)} the contours contradict (R38): '
+            + ', '.join(parts) + ' - choose one, then set its height or mend the contours.')
+        self.spots_tree.blockSignals(True)
+        self.spots_tree.clear()
+        keep = None
+        for c in found:
+            row = QTreeWidgetItem([c.describe()])
+            row.setData(0, _ROW, c)
+            row.setToolTip(0, c.explain())
+            self.spots_tree.addTopLevelItem(row)
+            if was is not None and (c.square, c.node) == (was.square, was.node):
+                keep = row
+        if keep is not None:
+            self.spots_tree.setCurrentItem(keep)
+        self.spots_tree.blockSignals(False)
+        self.spots_tree.setVisible(bool(found))
