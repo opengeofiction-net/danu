@@ -925,8 +925,10 @@ class ImportWater(Command):
     def describe(self) -> str:
         # ways and relations, not nodes, which is what a feature is here and
         # in ``overpass.Water.__len__``: a river of a thousand vertices is one
-        # thing a mapper imported, and saying 158,633 would be true and useless
-        return f'{self.name}: {len(self.new_ways) + len(self.new_relations)} features'
+        # thing a mapper imported, and saying 158,633 would be true and useless.
+        # An import of nothing but nodes - spot heights (G9) - is its nodes
+        n = len(self.new_ways) + len(self.new_relations) or len(self.new_nodes)
+        return f'{self.name}: {n} features'
 
 
 @dataclass

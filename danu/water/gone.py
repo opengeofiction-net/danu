@@ -42,7 +42,7 @@ from .overpass import asked_for
 class Gone:
     """One held feature the answer did not name."""
     square: SquareName
-    kind: str                # 'way' or 'relation'
+    kind: str                # 'way' or 'relation', or 'node' - a spot height (G9)
     id: int
     name: str | None         # what a mapper will recognise it by, if anything
     what: str                # the kind of water, or why it counted at all

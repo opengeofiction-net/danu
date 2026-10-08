@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ..core.square import Square
-from ..water import overpass
+from ..water import overpass, peaks
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,27 @@ class Answer:
     placed: dict
     ways: frozenset
     relations: frozenset
+    # a spot-height import's (G9): the nodes the answer named, imported or
+    # skipped, and the skipped with why - (id, ele as written, lon, lat)
+    nodes: frozenset = frozenset()
+    skipped: tuple = ()
+
+
+def water_work(payload: bytes, working_set, held: dict) -> Answer:
+    water = overpass.parse(payload)
+    return Answer(overpass.place(water, working_set, held),
+                  frozenset(water.ways), frozenset(water.relations))
+
+
+def heights_work(payload: bytes, working_set, held: dict) -> Answer:
+    """A spot-height answer, placed - G9."""
+    got = peaks.parse(payload)
+    return Answer(peaks.place(got, working_set, held), frozenset(), frozenset(),
+                  nodes=got.answered, skipped=tuple(got.skipped))
+
+
+def fetch_heights(bounds) -> bytes:
+    return overpass.fetch(bounds, text=peaks.query(bounds))
 
 
 def held_by(working_set) -> dict:
@@ -65,16 +86,15 @@ class _Signals(QObject):
 
 class _Job(QRunnable):
     def __init__(self, fetch, bounds, working_set, held: dict, serial: int,
-                 signals: _Signals):
+                 signals: _Signals, work=water_work):
         super().__init__()
+        self.work = work
         self.fetch, self.bounds, self.working_set = fetch, bounds, working_set
         self.held, self.serial, self.signals = held, serial, signals
 
     def run(self):
         try:
-            water = overpass.parse(self.fetch(self.bounds))
-            answer = Answer(overpass.place(water, self.working_set, self.held),
-                            frozenset(water.ways), frozenset(water.relations))
+            answer = self.work(self.fetch(self.bounds), self.working_set, self.held)
         except Exception as exc:      # noqa: BLE001 - reported as text, on the UI thread
             self._say(f'{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}')
             return
@@ -91,14 +111,16 @@ class _Job(QRunnable):
 
 
 class WaterImporter(QObject):
-    """One import at a time, newest wins."""
+    """One import at a time, newest wins. Water's, by default; ``work``,
+    ``held`` and ``fetch`` given, the spot heights' (G9) on the same footing."""
 
     started = Signal(object)           # the set the fetch now out is for
     finished = Signal(object, object)  # Answer, the set it was asked for
     failed = Signal(str)
 
-    def __init__(self, parent=None, fetch=None, runner=None):
+    def __init__(self, parent=None, fetch=None, runner=None, work=water_work, held=None):
         super().__init__(parent)
+        self._work, self._held = work, held or held_by
         self._fetch = fetch or overpass.fetch
         self._runner = runner or QThreadPool.globalInstance().start
         self._serial = 0
@@ -133,8 +155,8 @@ class WaterImporter(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        job = _Job(self._fetch, working_set.bounds, working_set, held_by(working_set),
-                   self._serial, sig)
+        job = _Job(self._fetch, working_set.bounds, working_set, self._held(working_set),
+                   self._serial, sig, self._work)
         job.setAutoDelete(False)       # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit(working_set)
@@ -182,4 +204,19 @@ def commands(placed: dict, working_set) -> list[tuple[Square, object]]:
             new_nodes=dict(water.nodes), new_ways=dict(water.ways),
             new_relations=dict(water.relations),
             name=f'import water into {name}')))
+    return steps
+
+
+def height_commands(placed: dict, working_set) -> list[tuple[Square, object]]:
+    """A spot-height import as its steps, a command a square - G9. The same
+    command as water's, reconciling the same way, upstream owning what a spot
+    height is and what it is called."""
+    from ..core import edits
+    steps = []
+    for name in sorted(placed, key=str):
+        square = working_set.squares.get(name)
+        if square is not None:
+            steps.append((square, edits.ImportWater(
+                upstream_owns=peaks.UPSTREAM_OWNS, new_nodes=dict(placed[name]),
+                name=f'import spot heights into {name}')))
     return steps

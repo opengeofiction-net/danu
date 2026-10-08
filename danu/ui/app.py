@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, Q
 from ..checks import crossings, loops, touches
 from ..core import make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
-from ..water import flatten
+from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config
 from . import mercator as m
@@ -44,7 +44,7 @@ from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
-from .water import WaterImporter
+from .water import WaterImporter, fetch_heights, height_commands, heights_work
 from .water import commands as water_commands
 
 APP_NAME = 'danu'
@@ -167,6 +167,13 @@ class MainWindow(QMainWindow):
         self.water.started.connect(self._water_starting)
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
+        # the main map's spot heights, on the same footing (G9)
+        self.heights = WaterImporter(self, fetch=fetch_heights, work=heights_work, held=peaks.held)
+        self.heights.started.connect(lambda ws: self.statusBar().showMessage(
+            'importing spot heights from Overpass…'))
+        self.heights.finished.connect(self._heights_imported)
+        self.heights.failed.connect(
+            lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
@@ -203,6 +210,7 @@ class MainWindow(QMainWindow):
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
         self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
+        self.controls.importHeights.connect(self.import_heights)
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)
@@ -421,6 +429,7 @@ class MainWindow(QMainWindow):
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
                 ('edit.import_water', '&Import water', self.import_water),
+                ('edit.import_heights', 'Import spot &heights', self.import_heights),
                 ('edit.set_level', 'Set the &level of the water', ed.set_level),
                 ('edit.grade', '&Grade from the contours', ed.grade),
                 ('edit.grade_network', 'Grade the river &network', ed.grade_network),
@@ -452,6 +461,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['tool.spot'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.import_water'])
+        edit.addAction(self.edit_actions['edit.import_heights'])
         edit.addAction(self.edit_actions['edit.set_level'])
         edit.addAction(self.edit_actions['edit.grade'])
         edit.addAction(self.edit_actions['edit.grade_network'])
@@ -646,6 +656,49 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
 
+    def import_heights(self) -> bool:
+        """R41: the main map's peaks, volcanoes and saddles with a height,
+        into the squares as spot heights (G9) - asked for, as water is."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return False
+        queued = self.heights.busy
+        self.heights.request(self.working_set)
+        if queued:
+            self.statusBar().showMessage('already importing; the newer request wins')
+        return True
+
+    def _heights_imported(self, answer, working_set):
+        """One spot-height import, one step on the history, reconciled as
+        water is: the height set here kept, a held one upstream no longer
+        answers reported and kept."""
+        if working_set is not self.working_set:
+            self.statusBar().showMessage(
+                'the working set changed while the spot heights were fetched - import again')
+            return
+        self.gone_from_upstream = peaks.gone(working_set, answer.nodes)
+        steps = height_commands(answer.placed, working_set)
+        if steps:
+            self.editor.do_across(steps)
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[])
+        if self.gone_from_upstream:
+            self.gone_dock.show()
+            self.gone_dock.raise_()
+        n = sum(len(v) for v in answer.placed.values())
+        kinds = {}
+        for v in answer.placed.values():
+            for node in v.values():
+                kinds[node.tags['natural']] = kinds.get(node.tags['natural'], 0) + 1
+        said = (f'imported {n} spot height{"s" * (n != 1)} - '
+                + ', '.join(f'{k} {kinds[k]}' for k in peaks.KINDS if k in kinds) if n
+                else 'no peak or saddle with a height in this working set')
+        if answer.skipped:
+            said += (f'; {len(answer.skipped)} skipped, a height that reads as neither metres nor '
+                     'feet')
+        if self.gone_from_upstream:
+            said += f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+        self.statusBar().showMessage(said + ('. Ctrl+Z takes them all back' if n else ''))
+
     def _water_starting(self, working_set):
         # the set the fetch is for, which is not always the one open: a queued
         # request starts when the one before it answers, and the mapper can
@@ -707,10 +760,20 @@ class MainWindow(QMainWindow):
         takes it away, a lake with its untagged rings; doing nothing keeps it."""
         ws = self.working_set
         square = ws.squares.get(g.square) if ws is not None else None
-        holder = (square.relations if g.kind == 'relation' else square.ways) if square else {}
+        holder = ({'relation': square.relations, 'node': square.nodes}.get(g.kind, square.ways)
+                  if square else {})
         feature = holder.get(g.id)
         if feature is None:
             self.statusBar().showMessage(f'{g.describe()}: deleted here since the import')
+            return
+        if g.kind == 'node':
+            # a spot height (G9): selected as a click on it would, and Delete takes it
+            self.editor.set_tool('select')
+            self.editor.selection = Selection(square, None, g.id)
+            self.editor.overlay.update()
+            self._show_place(feature.lon, feature.lat, feature.lon, feature.lat)
+            key = self.settings.key('edit.delete') or 'Delete'
+            self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
             return
         if g.kind == 'relation':
             ways = [square.ways[mem.ref] for mem in feature.members

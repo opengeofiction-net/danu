@@ -179,14 +179,17 @@ def query(bounds: tuple[float, float, float, float]) -> str:
             f');\n(._;>>;);\nout body;\n')
 
 
-def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES) -> bytes:
-    """The answer to ``query``, as bytes. Raises after ``retries`` failures.
+def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES,
+          text: str | None = None) -> bytes:
+    """The answer to ``query``, as bytes - or to ``text``, another query over
+    the same server, the spot heights' (G9). Raises after ``retries``
+    failures.
 
     ``opener`` is the seam the tests use - none of them reach the network, as
     none of the tile or territory tests do.
     """
     opener = opener or urllib.request.urlopen
-    data = query(bounds).encode()
+    data = (text if text is not None else query(bounds)).encode()
     last: Exception | None = None
     for _attempt in range(retries):
         try:
