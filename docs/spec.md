@@ -960,13 +960,13 @@ The notes on what this phase has done so far are in `implementation.md`, under
 crossing contours, brought forward into phase 5 as G8a, ahead of the burn:
 gobras holds contours that cross dozens of others, and a river crossing one
 reads as a climb a burn would bend real contours to fit. A contour crossing
-itself followed as G8c, with the loop cut out; G8d split and join to mend
-what the checks find; and G8e the rest of R16 - a node two levels share, which
+itself followed as G8c, with the loop cut out; G8d split and join to mend what
+the checks find; and G8e the rest of R16 - a node two levels share, which
 unglues, and contours lying on one another, the duplicate coincident contours
-of the validation table. And R38, a spot height which contradicts the
-contours around it, came forward with G9, which brought the main map's in. Here, the panel's other
-checks, then measure, profile, difference, magnify, autosave and crash
-recovery, session files.
+of the validation table. And R38, a spot height which contradicts the contours
+around it, came forward with G9, which brought the main map's in. Here, the
+panel's other checks, then measure, profile, difference, magnify, autosave and
+crash recovery, session files.
 
 **Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
 stops there (`mercator.MAX_ZOOM`), but the editor's own layers are vector and

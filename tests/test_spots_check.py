@@ -135,3 +135,34 @@ def test_the_index_follows_a_ring_and_a_spot_height_edited():
     move.apply(sq)
     index.update(sq, (), {i})
     assert [c.kind for c in index.contradictions()] == ['below']
+
+
+def test_after_an_off_ladder_ring_the_next_contour_is_the_next_rung():
+    """A 135 m ring innermost on a 25 m ladder: the next contour is 150 m, so
+    155 m is past it - and 145 m is not."""
+    w, sq = ws()
+    for r, ele in ((0.03, 100), (0.02, 125), (0.01, 135)):
+        ring(sq, 125.5, -22.5, r, ele)
+    ring(sq, 125.9, -22.9, 0.01, 150)
+    ring(sq, 125.9, -22.9, 0.005, 175)                   # the ladder's rungs held
+    i = spot(sq, 125.5, -22.5, 155)
+    spot(sq, 125.503, -22.5, 145)
+    (c,) = spots.find(w)
+    assert (c.node, c.bound) == (i, 150)
+
+
+def test_a_ring_moved_off_a_spot_height_takes_its_contradiction_with_it():
+    w, sq = ws()
+    hill(sq)
+    spot(sq, 125.5, -22.5, 149)
+    index = spots.Index(w)
+    assert len(index.contradictions()) == 1
+    top = next(x for x in sq.ways.values() if x.ele == 150)
+    moves = []
+    for r in dict.fromkeys(top.refs):
+        n = sq.nodes[r]
+        moves.append(edits.MoveNode(r, (n.lon, n.lat), (n.lon + 0.3, n.lat)))
+    cmd = edits.Compound(moves)
+    cmd.apply(sq)
+    index.update(sq, {top.id})
+    assert index.contradictions() == []

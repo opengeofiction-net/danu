@@ -4,10 +4,10 @@ R38: one which does not lie between the elevations of the rings enclosing
 it. A spot height is the only thing which says how high a hill goes (R37), and
 it is a constraint the surface meets: one below the ring it stands inside digs
 a pit in a summit, one far above it raises a spike where the contours stop.
-G9 brought the main map's into the squares, and near Gobras, of 173 inside a
-closed contour, 82 agreed: 82 were below a ring they stand inside - 51 of them
-by 5 m or less, a 349 m peak inside the 350 m - and 9 more than two steps above
-theirs, Colonie Hill 698 m inside a 250 m ring.
+G9 brought the main map's into the squares, and near Gobras only 82 of the 173
+inside a closed contour agreed with it. 82 were below a ring they stand inside
+- 51 of them by 5 m or less, a 349 m peak inside the 350 m - and 10 past the
+next contour up, Colonie Hill 698 m inside a 275 m ring.
 
 **The ring that matters is the innermost** closed contour round the spot
 height, and the one round that says which way the ground goes: inside a 125 m
@@ -26,6 +26,7 @@ crossings of a ray.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -124,7 +125,11 @@ def judge(square, node, ele, rings, ladder) -> Contradiction | None:
     if ladder is None:
         nxt = None
     elif ladder.interval:
-        nxt = level - ladder.interval if hollow else level + ladder.interval
+        # the rung beyond the ring's level, on the ladder's phase - an
+        # off-ladder 135 m ring on a 25 m ladder is followed by 150, not 160
+        k = (level - (ladder.phase or 0.0)) / ladder.interval
+        step = math.ceil(k - 1 - 1e-9) if hollow else math.floor(k + 1 + 1e-9)
+        nxt = step * ladder.interval + (ladder.phase or 0.0)
     else:
         nxt = ladder.below(level) if hollow else ladder.above(level)
     if nxt is not None and ((not hollow and ele > nxt + 1e-9) or (hollow and ele < nxt - 1e-9)):
