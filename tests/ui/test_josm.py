@@ -114,3 +114,33 @@ def test_josms_refusal_is_said_in_its_words(window, qtbot):
         assert 'mandatory' in w.statusBar().currentMessage()
     finally:
         f.close()
+
+
+def test_a_josm_that_takes_the_request_and_never_answers_is_said(window, qtbot):
+    """The transfer timeout cancels the reply, and a cancelled reply is also
+    what a newer request leaves behind - only that one is kept quiet."""
+    import socket
+    w = window
+    hung = socket.socket()
+    hung.bind(('127.0.0.1', 0))
+    hung.listen(1)                                 # accepts, and never answers
+    try:
+        w.josm.base = f'http://127.0.0.1:{hung.getsockname()[1]}'
+        w.josm.timeout_ms = 300
+        w.show_in_josm()
+        qtbot.waitUntil(lambda: 'JOSM is not answering' in w.statusBar().currentMessage(), timeout=5000)
+    finally:
+        hung.close()
+
+
+def test_a_request_replaced_by_a_newer_one_says_nothing_of_itself(window, fake, qtbot):
+    w = window
+    w.josm.base = fake.url
+    said = []
+    w.josm.failed.connect(said.append)
+    w.josm.answered.connect(said.append)
+    w.show_in_josm()
+    w.show_in_josm()
+    qtbot.waitUntil(lambda: bool(said), timeout=5000)
+    qtbot.wait(200)
+    assert len(said) == 1 and 'not answering' not in said[0], said

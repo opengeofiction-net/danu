@@ -3586,6 +3586,9 @@ Control on, and its own refusal - a 400 with its reason - is said in its
 words. The address is `josm/url` in the INI, the loopback port by default.
 
 The tests stand a server on a loopback port up as JOSM, answering as it does;
-nothing leaves the machine. Five mutations, each failing a test: a drawn way
+nothing leaves the machine. Six mutations, each failing a test: a drawn way
 selected, top and bottom swapped, a refusal said as JOSM not running, the
-selection not sent, the button not wired.
+selection not sent, the button not wired - and a JOSM that takes the request
+and never answers kept quiet, which the first version did: the transfer
+timeout cancels a reply, and so does a newer request replacing it, and only
+the second is to say nothing. The replaced are recorded as they are aborted.

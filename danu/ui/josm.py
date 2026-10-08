@@ -59,14 +59,19 @@ class JosmRemote(QObject):
         super().__init__(parent)
         self.base = base
         self.nam = QNetworkAccessManager(self)
+        self.timeout_ms = TIMEOUT_MS
         self._reply = None
+        self._replaced: set = set()
 
     def zoom(self, bounds, ids=(), what: str = '') -> str:
         url = zoom_url(self.base, bounds, ids)
         if self._reply is not None:
+            # said so before the abort: a reply cancelled by its own timeout
+            # is cancelled too, and that one is a JOSM not answering
+            self._replaced.add(id(self._reply))
             self._reply.abort()
         req = QNetworkRequest(QUrl(url))
-        req.setTransferTimeout(TIMEOUT_MS)
+        req.setTransferTimeout(self.timeout_ms)
         reply = self.nam.get(req)
         self._reply = reply
         reply.finished.connect(lambda: self._done(reply, what))
@@ -78,7 +83,8 @@ class JosmRemote(QObject):
         err = reply.error()
         body = bytes(reply.readAll()).decode('utf-8', 'replace').strip()
         reply.deleteLater()
-        if err == QNetworkReply.NetworkError.OperationCanceledError and reply is not self._reply:
+        if id(reply) in self._replaced:
+            self._replaced.discard(id(reply))
             return                                       # replaced by a newer one
         if err == QNetworkReply.NetworkError.NoError:
             self.answered.emit(what)
