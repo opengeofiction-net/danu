@@ -4,10 +4,10 @@ R38: one which does not lie between the elevations of the rings enclosing
 it. A spot height is the only thing which says how high a hill goes (R37), and
 it is a constraint the surface meets: one below the ring it stands inside digs
 a pit in a summit, one far above it raises a spike where the contours stop.
-G9 brought the main map's into the squares, and near Gobras only 82 of the 173
-inside a closed contour agreed with it. 82 were below a ring they stand inside
-- 51 of them by 5 m or less, a 349 m peak inside the 350 m - and 10 past the
-next contour up, Colonie Hill 698 m inside a 275 m ring.
+G9 brought the main map's into the squares, and near Gobras, of the 173 inside
+a closed contour, 92 contradict it: 82 below a ring they stand inside - 51 of
+them by 5 m or less, a 349 m peak inside the 350 m - and 10 past the next
+contour up, Colonie Hill 698 m inside the 250 m ring and past the 275 m.
 
 **The ring that matters is the innermost** closed contour round the spot
 height, and the one round that says which way the ground goes: inside a 125 m

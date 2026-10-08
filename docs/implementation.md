@@ -3449,8 +3449,9 @@ round a 125 m ring. A spot height is a node with an elevation no way passes
 through; a graded river's vertices carry levels, and G7c judges those. One in
 no ring is R39's question, not this.
 
-**At the worst**: Colonie Hill, 698 m on the main map, stands inside a 275 m
-ring on ground that rises to some 450 m to the east - the height is wrong for
+**At the worst**: Colonie Hill, 698 m on the main map, stands inside the 250 m
+ring - past the 275 m, the next contour - on ground that rises to some 450 m to
+the east - the height is wrong for
 where it is, or the peak is in the wrong place; Genoa Peak 567 m inside a
 125 m. Choosing a row selects the spot height, its height in the panel to set.
 The list follows edits: a spot height named by one is judged again, and so is

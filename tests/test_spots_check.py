@@ -166,3 +166,15 @@ def test_a_ring_moved_off_a_spot_height_takes_its_contradiction_with_it():
     cmd.apply(sq)
     index.update(sq, {top.id})
     assert index.contradictions() == []
+
+
+def test_a_ring_deleted_round_a_spot_height_takes_its_contradiction_with_it():
+    w, sq = ws()
+    hill(sq)
+    spot(sq, 125.5, -22.5, 149)
+    index = spots.Index(w)
+    top = next(x for x in sq.ways.values() if x.ele == 150)
+    gone = edits.DeleteWay(top.id)
+    gone.apply(sq)
+    index.update(sq, {top.id})
+    assert index.contradictions() == [], 'judged against the ring that was'
