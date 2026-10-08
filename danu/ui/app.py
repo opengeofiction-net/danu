@@ -689,9 +689,11 @@ class MainWindow(QMainWindow):
         for v in answer.placed.values():
             for node in v.values():
                 kinds[node.tags['natural']] = kinds.get(node.tags['natural'], 0) + 1
-        said = (f'imported {n} spot height{"s" * (n != 1)} - '
-                + ', '.join(f'{k} {kinds[k]}' for k in peaks.KINDS if k in kinds) if n
-                else 'no peak or saddle with a height in this working set')
+        if n:
+            said = (f'imported {n} spot height{"s" * (n != 1)} - '
+                    + ', '.join(f'{k} {kinds[k]}' for k in peaks.KINDS if k in kinds))
+        else:
+            said = 'no peak or saddle with a height in this working set'
         if answer.skipped:
             said += (f'; {len(answer.skipped)} skipped, a height that reads as neither metres nor '
                      'feet')

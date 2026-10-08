@@ -3413,10 +3413,14 @@ counted. A held spot height upstream no longer answers - deleted, or its height
 taken off - goes in the gone-from-upstream report, and choosing it selects it
 for Delete or to keep.
 
-**On gobras**: 253 spot heights, 251 peaks and 2 saddles, in 0.2 s, 174 of them
-in N20E086. The water import keeps a `natural=peak` on a river's vertex that
-carries one, so a spot height is a node with no way through it - the first run
-reported two such vertices as gone from upstream.
+**On gobras**: over the 3x3 working set, 253 spot heights - 251 peaks and 2
+saddles - in 0.2 s, 174 of them in N20E086; the 556 and 231 above are the 2x2
+degrees north-east of N20E086 asked by hand. The water import keeps a
+`natural=peak` on a river's vertex that carries one, with no height, and the
+first run reported two such vertices as gone from upstream: what the import
+holds is a kind asked for with a height, which every one it brings carries -
+not a node no way passes through, which a spot height a mapper snapped a line
+to would stop being.
 
 **What the heights say against the contours**, measured but not yet listed: of
 the 173 peaks inside a closed contour, 82 agree with the innermost; 82 are below

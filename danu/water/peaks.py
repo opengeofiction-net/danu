@@ -102,11 +102,12 @@ def parse(payload: bytes) -> Heights:
 
 def _imported(square):
     """The spot heights a square holds from upstream: a positive id, a kind
-    asked for, and no way's vertex - the water import keeps a `natural=peak`
-    on the vertex of a river that carries one, and that is not a spot height."""
-    vertices = {r for w in square.ways.values() for r in w.refs}
+    asked for, and a height - every one this imports carries one. The water
+    import keeps a `natural=peak` on the vertex of a river that carries one,
+    with no height, and that is not a spot height; a spot height a mapper has
+    since drawn a line through still is."""
     return [(i, n) for i, n in square.nodes.items()
-            if i > 0 and n.tags.get('natural') in KINDS and i not in vertices]
+            if i > 0 and n.tags.get('natural') in KINDS and 'ele' in n.tags]
 
 
 def held(working_set) -> dict:

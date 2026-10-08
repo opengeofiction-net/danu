@@ -125,3 +125,16 @@ def test_a_river_vertex_tagged_as_a_peak_is_not_a_spot_height_gone():
     sq.nodes[8] = Node(id=8, lon=125.6, lat=-22.5)
     sq.ways[70] = Way(id=70, refs=[7, 8], tags={'waterway': 'stream'})
     assert peaks.gone(w, frozenset()) == [] and peaks.held(w) == {}
+
+
+def test_a_spot_height_a_line_has_since_been_drawn_through_is_still_held():
+    """Snapped to: a contour's vertex now. It carries its height, and stays
+    the import's to reconcile and report."""
+    from danu.core.square import Way
+    w = ws()
+    sq = w.squares[A]
+    sq.nodes[9] = Node(id=9, lon=125.5, lat=-22.5, tags={'natural': 'peak', 'ele': '300'})
+    sq.nodes[-1] = Node(id=-1, lon=125.6, lat=-22.5)
+    sq.ways[-2] = Way(id=-2, refs=[9, -1], tags={'ele': '300'})
+    assert peaks.held(w) == {9: A}
+    assert [g.id for g in peaks.gone(w, frozenset())] == [9]
