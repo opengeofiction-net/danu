@@ -3429,3 +3429,37 @@ a ring they are inside - 51 of them by 5 m or less, a 349 m peak inside the
 theirs, Colonie Hill 698 m inside a 250 m ring. Each is a constraint the
 surface has to meet. R38's check, a spot height which contradicts the contours
 around it, is what lists them.
+
+## R38, a spot height the contours contradict
+
+**Brought forward with G9.** The import put 253 of the main map's heights into
+the gobras squares, and every one is a constraint the surface meets. The checks
+panel's fourth list: 92 on gobras once imported - 82 below the ring they stand
+inside, 10 past the next contour up.
+
+**The rule.** The ring that matters is the innermost closed contour round the
+spot height, by area, and the next ring out at another level says which way the
+ground goes: inside a 125 m inside a 100 m, a hill, and the spot height lies
+between 125 m and the next rung of the square's ladder, 150 m; inside a ring
+inside a higher one, a hollow, the same turned over. One ring alone is a hill.
+The next rung is the regular ladder's - the interval from the ring's level -
+and not the next value the square holds: the inferred ladder carries the
+off-ladder values it found, and the first run had Genoa Peak past "the 135 m"
+round a 125 m ring. A spot height is a node with an elevation no way passes
+through; a graded river's vertices carry levels, and G7c judges those. One in
+no ring is R39's question, not this.
+
+**At the worst**: Colonie Hill, 698 m on the main map, stands inside a 275 m
+ring on ground that rises to some 450 m to the east - the height is wrong for
+where it is, or the peak is in the wrong place; Genoa Peak 567 m inside a
+125 m. Choosing a row selects the spot height, its height in the panel to set.
+The list follows edits: a spot height named by one is judged again, and so is
+every one in the box of a ring an edit touched, as it was and as it is - 0.14 s
+for the whole set, so nothing cleverer.
+
+Ten mutations, each failing a test, every one from a fresh copy with no
+bytecode: the outermost ring and not the innermost, a hollow read as a hill,
+below and above swapped, the next contour an off-ladder value, one past it not
+found, a river's vertex taken for a spot height, inside taken as any crossing,
+a ring edited not asking the spot heights in it again, the panel not following
+an edit, and a row not selecting the spot height.
