@@ -466,14 +466,20 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     "In the same order" is load-bearing and was not always true. The golden
     test asserts the surface claim, but on a fixture whose ways are already
     sorted, so it went on passing while a square with JOSM's real ordering
-    came out different - see the loop below.
+    came out different - see the loop over the ways in square_text.
 
     Written to a temporary beside the target and moved into place, so a
-    failure mid-write leaves the old file whole."""
+    failure mid-write leaves the old file whole. The two halves are
+    ``square_text`` and ``write_text``, which the editor runs apart."""
+    return write_text(square_text(square, generator), path, preset)
+
+
+def square_text(square: Square, generator: str = 'danu') -> str:
+    """The square as ``write_square`` writes it, as text: what a save reads
+    of the square, all of it, so the compression can be done elsewhere while
+    the square goes on being edited."""
     import html
-    import tempfile
     from decimal import Decimal
-    path = Path(path)
 
     def q(v) -> str:            # single quotes, as JOSM writes them; & < > ' escaped
         return "'" + html.escape(str(v), quote=True).replace('&quot;', '"') + "'"
@@ -551,7 +557,16 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
         lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in r.tags.items()]
         lines.append('  </relation>')
     lines.append('</osm>')
-    text = '\n'.join(lines) + '\n'
+    return '\n'.join(lines) + '\n'
+
+
+def write_text(text: str, path: str | os.PathLike, preset: int = 6) -> Path:
+    """A square's text to its file: ``.osm.xz`` compressed, ``.osm`` plain,
+    by a temporary beside it moved into place. No square is read here - it
+    is the half of a save that may run off the UI thread. Compression is
+    most of a save: 10 s of N20E086's 10.5 at the default preset."""
+    import tempfile
+    path = Path(path)
     fd, tmp = tempfile.mkstemp(suffix=path.suffix, dir=str(path.parent))
     os.close(fd)
     try:

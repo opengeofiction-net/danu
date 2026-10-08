@@ -1048,7 +1048,7 @@ class UndoStack:
         self.alloc = IdAllocator(square)
         self._done: list[Command] = []
         self._undone: list[Command] = []
-        self._clean_at = 0
+        self._clean = None                 # the last command done at the last save
 
     def do(self, cmd: Command) -> None:
         cmd.apply(self.square)
@@ -1081,10 +1081,12 @@ class UndoStack:
 
     @property
     def dirty(self) -> bool:
-        return len(self._done) != self._clean_at
+        # by which command is last, not how many: saved, undone and something
+        # else done is as many commands and not the file
+        return (self._done[-1] if self._done else None) is not self._clean
 
     def mark_clean(self) -> None:
-        self._clean_at = len(self._done)
+        self._clean = self._done[-1] if self._done else None
 
     def describe_undo(self) -> str:
         return self._done[-1].describe() if self._done else ''
@@ -1108,7 +1110,7 @@ class SetUndoStack:
         self._done: list[list[tuple[Square, Command]]] = []
         self._undone: list[list[tuple[Square, Command]]] = []
         self._squares: dict[int, Square] = {}      # every square touched, by identity
-        self._clean: dict[int, int] = {}           # id(square) -> steps done at the last save
+        self._clean: dict[int, object] = {}        # id(square) -> its last step at the last save
         self._alloc: IdAllocator | None = None
 
     def alloc(self, square: Square) -> IdAllocator:
@@ -1189,22 +1191,29 @@ class SetUndoStack:
     def describe_redo(self) -> str:
         return self._undone[-1][0][1].describe() if self._undone else ''
 
-    def _steps(self, square: Square) -> int:
-        """How many steps have touched this square. A step over several
-        squares counts once for each of them it names, and once only however
-        many commands it carries for that square - what this feeds is
-        ``dirty``, which asks whether the file differs from the last save."""
-        return sum(1 for step in self._done if any(sq is square for sq, _ in step))
+    def state(self, square: Square):
+        """Where the square's history stands: the last step done that touched
+        it, None for none. What a save records, and what ``dirty`` compares
+        - by identity, not by count. Counted, a square saved, its edit undone
+        and another made was as many steps as the file and read clean, and a
+        close would have thrown the new edit away without asking. A step
+        undone and redone is the same list, so it reads clean again."""
+        for step in reversed(self._done):
+            if any(sq is square for sq, _ in step):
+                return step
+        return None
 
     def dirty(self, square: Square) -> bool:
-        return self._steps(square) != self._clean.get(id(square), 0)
+        return self.state(square) is not self._clean.get(id(square))
 
     def dirty_squares(self) -> list[Square]:
         return [sq for sq in self._squares.values() if self.dirty(sq)]
 
-    def mark_clean(self, square: Square) -> None:
+    def mark_clean(self, square: Square, state=...) -> None:
+        """The square as saved - as it stands now, or at ``state``, taken from
+        ``state`` when the text was, for a write that lands after more edits."""
         self._squares[id(square)] = square
-        self._clean[id(square)] = self._steps(square)
+        self._clean[id(square)] = self.state(square) if state is ... else state
 
 
 def snapshot(square: Square) -> tuple:

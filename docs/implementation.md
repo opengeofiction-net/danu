@@ -3484,3 +3484,38 @@ more: N19E085 holds nothing of gobras's but the main map's Kettle Lake,
 anywhere, had it in the grid. `has_elevation` still says whether there is
 anything to read. The editor's fresh-ground rebuild already asked of contours
 alone, so it agrees.
+
+## Saves and the checks off the UI thread
+
+**"python3 is not responding"**, the desktop said, once on opening the checks
+panel over the tidied gobras set and again on saving it. Measured: the four
+indexes' first scan was 9.3 s of the UI thread, and saving the 3x3 after an
+import 21.6 s, 18 s of it xz at preset 6 - N20E086 alone is 28 MB of text and
+10 s to compress, against 0.6 s at preset 0 for a file 43% bigger. The preset
+stays; the work moved.
+
+**A save** takes the square's text on the UI thread, which is 0.6 s for the
+nine, and compresses and writes it on a thread of its own - one, so two saves
+of a square land in order. The square is clean once its file has landed, at the
+history as it stood when the text was taken: an edit made while it is written
+keeps it dirty, and staging, which writes a dirty square from memory, never
+reads a file half there. A close, and an open, wait for the writes first; a
+write that fails says so in a dialog and leaves the square dirty. The contour
+layer is no longer redrawn whole on every save, only when a frame or a split
+changed it - 1.6 s of the nine.
+
+**Dirty was a count**, and that was a bug of its own: saved, undone and edited
+again was as many steps as the file, read clean, and a close would not have
+asked. It is the last step done on the square now, by identity.
+
+**The checks' first scan** runs on a worker, the panel saying so. The squares
+go on being edited meanwhile; each edit is kept and put to the indexes when
+they land, which asks again of any way the scan read before the edit changed
+it, and a scan a dict changed under is started again. Over gobras, the longest
+the UI thread then went without an event was 0.25 to 0.8 s for the checks and
+0.74 s for the save - the scan and the compression hold the interpreter in
+bursts, and the save's is the text being taken.
+
+Seven mutations, each failing a test: marked clean as it stands rather than as
+it was written, the edits made during the scan not put to it, dirty by count in
+either history, no second scan, a close not waiting, a failed write not said.

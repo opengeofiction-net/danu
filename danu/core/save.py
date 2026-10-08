@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import edits
 from . import ladder as L
-from .square import Square, SquareName, write_square
+from .square import Square, SquareName, square_text, write_square, write_text
 
 FRAME_NOTE = 'square frame - do not edit'
 STAGE_MARKER = '.danu-stage'
@@ -147,10 +147,24 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
     return into
 
 
-def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
-                ladder: L.Ladder | None = None) -> SaveReport:
-    """Frame if new, split if needed, write, mark clean. ``path`` defaults
-    to the square's own file; a square that has none must be given one."""
+@dataclass
+class Pending:
+    """A save taken but not yet written: the square's text as it stood, the
+    file it goes to, and the history's state then - ``finish`` marks the
+    square clean at that state, so an edit made while it was written keeps
+    the square dirty."""
+    square: Square
+    path: Path
+    text: str
+    state: object
+    report: SaveReport
+
+
+def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
+            ladder: L.Ladder | None = None) -> Pending:
+    """The half of a save that reads the square: frame if new, split if
+    needed, the text taken. ``path`` defaults to the square's own file; a
+    square that has none must be given one."""
     if path is None:
         if square.path is None:
             raise ValueError(f'{square.name} has no file yet; a path is needed')
@@ -165,11 +179,32 @@ def save_square(square: Square, history: edits.SetUndoStack, path: str | os.Path
     if split is not None:
         history.do(square, split)
         report.split = len(split.commands)
-    write_square(square, path)
-    square.path = path
-    square.present = True
-    history.mark_clean(square)
+    text = square_text(square)
     lad = ladder if ladder is not None else L.infer(square)
     if lad is not None:
         report.advice = L.off_ladder(square, lad)
-    return report
+    return Pending(square, path, text, history.state(square), report)
+
+
+def write(pending: Pending) -> Path:
+    """The half that does not: the text compressed and written. Reads no
+    square, so it runs off the UI thread."""
+    return write_text(pending.text, pending.path)
+
+
+def finish(pending: Pending, history: edits.SetUndoStack) -> SaveReport:
+    """The file written: the square is that file's, and clean as it was."""
+    pending.square.path = pending.path
+    pending.square.present = True
+    history.mark_clean(pending.square, pending.state)
+    return pending.report
+
+
+def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
+                ladder: L.Ladder | None = None) -> SaveReport:
+    """Frame if new, split if needed, write, mark clean - the three halves
+    in a row. ``path`` defaults to the square's own file; a square that has
+    none must be given one."""
+    pending = prepare(square, history, path, ladder)
+    write(pending)
+    return finish(pending, history)

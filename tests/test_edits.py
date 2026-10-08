@@ -121,6 +121,29 @@ def test_dirty_follows_the_clean_mark_not_the_history(square):
     assert stack.dirty                       # differs from what was saved, in the other direction
     stack.redo()
     assert not stack.dirty
+    stack.undo()
+    stack.do(edits.SetTags(way.id, dict(way.tags), {**way.tags, 'ele': '7'}))
+    assert stack.dirty, 'as many commands as the save, and not the save'
+
+
+def test_saved_undone_and_edited_again_is_dirty_and_a_late_mark_keeps_a_later_edit():
+    """Counted, a square saved, undone and edited again was as many steps as
+    the file and read clean - and a close would not have asked."""
+    a = fresh_square()
+    hist = edits.SetUndoStack()
+    wa = max(a.ways)
+    hist.do(a, edits.SetTags(wa, dict(a.ways[wa].tags), {'ele': '1'}))
+    hist.mark_clean(a)
+    hist.undo()
+    hist.do(a, edits.SetTags(wa, dict(a.ways[wa].tags), {'ele': '2'}))
+    assert hist.dirty(a)
+    # the text taken, an edit made, then the file landing: still dirty
+    then = hist.state(a)
+    hist.do(a, edits.SetTags(wa, dict(a.ways[wa].tags), {'ele': '3'}))
+    hist.mark_clean(a, then)
+    assert hist.dirty(a)
+    hist.undo()
+    assert not hist.dirty(a), 'back to what was written'
 
 
 # ------------------------------------------------------------- property

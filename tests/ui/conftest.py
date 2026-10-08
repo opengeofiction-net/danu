@@ -117,6 +117,11 @@ def window(qtbot, zone, tmp_path, territory_files):
                                attributes_url=(territory_files / 'admin.json').as_uri())
     w = MainWindow(load_layers(), cache_dir=None, settings=settings, territory_fetcher=fetcher)
     w.prompt_on_close = False
+    # saves and the checks' first scan where they are asked for, so a test
+    # reads the file or the panel straight after; test_background.py runs
+    # them on their workers
+    w._write_runner = lambda job: job.run()
+    w._checks_runner = lambda job: job.run()
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)

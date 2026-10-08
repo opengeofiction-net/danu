@@ -97,6 +97,15 @@ class ChecksDock(QDockWidget):
         self.spots_tree.currentItemChanged.connect(
             lambda item, _prev: item is not None and self.spotChosen.emit(item.data(0, _ROW)))
 
+    def finding(self) -> None:
+        """The first scan out, on a worker: said in place of the lists."""
+        self.summary.setText('Finding the checks over this working set…')
+        for label in (self.loops_summary, self.touches_summary, self.spots_summary):
+            label.setText('')
+        for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree):
+            tree.clear()
+        self.tree.setVisible(False)
+
     def show_crossings(self, found: list) -> None:
         """The crossings as they stand, replacing what was listed. The row
         that was current stays current where its contour is still listed, so
