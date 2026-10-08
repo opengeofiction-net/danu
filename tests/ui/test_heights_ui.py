@@ -23,16 +23,20 @@ def answer(*nodes) -> bytes:
     return '\n'.join(out).encode()
 
 
-def contoured(w):
-    """A 100 m ring round the peaks below, in the fixture's blank square: a
-    spot height is imported only where there are contours."""
-    sq = w.working_set.squares[NORTH]
-    if -7001 in sq.ways:
+def contoured(w, name=NORTH, wid=-7001):
+    """A 100 m ring round the peaks below, in one of the fixture's blank
+    squares: a spot height is imported only where there are contours."""
+    sq = w.working_set.squares[name]
+    if wid in sq.ways:
         return
+    dx = name.lon - NORTH.lon
     corners = ((125.45, -22.55), (125.75, -22.55), (125.75, -22.25), (125.45, -22.25))
+    refs = []
     for i, (lon, lat) in enumerate(corners):
-        sq.nodes[-7100 - i] = Node(id=-7100 - i, lon=lon, lat=lat)
-    sq.ways[-7001] = Way(id=-7001, refs=[-7100, -7101, -7102, -7103, -7100], tags={'ele': '100'})
+        nid = wid * 10 - i
+        sq.nodes[nid] = Node(id=nid, lon=lon + dx, lat=lat)
+        refs.append(nid)
+    sq.ways[wid] = Way(id=wid, refs=[*refs, refs[0]], tags={'ele': '100'})
 
 
 def importing(w, payload):
@@ -104,3 +108,68 @@ def test_one_beyond_the_contours_is_not_imported_and_is_counted(window):
     said = w.statusBar().currentMessage()
     assert 'imported 1 spot height' in said and '1 beyond the contours, not imported' in said
     assert w.gone_from_upstream == [], 'one beyond the contours is not gone from upstream'
+
+
+def differs_rows(dock):
+    out = []
+    for i in range(dock.tree.topLevelItemCount()):
+        head = dock.tree.topLevelItem(i)
+        if head.text(0).startswith('Height differs'):
+            out = [head.child(j) for j in range(head.childCount())]
+    return out
+
+
+def test_a_height_the_main_map_gives_otherwise_is_listed_and_taken_with_a_button(window):
+    """Colonie Hill: imported at 698, set to 286 on the main map and synced.
+    The import keeps the square's and lists it; the button takes 286, Ctrl+Z
+    puts 698 back, and the row follows."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    east = w.working_set.squares[SquareName(126, -23)]
+    contoured(w, SquareName(126, -23), wid=-7002)
+    importing(w, answer((501, 125.5, -22.5, {'natural': 'peak', 'name': 'Colonie Hill', 'ele': '698'}),
+                        (502, 125.6, -22.4, {'natural': 'saddle', 'ele': '300'}),
+                        (505, 126.5, -22.5, {'natural': 'peak', 'ele': '200'})))
+    importing(w, answer((501, 125.5, -22.5, {'natural': 'peak', 'name': 'Colonie Hill', 'ele': '286'}),
+                        (502, 125.6, -22.4, {'natural': 'saddle', 'ele': '310'}),
+                        (505, 126.5, -22.5, {'natural': 'peak', 'ele': '210'})))
+    assert sq.nodes[501].tags['ele'] == '698' and sq.nodes[502].tags['ele'] == '300'
+    assert east.nodes[505].tags['ele'] == '200'
+    assert "3 the main map gives another height, the square's kept" in w.statusBar().currentMessage()
+    dock = w.gone_dock
+    assert dock.isVisible()
+    rows = differs_rows(dock)
+    assert [r.text(0) for r in rows] == ['peak "Colonie Hill" - 698 m here, 286 m on the main map',
+                                         'saddle 502 - 300 m here, 310 m on the main map',
+                                         'peak 505 - 200 m here, 210 m on the main map']
+    assert not dock.take_btn.isEnabled() and dock.take_all_btn.text() == "Take the main map's for all 3"
+    dock.tree.setCurrentItem(rows[0])
+    assert w.editor.selection.node == 501 and "the button takes the main map's" in w.statusBar().currentMessage()
+    dock.take_btn.click()
+    assert sq.nodes[501].tags['ele'] == '286' and sq.nodes[502].tags['ele'] == '300'
+    assert rows[0].font(0).strikeOut() and dock.take_all_btn.text() == "Take the main map's for all 2"
+    w.editor.undo()
+    assert sq.nodes[501].tags['ele'] == '698' and not rows[0].font(0).strikeOut()
+    dock.take_all_btn.click()
+    assert (sq.nodes[501].tags['ele'], sq.nodes[502].tags['ele'], east.nodes[505].tags['ele']) == \
+        ('286', '310', '210')
+    assert not dock.take_all_btn.isEnabled()
+    w.editor.undo()
+    assert (sq.nodes[501].tags['ele'], sq.nodes[502].tags['ele'], east.nodes[505].tags['ele']) == \
+        ('698', '300', '200'), 'all of them, across squares, one step'
+
+
+def test_a_height_written_otherwise_but_reading_the_same_is_settled_for_the_button_too(window):
+    """300.0 set by hand where the main map says 300: the row is struck, and
+    the button has nothing to do for it."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    importing(w, answer((502, 125.6, -22.4, {'natural': 'saddle', 'ele': '300'})))
+    importing(w, answer((502, 125.6, -22.4, {'natural': 'saddle', 'ele': '310'})))
+    (row,) = differs_rows(w.gone_dock)
+    n = sq.nodes[502]
+    w.editor.do(sq, edits.SetNodeTags(502, dict(n.tags), {**n.tags, 'ele': '310.0'}))
+    assert row.font(0).strikeOut()
+    steps = len(w.editor.history._done)
+    w.gone_dock.take_all_btn.click()
+    assert len(w.editor.history._done) == steps and sq.nodes[502].tags['ele'] == '310.0'

@@ -22,6 +22,11 @@ no contour, or past the box of its square's contours, is not imported, and
 counted - near Gobras, 49 of the 253. Drawn out to it, a second import brings
 it. One the set already holds is reconciled wherever it stands.
 
+**A height that differs** from the main map's on a second import is kept -
+the square's - and listed beside the report (``differ``): the main map fixed
+since, or the square set here, and only the mapper knows which. Taking the
+main map's is a key, one row or all of them.
+
 A spot height the set holds that upstream no longer answers - deleted, or its
 height taken off - is reported, never deleted, as water is (G5b).
 
@@ -184,4 +189,47 @@ def gone(working_set, answered: frozenset) -> list[Gone]:
         for i, n in sorted(_imported(working_set.squares[name])):
             if i not in answered:
                 out.append(Gone(name, 'node', i, n.tags.get('name'), n.tags['natural']))
+    return out
+
+
+@dataclass(frozen=True)
+class Differs:
+    """A held spot height whose height the main map now gives otherwise."""
+    square: SquareName
+    id: int
+    name: str | None
+    what: str                # peak, volcano, saddle
+    here: str                # the square's ele, as written
+    upstream: str            # the main map's, in metres
+    kind: str = 'node'       # as a Gone's, for choosing it
+
+    def describe(self) -> str:
+        label = f'{self.what} "{self.name}"' if self.name else f'{self.what} {self.id}'
+        return f'{label} - {self.here} m here, {self.upstream} m on the main map'
+
+    def settled(self, node) -> bool:
+        """Whether a node's height is now the main map's - the one test of
+        it, for the button and the row alike: 300 is 300.0."""
+        here = parse_ele(node.tags.get('ele')) if node is not None else None
+        return here is not None and abs(here - parse_ele(self.upstream)) < 1e-6
+
+
+def differ(placed: dict, working_set) -> list[Differs]:
+    """The held spot heights whose height the answer gives otherwise. The
+    import keeps the square's, so this asks the same before it or after; a
+    spot height with no height of its own takes upstream's, and is not
+    listed."""
+    out = []
+    for name in sorted(placed, key=str):
+        sq = working_set.squares.get(name)
+        if sq is None:
+            continue
+        for i, up in sorted(placed[name].items()):
+            n = sq.nodes.get(i)
+            here = parse_ele(n.tags.get('ele')) if n is not None else None
+            there = parse_ele(up.tags.get('ele'))
+            if here is None or there is None or abs(here - there) < 1e-6:
+                continue
+            out.append(Differs(name, i, up.tags.get('name'), up.tags.get('natural', 'peak'),
+                               n.tags['ele'], up.tags['ele']))
     return out

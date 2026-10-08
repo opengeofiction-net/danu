@@ -3538,3 +3538,31 @@ the next import brings it.
 Five mutations, each failing a test: nothing left out, a held one left out, a
 lake whose level is in feet taken for a contour, one left out reported gone,
 a vertex counted in its way's square rather than the one it falls in.
+
+## A height the main map gives otherwise, listed
+
+**Colonie Hill**, imported at 698 m, inside the 250 m ring: set to 286 on the
+main map, the Overpass server synced - version 7 at 20:06, `osm_base` 20:11 -
+and imported again, and the checks still said 698. Not a cache. The square's
+height is the mapper's on a second import (R40, as G9 decided with the
+mapper), and the first import had written 698 into it. A square cannot tell an
+imported height left alone from one set here, so the import cannot pick for
+the mapper.
+
+So it lists. Each held spot height whose height the answer reads otherwise is
+a row of the import report, under its own heading: *peak "Colonie Hill" -
+698 m here, 286 m on the main map*. Choosing it selects it; one button takes
+the main map's for that row, the other for every row, one step across the
+squares either way. A row is settled from the square, not from the button:
+struck through once the square's height is the main map's, however it got
+there, and unstruck by the undo that puts it back. A height that reads the
+same - 300 against 300.0 - is no row, and nor is a spot height with no height
+of its own, which takes upstream's.
+
+Five mutations, each failing a test: the same height listed, one button
+taking every row, all of them taken a step a square, an undo leaving a row
+struck, a row not settled from the square. A sixth survived, and showed a
+claim of the first version wrong - that the rows had to be asked before the
+import was applied: the import keeps the square's height, so before and
+after agree. The button and the row ask one test of whether a height is the
+main map's, so 300 against 300.0 is settled for both.
