@@ -176,6 +176,15 @@ def test_unglue_moves_one_straight_through_square_to_its_line_away_from_the_kept
     edits.unglue_node(sq, v.id, node, edits.IdAllocator(sq)).apply(sq)
     new = sq.nodes[sq.ways[straight.id].refs[1]]
     assert new.lat < LAT + 0.0001, 'moved toward the way it came off'
+    # and the mirror: the kept below, so away is up
+    sq = sq_()
+    v = way(sq, [(125.30, LAT - 0.01), (125.31, LAT - 0.0001), (125.32, LAT - 0.02)], 100)
+    node = v.refs[1]
+    straight = way(sq, [(125.30, LAT - 0.0001), (125.32, LAT - 0.0001)], 125)
+    straight.refs.insert(1, node)
+    edits.unglue_node(sq, v.id, node, edits.IdAllocator(sq)).apply(sq)
+    new = sq.nodes[sq.ways[straight.id].refs[1]]
+    assert new.lat > LAT - 0.0001, 'moved toward the way it came off'
 
 
 def test_unglue_a_node_nobody_else_holds_says_so():
