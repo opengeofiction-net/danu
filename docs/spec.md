@@ -1143,6 +1143,7 @@ Recorded so the reasoning is not relitigated:
 | the checks' first scan | on a worker, the panel saying it is finding them; an edit made meanwhile is put to the indexes when they land |
 | a main-map spot height beyond the contours | not imported, and counted: a new one in a square with no contour line, or past the box of its square's contour vertices - the build's envelope to the cell; one the set holds is reconciled wherever it stands |
 | a spot height the main map gives another height | on a second import the square's is kept and the row listed in the import report, "698 m here, 286 m on the main map"; one button takes the main map's for the row chosen, one for every row, either one step; a row is struck through once the square's is the main map's, by the button or by hand, or the spot height is deleted here, and an undo unstrikes it |
+| JOSM | J, or the Show in JOSM button in the checks panel and the import report: JOSM's remote control `/zoom` at `http://127.0.0.1:8111` (`josm/url` in the INI) to the box the map shows, selecting what is selected if it came from the main map - a positive id; nothing is downloaded, and a refusal or a JOSM not running is said in the status line |
 | the pinch key | C, the surface's pinch, since P became the split |
 | tests and the network | none of them reach it: the tile and territory fetchers are pointed at fixtures at conftest import, not in a fixture |
 

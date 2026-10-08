@@ -3566,3 +3566,26 @@ claim of the first version wrong - that the rows had to be asked before the
 import was applied: the import keeps the square's height, so before and
 after agree. The button and the row ask one test of whether a height is the
 main map's, so 300 against 300.0 is settled for both.
+
+## Show in JOSM
+
+The water and the peaks are fixed on the main map and uploaded from JOSM, and
+the checks and the import report are where Danu finds what to fix. J - or the
+button in either panel - sends JOSM's remote control a `/zoom` to the box the
+map shows, selecting what is selected if it came from the main map. A row
+chosen has already put both here: the place in view, and the feature
+selected. `/zoom` loads nothing, so JOSM shows the data it holds, edits and
+all, and selects among it; a contour, or anything drawn here, has a negative
+id and is in no layer of JOSM's, so the place is sent alone and the status
+line says why nothing was selected. A node goes before its way, the most
+particular first.
+
+The request is Qt's, on the UI thread's event loop, three seconds at most: a
+JOSM not running is a status line telling the mapper to start it with Remote
+Control on, and its own refusal - a 400 with its reason - is said in its
+words. The address is `josm/url` in the INI, the loopback port by default.
+
+The tests stand a server on a loopback port up as JOSM, answering as it does;
+nothing leaves the machine. Five mutations, each failing a test: a drawn way
+selected, top and bottom swapped, a refusal said as JOSM not running, the
+selection not sent, the button not wired.
