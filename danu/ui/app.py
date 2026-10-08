@@ -23,13 +23,14 @@ from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten, peaks
 from ..water.gone import gone
-from . import config
+from . import config, josm
 from . import mercator as m
 from .background import Job
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .gone_dock import GoneDock
+from .josm import JosmRemote
 from .layers_panel import LayersPanel
 from .legend import Legend
 from .loader import WorkingSetLoader
@@ -206,6 +207,12 @@ class MainWindow(QMainWindow):
             lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
         self.gone_dock.takeHeights.connect(self._take_heights)
+        # JOSM's remote control, for the water and peaks fixed on the main map
+        self.josm = JosmRemote(self.settings.josm_url, self)
+        self.josm.answered.connect(lambda what: self.statusBar().showMessage(f'JOSM: {what}'))
+        self.josm.failed.connect(self.statusBar().showMessage)
+        self.checks_dock.josm_btn.clicked.connect(self.show_in_josm)
+        self.gone_dock.josm_btn.clicked.connect(self.show_in_josm)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
         self.squares = SquaresItem()
@@ -525,7 +532,8 @@ class MainWindow(QMainWindow):
                 ('edit.split', 'S&plit the contour at the node', ed.split),
                 ('edit.unglue', '&Unglue the node from the other contours', ed.unglue),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
-                 lambda: ed.cut_loop(self.checks_dock.current_loop()))):
+                 lambda: ed.cut_loop(self.checks_dock.current_loop())),
+                ('view.josm', 'Show in &JOSM', self.show_in_josm)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             a.triggered.connect(fn)
@@ -555,6 +563,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.cut_loop'])
         edit.addAction(self.gone_dock.toggleViewAction())
         edit.addAction(self.checks_dock.toggleViewAction())
+        edit.addAction(self.edit_actions['view.josm'])
         self._tool_changed('select')
         self._edited()
         elevation = self.menuBar().addMenu('&Elevation')
@@ -849,6 +858,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f'imported {features} water features - {where}{kept}. '
             f'Ctrl+Z takes them all back')
+
+    def show_in_josm(self) -> str | None:
+        """JOSM to the place the map shows, selecting what is selected here
+        if it came from the main map - its remote control's ``/zoom``. A row
+        of the checks or of the import report, chosen, has already put both
+        here. Answers the URL asked, for whoever wants it."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return None
+        sel = self.editor.selection
+        ids = josm.selected_ids(sel)
+        what = 'the place shown here' + (f', selecting {", ".join(ids)}' if ids else '')
+        if sel is not None and not ids:
+            what += ' - what is selected was drawn here, and is not in JOSM'
+        return self.josm.zoom(self._view_bounds(), ids, what)
+
+    def _view_bounds(self) -> tuple[float, float, float, float]:
+        """The map's viewport as (west, south, east, north)."""
+        r = self.map.viewport().rect()
+        a = self.map.mapToScene(r.topLeft())
+        b = self.map.mapToScene(r.bottomRight())
+        west, north = m.scene_to_lonlat(a.x(), a.y())
+        east, south = m.scene_to_lonlat(b.x(), b.y())
+        return west, south, east, north
 
     def _take_heights(self, rows) -> None:
         """The main map's height for each row, one step across the squares;

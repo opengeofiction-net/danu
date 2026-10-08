@@ -74,6 +74,10 @@ class GoneDock(QDockWidget):
         buttons = QHBoxLayout()
         buttons.addWidget(self.take_btn)
         buttons.addWidget(self.take_all_btn)
+        self.josm_btn = QPushButton('Show in JOSM')
+        self.josm_btn.setToolTip('the row chosen, shown and selected in JOSM by its remote control,\n'
+                                 'to fix on the main map - J')
+        buttons.addWidget(self.josm_btn)
         self.listed = QWidget()
         box = QVBoxLayout(self.listed)
         box.setContentsMargins(0, 0, 0, 0)

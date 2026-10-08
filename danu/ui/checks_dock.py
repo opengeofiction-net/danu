@@ -88,6 +88,10 @@ class ChecksDock(QDockWidget):
         self.spots_tree.setColumnCount(1)
         box.addWidget(self.spots_summary)
         box.addWidget(self.spots_tree, 1)
+        self.josm_btn = QPushButton('Show in JOSM')
+        self.josm_btn.setToolTip('the row chosen, shown in JOSM by its remote control, what it\n'
+                                 'is about selected if it came from the main map - J')
+        box.addWidget(self.josm_btn)
         self.setWidget(body)
         self.groups: list = []
         self.tree.currentItemChanged.connect(self._current)

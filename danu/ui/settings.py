@@ -55,6 +55,9 @@ DEFAULT_KEYS = {
     'edit.split': 'P',
     # U unglues a node contours of two levels share - G8e
     'edit.unglue': 'U',
+    # J for JOSM: the place shown, and what is selected, shown in JOSM by its
+    # remote control - for the water and peaks fixed on the main map
+    'view.josm': 'J',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'C',
@@ -127,6 +130,12 @@ class Settings:
     @user.setter
     def user(self, name: str):
         self.q.setValue('user/name', name.strip())
+
+    @property
+    def josm_url(self) -> str:
+        """JOSM's remote control, which listens on the loopback only."""
+        from .josm import DEFAULT_URL
+        return str(self.q.value('josm/url', '') or DEFAULT_URL)
 
     @property
     def ladders_file(self) -> Path:
