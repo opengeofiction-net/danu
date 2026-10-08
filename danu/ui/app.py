@@ -778,7 +778,7 @@ class MainWindow(QMainWindow):
             said = (f'imported {n} spot height{"s" * (n != 1)} - '
                     + ', '.join(f'{k} {kinds[k]}' for k in peaks.KINDS if k in kinds))
         else:
-            said = ('no peak or saddle with a height within the contours' if answer.beyond
+            said = ('no spot height imported' if answer.beyond
                     else 'no peak or saddle with a height in this working set')
         if answer.beyond:
             said += (f'; {answer.beyond} beyond the contours, not imported - an import once '
