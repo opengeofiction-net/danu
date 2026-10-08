@@ -170,3 +170,22 @@ def test_one_beyond_the_contours_is_counted_not_imported_and_one_held_stays():
     kept = peaks.within(got, peaks.envelopes(w), {4: A})
     assert set(kept.nodes) == {1, 4} and sorted(kept.beyond) == [2, 3]
     assert kept.answered == {1, 2, 3, 4}, 'one beyond the contours is not gone from upstream'
+
+
+def test_a_height_the_main_map_now_gives_otherwise_is_listed_and_the_squares_kept():
+    """Colonie Hill: imported at 698, set to 286 on the main map since. The
+    import keeps the square's and says so - which is right is the mapper's."""
+    w = ws()
+    sq = w.squares[A]
+    imported(sq, peaks.parse(answer((1, 125.5, -22.5, {'natural': 'peak', 'name': 'Colonie Hill', 'ele': '698'}),
+                                    (2, 125.6, -22.5, {'natural': 'saddle', 'ele': '300'}))).nodes)
+    sq.nodes[3] = Node(id=3, lon=125.7, lat=-22.5, tags={'natural': 'peak'})       # no height here
+    again = peaks.parse(answer((1, 125.5, -22.5, {'natural': 'peak', 'name': 'Colonie Hill', 'ele': '286'}),
+                               (2, 125.6, -22.5, {'natural': 'saddle', 'ele': '300.0'}),
+                               (3, 125.7, -22.5, {'natural': 'peak', 'ele': '120'})))
+    placed = peaks.place(again, w, peaks.held(w))
+    (d,) = peaks.differ(placed, w)
+    assert (d.id, d.here, d.upstream) == (1, '698', '286')
+    assert d.describe() == 'peak "Colonie Hill" - 698 m here, 286 m on the main map'
+    imported(sq, placed[A])
+    assert sq.nodes[1].tags['ele'] == '698' and sq.nodes[3].tags['ele'] == '120'

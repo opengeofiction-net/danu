@@ -19,7 +19,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
 from ..checks import crossings, loops, spots, touches
-from ..core import make_square, save, territory
+from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten, peaks
 from ..water.gone import gone
@@ -205,6 +205,7 @@ class MainWindow(QMainWindow):
         self.heights.failed.connect(
             lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
+        self.gone_dock.takeHeights.connect(self._take_heights)
         self.surface_panel.rebuild.connect(self.rebuild_surface)
         self._arcsec = 0.0
         self.squares = SquaresItem()
@@ -762,11 +763,12 @@ class MainWindow(QMainWindow):
                 'the working set changed while the spot heights were fetched - import again')
             return
         self.gone_from_upstream = peaks.gone(working_set, answer.nodes)
+        differs = peaks.differ(answer.placed, working_set)
         steps = height_commands(answer.placed, working_set)
         if steps:
             self.editor.do_across(steps)
-        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[])
-        if self.gone_from_upstream:
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[], differs=differs)
+        if self.gone_from_upstream or differs:
             self.gone_dock.show()
             self.gone_dock.raise_()
         n = sum(len(v) for v in answer.placed.values())
@@ -788,6 +790,9 @@ class MainWindow(QMainWindow):
                      'feet')
         if self.gone_from_upstream:
             said += f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+        if differs:
+            said += (f"; {len(differs)} the main map gives another height, the square's kept - "
+                     'listed in the report')
         self.statusBar().showMessage(said + ('. Ctrl+Z takes them all back' if n else ''))
 
     def _water_starting(self, working_set):
@@ -845,6 +850,29 @@ class MainWindow(QMainWindow):
             f'imported {features} water features - {where}{kept}. '
             f'Ctrl+Z takes them all back')
 
+    def _take_heights(self, rows) -> None:
+        """The main map's height for each row, one step across the squares;
+        a row whose spot height has gone, or whose height already is the
+        main map's, is passed over."""
+        ws = self.working_set
+        by_square: dict = {}
+        for d in rows:
+            square = ws.squares.get(d.square) if d is not None and ws is not None else None
+            node = square.nodes.get(d.id) if square is not None else None
+            if node is None or node.tags.get('ele') == d.upstream:
+                continue
+            by_square.setdefault(d.square, (square, []))[1].append(
+                edits.SetNodeTags(d.id, dict(node.tags), {**node.tags, 'ele': d.upstream}))
+        if not by_square:
+            return
+        steps = [(square, cmds[0] if len(cmds) == 1 else
+                  edits.Compound(cmds, name=f"the main map's heights in {name}"))
+                 for name, (square, cmds) in sorted(by_square.items(), key=lambda kv: str(kv[0]))]
+        self.editor.do_across(steps)
+        n = sum(len(c) for _, c in by_square.values())
+        self.statusBar().showMessage(f"took the main map's height for {n} spot height"
+                                     f"{'s' * (n != 1)} - Ctrl+Z puts the square's back")
+
     def _choose_gone(self, g):
         """A row of the report chosen: select the feature as the map would,
         and bring it into view. What follows is the editor's own - Shift+Delete
@@ -856,6 +884,14 @@ class MainWindow(QMainWindow):
         feature = holder.get(g.id)
         if feature is None:
             self.statusBar().showMessage(f'{g.describe()}: deleted here since the import')
+            return
+        if isinstance(g, peaks.Differs):
+            self.editor.set_tool('select')
+            self.editor.selection = Selection(square, None, g.id)
+            self.editor.overlay.update()
+            self._show_place(feature.lon, feature.lat, feature.lon, feature.lat)
+            self.statusBar().showMessage(f"{g.describe()} - the button takes the main map's, "
+                                         "doing nothing keeps the square's")
             return
         if g.kind == 'node':
             # a spot height (G9): selected as a click on it would, and Delete takes it

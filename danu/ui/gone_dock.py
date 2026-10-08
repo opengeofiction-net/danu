@@ -21,6 +21,10 @@ A row whose feature has since been deleted stays, struck through: the report
 is of what the import found, and a list that rearranged itself under the
 mapper's hand while they worked down it would lose their place.
 
+Below those, the spot heights whose height the main map now gives otherwise
+(G9): the square's is kept, and the mapper decides - one button takes the
+main map's for the row chosen, the other for every row, either one step.
+
 Below them, the lakes flattened here whose outline the import changed (G7a-bis):
 their fill lines and clipped contours were laid against the old shore, and F
 flattens them again. Not gone - still upstream, and still held - but the same
@@ -30,16 +34,28 @@ kind of thing a mapper has to look at after an import, so the same list.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QDockWidget, QLabel, QStackedWidget, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from ..core.square import Way
+from ..core.square import Way, parse_ele
 from ..water.gone import Gone
+from ..water.peaks import Differs
 
 _GONE = Qt.ItemDataRole.UserRole
 
 
 class GoneDock(QDockWidget):
     chosen = Signal(object)            # the Gone a row stands for
+    takeHeights = Signal(object)       # the Differs to take the main map's height for
 
     def __init__(self, parent=None):
         super().__init__('Gone from upstream', parent)
@@ -51,12 +67,29 @@ class GoneDock(QDockWidget):
         self.empty = QLabel()
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
+        self.take_btn = QPushButton("Take the main map's height")
+        self.take_btn.setToolTip("the row chosen: the square's height replaced by the main map's")
+        self.take_all_btn = QPushButton()
+        self.take_all_btn.setToolTip("every row listed: the squares' heights replaced by the main map's")
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.take_btn)
+        buttons.addWidget(self.take_all_btn)
+        self.listed = QWidget()
+        box = QVBoxLayout(self.listed)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self.tree)
+        box.addLayout(buttons)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.empty)
-        self.stack.addWidget(self.tree)
+        self.stack.addWidget(self.listed)
         self.setWidget(self.stack)
         self.report: list[Gone] = []
         self.reshaped: list = []
+        self.differs: list[Differs] = []
+        self._taken: set = set()
+        self.take_btn.clicked.connect(lambda: self.takeHeights.emit([self.current_differs()]))
+        self.take_all_btn.clicked.connect(
+            lambda: self.takeHeights.emit([d for d in self.differs if (d.square, d.id) not in self._taken]))
         self._items: dict[tuple, QTreeWidgetItem] = {}
         # a click and a keyboard move both choose, so the list can be walked
         # with the arrow keys as well as the mouse
@@ -65,7 +98,7 @@ class GoneDock(QDockWidget):
     NOTHING_GONE = 'Nothing: the last import found everything held\nstill upstream.'
     NOT_IMPORTED = 'No import yet for this working set.'
 
-    def show_report(self, report: list[Gone], imported: bool = True, reshaped=()) -> None:
+    def show_report(self, report: list[Gone], imported: bool = True, reshaped=(), differs=()) -> None:
         """The last import's report, replacing whatever was listed.
 
         ``imported`` False is a set opened and not yet imported into. An
@@ -74,6 +107,8 @@ class GoneDock(QDockWidget):
         claim about an answer that was never asked for."""
         self.report = list(report)
         self.reshaped = list(reshaped)
+        self.differs = list(differs)
+        self._taken = set()
         self.empty.setText(self.NOTHING_GONE if imported else self.NOT_IMPORTED)
         self.tree.blockSignals(True)
         self.tree.clear()
@@ -87,6 +122,17 @@ class GoneDock(QDockWidget):
                 continue
             under = self._items.get((g.square, 'relation', g.of)) if (g.square, g.of) in lakes else None
             self._items[(g.square, g.kind, g.id)] = self._item(g, under)
+        if self.differs:
+            head = QTreeWidgetItem([f'Height differs from the main map ({len(self.differs)})'])
+            head.setFlags(head.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.tree.addTopLevelItem(head)
+            for d in self.differs:
+                item = QTreeWidgetItem([d.describe()])
+                item.setData(0, _GONE, d)
+                item.setToolTip(0, "the square's height is kept - the main map fixed since, or\n"
+                                   "set here; the button takes the main map's")
+                head.addChild(item)
+                self._items[(d.square, 'node', d.id, 'differs')] = item
         if self.reshaped:
             head = QTreeWidgetItem([f'Flattened, and reshaped upstream since ({len(self.reshaped)})'])
             head.setFlags(head.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -100,7 +146,22 @@ class GoneDock(QDockWidget):
                 self._items[(r.square, r.kind, r.id, 'reshaped')] = item
         self.tree.expandAll()
         self.tree.blockSignals(False)
-        self.stack.setCurrentWidget(self.tree if self.report or self.reshaped else self.empty)
+        self._buttons()
+        self.stack.setCurrentWidget(self.listed if self.report or self.reshaped or self.differs
+                                    else self.empty)
+
+    def current_differs(self) -> Differs | None:
+        item = self.tree.currentItem()
+        d = item.data(0, _GONE) if item is not None else None
+        return d if isinstance(d, Differs) and (d.square, d.id) not in self._taken else None
+
+    def _buttons(self) -> None:
+        left = sum((d.square, d.id) not in self._taken for d in self.differs)
+        self.take_btn.setVisible(bool(self.differs))
+        self.take_all_btn.setVisible(bool(self.differs))
+        self.take_btn.setEnabled(self.current_differs() is not None)
+        self.take_all_btn.setText(f"Take the main map's for all {left}")
+        self.take_all_btn.setEnabled(left > 0)
 
     def _item(self, g: Gone, under: QTreeWidgetItem | None = None) -> QTreeWidgetItem:
         item = QTreeWidgetItem([g.describe()])
@@ -131,6 +192,28 @@ class GoneDock(QDockWidget):
                             'not in the last answer: deleted upstream, or no longer\n'
                             'tagged as the water the import asks for. Kept here.')
             open_ += held
+        # a height differing is settled once the square's is the main map's -
+        # taken with the button, or set by hand - or the spot height is gone;
+        # and unsettled again by the undo that puts it back
+        self._taken = set()
+        for d in self.differs:
+            item = self._items.get((d.square, 'node', d.id, 'differs'))
+            square = working_set.squares.get(d.square) if working_set else None
+            node = square.nodes.get(d.id) if square is not None else None
+            here = parse_ele(node.tags.get('ele')) if node is not None else None
+            took = here is not None and abs(here - parse_ele(d.upstream)) < 1e-6
+            if node is None or took:
+                self._taken.add((d.square, d.id))
+            if item is None:
+                continue
+            font = item.font(0)
+            font.setStrikeOut(node is None or took)
+            item.setFont(0, font)
+            item.setToolTip(0, 'deleted here since the import' if node is None else
+                            "the main map's height, now" if took else
+                            "the square's height is kept - the main map fixed since, or\n"
+                            "set here; the button takes the main map's")
+        self._buttons()
         for r in self.reshaped:
             item = self._items.get((r.square, r.kind, r.id, 'reshaped'))
             square = working_set.squares.get(r.square) if working_set else None
@@ -156,5 +239,6 @@ class GoneDock(QDockWidget):
             item.setToolTip(0, 'flattened again since the import')
 
     def _current(self, item, _previous):
+        self._buttons()
         if item is not None and item.data(0, _GONE) is not None:
             self.chosen.emit(item.data(0, _GONE))
