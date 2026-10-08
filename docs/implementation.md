@@ -1407,7 +1407,23 @@ throughout, which is what the fifty milliseconds was for.
 mapper wants next - split, merge, join - are phase 5 and 6 work that using the
 editor surfaced early.
 
-## What phase 5 has done so far
+## What phase 5 actually did
+
+Ended on 2026-10-08, in forty-three pull requests, #79 to #121, over the nine
+days from 30 September, on the three measurements it set itself - all met, see
+*Phase 5* in `spec.md` and *The three measurements* at the end of this
+section. 454 tests that need no Qt, 492 on the canvas, 72 golden.
+
+It set out as the anchors that are not contours - water and spot heights -
+and grew a second half: the checks panel, brought forward from phase 6 as G8a
+because a river crossing a rogue contour reads as a climb a burn would bend
+real contours to fit, then G8b to G8e and R38 as using it on gobras found the
+next thing. The burn went through three designs in two days (G7b), each
+because the mapper ran the last one at the Bosco River. And the end of the
+phase was the editor being used: the envelope taken from the contours alone,
+saves and the checks off the UI thread, dirty by step, the spot-height import
+only where the contours are and listing heights the main map changed, and a
+way across to JOSM.
 
 **G1, spot heights are constraints.** R36 says a node carrying `ele` is a
 constraint the same as a contour way. Nothing had ever read one, and the reason
@@ -3592,3 +3608,68 @@ selection not sent, the button not wired - and a JOSM that takes the request
 and never answers kept quiet, which the first version did: the transfer
 timeout cancels a reply, and so does a newer request replacing it, and only
 the second is to say nothing. The replaced are recorded as they are aborted.
+
+## The three measurements
+
+Taken on a copy of the gobras 3x3 as the mapper left it on 8 October: the
+contours tidied by hand with the checks panel, and the main map's 204 spot
+heights within the contours imported. Over it, through the editor in a script:
+the main map's water imported live, 4,920 features; Shift+B on every river; and
+G then F on every lake. Each stage written as a zone and built by
+`server/bin/danu-build-zone` off the server, with its paths pointed at the copy
+- which ran to the 3 arcsecond derivative and the rasters and stopped at the
+contour extract, wanting the system's `python3-pyosmium`; everything measured
+comes before it.
+
+**The lakes.** 2,137 lakes, 228 levelled and flattened. The 1,909 refused are
+almost all ponds no graded river reaches and no contour crosses - nothing to
+grade from. Cells within half a metre of the lake's level:
+
+| | lakes | cells | at the level | wholly |
+|---|---|---|---|---|
+| burned, not flattened - server 1" | 215 | 74,317 | 28.0% | 53 |
+| flattened - server 1" | 215 | 74,317 | **99.15%** | 200 |
+| flattened - editor 3" | 180 | 8,260 | 99.33% | 172 |
+| flattened - server's 3" `.hgt` | 180 | 8,260 | 97.13% | 132 |
+
+The worst at 1" are lakes at sea level - Gazzag Lake, Pax Nova Lake, Firebird
+Water - at 0 to 1 m: the land clamp lifts enclosed water at 0 to 1 m when the
+zone has no water file, which no zone has, and says so in its own notes. The
+`.hgt`'s misses are lakes of a cell or two, averaged with their shore on the
+way to 3". The editor at 1" is the server's code on the same squares, held to
+it by the golden test; at its default 3" it builds natively and reads flatter
+than the `.hgt`, which is the 1" averaged.
+
+**The burns.** Shift+B on every chain the grade found a climb on burned 86
+climbs on 28 chains, in 609 s; by the grade, 130 climbs and 3,058 m to 44 and
+978 m. On the surface - the server's 1" DEM sampled every 15 m along each way
+in its own direction, ascent counted past a metre of hysteresis - the 28
+chains, 259 km of river, climb 5,046 m before and 3,120 m after: 38% less. Less
+on 26, the same on one, and Suunardi Creek 6 m more. Bass River 736 m to 452,
+Suunardi Creek South 315 to 55, the Bosco River's two chains 256 to 79 and 609
+to 446. The surface keeps more than the grade does because it climbs on the
+spans no burn was run on - a river drawn over ground its contours do not hold
+in a valley - and on the 44 climbs refused.
+
+On the hillshade, at the three places the burn moved most ground - 150 to
+225 m at the deepest cell: a stream that ran over broken hills runs in a
+channel through them; a river that crossed a ridge runs in a V-shaped gorge cut
+through it, its tip left a hill of its own; and one runs in a notch through a
+hill's flank. Each reads as a valley, and its walls are straighter than the
+ground round them - the setback rim, one contour a setback. The rest of each
+picture is the same ground.
+
+**The spot heights.** Of the 204, 38 are a summit the measurement can judge
+cleanly: above the level of the innermost ring round it, alone in that ring,
+the ring holding no other contour, and not on R38's list. On the server's 1"
+DEM:
+
+| | the top | cells at the top |
+|---|---|---|
+| the rings alone | the ring's level, median 325 m | median 36, up to 110 |
+| with the spot heights | the spot height's value, to 0.05 m, at all 38 | 1 for 89%, 8 at most |
+
+The eight-cell tops are spot heights a metre above their ring, where the
+whole small ring is within a metre of the top. Colonie Hill, set to 286 m on
+the main map, stands in a 250 m ring holding ground to 450 m - open contours
+inside a closed one - and is not among the 38.

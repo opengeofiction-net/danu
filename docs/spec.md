@@ -944,17 +944,36 @@ by their own action; one with none, or an unreadable one, is skipped and
 counted, and one the set holds that upstream no longer answers is reported and
 kept.
 
-Ends on three measurements. A flattened lake has one elevation, in the editor's
-surface and the server's alike. The climbing ascent left on the spans a burn
-was run on, against before it, judged on the hillshade as well as by the
-number. And a hill with a spot height on it comes out pointed, with the spot
-height's own value at the summit.
+It ends on three measurements, taken on the gobras 3x3 as the mapper left
+it - the contours tidied, the main map's spot heights imported - with the main
+map's water imported over it, every river burned and every lake a grade could
+level flattened, and built by the server's own `danu-build-zone`:
+
+- **a flattened lake has one elevation, in the editor's surface and the
+  server's alike.** 228 lakes flattened; on the server's 1 arcsecond DEM
+  99.15% of their 74,317 cells lie within half a metre of their level, against
+  28% before, and 200 of the 215 with a cell are wholly at it; the editor's 3
+  arcsecond surface 99.33%. **Met** - the misses are sea-level lakes the land
+  clamp lifts to 1 m, which it does to any enclosed water at 0 without a water
+  file, and shore cells of lakes a few cells across.
+- **the climbing ascent left on the spans a burn was run on, against before
+  it.** Along the 28 rivers burned, 259 km, the server's DEM climbs 3,120 m
+  where it climbed 5,046 - 38% less, less on 26 of them; by the grade, 130
+  climbs and 3,058 m to 44 and 978 m. On the hillshade a burned crossing
+  reads as a valley cut through the spur, its walls straighter than the ground
+  round them. **Met**, as a reduction: what is left is the climbs the burn
+  refused, and ground no burn reached.
+- **a hill with a spot height on it comes out pointed, at the spot height's
+  value.** Of the 38 summits that are one spot height above its ring and
+  alone in it, the DEM is the spot height's value at every one, and the top is
+  one cell for 89% of them and eight at most; the same rings without them top
+  out flat, a median of 36 cells. **Met.**
 
 The profile tool was named here and is phase 6's, with measure and difference:
 it is how you read a surface, not how you anchor one.
 
-The notes on what this phase has done so far are in `implementation.md`, under
-*What phase 5 has done so far*.
+The notes on what this phase actually did are in `implementation.md`, under
+*What phase 5 actually did*.
 
 ### Phase 6
 
