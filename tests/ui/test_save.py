@@ -1,4 +1,4 @@
-"""Save, save as, a new blank square, the close prompt, and the advice line."""
+"""Save, save as, a new blank square, and the close prompt."""
 
 import pytest
 
@@ -92,14 +92,3 @@ def test_closing_dirty_asks_and_cancel_keeps_the_window(window, monkeypatch):
     assert not w.close() and w.isVisible()                     # cancelled
     assert w.close()                                           # saved, then closed
     assert not w.editor.dirty()
-
-
-def test_the_advice_line_names_off_ladder_values_after_an_edit(window):
-    w = window
-    ten = w.working_set.squares[TEN]
-    cursor_to(w, 126.5, -23.5)
-    assert w.elevation_panel.advice.text() == ''
-    draw_into(w, ten, 23, 126.2, -23.45)                       # a 23 among 10, 20, 30, 40, 50
-    assert '23 m used once between 20 and 30' in w.elevation_panel.advice.text()
-    w.editor.undo()
-    assert w.elevation_panel.advice.text() == ''

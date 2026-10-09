@@ -12,20 +12,15 @@ ids, plain decimals - and the square is clean.
 The frame and the split go through the history as commands, so what a save
 did to the drawing is visible to undo like any other edit, and the file and
 the model do not quietly differ.
-
-Off-ladder advice - a value off the regular ladder and used once or twice -
-is read at the same moment and handed back for the status line. Advice, not
-error: the file is saved either way.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import edits
-from . import ladder as L
 from .square import Square, SquareName, square_text, write_square, write_text
 
 FRAME_NOTE = 'square frame - do not edit'
@@ -83,7 +78,6 @@ class SaveReport:
     path: Path
     framed: bool = False               # a frame was added: the square was drawn from nothing
     split: int = 0                     # ways split for the 2,000 node rule
-    advice: list[L.OffLadder] = field(default_factory=list)
 
     def describe(self) -> str:
         parts = [f'saved {self.path.name}']
@@ -91,9 +85,6 @@ class SaveReport:
             parts.append('with a frame')
         if self.split:
             parts.append(f'{self.split} long way(s) split')
-        if self.advice:
-            parts.append('advice: ' + '; '.join(a.describe() for a in self.advice[:3])
-                         + (f' and {len(self.advice) - 3} more' if len(self.advice) > 3 else ''))
         return ', '.join(parts)
 
 
@@ -160,8 +151,7 @@ class Pending:
     report: SaveReport
 
 
-def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
-            ladder: L.Ladder | None = None) -> Pending:
+def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None) -> Pending:
     """The half of a save that reads the square: frame if new, split if
     needed, the text taken. ``path`` defaults to the square's own file; a
     square that has none must be given one."""
@@ -180,9 +170,6 @@ def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike
         history.do(square, split)
         report.split = len(split.commands)
     text = square_text(square)
-    lad = ladder if ladder is not None else L.infer(square)
-    if lad is not None:
-        report.advice = L.off_ladder(square, lad)
     return Pending(square, path, text, history.state(square), report)
 
 
@@ -200,11 +187,10 @@ def finish(pending: Pending, history: edits.SetUndoStack) -> SaveReport:
     return pending.report
 
 
-def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None,
-                ladder: L.Ladder | None = None) -> SaveReport:
+def save_square(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None) -> SaveReport:
     """Frame if new, split if needed, write, mark clean - the three halves
     in a row. ``path`` defaults to the square's own file; a square that has
     none must be given one."""
-    pending = prepare(square, history, path, ladder)
+    pending = prepare(square, history, path)
     write(pending)
     return finish(pending, history)

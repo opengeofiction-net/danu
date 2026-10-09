@@ -3694,6 +3694,11 @@ validation table that need no surface:
   after phase 5, 26: 113 and 135 in N20E086, the spec's own example, and the
   low ground's 9, 13, 35, 55, 90 and 91 m.
 
+The advice line under the elevation panel went once the rows were in: the
+same values, twice over, and the line could only show six. So did the save
+report's note on the status line, and with it the ladder a save was handed and
+the `infer` it ran on every square saved.
+
 All three are asked of a whole square again on any edit to it: 12 ms for
 N20E086's 260,000 nodes and 7,000 ways, 0.04 s for the 3x3, so nothing
 cleverer. A row selects its way or node and brings it into view.
