@@ -436,7 +436,10 @@ def slope_degrees(dem: np.ndarray, gt: tuple, row0: int = 0) -> np.ndarray:
     """The ground's slope at each cell of a Mercator grid, in degrees. A
     Mercator cell is ``gt[1]`` metres across on the map and that times
     cos(latitude) on the ground, row by row - the gradient is taken against
-    the ground. ``row0`` is the first row's place in the grid, for a strip."""
+    the ground. ``row0`` is the first row's place in the grid, for a strip.
+    Square cells, as every grid this module warps is: the gradient is per
+    cell and ``gt[1]`` stands for both sides of one.
+    shell: none; a view of the editor's own - the server publishes no slope"""
     rows = dem.shape[0]
     y = gt[3] + (np.arange(rows) + row0 + 0.5) * gt[5]
     lat = np.degrees(np.arctan(np.sinh(y / R)))

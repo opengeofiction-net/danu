@@ -22,6 +22,7 @@ from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
+from ..surface import shade
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config, josm
@@ -147,6 +148,8 @@ class MainWindow(QMainWindow):
         self.envelope = EnvelopeItem()
         self.map.scene().addItem(self.envelope)
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
+        # slope or elevation: the reading under a still cursor follows the mode
+        self.surface_panel.styleChanged.connect(self._cursor_reading_again)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.surface_panel)
         # R40's report, as a tab beside the surface panel: hidden until an
         # import has something in it, and then raised - see _water_imported
@@ -313,8 +316,42 @@ class MainWindow(QMainWindow):
         self._refresh_status()
 
     def _refresh_status(self):
+        """The active elevation, what the surface reads under the cursor,
+        where, and the zoom."""
         lon, lat = self._last_cursor
-        self._status.setText(f'{self.elevation.model.tag:>5} m   {lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
+        reading = self._surface_reading(lon, lat)
+        self._status.setText(f'{self.elevation.model.tag:>5} m   {reading}{lat:9.5f}  {lon:10.5f}   z{self.map.zoom}')
+
+    def _surface_reading(self, lon: float, lat: float) -> str:
+        """The surface on screen under a point: its elevation, or its slope
+        when that is what is shown - from the arrays the layer draws, so a
+        preview's patch reads as it looks. Nothing off the surface or with
+        none built."""
+        shaded = self.surface.shaded
+        if shaded is None:
+            return ''
+        x, y = m.lonlat_to_scene(lon, lat)
+        left, top, right, bottom = shaded.scene_rect
+        rows, cols = shaded.dem.shape
+        c = int((x - left) / (right - left) * cols)
+        r = int((y - top) / (bottom - top) * rows)
+        if not (0 <= r < rows and 0 <= c < cols):
+            return ''
+        z = float(shaded.dem[r, c])
+        if z <= 0:
+            return 'sea   '
+        if self.surface.style.mode == 'slope':
+            a, b = max(r - 1, 0), min(r + 2, rows)
+            c0, c1 = max(c - 1, 0), min(c + 2, cols)
+            deg = shade.slope_degrees(shaded.dem[a:b, c0:c1],
+                                      (0.0, shaded.geotransform[1], 0.0, shaded.geotransform[3], 0.0,
+                                       shaded.geotransform[5]), a)
+            return f'slope {float(deg[r - a, c - c0]):.1f}°   '
+        return f'ground {z:,.0f} m   '
+
+    def _cursor_reading_again(self, *_):
+        """The surface or its style changed under a still cursor."""
+        self._refresh_status()
 
     def _edited(self):
         h = self.editor.history
@@ -917,7 +954,9 @@ class MainWindow(QMainWindow):
 
     def _view_settled(self) -> None:
         """The surface's rows and columns on screen, to the panel - which
-        recolours only if the scaling reads them."""
+        recolours only if the scaling reads them. ``scene_rect`` is worked out
+        from the DEM's own shape and geotransform, so mapping it onto the
+        grid's rows and columns is exact."""
         shaded = self.surface.shaded
         if shaded is None:
             return
@@ -1334,6 +1373,7 @@ class MainWindow(QMainWindow):
         # took is not something a single attribute here can hold
         self.surface.set_shaded(built.shaded)
         self._view_settle.start()                # a new grid: the window in view asked again
+        self._refresh_status()                   # and the reading under the cursor is of it
         self.legend.refresh()
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)

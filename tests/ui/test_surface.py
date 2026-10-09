@@ -1124,3 +1124,25 @@ def test_the_window_hands_the_panel_what_is_on_screen_once_the_map_is_at_rest(wi
     w.map.set_zoom(5)
     w._view_settled()
     assert w.surface_panel.view_window == (0, 200, 0, 200), 'zoomed out, all of it is in view'
+
+
+def test_the_status_line_reads_the_ground_or_its_slope_under_the_cursor(window):
+    """Bottom right: the active elevation, then what the surface reads
+    under the cursor - its height, or its slope when slope is shown."""
+    w = window
+    s = synthetic(x0_m=13_900_000.0, y1_m=-2_600_000.0, rows=200, cols=200)    # 1 to 400 m west to east
+    w.surface.set_shaded(s)
+    left, top, right, bottom = s.scene_rect
+    x = left + (right - left) * (150.5 / 200)                               # column 150
+    y = top + (bottom - top) * (20.5 / 200)
+    lon, lat = m.scene_to_lonlat(x, y)
+    w._cursor(lon, lat)
+    want = float(s.dem[20, 150])
+    assert f'ground {want:,.0f} m' in w._status.text()
+    w.surface_panel.mode.setCurrentText('slope')
+    assert 'slope 0.' in w._status.text(), 'a gentle ramp, under a degree, not shown as slope'
+    lon, lat = m.scene_to_lonlat(x, top + (bottom - top) * (196.5 / 200))       # the sea in the south
+    w._cursor(lon, lat)
+    assert 'sea' in w._status.text()
+    w._cursor(lon + 50, lat)                                                    # off the surface
+    assert 'ground' not in w._status.text() and 'slope' not in w._status.text()

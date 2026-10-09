@@ -3848,7 +3848,16 @@ decided, `Scaling.range_for`, so the compose, the legend and a preview's
 rectangles agree. The legend's ends go to the metre - they read 1061.819 m
 and 0.012 m - or a tenth where the span is under ten.
 
-Eight mutations, each failing a test: slope on the map rather than the ground,
-no halo, the view window ignored, the sea coloured, the legend not spanning
-the view, the panel dropping the window, slope pinchable, and the window not
-told.
+**The reading under the cursor**, asked for while this was under way: the
+status line's bottom right had the active elevation - what a contour drawn
+next would be - and where, and nothing of the ground. It now says what the
+surface on screen reads there, from the arrays the layer draws so that a
+preview's patch reads as it looks: "ground 100 m", or "slope 11.1°" while
+slope is shown, "sea" at sea level, nothing off the surface. Over the gobras
+hill at 3 arcseconds, 11.1 degrees on its flank and 1.1 in the lowland.
+
+Twelve mutations, each failing a test: slope on the map rather than the
+ground, no halo, the view window ignored, the sea coloured, the legend not
+spanning the view, the panel dropping the window, slope pinchable, the window
+not told; and for the reading, slope never read, rows and columns swapped, the
+mode not followed, and the sea read as ground.
