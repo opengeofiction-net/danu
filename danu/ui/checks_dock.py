@@ -49,6 +49,9 @@ class ChecksDock(QDockWidget):
     touchChosen = Signal(object)
     # a spot height the rings round it contradict, chosen (R38)
     spotChosen = Signal(object)
+    # what a square's file says - a long way, an ele not a number, a value
+    # off the ladder (H1a)
+    findingChosen = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__('Checks', parent)
@@ -88,6 +91,13 @@ class ChecksDock(QDockWidget):
         self.spots_tree.setColumnCount(1)
         box.addWidget(self.spots_summary)
         box.addWidget(self.spots_tree, 1)
+        self.files_summary = QLabel()
+        self.files_summary.setWordWrap(True)
+        self.files_tree = QTreeWidget()
+        self.files_tree.setHeaderHidden(True)
+        self.files_tree.setColumnCount(1)
+        box.addWidget(self.files_summary)
+        box.addWidget(self.files_tree, 1)
         self.josm_btn = QPushButton('Show in JOSM')
         self.josm_btn.setToolTip('the row chosen, shown in JOSM by its remote control, what it\n'
                                  'is about selected if it came from the main map - J')
@@ -100,13 +110,16 @@ class ChecksDock(QDockWidget):
         self.touches_tree.currentItemChanged.connect(self._current_touch)
         self.spots_tree.currentItemChanged.connect(
             lambda item, _prev: item is not None and self.spotChosen.emit(item.data(0, _ROW)))
+        self.files_tree.currentItemChanged.connect(
+            lambda item, _prev: item is not None and item.data(0, _ROW) is not None
+            and self.findingChosen.emit(item.data(0, _ROW)))
 
     def finding(self) -> None:
         """The first scan out, on a worker: said in place of the lists."""
         self.summary.setText('Finding the checks over this working set…')
-        for label in (self.loops_summary, self.touches_summary, self.spots_summary):
+        for label in (self.loops_summary, self.touches_summary, self.spots_summary, self.files_summary):
             label.setText('')
-        for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree):
+        for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree, self.files_tree):
             tree.clear()
         self.tree.setVisible(False)
 
@@ -248,3 +261,43 @@ class ChecksDock(QDockWidget):
             self.spots_tree.setCurrentItem(keep)
         self.spots_tree.blockSignals(False)
         self.spots_tree.setVisible(bool(found))
+
+    FILE_HEADS = {'long': 'Ways too long for the API or GDAL (R30) - save splits them',
+                  'ele': 'An ele that is not a number (R31) - the build drops it',
+                  'ladder': 'Off the ladder, used once or twice - a mistyped value?'}
+
+    def show_files(self, found: list) -> None:
+        """What the squares' files say (H1a): a heading a kind, a row a way
+        or node under it; the row that was current stays so where it is
+        still listed."""
+        item = self.files_tree.currentItem()
+        was = item.data(0, _ROW) if item is not None else None
+        counts = {k: sum(f.kind == k for f in found) for k in self.FILE_HEADS}
+        words = {'long': 'too long', 'ele': 'with an ele not a number', 'ladder': 'off the ladder'}
+        self.files_summary.setText(
+            'Nothing in the files: no way too long, every ele a number, no value off the ladder '
+            'used once or twice.' if not found else
+            'In the files: ' + ', '.join(f'{n:,} {words[k]}' for k, n in counts.items() if n)
+            + ' - choose one to see it.')
+        self.files_tree.blockSignals(True)
+        self.files_tree.clear()
+        keep = None
+        for kind, head in self.FILE_HEADS.items():
+            rows = [f for f in found if f.kind == kind]
+            if not rows:
+                continue
+            top = QTreeWidgetItem([f'{head} ({len(rows):,})'])
+            top.setFlags(top.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.files_tree.addTopLevelItem(top)
+            for f in rows:
+                row = QTreeWidgetItem([f'{f.describe()} in {f.square}'])
+                row.setData(0, _ROW, f)
+                row.setToolTip(0, f.explain())
+                top.addChild(row)
+                if was is not None and f == was:
+                    keep = row
+        self.files_tree.expandAll()
+        if keep is not None:
+            self.files_tree.setCurrentItem(keep)
+        self.files_tree.blockSignals(False)
+        self.files_tree.setVisible(bool(found))
