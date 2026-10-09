@@ -123,7 +123,7 @@ def test_a_scan_a_dict_changed_under_is_started_again(window, monkeypatch):
 def test_a_scan_that_fails_says_so_in_the_panel(window, monkeypatch):
     from danu.ui import app
 
-    def broken(ws):
+    def broken(ws, **_):
         raise ValueError('a square with no name')
     monkeypatch.setattr(app, 'find_checks', broken)
     window.checks_dock.toggleViewAction().trigger()

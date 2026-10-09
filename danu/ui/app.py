@@ -18,7 +18,7 @@ from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
-from ..checks import crossings, files, loops, spots, touches
+from ..checks import crossings, files, inside, loops, spots, touches
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten, peaks
@@ -79,7 +79,7 @@ def user_cache_dir() -> Path:
         QStandardPaths.StandardLocation.CacheLocation))
 
 
-def find_checks(ws, tries: int = 5):
+def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2):
     """The checks' indexes over a working set - on a worker, while the
     set goes on being edited on the UI thread. An edit that changes a dict
     under the scan stops it, and it starts again; one that changes a way it
@@ -88,7 +88,7 @@ def find_checks(ws, tries: int = 5):
     for attempt in range(tries):
         try:
             return (crossings.Index(ws), loops.Index(ws), touches.Index(ws), spots.Index(ws),
-                    files.Index(ws))
+                    files.Index(ws), inside.Index(ws, bare_min))
         except RuntimeError:                   # changed size during iteration
             if attempt == tries - 1:
                 raise
@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
         self.touch_index = None                 # touching or lying on one another (G8e)
         self.spot_index = None                  # spot heights the rings contradict (R38)
         self.file_index = None                  # what the files say: long ways, ele, the ladder (H1a)
+        self.inside_index = None                # what lies inside the rings: lakes, bare rings (H1b)
         # the first scan over a set runs on a worker - 9.3 s on gobras - and
         # the edits made while it runs are put to it when it lands
         self._checks_runner = QThreadPool.globalInstance().start
@@ -656,6 +657,7 @@ class MainWindow(QMainWindow):
         self.touch_index = None
         self.spot_index = None
         self.file_index = None
+        self.inside_index = None
         if self.checks_dock.isVisible():
             self._checks_shown(True)
         self.squares.set_working_set(ws)
@@ -984,7 +986,7 @@ class MainWindow(QMainWindow):
                     self._checks_shown(self.checks_dock.isVisible())   # a set opened meanwhile
                     return
                 (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
-                 self.file_index) = indexes
+                 self.file_index, self.inside_index) = indexes
                 missed, self._checks_missed = self._checks_missed, []
                 for square, ways, spot_ids in missed:
                     self._checks_edited(square, ways, spot_ids)
@@ -997,7 +999,9 @@ class MainWindow(QMainWindow):
                 self.checks_dock.summary.setText(f'The checks could not be found: {first}. '
                                                  'Close the panel and open it again to try again.')
 
-            job = Job(lambda: find_checks(ws), done, failed)
+            self.checks_dock.bare_min_ha = self.settings.bare_min_hectares
+            bare_min = self.checks_dock.bare_min_ha * 1e4
+            job = Job(lambda: find_checks(ws, bare_min=bare_min), done, failed)
             self._checks_job = job
             self._checks_runner(job)
             return
@@ -1012,6 +1016,10 @@ class MainWindow(QMainWindow):
             return
         if self.file_index is not None and (ways or spot_ids):
             self.file_index.update(square)               # the square asked again, 12 ms at most
+            self._checks_due.start()
+        if self.inside_index is not None and (ways or spot_ids):
+            # the rings and lakes round what moved, 23 ms at the most measured
+            self.inside_index.update(square, ways or (), spot_ids or ())
             self._checks_due.start()
         if self.spot_index is not None and (ways or spot_ids):
             # a spot height moved or re-levelled, or a ring round one changed
@@ -1032,6 +1040,7 @@ class MainWindow(QMainWindow):
         self.checks_dock.show_touches(self.touch_index.touches() if self.touch_index is not None else [])
         self.checks_dock.show_spots(self.spot_index.contradictions() if self.spot_index is not None else [])
         self.checks_dock.show_files(self.file_index.findings() if self.file_index is not None else [])
+        self.checks_dock.show_inside(self.inside_index.findings() if self.inside_index is not None else [])
         self._refresh_marks()
 
     def _refresh_marks(self) -> None:
@@ -1048,6 +1057,10 @@ class MainWindow(QMainWindow):
                                 for c in (self.spot_index.contradictions() if self.spot_index is not None else [])]
                              + [m.lonlat_to_scene(f.lon, f.lat)
                                 for f in (self.file_index.findings() if self.file_index is not None else [])]
+                             # the lakes, and not the report: 3,882 rings over gobras would be
+                             # crosses over every hill
+                             + [m.lonlat_to_scene(f.lon, f.lat)
+                                for f in (self.inside_index.findings('lake') if self.inside_index is not None else [])]
                              if on else [])
         if not on:
             self.editor.marks_focus = []
@@ -1130,13 +1143,15 @@ class MainWindow(QMainWindow):
         ws = self.working_set
         square = ws.squares.get(f.square) if ws is not None else None
         held = square is not None and (f.way in square.ways if f.way is not None
+                                       else f.relation in square.relations if f.relation is not None
                                        else f.node in square.nodes)
         if not held:
             self.statusBar().showMessage(f'{f.describe()}: no longer in {f.square}')
             return
         self.editor.set_tool('select')
         self.editor.selection = (Selection(square, square.ways[f.way]) if f.way is not None
-                                 else Selection(square, None, f.node))
+                                 else Selection(square, None, relation=square.relations[f.relation])
+                                 if f.relation is not None else Selection(square, None, f.node))
         self.editor.marks_focus = [m.lonlat_to_scene(f.lon, f.lat)]
         self._show_place(*f.box)
         self.editor.overlay.update()

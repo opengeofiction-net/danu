@@ -132,6 +132,15 @@ class Settings:
         self.q.setValue('user/name', name.strip())
 
     @property
+    def bare_min_hectares(self) -> float:
+        """The smallest closed contour the checks report as holding nothing
+        (R39), in hectares - 10 unless the INI says otherwise."""
+        try:
+            return float(self.q.value('checks/bare_min_hectares', 10))
+        except (TypeError, ValueError):
+            return 10.0
+
+    @property
     def josm_url(self) -> str:
         """JOSM's remote control, which listens on the loopback only."""
         from .josm import DEFAULT_URL

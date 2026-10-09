@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from ..checks.crossings import by_contour
 
 _ROW = Qt.ItemDataRole.UserRole
+_KIND = Qt.ItemDataRole.UserRole + 1          # a heading's kind, to keep it folded or open
 
 
 class ChecksDock(QDockWidget):
@@ -98,6 +99,13 @@ class ChecksDock(QDockWidget):
         self.files_tree.setColumnCount(1)
         box.addWidget(self.files_summary)
         box.addWidget(self.files_tree, 1)
+        self.inside_summary = QLabel()
+        self.inside_summary.setWordWrap(True)
+        self.inside_tree = QTreeWidget()
+        self.inside_tree.setHeaderHidden(True)
+        self.inside_tree.setColumnCount(1)
+        box.addWidget(self.inside_summary)
+        box.addWidget(self.inside_tree, 1)
         self.josm_btn = QPushButton('Show in JOSM')
         self.josm_btn.setToolTip('the row chosen, shown in JOSM by its remote control, what it\n'
                                  'is about selected if it came from the main map - J')
@@ -113,13 +121,18 @@ class ChecksDock(QDockWidget):
         self.files_tree.currentItemChanged.connect(
             lambda item, _prev: item is not None and item.data(0, _ROW) is not None
             and self.findingChosen.emit(item.data(0, _ROW)))
+        self.inside_tree.currentItemChanged.connect(
+            lambda item, _prev: item is not None and item.data(0, _ROW) is not None
+            and self.findingChosen.emit(item.data(0, _ROW)))
 
     def finding(self) -> None:
         """The first scan out, on a worker: said in place of the lists."""
         self.summary.setText('Finding the checks over this working set…')
-        for label in (self.loops_summary, self.touches_summary, self.spots_summary, self.files_summary):
+        for label in (self.loops_summary, self.touches_summary, self.spots_summary, self.files_summary,
+                      self.inside_summary):
             label.setText('')
-        for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree, self.files_tree):
+        for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree, self.files_tree,
+                     self.inside_tree):
             tree.clear()
         self.tree.setVisible(False)
 
@@ -265,30 +278,56 @@ class ChecksDock(QDockWidget):
     FILE_HEADS = {'long': 'Ways too long for the API or GDAL (R30) - save splits them',
                   'ele': 'An ele that is not a number (R31) - the build drops it',
                   'ladder': 'Off the ladder, used once or twice - a mistyped value?'}
+    INSIDE_HEADS = {'lake': 'Water spanning contours (R33) - select it, and F flattens it',
+                    'bare': 'Report: rings of {ha} ha or more with nothing inside (R39) - a spot height would say how high'}
+    bare_min_ha = 10.0                     # the checks' threshold, said in the heading
 
     def show_files(self, found: list) -> None:
-        """What the squares' files say (H1a): a heading a kind, a row a way
-        or node under it; the row that was current stays so where it is
-        still listed."""
-        item = self.files_tree.currentItem()
-        was = item.data(0, _ROW) if item is not None else None
-        counts = {k: sum(f.kind == k for f in found) for k in self.FILE_HEADS}
+        """What the squares' files say (H1a)."""
         words = {'long': 'too long', 'ele': 'with an ele not a number', 'ladder': 'off the ladder'}
-        self.files_summary.setText(
+        self._show_findings(
+            self.files_tree, self.files_summary, found, self.FILE_HEADS,
             'Nothing in the files: no way too long, every ele a number, no value off the ladder '
-            'used once or twice.' if not found else
-            'In the files: ' + ', '.join(f'{n:,} {words[k]}' for k, n in counts.items() if n)
-            + ' - choose one to see it.')
-        self.files_tree.blockSignals(True)
-        self.files_tree.clear()
+            'used once or twice.',
+            lambda counts: 'In the files: ' + ', '.join(f'{n:,} {words[k]}' for k, n in counts.items() if n))
+
+    def show_inside(self, found: list) -> None:
+        """What lies inside the rings (H1b): lakes spanning contours, and the
+        report of rings with nothing inside, its heading folded."""
+        def said(counts):
+            parts = []
+            if counts['lake']:
+                parts.append(f'{counts["lake"]:,} lake{"s" * (counts["lake"] != 1)} spanning contours')
+            if counts['bare']:
+                rings = (f'{counts["bare"]:,} ring{"s" * (counts["bare"] != 1)} of {self.bare_min_ha:g} ha '
+                         'or more with nothing inside')
+                parts.append(f'and, as a report, {rings}' if parts else f'as a report, {rings}')
+            return 'Inside the rings: ' + ' '.join(parts)
+        heads = {k: v.format(ha=f'{self.bare_min_ha:g}') for k, v in self.INSIDE_HEADS.items()}
+        self._show_findings(self.inside_tree, self.inside_summary, found, heads,
+                            'No lake spans a contour, and every ring holds something.', said,
+                            folded=('bare',))
+
+    def _show_findings(self, tree, label, found, heads, empty, said, folded=()) -> None:
+        """Findings under a heading a kind, a row a way, node or relation;
+        the row that was current stays so where it is still listed."""
+        item = tree.currentItem()
+        was = item.data(0, _ROW) if item is not None else None
+        open_ = {tree.topLevelItem(i).data(0, _KIND): tree.topLevelItem(i).isExpanded()
+                 for i in range(tree.topLevelItemCount())}
+        counts = {k: sum(f.kind == k for f in found) for k in heads}
+        label.setText(empty if not found else said(counts) + ' - choose one to see it.')
+        tree.blockSignals(True)
+        tree.clear()
         keep = None
-        for kind, head in self.FILE_HEADS.items():
+        for kind, head in heads.items():
             rows = [f for f in found if f.kind == kind]
             if not rows:
                 continue
             top = QTreeWidgetItem([f'{head} ({len(rows):,})'])
             top.setFlags(top.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.files_tree.addTopLevelItem(top)
+            top.setData(0, _KIND, kind)
+            tree.addTopLevelItem(top)
             for f in rows:
                 row = QTreeWidgetItem([f'{f.describe()} in {f.square}'])
                 row.setData(0, _ROW, f)
@@ -296,8 +335,8 @@ class ChecksDock(QDockWidget):
                 top.addChild(row)
                 if was is not None and f == was:
                     keep = row
-        self.files_tree.expandAll()
+            top.setExpanded(open_.get(kind, kind not in folded))
         if keep is not None:
-            self.files_tree.setCurrentItem(keep)
-        self.files_tree.blockSignals(False)
-        self.files_tree.setVisible(bool(found))
+            tree.setCurrentItem(keep)
+        tree.blockSignals(False)
+        tree.setVisible(bool(found))

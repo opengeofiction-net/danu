@@ -39,6 +39,7 @@ class Finding:
     box: tuple                   # west, south, east, north - what choosing it shows
     way: int | None = None
     node: int | None = None
+    relation: int | None = None
 
     def describe(self) -> str:
         return self.text
