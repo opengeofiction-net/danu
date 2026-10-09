@@ -357,8 +357,7 @@ class MainWindow(QMainWindow):
 
     def _save(self, sq: Square, path: Path) -> None:
         """The square's text taken here, its file written on the writer."""
-        pending = save.prepare(sq, self.editor.history, path, self.elevation.model.ladder
-                               if self.elevation.square is sq else None)
+        pending = save.prepare(sq, self.editor.history, path)
         if pending.report.framed or pending.report.split:
             self.contours.refresh(sq, set(sq.ways))      # a frame or a split changed what is drawn
         job = None

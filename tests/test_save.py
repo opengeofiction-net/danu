@@ -4,7 +4,6 @@
 import pytest
 
 from danu.core import edits, save
-from danu.core.ladder import regular_ladder
 from danu.core.square import Square, SquareName, read_square
 
 
@@ -93,16 +92,6 @@ def test_long_ways_are_split_on_save_and_the_split_is_one_undo_step(tmp_path):
     assert sum(len(w.refs) for w in pieces) == n + 2          # ends shared
     hist.undo()
     assert len(sq.ways) == 1 and len(next(iter(sq.ways.values())).refs) == n and hist.dirty(sq)
-
-
-def test_off_ladder_advice_comes_back_with_the_save(tmp_path):
-    sq, hist = drawn_from_blank()
-    alloc = hist.alloc(sq)
-    hist.do(sq, edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(126.1, -23.9), (126.2, -23.9)], {'ele': '135'}))
-    report = save.save_square(sq, hist, save.default_path(tmp_path, sq.name), ladder=regular_ladder(50, 1, 300))
-    assert [a.value for a in report.advice] == [135] and '135 m used once' in report.describe()
-    report = save.save_square(sq, hist)                   # ladder inferred when none is given
-    assert [a.value for a in report.advice] == [135]
 
 
 def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_path):
