@@ -10,8 +10,8 @@ validation table:
   `ele=1,853 Ft`.
 - **a value off the ladder, used once or twice** - 113 and 135 once each in
   N20E086, between 110/115 and 125/150, which is what a mistyped 125 looks
-  like. The advice line under the elevation panel said it; here it is a row a
-  contour, to choose and fix.
+  like. A row a contour, to choose and fix; the elevation panel's advice line
+  that said it before is gone.
 
 Each is cheap enough to ask of a whole square again on any edit to it: 12 ms
 for N20E086's 260,000 nodes and 7,000 ways. No Qt.

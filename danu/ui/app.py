@@ -239,7 +239,6 @@ class MainWindow(QMainWindow):
         self.editor.editedWays.connect(self._checks_edited)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(lambda: self.gone_dock.mark_deleted(self.working_set))
-        self.editor.edited.connect(self.elevation_panel.refresh_advice)
         self.editor.message.connect(lambda t: self.statusBar().showMessage(t))
         self.editor.toolChanged.connect(self._tool_changed)
         self.editor.placeAsked.connect(self._show_place)
