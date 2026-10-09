@@ -113,6 +113,21 @@ class ChecksDock(QDockWidget):
         self.inside_tree.setColumnCount(1)
         box.addWidget(self.inside_summary)
         box.addWidget(self.inside_tree, 1)
+        self.surface_summary = QLabel()
+        self.surface_summary.setWordWrap(True)
+        # a build that will say the surface's checks is running: no steps to
+        # count from here, so a bar that only says it is busy
+        self.surface_busy = QProgressBar()
+        self.surface_busy.setRange(0, 0)
+        self.surface_busy.setTextVisible(False)
+        self.surface_busy.setMaximumHeight(8)
+        self.surface_busy.setVisible(False)
+        self.surface_tree = QTreeWidget()
+        self.surface_tree.setHeaderHidden(True)
+        self.surface_tree.setColumnCount(1)
+        box.addWidget(self.surface_summary)
+        box.addWidget(self.surface_busy)
+        box.addWidget(self.surface_tree, 1)
         self.josm_btn = QPushButton('Show in JOSM')
         self.josm_btn.setToolTip('the row chosen, shown in JOSM by its remote control, what it\n'
                                  'is about selected if it came from the main map - J')
@@ -126,6 +141,9 @@ class ChecksDock(QDockWidget):
         self.spots_tree.currentItemChanged.connect(
             lambda item, _prev: item is not None and self.spotChosen.emit(item.data(0, _ROW)))
         self.files_tree.currentItemChanged.connect(
+            lambda item, _prev: item is not None and item.data(0, _ROW) is not None
+            and self.findingChosen.emit(item.data(0, _ROW)))
+        self.surface_tree.currentItemChanged.connect(
             lambda item, _prev: item is not None and item.data(0, _ROW) is not None
             and self.findingChosen.emit(item.data(0, _ROW)))
         self.inside_tree.currentItemChanged.connect(
@@ -145,7 +163,7 @@ class ChecksDock(QDockWidget):
                       self.inside_summary):
             label.setText('')
         for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree, self.files_tree,
-                     self.inside_tree):
+                     self.inside_tree, self.surface_tree):
             tree.clear()
             tree.setVisible(False)
         for button in (self.cut_btn, self.josm_btn):
@@ -329,6 +347,37 @@ class ChecksDock(QDockWidget):
         self._show_findings(self.inside_tree, self.inside_summary, found, heads,
                             'No lake spans a contour, and every ring holds something.', said,
                             folded=('bare',))
+
+    SURFACE_HEADS = {'climb': 'Rivers which climb on the surface (R29) - B burns a climb',
+                     'backwards': 'Drawn backwards? They climb where they should fall (R29)',
+                     'sea': 'Sea level off the drawn coastline (R32)',
+                     'unreached': 'Unreached ground (R20), a row a square'}
+
+    def show_surface(self, found, at: str = '', stale: bool = False, pending: bool = False) -> None:
+        """What the last build said (H2), from its grids: None is no build
+        since the panel opened, which is what the line says. ``pending``, a
+        build is running that will say them again: said, with a busy bar."""
+        self.surface_busy.setVisible(pending)
+        if found is None:
+            self.surface_summary.setText(
+                'From the surface: the build now running will say them…' if pending else
+                'From the surface: nothing yet - the checks that need a surface are asked of the next '
+                'build while this panel is open (Ctrl+R builds).')
+            self.surface_tree.clear()
+            self.surface_tree.setVisible(False)
+            return
+        words = {'climb': ('river climbing', 'rivers climbing'),
+                 'backwards': ('drawn backwards, likely', 'drawn backwards, likely'),
+                 'sea': ('stretch of sea level off the shore', 'stretches of sea level off the shore'),
+                 'unreached': ('square with ground unreached', 'squares with ground unreached')}
+        when = (f'From the build at {at}'
+                + (' - the build now running will say again' if pending else
+                   ' - edits since, so the next build will say again' if stale else ''))
+        self._show_findings(
+            self.surface_tree, self.surface_summary, found, self.SURFACE_HEADS,
+            f'{when}: no river climbs, sea level meets the drawn shore, and the first pass reached '
+            'all the drawn ground.',
+            lambda counts: f'{when}: ' + ', '.join(f'{n:,} {words[k][n != 1]}' for k, n in counts.items() if n))
 
     def _show_findings(self, tree, label, found, heads, empty, said, folded=()) -> None:
         """Findings under a heading a kind, a row a way, node or relation;

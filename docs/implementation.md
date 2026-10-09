@@ -3769,3 +3769,53 @@ line says it is finding them and, when they land, how long it took. The
 worker reports a step before each index through `background.Job.report`,
 queued to the UI thread. Four mutations, each failing a test: no report, the
 empty lists shown, the bar left up, and nothing said.
+
+## H2, what the surface says
+
+The checks panel's seventh list: the three rows of the validation table only a
+built surface can answer.
+
+- **rivers which climb** (R29), on the DEM. A waterway sampled along the
+  surface at its resolution, and the smaller of its ascent and descent - the
+  climb it cannot lose whichever way the water runs, `checks.rivers`'
+  irreducible ascent. The grade's climbs are the contours'; this is the
+  ground's. On gobras after phase 5's burn, of 1,601 waterways 477 climb a
+  metre or more, which the surface's own rounding reaches, and 162 ten: so 10
+  m, worst first, placed at the run that climbs highest. One climbing most of
+  its way and falling little is said apart, as drawn backwards - its fix is
+  to reverse the way, not to move contours.
+- **sea level off the drawn coastline** (R32), `checks.zero_line`'s question
+  of the DEM's own zero line: a stretch over 1 km long and more than 500 m
+  from any drawn `ele=0` vertex, in a square where sea level is drawn. The
+  first look at gobras found two stretches of 184 and 114 km up to 60 km from
+  any shore - the drawn envelope's edge, which is a zero line because the
+  surface is 0 outside it; half the cells either side of them were outside
+  the drawn mask. So a vertex is judged only with drawn area two cells either
+  side of it, and what is left is 1 to 7 km stretches 1 to 1.5 km off a shore
+  - the fill running out, which is what the row is for.
+- **unreached ground** (R20) as area and fraction, a row a square, from the
+  first pass's classes the overlay draws.
+
+**Asked of the build's own grids, on its worker.** A snapshot of what the
+checks read of the squares - the waterway lines, the drawn sea level - is
+taken on the UI thread as the build starts, 26 ms over the 3x3, so the checks
+are of the state that was built; the build's job asks them of its grids before
+it hands the surface back, so the next build cannot be writing into the same
+directory while they read. 0.4 s at 3 arcseconds, 1.3 s at 1. Only while the
+checks panel is open: closed, a build takes no snapshot and asks nothing. A
+check that fails costs its list and says so, not the surface. `zero_line`'s
+`osmium` import moved into the one function that needs it, so the editor can
+take its distances without it.
+
+**Said as it stands.** While a build that will answer is running, the line says
+so with a busy bar; when it lands, which build it was; once an edit follows,
+that the next build will say again. On the gobras 3x3 at 1 arcsecond, through
+the window: 157 rivers climbing, 25 drawn backwards, 8 stretches of sea level
+off the shore, 3 squares with ground unreached. A sea level or a square row is
+a place with nothing to select, and shows it.
+
+Eleven mutations, each failing a test: the drawn envelope's edge judged, no
+backwards, every bump a climb, unreached as a share of the whole square rather
+than its drawn area, not worst first, a drawn island's shore taken for none,
+the checks not asked after the build, a failing check failing the surface,
+pending and stale not said, and a place row taken for a feature.

@@ -59,6 +59,10 @@ class Built:
     envelope_rings: list = field(default_factory=list)
     rasters: 'Rasters | None' = None      # for the preview; None when it is off
     params: Params | None = None          # the ones it was actually built with
+    # what only a surface can say (H2), asked of this build's grids on its
+    # worker - None when nobody asked, a failure's text when asking failed
+    checks: list | None = None
+    checks_failed: str | None = None
 
 
 @dataclass
@@ -175,10 +179,11 @@ class Nothing(Exception):
 
 class _Job(QRunnable):
     def __init__(self, fn, zone_dir: Path, names: list, params: Params, work: Path,
-                 signals: _Signals):
+                 signals: _Signals, after=None):
         super().__init__()
         self.fn, self.zone_dir, self.names = fn, zone_dir, names
         self.params, self.work, self.signals = params, work, signals
+        self.after = after            # asked of the build's grids before it is handed back
         # set when run() returns, however it returns. What makes it safe to
         # remove the working directory is that the build has stopped writing,
         # which is this - not the delivery of a signal, which is queued to
@@ -203,6 +208,13 @@ class _Job(QRunnable):
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
             self._say(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
+        if self.after is not None and isinstance(built, Built):
+            # here, before the next build can start writing into the same
+            # directory; a check that fails costs its list, not the surface
+            try:
+                built.checks = self.after(self.work)
+            except Exception as e:  # noqa: BLE001
+                built.checks_failed = f'{type(e).__name__}: {e}'
         try:
             self.signals.finished.emit(built)
         except RuntimeError:
@@ -263,6 +275,10 @@ class SurfaceBuilder(QObject):
         self._signals = None
         self._job = None
         self.work = Path(tempfile.mkdtemp(prefix='danu-surface-'))
+        # set by the window: what the surface checks need of a working set,
+        # taken as a build starts - or None, when nobody is looking at them
+        self.checks_snapshot = None
+        self.checking = False
 
     @property
     def busy(self) -> bool:
@@ -295,7 +311,13 @@ class SurfaceBuilder(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
-        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig)
+        snap = self.checks_snapshot(ws) if self.checks_snapshot is not None else None
+        self.checking = snap is not None          # whether this build will say the surface's checks
+        after = None
+        if snap is not None:
+            from ..checks import surface as surface_checks
+            after = lambda work: surface_checks.find(snap, work)      # noqa: E731
+        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig, after)
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit()

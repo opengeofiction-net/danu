@@ -40,7 +40,6 @@ import re
 import sys
 
 import numpy as np
-import osmium
 
 # the squares are held compressed - see danu-build-zone
 SQUARE = '*.osm.xz'
@@ -80,19 +79,27 @@ def drawn_zero_vertices(squares_dir):
     return np.array(pts, dtype=float), with_shore
 
 
-class ZeroWays(osmium.SimpleHandler):
-    """The ele=0 ways of a published contour file, kept whole."""
+def zero_ways(path):
+    """The ele=0 ways of a published contour file, kept whole, as
+    [(id, (n, 2) lon/lat)]. osmium only here: the editor's surface checks
+    take ``nearest_metres`` from this module and have no osmium."""
+    import osmium
 
-    def __init__(self):
-        super().__init__()
-        self.ways = []
+    class ZeroWays(osmium.SimpleHandler):
+        def __init__(self):
+            super().__init__()
+            self.ways = []
 
-    def way(self, w):
-        if w.tags.get('ele') != '0':
-            return
-        pts = [(n.lon, n.lat) for n in w.nodes if n.location.valid()]
-        if pts:
-            self.ways.append((w.id, np.array(pts, dtype=float)))
+        def way(self, w):
+            if w.tags.get('ele') != '0':
+                return
+            pts = [(n.lon, n.lat) for n in w.nodes if n.location.valid()]
+            if pts:
+                self.ways.append((w.id, np.array(pts, dtype=float)))
+
+    handler = ZeroWays()
+    handler.apply_file(str(path), locations=True)
+    return handler.ways
 
 
 CELL_M = 2000.0
@@ -167,25 +174,24 @@ def main():
     args = ap.parse_args()
 
     drawn, with_shore = drawn_zero_vertices(args.squares_dir)
-    handler = ZeroWays()
-    handler.apply_file(args.contours, locations=True)
+    ways = zero_ways(args.contours)
 
-    published = sum(len(p) for _, p in handler.ways)
+    published = sum(len(p) for _, p in ways)
     print(f'  drawn ele=0 vertices    {len(drawn):8d}')
-    print(f'  published ele=0 vertices{published:8d} in {len(handler.ways)} rings')
+    print(f'  published ele=0 vertices{published:8d} in {len(ways)} rings')
 
     if not len(drawn):
         print('  nothing drawn at sea level in this zone, so nothing to check '
               'against - inland, or a coastline nobody has drawn')
         return
-    if not handler.ways:
+    if not ways:
         print('  no ele=0 in the published contours')
         return
 
-    lat = float(np.mean(np.concatenate([p[:, 1] for _, p in handler.ways])))
+    lat = float(np.mean(np.concatenate([p[:, 1] for _, p in ways])))
 
     rows, elsewhere, parts = [], 0, []
-    for wid, pts in handler.ways:
+    for wid, pts in ways:
         # judged vertex by vertex, not ring by ring. A ring can run through many
         # squares - one of them is 2,000 points across two degrees - so asking
         # whether any part of it sits where sea level was drawn pulls the whole
