@@ -3819,3 +3819,45 @@ backwards, every bump a climb, unreached as a share of the whole square rather
 than its drawn area, not worst first, a drawn island's shore taken for none,
 the checks not asked after the build, a failing check failing the surface,
 pending and stale not said, and a place row taken for a feature.
+
+## H3a, slope and a scaling over the view
+
+From the review of the phase 6 plan, two ways of showing the surface.
+
+**Slope**, a fourth mode. The gradient of the Mercator DEM taken against the
+ground: a Mercator cell is `metres` across on the map and that times
+cos(latitude) on the ground, row by row, so 100 m a cell is 5.7 degrees at the
+equator and 11.3 at 60 north. Coloured in degrees, as the hypsometric ramp's
+colours mean metres - pale on the flat, yellow by 5, orange by 15, red by 30,
+dark past 45 - so the ramp and the scaling do not apply and are greyed. The
+sea stays clear. Composed in strips like the rest, each with a row of halo
+either side so the gradient at a strip's edge has its neighbours; a test
+holds a banded compose to the whole one. The legend reads 0 to 45 degrees and
+does not pinch. On gobras at 3 arcseconds a hill's flanks come out orange to
+red against pale lowland, the contours over them.
+
+**The view scaling.** `auto` stretched the ramp over the whole set's land -
+0 to 1,062 m on gobras - although its own docstring said "the land in view",
+so a coastal stretch that rises 183 m read as one blue. `view` takes the land
+in the part of the surface on screen: the window hands the panel the rows and
+columns under the viewport once the map has been still for 400 ms, and a
+recolour follows only if the scaling reads them and they changed - a recolour
+is a second and a half at 3 arcseconds, on a worker, so not on every step of
+a pan. With no land in view, the set's range. The range is the one place it is
+decided, `Scaling.range_for`, so the compose, the legend and a preview's
+rectangles agree. The legend's ends go to the metre - they read 1061.819 m
+and 0.012 m - or a tenth where the span is under ten.
+
+**The reading under the cursor**, asked for while this was under way: the
+status line's bottom right had the active elevation - what a contour drawn
+next would be - and where, and nothing of the ground. It now says what the
+surface on screen reads there, from the arrays the layer draws so that a
+preview's patch reads as it looks: "ground 100 m", or "slope 11.1°" while
+slope is shown, "sea" at sea level, nothing off the surface. Over the gobras
+hill at 3 arcseconds, 11.1 degrees on its flank and 1.1 in the lowland.
+
+Twelve mutations, each failing a test: slope on the map rather than the
+ground, no halo, the view window ignored, the sea coloured, the legend not
+spanning the view, the panel dropping the window, slope pinchable, the window
+not told; and for the reading, slope never read, rows and columns swapped, the
+mode not followed, and the sea read as ground.

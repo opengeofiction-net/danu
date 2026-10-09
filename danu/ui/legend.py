@@ -97,14 +97,23 @@ class Legend(QWidget):
     def has_land(self) -> bool:
         return self.land is not None and self.layer.style.mode != 'hillshade'
 
+    @property
+    def slope(self) -> bool:
+        return self.layer.style.mode == 'slope'
+
     def refresh(self, *_):
         """What the bar spans: the land in the surface, else nothing to show."""
         shaded = self.layer.shaded
-        if shaded is not None:
+        style = self.layer.style
+        if shaded is None:
+            self.land = None
+        elif style.mode == 'slope':
+            self.land = (0.0, shade.SLOPE_MAX)                  # degrees, whatever the ground
+        elif style.scaling.mode == 'view' and style.scaling.window is not None:
+            self.land = style.scaling.range_for(shaded.dem)     # what is in view, as the map is coloured
+        else:
             land = shaded.dem[shaded.dem > 0]
             self.land = (float(land.min()), float(land.max())) if land.size and land.max() > land.min() else None
-        else:
-            self.land = None
         self.place()
         self.setVisible(self.has_land)
         self.update()
@@ -145,7 +154,7 @@ class Legend(QWidget):
 
     # -- the moves, in this widget's coordinates; the event handlers call them
     def press(self, pos: QPoint, button) -> bool:
-        if not self.has_land:
+        if not self.has_land or self.slope:
             return False
         if button == Qt.MouseButton.RightButton:
             self.pinch_on_active()
@@ -156,13 +165,13 @@ class Legend(QWidget):
         return True
 
     def move(self, pos: QPoint, buttons) -> bool:
-        if not self.has_land or not (buttons & Qt.MouseButton.LeftButton):
+        if not self.has_land or self.slope or not (buttons & Qt.MouseButton.LeftButton):
             return False
         self.pinch(centre=round(self.value_at(pos.y()), 1))
         return True
 
     def wheel(self, delta: int) -> bool:
-        if not self.has_land or not delta:
+        if not self.has_land or self.slope or not delta:
             return False
         w = self.layer.style.scaling.width
         self.pinch(width=round(w / WHEEL_FACTOR if delta > 0 else w * WHEEL_FACTOR, 1))
@@ -191,7 +200,10 @@ class Legend(QWidget):
         r = self.bar_rect()
         # the bar: each row is one elevation, coloured as compose() colours a cell
         rows = np.linspace(hi, lo, r.height())
-        rgba = shade.ramp_rgba(ramp, rows, style.scaling, self.layer.shaded.dem)
+        if self.slope:
+            rgba = shade.SLOPE_RAMP.rgba(rows)
+        else:
+            rgba = shade.ramp_rgba(ramp, rows, style.scaling, self.layer.shaded.dem)
         img = QImage(1, r.height(), QImage.Format.Format_RGBA8888)
         for i, c in enumerate(rgba):
             img.setPixelColor(0, i, QColor(int(c[0]), int(c[1]), int(c[2])))
@@ -204,9 +216,15 @@ class Legend(QWidget):
         font = QFont(); font.setPointSize(8); p.setFont(font)
         labels = QRect(0, r.top(), r.left() - 5, r.height())         # left of the bar, right-aligned
         right = int(Qt.AlignmentFlag.AlignRight)
-        p.drawText(QRect(labels.left(), r.top() - 2, labels.width(), 14), right, f'{format_ele(hi)} m')
-        p.drawText(QRect(labels.left(), r.bottom() - 11, labels.width(), 14), right, f'{format_ele(lo)} m')
-        if style.scaling.mode == 'pinch':
+        # the ends to the metre, or a tenth where the span is under ten: the
+        # land's own extremes read 1061.819 m and 0.012 m, which says nothing
+        # a reader wants and crowds the bar
+        nice = (lambda v: f'{v:.1f}') if hi - lo < 10 else (lambda v: f'{round(v):,}')
+        top = f'{format_ele(hi)}°+' if self.slope else f'{nice(hi)} m'
+        low = f'{format_ele(lo)}°' if self.slope else f'{nice(lo)} m'
+        p.drawText(QRect(labels.left(), r.top() - 2, labels.width(), 14), right, top)
+        p.drawText(QRect(labels.left(), r.bottom() - 11, labels.width(), 14), right, low)
+        if style.scaling.mode == 'pinch' and not self.slope:
             s = style.scaling
             y0, y1 = self.y_for(s.centre + s.width / 2), self.y_for(s.centre - s.width / 2)
             yc = self.y_for(s.centre)

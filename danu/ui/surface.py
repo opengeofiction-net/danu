@@ -46,7 +46,7 @@ from .trace import grid as _grid
 from .trace import trace as _trace
 
 RESOLUTIONS = ((3.0, '3″ - a minute a set, the .hgt archive\'s'), (1.0, '1″ - the published DEM\'s, slow'))
-MODES = ('shaded relief', 'hillshade', 'relief')
+MODES = ('shaded relief', 'hillshade', 'relief', 'slope')
 RAMPS = {'spectral': spectral, 'traditional': traditional}
 
 
@@ -919,7 +919,12 @@ class SurfacePanel(QDockWidget):
         self.ramp = QComboBox()
         self.ramp.addItems(list(RAMPS))
         self.scaling = QComboBox()
-        self.scaling.addItems(['auto', 'manual', 'pinch'])
+        self.scaling.addItems(['auto', 'view', 'manual', 'pinch'])
+        self.scaling.setToolTip('auto: the ramp over the whole set\'s land; view: over the land on screen, '
+                                'recoloured as the map comes to rest; manual: over the range given; '
+                                'pinch: about a height')
+        # the part of the surface on screen, for view: set by the window as the map comes to rest
+        self.view_window = None
         self.lo = QDoubleSpinBox(); self.lo.setRange(-500, 9000); self.lo.setValue(0)
         self.hi = QDoubleSpinBox(); self.hi.setRange(-500, 9000); self.hi.setValue(1000)
         # the planet's range and then some: a legend drag must never be clamped here
@@ -974,7 +979,17 @@ class SurfacePanel(QDockWidget):
     def current_style(self) -> Style:
         return Style(mode=self.mode.currentText(), ramp=self.ramp.currentText(),
                      scaling=shade.Scaling(self.scaling.currentText(), self.lo.value(), self.hi.value(),
-                                           self.centre.value(), self.width.value()))
+                                           self.centre.value(), self.width.value(), self.view_window))
+
+    def set_view_window(self, window) -> None:
+        """The surface's rows and columns now on screen. Recoloured only when
+        the scaling reads them and they have changed: a recolour is a second
+        and a half at 3 arcseconds, on a worker."""
+        if window == self.view_window:
+            return
+        self.view_window = window
+        if self.scaling.currentText() == 'view':
+            self._changed()
 
     def _changed(self, *_):
         manual, pinch = self.scaling.currentText() == 'manual', self.scaling.currentText() == 'pinch'
@@ -982,8 +997,10 @@ class SurfacePanel(QDockWidget):
             w.setEnabled(manual)
         for w in (self.centre, self.width):
             w.setEnabled(pinch)
-        self.ramp.setEnabled(self.mode.currentText() != 'hillshade')
-        self.scaling.setEnabled(self.mode.currentText() != 'hillshade' and self.ramp.currentText() != 'traditional')
+        # slope's colours are degrees, hillshade has none: neither has a ramp to choose or scale
+        coloured = self.mode.currentText() not in ('hillshade', 'slope')
+        self.ramp.setEnabled(coloured)
+        self.scaling.setEnabled(coloured and self.ramp.currentText() != 'traditional')
         self.layer.set_style(self.current_style())
         self.styleChanged.emit(self.layer.style)
 

@@ -276,21 +276,32 @@ def shade_window(dem: np.ndarray, geotransform: tuple, projection: str,
 @dataclass(frozen=True)
 class Scaling:
     """R11: how a ramp is laid over the elevations. ``auto`` stretches the
-    ramp over the land in view; ``manual`` over lo..hi; ``pinch`` over a
-    window of ``width`` metres about ``centre``, so local relief reads on
-    ground that is otherwise all one colour. The hypsometric ramp ignores all
-    of this: its colours mean metres."""
-    mode: str = 'auto'          # 'auto' | 'manual' | 'pinch'
+    ramp over the land of the whole set; ``view`` over the land in
+    ``window``, the part of the surface on screen, so what is in view uses
+    the whole ramp; ``manual`` over lo..hi; ``pinch`` over a window of
+    ``width`` metres about ``centre``, so local relief reads on ground that is
+    otherwise all one colour. The hypsometric ramp ignores all of this: its
+    colours mean metres."""
+    mode: str = 'auto'          # 'auto' | 'view' | 'manual' | 'pinch'
     lo: float = 0.0
     hi: float = 1000.0
     centre: float = 100.0
     width: float = 50.0
+    window: tuple | None = None  # 'view': (row0, row1, col0, col1) of the surface grid in view
 
     def range_for(self, dem: np.ndarray) -> tuple[float, float]:
         if self.mode == 'manual':
             return (self.lo, self.hi) if self.hi > self.lo else (self.lo, self.lo + 1.0)
         if self.mode == 'pinch':
             return self.centre - self.width / 2.0, self.centre + self.width / 2.0
+        if self.mode == 'view' and self.window is not None:
+            r0, r1, c0, c1 = self.window
+            part = dem[max(r0, 0):max(r1, 0), max(c0, 0):max(c1, 0)]
+            land = part[part > 0] if part.size else part
+            if land.size:
+                a, b = float(land.min()), float(land.max())
+                return (a, b) if b > a else (a, a + 1.0)
+            # no land in view: the whole set's, rather than a ramp over nothing
         # A strip at a time, for the reason compose is banded: `dem[dem > 0]`
         # is a boolean mask and then a compacted copy of every land cell, 1.1
         # GB of working space at 1 arcsecond, to answer a min and a max. The
@@ -339,9 +350,9 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     land in the whole array, so a rectangle asked to work it out for itself
     gets a different one and comes out a different colour from the ground it
     sits in. The caller passes the whole surface's range instead."""
-    if mode not in ('hillshade', 'relief', 'shaded relief'):
+    if mode not in ('hillshade', 'relief', 'shaded relief', 'slope'):
         raise ValueError(f'compose: mode {mode!r}')
-    if ramp is None and mode != 'hillshade':
+    if ramp is None and mode not in ('hillshade', 'slope'):
         raise ValueError(f'compose: {mode} needs a ramp')
 
     rows, cols = shaded.dem.shape
@@ -359,6 +370,8 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     # would quietly go opaque. The question is about the ramp the caller
     # passed, so it is asked of that one and kept.
     hypsometric = ramp is not None and ramp.name == 'relief.ramp'
+    if mode == 'slope':
+        ramp = None                    # its colours are degrees, whatever ramp is chosen
     if ramp is not None and not hypsometric:
         lo, hi = stretch if stretch is not None else scaling.range_for(shaded.dem)
         ramp = ramp.rescaled(lo, hi)
@@ -379,6 +392,15 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
     for y, h in strips(rows, cols, itemsize=COMPOSE_BYTES_PER_CELL, bands=1):
         sl = slice(y, y + h)
         dem, hill = shaded.dem[sl], shaded.shade[sl]
+        if mode == 'slope':
+            # a row of halo either side, so a strip's first and last rows have
+            # neighbours to take a gradient across
+            a, b = max(y - 1, 0), min(y + h + 1, rows)
+            deg = slope_degrees(shaded.dem[a:b], shaded.geotransform, a)[y - a:y - a + h]
+            rgba = SLOPE_RAMP.rgba(deg)
+            rgba[..., 3] = np.where(dem > 0, 255, 0).astype(np.uint8)
+            out[sl] = rgba
+            continue
         if mode == 'hillshade':
             out[sl, :, 0] = out[sl, :, 1] = out[sl, :, 2] = \
                 np.clip(np.rint(hill.astype(np.float32)), 0, 255).astype(np.uint8)
@@ -400,6 +422,33 @@ def compose(shaded: Shaded, ramp: Ramp | None, scaling: Scaling, mode: str = 'sh
         out[sl, :, :3] = np.clip(np.rint(colour), 0, 255).astype(np.uint8)
         out[sl, :, 3] = rgba[..., 3]
     return out
+
+
+# slope in degrees, the colours meaning degrees as the hypsometric ramp's mean
+# metres: pale on the flat, yellow by 5, orange by 15, red by 30, dark past 45
+SLOPE_RAMP = Ramp('slope', (0.0, 2.0, 5.0, 15.0, 30.0, 45.0),
+                  ((250, 250, 245, 255), (240, 240, 200, 255), (250, 220, 90, 255),
+                   (240, 140, 50, 255), (200, 40, 40, 255), (90, 20, 60, 255)))
+SLOPE_MAX = 45.0
+
+
+def slope_degrees(dem: np.ndarray, gt: tuple, row0: int = 0) -> np.ndarray:
+    """The ground's slope at each cell of a Mercator grid, in degrees. A
+    Mercator cell is ``gt[1]`` metres across on the map and that times
+    cos(latitude) on the ground, row by row - the gradient is taken against
+    the ground. ``row0`` is the first row's place in the grid, for a strip.
+    Square cells, as every grid this module warps is: the gradient is per
+    cell and ``gt[1]`` stands for both sides of one.
+    shell: none; a view of the editor's own - the server publishes no slope"""
+    rows = dem.shape[0]
+    y = gt[3] + (np.arange(rows) + row0 + 0.5) * gt[5]
+    lat = np.degrees(np.arctan(np.sinh(y / R)))
+    ground = np.abs(gt[1]) * np.cos(np.radians(lat))[:, None]
+    z = dem.astype(np.float32)
+    dzdy, dzdx = np.gradient(z)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        rise = np.hypot(dzdx, dzdy) / ground
+    return np.degrees(np.arctan(np.nan_to_num(rise))).astype(np.float32)
 
 
 # the overlay's colours for first_pass_classes()'s codes: what the contours

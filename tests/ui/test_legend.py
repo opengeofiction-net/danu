@@ -139,3 +139,23 @@ def test_right_click_and_the_key_pinch_on_the_active_elevation(window):
     from PySide6.QtTest import QTest
     QTest.keyClick(w, 'c')                        # C since G8d; P splits
     assert w.surface.style.scaling.centre == 333 and w.surface_panel.centre.value() == 333
+
+
+def test_slope_greys_the_ramp_and_scaling_and_the_legend_reads_degrees(parts):
+    view, layer, panel, legend = parts
+    panel.mode.setCurrentText('slope')
+    assert not panel.ramp.isEnabled() and not panel.scaling.isEnabled()
+    assert legend.land == (0.0, shade.SLOPE_MAX) and legend.slope
+    was = layer.style.scaling.mode
+    assert not legend.press(QPoint(legend.width() - 5, 40), Qt.MouseButton.LeftButton), 'slope pinched'
+    assert layer.style.scaling.mode == was
+
+
+def test_the_view_scaling_spans_the_window_the_panel_is_given(parts):
+    view, layer, panel, legend = parts
+    panel.scaling.setCurrentText('view')
+    rows, cols = layer.shaded.dem.shape
+    panel.set_view_window((0, rows, cols - 10, cols))
+    lo, hi = legend.land
+    assert hi == float(layer.shaded.dem.max()) and lo > 300, 'the legend is not the view'
+    assert layer.style.scaling.window == (0, rows, cols - 10, cols)
