@@ -985,11 +985,61 @@ itself followed as G8c, with the loop cut out; G8d split and join to mend what
 the checks find; and G8e the rest of R16 - a node two levels share, which
 unglues, and contours lying on one another, the duplicate coincident contours
 of the validation table. And R38, a spot height which contradicts the contours
-around it, came forward with G9, which brought the main map's in. Here, the
-panel's other checks, then measure, profile, difference, magnify, autosave and
-crash recovery, session files.
+around it, came forward with G9, which brought the main map's in. What is left,
+in six steps:
 
-**Revisit z19 as the maximum zoom.** It is the tiles' limit, and the map
+**H1, the squares' own checks** - what the files say, with no surface: ways
+over 2,000 and 10,000 nodes (R30), split on save but listed until then; `ele`
+that is not a number (R31), which the build drops and says so only in its log;
+the off-ladder values used once or twice, rows rather than the advice line;
+water spanning contours (R33); and rings with no spot height (R39), a report
+under its own heading rather than a warning. Each an index kept as edited, as
+the four there are.
+
+**H2, the surface's checks** - what only a build can say, from the last exact
+one and said stale while a preview stands: rivers which climb on the DEM (R29),
+`checks.rivers` - the surface's view, where the grade's climbs are the
+contours'; sea level off the drawn coastline (R32), `checks.zero_line`; and the
+unreached ground as area and fraction, R20's overlay counted. Both modules are
+batch tools today; they become the panel's.
+
+**H3, reading the surface.** Profile - drag a line, terrain and water along it,
+the climbing shaded, the grade's profile plot reused; measure, distance and
+gradient between two points; difference, the working surface against the
+published DEM as a diverging ramp; and magnify, a loupe at the cursor. And two
+ways of showing it: slope, a fourth mode beside shaded relief, hillshade and
+relief; and a scaling that stretches the ramp over the ground in view, where
+auto stretches it over the whole set.
+
+**H4, not losing work.** Autosave to `~/.local/share/danu/` on a timer and on
+idle, never over the mapper's files, as a change file rather than the square:
+an `.osc` per dirty square of what the edits since its last save created,
+modified and deleted, against the file it was read from - so its cost is the
+size of the edit, not of the square, where a whole square is seconds of xz.
+Recovery offered at the next start, square by square: the square read from its
+file and the change applied, refused and said if that file has changed since
+the change was written; a session file - the
+working set, the view, the panels - reopened as it was; and a usage log,
+written beside it: each click with the tool, the snapped node and the action
+it made, so a reported bug can be replayed rather than described.
+
+**H5, Danu and JOSM.** The water and the peaks are fixed in JOSM, against the
+main map; the surface they are fixed against is Danu's. J already shows the
+place in JOSM and selects what came from the main map, and only the place for
+what was drawn here. Danu serves its surface as a WMS on the loopback, and
+JOSM's `/imagery` adds it as a layer, so the ground under the water being
+edited in JOSM is the ground Danu has built.
+
+**H6, the interface reviewed and reworked**, last so that it covers what the
+phase added - the panels, the keys, the menus and what the status line says -
+with the maximum zoom among it, below.
+
+Ends when every row of the validation table is a row in the panel, each a
+place to go to; when Danu killed mid-edit on the gobras 3x3 loses no more
+than the autosave interval, the next start putting the edits back; and when
+the working surface shows in JOSM as a layer.
+
+**Revisit z19 as the maximum zoom**, in H6. It is the tiles' limit, and the map
 stops there (`mercator.MAX_ZOOM`), but the editor's own layers are vector and
 would draw at any zoom. On the gobras set it leaves features that cannot be
 picked apart: the Water of Meeonoa, a `waterway=stream` (way 4878968), runs
