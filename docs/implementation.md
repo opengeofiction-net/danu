@@ -3707,3 +3707,47 @@ Eight mutations, each failing a test: a way at the limit counted, the GDAL
 limit not told apart, nodes not asked for an `ele`, a number taken for not
 one, every value listed as off the ladder, the index not following an edit,
 the panel not told of one, and a row not selecting.
+
+## H1b, what lies inside the rings
+
+The checks panel's sixth list, the last two rows of H1:
+
+- **water spanning contours** (R33) - a lake, a closed `natural=water` way or a
+  water relation, with a contour at another level inside it. Flowing water is
+  no body: a river area descends along its course (R27). A contour at the
+  lake's own level is not another level - flatten leaves those touching the
+  shore - and nor is one snapped to its shore at a shared node. The row
+  selects the lake, for F.
+- **rings with nothing inside** (R39) - a closed contour holding no other
+  contour and no spot height: a hilltop or a hollow with nothing to say how
+  high or deep it goes. A report, so under a heading that starts folded and
+  puts no mark on the map.
+
+**Inside is a vertex in it, or a segment across it.** The first version took
+a vertex in the water, by crossings of a ray with every ring counted together
+so that an island is a hole. A contour with a vertex either side of a small
+lake is in neither, and the first test said so: counting segments that cross
+the outline - properly, so a contour touching the shore at a node does not -
+took the gobras lakes spanning contours, before flattening, from 132 to 233.
+
+**On the gobras 3x3** after phase 5's burn, 233 lakes span contours and 3,882
+rings hold nothing; after its flatten, 3 lakes and 3,758 rings. The 3,882 are
+gobras's knolls, drawn a ring each - which is why it is a report.
+
+**Kept as edited.** Per square, the contours by their boxes. An edit asks
+again only the rings and lakes round what moved: the points an edited line or
+outline had and has not, or has and had not, and where an edited spot height
+was and is. Asked of every ring in the edited contour's box instead, a node
+moved on N20E087's 2,000-node contour asked 632 rings and took 135 ms; this
+way it is 15 to 37 ms. The lakes are read again only when water is edited, the
+spot heights only when one is or a way runs on or off one. The index over the
+3x3 is 2.3 s, on the worker with the others, after a list membership test
+that was quadratic came out: 5.8 s.
+
+Twelve mutations, each failing a test: no crossing counted, for a lake and for
+a ring; an island not a hole; a shore vertex counted; the lake's own level
+counted; flowing water a body; a spot height not asked; only the edited ways
+asked again; the spot heights and the lakes never read again; the report
+marking the map; and the report open. Three of them first survived - the
+random-edit test spread its edits over the whole degree, so rarely inside a
+ring - and the test now edits where the rings are.
