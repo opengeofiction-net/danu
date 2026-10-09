@@ -14,8 +14,9 @@
 A contour is inside a ring when a vertex of it is, by crossings of a ray with
 every ring of a body counted together, so an island is a hole - or when a
 segment of it crosses the ring with no vertex inside, as a contour with a
-vertex either side of a small lake does. A vertex the ring itself passes
-through, a contour snapped to a lake's shore, is neither.
+vertex either side of a small lake does. A node the ring itself passes
+through - a contour sharing a node with a lake's shore - is neither; one
+only drawn along the shore, on nodes of its own, is judged as any other.
 
 Per square, the contours by their boxes, kept as edited: an edit asks again the
 rings and bodies whose box it touched, as they were and as they are. No Qt.

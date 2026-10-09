@@ -3716,7 +3716,7 @@ The checks panel's sixth list, the last two rows of H1:
   water relation, with a contour at another level inside it. Flowing water is
   no body: a river area descends along its course (R27). A contour at the
   lake's own level is not another level - flatten leaves those touching the
-  shore - and nor is one snapped to its shore at a shared node. The row
+  shore - and nor is a vertex it shares with the shore, by node, not by place. The row
   selects the lake, for F.
 - **rings with nothing inside** (R39) - a closed contour holding no other
   contour and no spot height: a hilltop or a hollow with nothing to say how
