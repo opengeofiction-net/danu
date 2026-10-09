@@ -3676,6 +3676,8 @@ inside a closed one - and is not among the 38.
 
 ## What phase 6 has done so far
 
+Checks and polish, in six steps - see *Phase 6* in `spec.md`.
+
 ## H1a, what the files say
 
 The checks panel's fifth list, under a heading a kind, three rows of the

@@ -145,7 +145,8 @@ def find(working_set) -> list[Finding]:
 
 class Index:
     """The findings of a working set, a square asked again on any edit to
-    it - cheap enough not to be cleverer."""
+    it - cheap enough not to be cleverer. ``update`` takes the edit's ways
+    and spot heights as the other indexes do, and asks the whole square."""
 
     def __init__(self, working_set):
         self.working_set = working_set

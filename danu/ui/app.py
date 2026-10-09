@@ -1131,8 +1131,8 @@ class MainWindow(QMainWindow):
         click would, and brought into view."""
         ws = self.working_set
         square = ws.squares.get(f.square) if ws is not None else None
-        held = square is not None and ((f.way is not None and f.way in square.ways)
-                                       or (f.node is not None and f.node in square.nodes))
+        held = square is not None and (f.way in square.ways if f.way is not None
+                                       else f.node in square.nodes)
         if not held:
             self.statusBar().showMessage(f'{f.describe()}: no longer in {f.square}')
             return
