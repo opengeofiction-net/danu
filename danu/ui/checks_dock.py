@@ -139,7 +139,7 @@ class ChecksDock(QDockWidget):
         self.summary.setText('Finding the checks over this working set…')
         self.progress.setRange(0, steps)
         self.progress.setValue(0)
-        self.progress.setFormat('%v of %m')
+        self.progress.setFormat('%v of %m done')
         self.progress.setVisible(True)
         for label in (self.loops_summary, self.touches_summary, self.spots_summary, self.files_summary,
                       self.inside_summary):
