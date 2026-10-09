@@ -19,6 +19,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
 
 from ..checks import crossings, files, inside, loops, spots, touches
+from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..water import flatten, peaks
@@ -164,6 +165,10 @@ class MainWindow(QMainWindow):
         self.spot_index = None                  # spot heights the rings contradict (R38)
         self.file_index = None                  # what the files say: long ways, ele, the ladder (H1a)
         self.inside_index = None                # what lies inside the rings: lakes, bare rings (H1b)
+        self.surface_findings = None            # what the last build said (H2), or None
+        self._surface_found_at = ''             # when that build landed
+        self._surface_stale = False             # edits since it
+        self._surface_pending = False           # a build running that will say them
         # the first scan over a set runs on a worker - 9.3 s on gobras - and
         # the edits made while it runs are put to it when it lands
         self._checks_runner = QThreadPool.globalInstance().start
@@ -208,6 +213,9 @@ class MainWindow(QMainWindow):
         self.preview.freshGround.connect(self._preview_on_fresh_ground)
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
+        # the surface's checks (H2) ride on a build, while the panel is open
+        self.builder.checks_snapshot = (
+            lambda ws: surface_checks.snapshot(ws) if self.checks_dock.isVisible() else None)
         self.builder.failed.connect(self._surface_failed)
         self.water = WaterImporter(self)
         # what the last import found held and no longer upstream - R40's
@@ -673,6 +681,7 @@ class MainWindow(QMainWindow):
         self.spot_index = None
         self.file_index = None
         self.inside_index = None
+        self.surface_findings = None
         if self.checks_dock.isVisible():
             self._checks_shown(True)
         self.squares.set_working_set(ws)
@@ -752,6 +761,9 @@ class MainWindow(QMainWindow):
         return p.with_arcsec(fallback) if fallback is not None else p
 
     def _surface_starting(self):
+        if self.builder.checking:
+            self._surface_pending = True             # the panel says this build will answer
+            self._checks_due.start()
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
         self.statusBar().showMessage(
             f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
@@ -1038,6 +1050,9 @@ class MainWindow(QMainWindow):
         if self.file_index is not None and (ways or spot_ids):
             self.file_index.update(square)               # the square asked again, 12 ms at most
             self._checks_due.start()
+        if self.surface_findings is not None and (ways or spot_ids) and not self._surface_stale:
+            self._surface_stale = True                   # said, not asked again: that is a build
+            self._checks_due.start()
         if self.inside_index is not None and (ways or spot_ids):
             # the rings and lakes round what moved, 23 ms at the most measured
             self.inside_index.update(square, ways or (), spot_ids or ())
@@ -1062,6 +1077,8 @@ class MainWindow(QMainWindow):
         self.checks_dock.show_spots(self.spot_index.contradictions() if self.spot_index is not None else [])
         self.checks_dock.show_files(self.file_index.findings() if self.file_index is not None else [])
         self.checks_dock.show_inside(self.inside_index.findings() if self.inside_index is not None else [])
+        self.checks_dock.show_surface(self.surface_findings, self._surface_found_at, self._surface_stale,
+                                      self._surface_pending)
         self._refresh_marks()
 
     def _refresh_marks(self) -> None:
@@ -1082,6 +1099,9 @@ class MainWindow(QMainWindow):
                              # crosses over every hill
                              + [m.lonlat_to_scene(f.lon, f.lat)
                                 for f in (self.inside_index.findings('lake') if self.inside_index is not None else [])]
+                             # a square of unreached ground is a row, not a place to mark
+                             + [m.lonlat_to_scene(f.lon, f.lat)
+                                for f in (self.surface_findings or []) if f.kind != 'unreached']
                              if on else [])
         if not on:
             self.editor.marks_focus = []
@@ -1163,6 +1183,13 @@ class MainWindow(QMainWindow):
         click would, and brought into view."""
         ws = self.working_set
         square = ws.squares.get(f.square) if ws is not None else None
+        if f.way is None and f.relation is None and f.node is None:
+            # a place and no feature - sea level off the shore, ground unreached
+            self.editor.marks_focus = [m.lonlat_to_scene(f.lon, f.lat)]
+            self._show_place(*f.box)
+            self.editor.overlay.update()
+            self.statusBar().showMessage(f.explain())
+            return
         held = square is not None and (f.way in square.ways if f.way is not None
                                        else f.relation in square.relations if f.relation is not None
                                        else f.node in square.nodes)
@@ -1261,6 +1288,19 @@ class MainWindow(QMainWindow):
         self.rebuild_surface(self._arcsec)
 
     def _surface_built(self, built, stale=False, seconds=0.0):
+        if self._surface_pending:
+            self._surface_pending = False
+            self._checks_due.start()
+        if getattr(built, 'checks', None) is not None or getattr(built, 'checks_failed', None):
+            self.surface_findings = built.checks or []
+            self._surface_found_at = time.strftime('%H:%M')
+            self._surface_stale = stale
+            if built.checks_failed:
+                self.statusBar().showMessage(f"the surface's checks failed: {built.checks_failed}")
+            self._checks_due.start()
+        self._surface_built_shown(built, stale, seconds)
+
+    def _surface_built_shown(self, built, stale=False, seconds=0.0):
         # seconds comes from the builder: once builds overlap, how long one
         # took is not something a single attribute here can hold
         self.surface.set_shaded(built.shaded)
