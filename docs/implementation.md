@@ -3756,3 +3756,16 @@ asked again; the spot heights and the lakes never read again; the report
 marking the map; and the report open. Three of them first survived - the
 random-edit test spread its edits over the whole degree, so rarely inside a
 ring - and the test now edits where the rings are.
+
+## The checks' first scan, seen
+
+"While the checks run there is no feedback," the mapper said. Captured every
+0.7 s on the gobras 3x3: 13.8 s - six indexes now, H1 having added two - with
+one grey line at the top of the panel over six empty white boxes and a greyed
+button, and nothing on the status line. Now the panel comes to the front, a
+bar counts the six and the line names the one being built, the empty lists
+and the buttons are put away until there is something in them, and the status
+line says it is finding them and, when they land, how long it took. The
+worker reports a step before each index through `background.Job.report`,
+queued to the UI thread. Four mutations, each failing a test: no report, the
+empty lists shown, the bar left up, and nothing said.

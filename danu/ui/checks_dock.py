@@ -27,6 +27,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDockWidget,
     QLabel,
+    QProgressBar,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -62,10 +63,16 @@ class ChecksDock(QDockWidget):
         box.setContentsMargins(4, 4, 4, 4)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
+        # the first scan's progress, a step a check: 13.8 s on the gobras 3x3,
+        # and a line of text alone over a stack of empty lists was missed
+        self.progress = QProgressBar()
+        self.progress.setTextVisible(True)
+        self.progress.setVisible(False)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         box.addWidget(self.summary)
+        box.addWidget(self.progress)
         box.addWidget(self.tree, 3)
         self.loops_summary = QLabel()
         self.loops_summary.setWordWrap(True)
@@ -125,21 +132,36 @@ class ChecksDock(QDockWidget):
             lambda item, _prev: item is not None and item.data(0, _ROW) is not None
             and self.findingChosen.emit(item.data(0, _ROW)))
 
-    def finding(self) -> None:
-        """The first scan out, on a worker: said in place of the lists."""
+    def finding(self, steps: int = 1) -> None:
+        """The first scan out, on a worker: said in place of the lists, with
+        a bar a check - the lists, the buttons and their empty boxes put away
+        until there is something to put in them."""
         self.summary.setText('Finding the checks over this working set…')
+        self.progress.setRange(0, steps)
+        self.progress.setValue(0)
+        self.progress.setFormat('%v of %m')
+        self.progress.setVisible(True)
         for label in (self.loops_summary, self.touches_summary, self.spots_summary, self.files_summary,
                       self.inside_summary):
             label.setText('')
         for tree in (self.tree, self.loops_tree, self.touches_tree, self.spots_tree, self.files_tree,
                      self.inside_tree):
             tree.clear()
-        self.tree.setVisible(False)
+            tree.setVisible(False)
+        for button in (self.cut_btn, self.josm_btn):
+            button.setVisible(False)
+
+    def finding_step(self, step: int, steps: int, name: str) -> None:
+        self.summary.setText(f'Finding the checks over this working set: {name}…')
+        self.progress.setRange(0, steps)
+        self.progress.setValue(step)
 
     def show_crossings(self, found: list) -> None:
         """The crossings as they stand, replacing what was listed. The row
         that was current stays current where its contour is still listed, so
         a mapper working down the list after an edit keeps their place."""
+        self.progress.setVisible(False)
+        self.josm_btn.setVisible(True)
         was = self.tree.currentItem()
         was_key = was.data(0, _ROW)[0] if was is not None and was.data(0, _ROW) else None
         self.groups = by_contour(found)

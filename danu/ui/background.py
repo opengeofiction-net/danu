@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 class Signals(QObject):
     done = Signal(object)              # what the function answered
     failed = Signal(str)               # why it did not, as text
+    progress = Signal(object)          # how far it has got, as the function says
 
 
 class Job(QRunnable):
@@ -24,13 +25,19 @@ class Job(QRunnable):
     ``lambda job: job.run()`` - decides where; the job is Python's to keep,
     as the loader's are."""
 
-    def __init__(self, fn, on_done, on_failed):
+    def __init__(self, fn, on_done, on_failed, on_progress=None):
         super().__init__()
         self.setAutoDelete(False)
         self.fn = fn
         self.signals = Signals()
         self.signals.done.connect(on_done)
         self.signals.failed.connect(on_failed)
+        if on_progress is not None:
+            self.signals.progress.connect(on_progress)
+
+    def report(self, value) -> None:
+        """Called by ``fn``, on the worker: the UI thread is told, queued."""
+        self._emit(self.signals.progress, value)
 
     def run(self):
         try:
