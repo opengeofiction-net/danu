@@ -1011,9 +1011,14 @@ ways of showing it: slope, a fourth mode beside shaded relief, hillshade and
 relief; and a scaling that stretches the ramp over the ground in view, where
 auto stretches it over the whole set.
 
-**H4, not losing work.** Autosave of the dirty squares to
-`~/.local/share/danu/` on a timer and on idle, never over the mapper's files;
-recovery offered at the next start, square by square; a session file - the
+**H4, not losing work.** Autosave to `~/.local/share/danu/` on a timer and on
+idle, never over the mapper's files, as a change file rather than the square:
+an `.osc` per dirty square of what the edits since its last save created,
+modified and deleted, against the file it was read from - so its cost is the
+size of the edit, not of the square, where a whole square is seconds of xz.
+Recovery offered at the next start, square by square: the square read from its
+file and the change applied, refused and said if that file has changed since
+the change was written; a session file - the
 working set, the view, the panels - reopened as it was; and a usage log,
 written beside it: each click with the tool, the snapped node and the action
 it made, so a reported bug can be replayed rather than described.
