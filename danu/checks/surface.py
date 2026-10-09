@@ -110,7 +110,7 @@ def climbs(snap: Snapshot, dem: np.ndarray, gt: tuple, least: float = CLIMB_MIN)
             km = float(seg[i0:i1 + 1].sum()) / 1000
             at = dense[(i0 + i1) // 2]
             box = _box(dense[i0:i1 + 2])
-            where = f', the most {rise:,.0f} m over {km:,.1f} km'
+            where = f', its highest single climb {rise:,.0f} m over {km:,.1f} km'
         else:
             at, box, where = dense[len(dense) // 2], _box(pts), ''
         out.append((lost, Finding(square, 'climb', f'{what}, way {wid} - climbs {lost:,.0f} m it cannot lose{where}',
@@ -172,8 +172,12 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
             if length >= RUN_MIN_M:
                 at = seg[len(seg) // 2]
                 worst = float(d[i:j + 1].max())
+                square = _square_of(snap, at)
+                if square is None:            # its middle outside the set's squares: not the set's
+                    i = j + 1
+                    continue
                 out.append((worst, Finding(
-                    _square_of(snap, at), 'sea',
+                    square, 'sea',
                     f'sea level {worst / 1000:,.1f} km from a drawn shore, for {length / 1000:,.1f} km',
                     'the surface reaches sea level here, well inside the drawn area and away from any coastline '
                     'drawn: the fill running out rather than meeting a shore - an island or a coast with no '
@@ -185,7 +189,7 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
 
 def _square_of(snap, at):
     lon, lat = math.floor(at[0]), math.floor(at[1])
-    return next((n for n in snap.squares if (n.lon, n.lat) == (lon, lat)), snap.squares[0] if snap.squares else None)
+    return next((n for n in snap.squares if (n.lon, n.lat) == (lon, lat)), None)
 
 
 # --------------------------------------------------------------- R20
