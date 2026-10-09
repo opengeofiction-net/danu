@@ -129,3 +129,27 @@ def test_a_scan_that_fails_says_so_in_the_panel(window, monkeypatch):
     window.checks_dock.toggleViewAction().trigger()
     assert 'could not be found: ValueError: a square with no name' in window.checks_dock.summary.text()
     assert window._checks_job is None
+
+
+def test_the_scan_shows_its_progress_and_hides_the_empty_lists(window):
+    """13.8 s on the gobras 3x3, with a line of text over six empty boxes for
+    all of it: a bar a check now, the lists and buttons put away, the status
+    line saying so, and all of it gone when the indexes land."""
+    w = window
+    held = []
+    w._checks_runner = held.append
+    w.checks_dock.toggleViewAction().trigger()
+    d = w.checks_dock
+    assert d.progress.isVisible() and d.progress.maximum() == 6 and d.progress.value() == 0
+    assert not any(t.isVisible() for t in (d.tree, d.loops_tree, d.touches_tree, d.spots_tree,
+                                           d.files_tree, d.inside_tree))
+    assert not d.cut_btn.isVisible() and not d.josm_btn.isVisible()
+    assert 'finding the checks' in w.statusBar().currentMessage()
+    job = held.pop()
+    seen = []
+    job.signals.progress.connect(lambda step: seen.append((step, d.summary.text(), d.progress.value())))
+    job.run()
+    assert [s[0][0] for s in seen] == [0, 1, 2, 3, 4, 5]
+    assert seen[1][1].endswith('contours crossing themselves…') and seen[1][2] == 1
+    assert not d.progress.isVisible() and d.josm_btn.isVisible()
+    assert w.statusBar().currentMessage().startswith('checks found in')

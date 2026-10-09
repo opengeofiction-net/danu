@@ -79,16 +79,31 @@ def user_cache_dir() -> Path:
         QStandardPaths.StandardLocation.CacheLocation))
 
 
-def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2):
-    """The checks' indexes over a working set - on a worker, while the
-    set goes on being edited on the UI thread. An edit that changes a dict
-    under the scan stops it, and it starts again; one that changes a way it
-    has read is put to the indexes when they land, so what was read of that
-    way is asked again."""
+# the checks' indexes in the order the scan builds them, and what the panel
+# calls each while it does
+CHECKS = (('crossings', lambda ws, _: crossings.Index(ws)),
+          ('contours crossing themselves', lambda ws, _: loops.Index(ws)),
+          ('contours touching', lambda ws, _: touches.Index(ws)),
+          ('spot heights', lambda ws, _: spots.Index(ws)),
+          ('what the files say', lambda ws, _: files.Index(ws)),
+          ('what lies inside the rings', lambda ws, bare_min: inside.Index(ws, bare_min)))
+
+
+def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report=None):
+    """The checks' indexes over a working set - on a worker, while the set
+    goes on being edited on the UI thread. ``report`` is told (step, of,
+    name) before each, so the panel can say how far it has got. An edit
+    that changes a dict under the scan stops it, and it starts again; one
+    that changes a way it has read is put to the indexes when they land, so
+    what was read of that way is asked again."""
     for attempt in range(tries):
         try:
-            return (crossings.Index(ws), loops.Index(ws), touches.Index(ws), spots.Index(ws),
-                    files.Index(ws), inside.Index(ws, bare_min))
+            out = []
+            for k, (name, index) in enumerate(CHECKS):
+                if report is not None:
+                    report((k, len(CHECKS), name))
+                out.append(index(ws, bare_min))
+            return tuple(out)
         except RuntimeError:                   # changed size during iteration
             if attempt == tries - 1:
                 raise
@@ -977,7 +992,10 @@ class MainWindow(QMainWindow):
                 self.crossing_index is None or self.crossing_index.working_set is not self.working_set):
             ws = self.working_set
             self._checks_missed = []
-            self.checks_dock.finding()
+            self.checks_dock.finding(len(CHECKS))
+            self.checks_dock.raise_()
+            self.statusBar().showMessage(f'finding the checks over {ws.centre} and its neighbours…')
+            started = time.monotonic()
             job = None
 
             def done(indexes):
@@ -991,6 +1009,7 @@ class MainWindow(QMainWindow):
                 for square, ways, spot_ids in missed:
                     self._checks_edited(square, ways, spot_ids)
                 self._refresh_checks()
+                self.statusBar().showMessage(f'checks found in {time.monotonic() - started:.1f} s')
 
             def failed(why):
                 self._checks_job = None
@@ -998,10 +1017,12 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f'the checks failed: {first}')
                 self.checks_dock.summary.setText(f'The checks could not be found: {first}. '
                                                  'Close the panel and open it again to try again.')
+                self.checks_dock.progress.setVisible(False)
 
             self.checks_dock.bare_min_ha = self.settings.bare_min_hectares
             bare_min = self.checks_dock.bare_min_ha * 1e4
-            job = Job(lambda: find_checks(ws, bare_min=bare_min), done, failed)
+            job = Job(lambda: find_checks(ws, bare_min=bare_min, report=job.report), done, failed,
+                      on_progress=lambda step: self.checks_dock.finding_step(*step))
             self._checks_job = job
             self._checks_runner(job)
             return
