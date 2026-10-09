@@ -3732,7 +3732,12 @@ took the gobras lakes spanning contours, before flattening, from 132 to 233.
 
 **On the gobras 3x3** after phase 5's burn, 233 lakes span contours and 3,882
 rings hold nothing; after its flatten, 3 lakes and 3,758 rings. The 3,882 are
-gobras's knolls, drawn a ring each - which is why it is a report.
+gobras's knolls, drawn a ring each - which is why it is a report, and why it
+reports only a ring of some size. Half the 3,758 are under 0.6 ha, a knoll a
+few dozen metres across, where a spot height would say nothing the ring does
+not; 1,552 are 1 ha or more, 170 are 10 ha or more and 58 are 25 ha or more.
+So 10 ha by default, `checks/bare_min_hectares` in the INI, and the row says
+the ring's area: 182 after the burn, 170 after the flatten.
 
 **Kept as edited.** Per square, the contours by their boxes. An edit asks
 again only the rings and lakes round what moved: the points an edited line or
@@ -3744,8 +3749,8 @@ spot heights only when one is or a way runs on or off one. The index over the
 3x3 is 2.3 s, on the worker with the others, after a list membership test
 that was quadratic came out: 5.8 s.
 
-Twelve mutations, each failing a test: no crossing counted, for a lake and for
-a ring; an island not a hole; a shore vertex counted; the lake's own level
+Fifteen mutations, each failing a test: no threshold, the INI's not read, the
+area in the wrong unit; no crossing counted, for a lake and for a ring; an island not a hole; a shore vertex counted; the lake's own level
 counted; flowing water a body; a spot height not asked; only the edited ways
 asked again; the spot heights and the lakes never read again; the report
 marking the map; and the report open. Three of them first survived - the

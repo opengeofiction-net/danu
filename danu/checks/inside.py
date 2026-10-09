@@ -9,7 +9,10 @@
 - **a ring with nothing inside it** (R39) - a closed contour holding no other
   contour and no spot height: the top of a hill, or the bottom of a hollow,
   with nothing to say how high or how deep it goes. A report rather than a
-  warning: plenty are meant, and a hill's top ring is still a hill.
+  warning: plenty are meant, and a hill's top ring is still a hill. And only
+  a ring of some size, 10 ha by default: half the 3,758 on gobras are under
+  0.6 ha, knolls a few dozen metres across where a spot height would say
+  nothing the ring does not; 170 are 10 ha or more.
 
 A contour is inside a ring when a vertex of it is, by crossings of a ray with
 every ring of a body counted together, so an island is a hole - or when a
@@ -24,6 +27,7 @@ rings and bodies whose box it touched, as they were and as they are. No Qt.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -89,6 +93,16 @@ class _Line:
     Y: np.ndarray
     box: tuple
     closed: bool
+    area: float                  # square metres, a closed one's; 0 for an open one
+
+
+BARE_MIN_M2 = 100_000            # 10 ha: the smallest ring reported as holding nothing
+
+
+def _area(X, Y) -> float:
+    """A ring's area in square metres, the degrees scaled at its latitude."""
+    kx = 111320 * math.cos(math.radians(float(Y.mean())))
+    return abs(float(np.dot(X[:-1], Y[1:]) - np.dot(X[1:], Y[:-1]))) / 2 * kx * 110540
 
 
 def _line(square, way) -> _Line | None:
@@ -99,7 +113,7 @@ def _line(square, way) -> _Line | None:
     Y = np.array([square.nodes[r].lat for r in refs])
     closed = len(way.refs) > 3 and way.refs[0] == way.refs[-1] and len(refs) == len(way.refs)
     return _Line(way.id, way.ele, np.array(refs, dtype=np.int64), X, Y,
-                 (X.min(), Y.min(), X.max(), Y.max()), closed)
+                 (X.min(), Y.min(), X.max(), Y.max()), closed, _area(X, Y) if closed else 0.0)
 
 
 @dataclass
@@ -153,8 +167,9 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
 class _Square:
     """One square's contours by their boxes, its bodies and its spot heights."""
 
-    def __init__(self, square):
+    def __init__(self, square, bare_min: float = BARE_MIN_M2):
         self.square = square
+        self.bare_min = bare_min
         self.lines = {}
         for w in square.contours():
             ln = _line(square, w)
@@ -205,7 +220,7 @@ class _Square:
 
     # -------------------------------------------------------------- R39
     def bare(self, ln) -> Finding | None:
-        if not ln.closed:
+        if not ln.closed or ln.area < self.bare_min:
             return None
         x0, y0, x1, y1 = ln.box
         ring = [(ln.X, ln.Y)]
@@ -218,7 +233,7 @@ class _Square:
         near = [p for p in self.spots.values() if x0 <= p[0] <= x1 and y0 <= p[1] <= y1]
         if near and inside([p[0] for p in near], [p[1] for p in near], ring).any():
             return None
-        text = f'the {L.format_ele(ln.ele)} m ring, way {ln.id} - nothing inside it'
+        text = f'the {L.format_ele(ln.ele)} m ring, way {ln.id} - {ln.area / 1e4:,.0f} ha, nothing inside it'
         why = ('a closed contour with no contour and no spot height inside: the top of a hill or the '
                'bottom of a hollow, with nothing to say how high or deep it goes - a spot height '
                'would (R37); plenty are meant')
@@ -240,21 +255,22 @@ def _all(sq: _Square) -> dict:
     return out
 
 
-def find_in(square) -> list[Finding]:
-    return list(_all(_Square(square)).values())
+def find_in(square, bare_min: float = BARE_MIN_M2) -> list[Finding]:
+    return list(_all(_Square(square, bare_min)).values())
 
 
-def find(working_set) -> list[Finding]:
-    return [f for sq in working_set.squares.values() for f in find_in(sq)]
+def find(working_set, bare_min: float = BARE_MIN_M2) -> list[Finding]:
+    return [f for sq in working_set.squares.values() for f in find_in(sq, bare_min)]
 
 
 class Index:
     """The findings of a working set, kept as edited: the rings and bodies
     whose box an edit touched, as it was and as it is, are asked again."""
 
-    def __init__(self, working_set):
+    def __init__(self, working_set, bare_min: float = BARE_MIN_M2):
         self.working_set = working_set
-        self._squares = {sq.name: _Square(sq) for sq in working_set.squares.values()}
+        self.bare_min = bare_min
+        self._squares = {sq.name: _Square(sq, bare_min) for sq in working_set.squares.values()}
         self._found = {name: _all(s) for name, s in self._squares.items()}
 
     def findings(self, kind: str | None = None) -> list[Finding]:
@@ -264,7 +280,7 @@ class Index:
     def update(self, square, way_ids=(), spot_ids=()) -> None:
         s = self._squares.get(square.name)
         if s is None or s.square is not square:
-            self._squares[square.name] = s = _Square(square)
+            self._squares[square.name] = s = _Square(square, self.bare_min)
             self._found[square.name] = _all(s)
             return
         way_ids, spot_ids = set(way_ids or ()), set(spot_ids or ())

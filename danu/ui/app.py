@@ -79,7 +79,7 @@ def user_cache_dir() -> Path:
         QStandardPaths.StandardLocation.CacheLocation))
 
 
-def find_checks(ws, tries: int = 5):
+def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2):
     """The checks' indexes over a working set - on a worker, while the
     set goes on being edited on the UI thread. An edit that changes a dict
     under the scan stops it, and it starts again; one that changes a way it
@@ -88,7 +88,7 @@ def find_checks(ws, tries: int = 5):
     for attempt in range(tries):
         try:
             return (crossings.Index(ws), loops.Index(ws), touches.Index(ws), spots.Index(ws),
-                    files.Index(ws), inside.Index(ws))
+                    files.Index(ws), inside.Index(ws, bare_min))
         except RuntimeError:                   # changed size during iteration
             if attempt == tries - 1:
                 raise
@@ -999,7 +999,9 @@ class MainWindow(QMainWindow):
                 self.checks_dock.summary.setText(f'The checks could not be found: {first}. '
                                                  'Close the panel and open it again to try again.')
 
-            job = Job(lambda: find_checks(ws), done, failed)
+            self.checks_dock.bare_min_ha = self.settings.bare_min_hectares
+            bare_min = self.checks_dock.bare_min_ha * 1e4
+            job = Job(lambda: find_checks(ws, bare_min=bare_min), done, failed)
             self._checks_job = job
             self._checks_runner(job)
             return

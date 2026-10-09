@@ -38,7 +38,7 @@ def test_a_lake_spanning_contours_is_listed_open_and_the_report_folded(window, q
     qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
     h = heads(w.checks_dock)
     water = h['Water spanning contours (R33) - select it, and F flattens it']
-    report = h['Report: rings with nothing inside (R39) - a spot height would say how high']
+    report = h['Report: rings of 10 ha or more with nothing inside (R39) - a spot height would say how high']
     assert water.isExpanded() and not report.isExpanded()
     (row,) = [water.child(j) for j in range(water.childCount()) if water.child(j).data(0, 256).square == NORTH]
     w.checks_dock.inside_tree.setCurrentItem(row)
@@ -46,9 +46,22 @@ def test_a_lake_spanning_contours_is_listed_open_and_the_report_folded(window, q
     marks = len(w.editor.marks)
     report.setExpanded(True)
     w._refresh_checks()
-    assert heads(w.checks_dock)['Report: rings with nothing inside (R39) - a spot height would say how high'] \
+    assert heads(w.checks_dock)['Report: rings of 10 ha or more with nothing inside (R39) - a spot height would say how high'] \
         .isExpanded(), 'unfolded, it stays so'
     bare = [f for f in w.inside_index.findings('bare') if f.square == NORTH]
     assert bare and all(m.lonlat_to_scene(f.lon, f.lat) not in w.editor.marks for f in bare), \
         'the report marks the map'
     assert len(w.editor.marks) == marks
+
+
+def test_the_threshold_is_the_inis(window, qtbot):
+    """A ring of some 480 ha reported at the default 10 ha, and not when the
+    INI asks for 1,000."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    hill = ring(sq, 125.3, -22.3, 0.01, {'ele': '450'})
+    w.settings.q.setValue('checks/bare_min_hectares', 1000)
+    w.checks_dock.toggleViewAction().trigger()
+    qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
+    assert hill.id not in {f.way for f in w.inside_index.findings('bare')}
+    assert any('1000 ha or more' in t for t in heads(w.checks_dock)) or not heads(w.checks_dock)

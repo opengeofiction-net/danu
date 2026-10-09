@@ -279,7 +279,8 @@ class ChecksDock(QDockWidget):
                   'ele': 'An ele that is not a number (R31) - the build drops it',
                   'ladder': 'Off the ladder, used once or twice - a mistyped value?'}
     INSIDE_HEADS = {'lake': 'Water spanning contours (R33) - select it, and F flattens it',
-                    'bare': 'Report: rings with nothing inside (R39) - a spot height would say how high'}
+                    'bare': 'Report: rings of {ha} ha or more with nothing inside (R39) - a spot height would say how high'}
+    bare_min_ha = 10.0                     # the checks' threshold, said in the heading
 
     def show_files(self, found: list) -> None:
         """What the squares' files say (H1a)."""
@@ -298,11 +299,12 @@ class ChecksDock(QDockWidget):
             if counts['lake']:
                 parts.append(f'{counts["lake"]:,} lake{"s" * (counts["lake"] != 1)} spanning contours')
             if counts['bare']:
-                parts.append(f'and, as a report, {counts["bare"]:,} ring{"s" * (counts["bare"] != 1)} '
-                             'with nothing inside' if parts else
-                             f'as a report, {counts["bare"]:,} ring{"s" * (counts["bare"] != 1)} with nothing inside')
+                rings = (f'{counts["bare"]:,} ring{"s" * (counts["bare"] != 1)} of {self.bare_min_ha:g} ha '
+                         'or more with nothing inside')
+                parts.append(f'and, as a report, {rings}' if parts else f'as a report, {rings}')
             return 'Inside the rings: ' + ' '.join(parts)
-        self._show_findings(self.inside_tree, self.inside_summary, found, self.INSIDE_HEADS,
+        heads = {k: v.format(ha=f'{self.bare_min_ha:g}') for k, v in self.INSIDE_HEADS.items()}
+        self._show_findings(self.inside_tree, self.inside_summary, found, heads,
                             'No lake spans a contour, and every ring holds something.', said,
                             folded=('bare',))
 

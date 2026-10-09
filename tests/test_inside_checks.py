@@ -82,6 +82,19 @@ def test_flowing_water_spans_contours_and_is_not_a_body():
     assert kinds(w, 'lake') == []
 
 
+def test_a_ring_under_the_threshold_is_not_reported():
+    """A knoll 40 m across, 0.16 ha: a ring all the same, but nothing a spot
+    height would add to. At a threshold under its area it is reported."""
+    w, sq = ws()
+    knoll = ring(sq, 125.5, -22.5, 0.0002, {'ele': '220'})
+    assert kinds(w, 'bare') == []
+    (f,) = [f for f in inside.find(w, bare_min=1000) if f.kind == 'bare']
+    assert f.way == knoll.id and '0 ha' in f.describe()
+    big = ring(sq, 125.2, -22.2, 0.002, {'ele': '220'})                 # 412 m by 442 m, 18.2 ha
+    (f,) = kinds(w, 'bare')
+    assert f.way == big.id and f.describe() == f'the 220 m ring, way {big.id} - 18 ha, nothing inside it'
+
+
 def test_a_ring_with_nothing_inside_is_reported_and_one_holding_anything_is_not():
     w, sq = ws()
     top = ring(sq, 125.5, -22.5, 0.01, {'ele': '450'})
@@ -93,7 +106,7 @@ def test_a_ring_with_nothing_inside_is_reported_and_one_holding_anything_is_not(
     crossed = ring(sq, 125.1, -22.8, 0.01, {'ele': '200'})
     line(sq, [(125.05, -22.8), (125.15, -22.8)], 225)                           # one across, no vertex in
     (f,) = kinds(w, 'bare')
-    assert f.way == top.id and f.describe() == f'the 450 m ring, way {top.id} - nothing inside it'
+    assert f.way == top.id and f.describe().endswith('ha, nothing inside it')
     assert {held.id, outer.id, ended.id, crossed.id}.isdisjoint({x.way for x in kinds(w, 'bare')})
 
 
