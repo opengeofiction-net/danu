@@ -3673,3 +3673,32 @@ The eight-cell tops are spot heights a metre above their ring, where the
 whole small ring is within a metre of the top. Colonie Hill, set to 286 m on
 the main map, stands in a 250 m ring holding ground to 450 m - open contours
 inside a closed one - and is not among the 38.
+
+## What phase 6 has done so far
+
+Checks and polish, in six steps - see *Phase 6* in `spec.md`.
+
+## H1a, what the files say
+
+The checks panel's fifth list, under a heading a kind, three rows of the
+validation table that need no surface:
+
+- **ways over 2,000 nodes, and over 10,000** (R30). Save splits them; until
+  then a row says which limit - the API's refusal, or GDAL dropping the way
+  without a word.
+- **an `ele` that is not a number** (R31), on a way or a node. The build drops
+  it, and said so only in its log. The main map's Kettle Lake, `ele=1,853 Ft`,
+  is the one in the gobras set.
+- **a contour at a value off the square's ladder, used once or twice** - the
+  advice line under the elevation panel, as rows to choose. On the gobras set
+  after phase 5, 26: 113 and 135 in N20E086, the spec's own example, and the
+  low ground's 9, 13, 35, 55, 90 and 91 m.
+
+All three are asked of a whole square again on any edit to it: 12 ms for
+N20E086's 260,000 nodes and 7,000 ways, 0.04 s for the 3x3, so nothing
+cleverer. A row selects its way or node and brings it into view.
+
+Eight mutations, each failing a test: a way at the limit counted, the GDAL
+limit not told apart, nodes not asked for an `ele`, a number taken for not
+one, every value listed as off the ladder, the index not following an edit,
+the panel not told of one, and a row not selecting.
