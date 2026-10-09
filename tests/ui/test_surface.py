@@ -1105,3 +1105,22 @@ def test_clearing_the_surface_drops_a_compose_in_flight(qapp):
     held.run_all()                                   # it finishes anyway
     assert layer._pixmap is None, 'a compose in flight put the surface back'
     assert layer._drawn is None and layer.boundingRect().isNull()
+
+
+def test_the_window_hands_the_panel_what_is_on_screen_once_the_map_is_at_rest(window):
+    """The view scaling's window: the surface's rows and columns under the
+    viewport, told after a pan settles - and not at all with no surface."""
+    w = window
+    w._view_settled()
+    assert w.surface_panel.view_window is None
+    s = synthetic(x0_m=13_900_000.0, y1_m=-2_600_000.0, rows=200, cols=200)
+    w.surface.set_shaded(s)
+    lon, lat = m.scene_to_lonlat(*[(a + b) / 2 for a, b in zip(s.scene_rect[:2], s.scene_rect[2:], strict=True)])
+    w.map.set_zoom(10)
+    w.map.center_on_lonlat(lon, lat)
+    w._view_settled()
+    r0, r1, c0, c1 = w.surface_panel.view_window
+    assert 0 < r0 < r1 < 200 and 0 < c0 < c1 < 200, 'the window is not the part in view'
+    w.map.set_zoom(5)
+    w._view_settled()
+    assert w.surface_panel.view_window == (0, 200, 0, 200), 'zoomed out, all of it is in view'

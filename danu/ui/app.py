@@ -290,6 +290,16 @@ class MainWindow(QMainWindow):
         self.map.cursorMoved.connect(self._cursor)
         self.map.setFocus()
         self.map.zoomChanged.connect(lambda _: self._cursor(*self.map.center_lonlat()))
+        # the view scaling (H3a): the ramp over the land on screen, told once
+        # the map comes to rest rather than on every step of a pan - a recolour
+        # is a second and a half at 3 arcseconds
+        self._view_settle = QTimer(self)
+        self._view_settle.setSingleShot(True)
+        self._view_settle.setInterval(400)
+        self._view_settle.timeout.connect(self._view_settled)
+        self.map.zoomChanged.connect(lambda _: self._view_settle.start())
+        self.map.horizontalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
+        self.map.verticalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.resize(1100, 750)
         self.map.set_zoom(HOME[2])
         self.map.center_on_lonlat(HOME[0], HOME[1])
@@ -905,6 +915,25 @@ class MainWindow(QMainWindow):
             what += ' - what is selected was drawn here, and is not in JOSM'
         return self.josm.zoom(self._view_bounds(), ids, what)
 
+    def _view_settled(self) -> None:
+        """The surface's rows and columns on screen, to the panel - which
+        recolours only if the scaling reads them."""
+        shaded = self.surface.shaded
+        if shaded is None:
+            return
+        r = self.map.viewport().rect()
+        a, b = self.map.mapToScene(r.topLeft()), self.map.mapToScene(r.bottomRight())
+        left, top, right, bottom = shaded.scene_rect
+        rows, cols = shaded.dem.shape
+        c0 = int((a.x() - left) / (right - left) * cols)
+        c1 = int((b.x() - left) / (right - left) * cols) + 1
+        r0 = int((a.y() - top) / (bottom - top) * rows)
+        r1 = int((b.y() - top) / (bottom - top) * rows) + 1
+        window = (max(r0, 0), min(r1, rows), max(c0, 0), min(c1, cols))
+        if window[1] <= window[0] or window[3] <= window[2]:
+            window = None                                 # the surface is off screen
+        self.surface_panel.set_view_window(window)
+
     def _view_bounds(self) -> tuple[float, float, float, float]:
         """The map's viewport as (west, south, east, north)."""
         r = self.map.viewport().rect()
@@ -1304,6 +1333,7 @@ class MainWindow(QMainWindow):
         # seconds comes from the builder: once builds overlap, how long one
         # took is not something a single attribute here can hold
         self.surface.set_shaded(built.shaded)
+        self._view_settle.start()                # a new grid: the window in view asked again
         self.legend.refresh()
         self.unreached.set_shaded(built.shaded)
         self.envelope.set_rings(built.envelope_rings)
