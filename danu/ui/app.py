@@ -29,7 +29,7 @@ from ..surface import difference as surface_difference
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import autosave as autosave_ui
-from . import config, josm, session
+from . import config, josm, session, wms
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
@@ -324,6 +324,8 @@ class MainWindow(QMainWindow):
         self.autosave = AutoSaver(self, Store(data_dir / 'autosave'), self) if data_dir else None
         # and the usage log (H4c): what was done, to replay a bug from
         self.usage = None
+        # the surface served to JOSM (H5), started when it is first asked for
+        self.wms = None
         if self.autosave is not None:
             self.editor.edited.connect(self.autosave.edited)
             self.autosave.failed.connect(lambda t: self.statusBar().showMessage(t))
@@ -612,6 +614,9 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Discard and self.autosave is not None:
                 self.autosave.discard()                  # thrown away on purpose, autosave and all
         self.write_session()
+        if self.wms is not None:
+            self.wms.stop()
+            self.wms = None
         if self.usage is not None:
             self.usage.close()
         self.territory.abort()
@@ -715,6 +720,7 @@ class MainWindow(QMainWindow):
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
                 ('view.josm', 'Show in &JOSM', self.show_in_josm),
+                ('view.josm_surface', 'Show the &surface in JOSM', self.show_surface_in_josm),
                 # toggled turns the loupe on and off, below: the button's toggle reaches it
                 # through setChecked, which triggers nothing
                 ('view.magnify', '&Magnify at the cursor', None)):
@@ -752,6 +758,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.checks_dock.toggleViewAction())
         edit.addAction(self.profile_dock.toggleViewAction())
         edit.addAction(self.edit_actions['view.josm'])
+        edit.addAction(self.edit_actions['view.josm_surface'])
         edit.addAction(self.edit_actions['view.magnify'])
         magnify = self.edit_actions['view.magnify']
         magnify.toggled.connect(self.controls.magnify.setChecked)
@@ -1109,6 +1116,21 @@ class MainWindow(QMainWindow):
         if sel is not None and not ids:
             what += ' - what is selected was drawn here, and is not in JOSM'
         return self.josm.zoom(self._view_bounds(), ids, what)
+
+    def show_surface_in_josm(self) -> str | None:
+        """The surface served on the loopback as a WMS, and JOSM asked to add
+        it as a layer - so the ground under what is fixed there is the ground
+        built here (H5). The server starts the first time, and serves
+        whatever the map shows from then on. Answers the URL asked."""
+        if self.surface.shaded is None:
+            self.statusBar().showMessage('build a surface first - then JOSM can be given it')
+            return None
+        if self.wms is None:
+            surface = self.surface
+            self.wms = wms.SurfaceServer(lambda: (surface.shaded, surface.style, surface._stretch),
+                                         self.settings.wms_port)
+        url = wms.getmap_url(self.wms.base)
+        return self.josm.imagery('Danu surface', url, f'the surface, served at {self.wms.base}')
 
     def _view_settled(self) -> None:
         """The surface's rows and columns on screen, to the panel - which

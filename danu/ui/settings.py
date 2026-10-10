@@ -60,6 +60,8 @@ DEFAULT_KEYS = {
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map
     'view.josm': 'J',
+    # and the surface, served as a WMS, added to JOSM as a layer - H5
+    'view.josm_surface': 'Shift+J',
     # V for view closer: the loupe at the cursor, on and off - H3d
     'view.magnify': 'V',
     'file.save': 'Ctrl+S',
@@ -143,6 +145,16 @@ class Settings:
             return float(self.q.value('checks/bare_min_hectares', 10))
         except (TypeError, ValueError):
             return 10.0
+
+    @property
+    def wms_port(self) -> int:
+        """The loopback port the surface is served on (H5), the same from
+        one run to the next so a layer JOSM keeps finds it again."""
+        from .wms import PORT
+        try:
+            return int(self.q.value('josm/wms_port', PORT))
+        except (TypeError, ValueError):
+            return PORT
 
     @property
     def josm_url(self) -> str:

@@ -4219,3 +4219,43 @@ comes after what it did; a step done, or one undone and redone, not told; the
 keys not logged; a line that does not read raising; changed files not said; old logs
 kept; lines left in a buffer; a parting not reported; and the wheel not
 replayed.
+
+## H5, the surface in JOSM
+
+`danu/ui/wms.py` serves the surface as a WMS on the loopback, and Shift+J
+asks JOSM's remote control to add it with `/imagery` - JOSM's own `{proj}`,
+`{bbox}`, `{width}` and `{height}` left in the GetMap URL it is given. One
+layer, `danu`; GetCapabilities and GetMap; EPSG:3857 - JOSM's Mercator, with
+its older names taken for it - and EPSG:4326, latitude first under 1.3.0.
+The port is 8115 unless the INI says, so a layer JOSM keeps from one day to
+the next finds Danu again; another is taken if that one is in use.
+
+**Each request colours its own.** The layer keeps no array of its colours -
+0.88 GB at 1 arcsecond - so a GetMap takes the cells under its pixels,
+nearest, a stride apart where a pixel spans many, and composes that window
+with the layer's style and the colour scale of its last whole recolour: work
+in proportion to the pixels, not the surface, and colours the map's own. The
+window carries a stride of halo and its own geotransform, so slope is the
+ground's at any stride and at a tile's edge. On the gobras 3x3 at 3", a
+256-pixel tile is 8 to 24 ms from zoom 8 to 17, and 1024 pixels square over
+the set 142 ms; at a point, a tile's colour is the map's to the byte.
+
+**Kept current, cheaply.** Each answer carries an ETag of the surface, the
+style and the scale, and `no-cache`, so JOSM asks again and is told 304
+until the map has changed. A preview patch changes the surface in place and
+not the tag; the exact build that follows does. The PNG is written with zlib
+so the server's thread never touches Qt, and the server reads the layer's
+surface and style as they stand, never waiting on the UI thread nor making
+it wait. 127.0.0.1 only; started the first time it is asked for, stopped on
+closing.
+
+Not tried against a running JOSM in the making of it - the tests stand a
+remote control up on the loopback, and the mapper's JOSM was left alone.
+
+Seventeen mutations, each failing a test: the window coloured over its own
+range, not the surface's; slope without its halo, or at the cells' spacing
+rather than the stride's; EPSG:4326 taken as metres, or 1.3.0's axis order
+ignored; the tag blind to the style; no `no-cache`; any address bound; the
+size limit gone; any projection taken; the PNG's filter bytes misplaced;
+pixels off the surface coloured; the difference left out; JOSM asked for TMS;
+the server left running on closing; and a JOSM asked with no surface built.
