@@ -2,8 +2,8 @@
 
 The keys and the menus have them, but a hand on a map looks for them on the
 map - the phase 3 review asked for zoom there, and for the mode beside it.
-Six buttons down the top left of the view: in, out, select, draw, spot
-height, measure.
+Down the top left of the view: in, out, select, draw, spot height, measure;
+magnify; and the two imports.
 
 A child of the **view**, not of its viewport, for the reason
 ``danu.ui.legend`` records: a scroll takes a viewport's children with it.
@@ -123,8 +123,19 @@ def _ruler(p: QPainter, colour: QColor):
     p.restore()
 
 
+def _magnifier(p: QPainter, colour: QColor):
+    """A lens and its handle - magnify, H3d."""
+    pen = QPen(colour, 1.6)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QPointF(7.5, 7.5), 5.0, 5.0)
+    p.setPen(QPen(colour, 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    p.drawLine(QPointF(11.3, 11.3), QPointF(15.8, 15.8))
+
+
 class MapControls(QWidget):
-    """The tools, and the one action that is not a tool.
+    """The tools, the loupe that goes over any of them, and the imports.
 
     ``importWater`` is a signal rather than a call on the editor: the import
     reaches the network and lands on the window's history across the whole
@@ -166,6 +177,11 @@ class MapControls(QWidget):
         self.modes.addButton(self.spot)
         self.modes.addButton(self.measure)
         self.select.setChecked(True)
+        column.addSpacing(8)
+        # not a tool: the loupe is over whichever tool is in use
+        self.magnify = self._button('', self._tip('Magnify - a loupe at the cursor; shift and the wheel '
+                                                  'for more or less', 'view.magnify'), column,
+                                    checkable=True, icon=_icon(_magnifier, ink))
         column.addSpacing(8)
         self.water = self._button(
             '', self._tip('Import water from Overpass for the working set',
