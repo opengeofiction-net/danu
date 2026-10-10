@@ -3990,3 +3990,47 @@ the steepest, the fill by the ground while the map shows slope, colours in
 hillshade, the legend not saying its colours changed, the fill grey always, a
 click on the profile not taking the map there, the switch not switching, and
 the slope plot drawing the ground.
+
+## H3c, the difference
+
+"What have I actually changed?" A fifth way of showing the surface, beside
+shaded relief, hillshade, relief and slope: the exact build less the published
+DEM, red where the ground is higher than the server last built it, blue lower.
+
+**The published DEM** is the zone's `dem-<zone>.tif` on `data.opengeofiction.net`,
+6 MB for gobras, built 23 September. Fetched on a worker the first time the
+difference is shown and kept in the cache directory, its modified time the
+server's, so later looks ask with If-Modified-Since and are answered 304; a
+server that cannot be reached leaves the copy held in use, said in the status
+line. The fetch is `danu.core.published`, not `danu.surface`: the build's
+package fetches nothing, and `test_build_offline` holds it to that - it
+caught the first placement.
+
+**Onto the map's grid.** Warped bilinear onto the Mercator grid the layer
+draws, as the build's own DEM is, and subtracted there: NaN past the
+published extent, and sea in both no difference whatever depth the server gave
+its sea. The colours are a diverging ramp over ±a span: the 98th percentile of
+the cells that changed by half a metre or more, to a tenth and then up to a
+figure that reads - 1, 1.5, 2, 3, 4, 5, 6 or 8 a decade - and never under 5 m,
+so one bulldozed hill does not wash the other edits out. Under half a metre is
+clear, and what shows is what moved. The legend reads ±the span and does not
+pinch; the ramp and scaling are greyed, as for slope; the status line reads
+"changed +12.0 m", "unchanged" or "not published"; and the profile fills under
+its line with the difference along it.
+
+**Of an exact build only.** Worked out as a build lands - on a worker, 2 s on
+the gobras 3x3 at 3 arcseconds once the file is held - and kept with it; a
+preview's patches recolour nothing in this mode, so the difference shown is
+always an exact build's, the spec's rule for a difference.
+
+On gobras at 3 arcseconds, 380,000 of 6.1 million cells changed by half a
+metre or more since 23 September, a median of 2.4 m and a span of ±50 m; at 1
+arcsecond 436,000 of 55 million, a median of 8 m and ±100 m.
+
+Fifteen mutations, each failing a test: sea in both made a difference, the
+unchanged left coloured, the unchanged counted in the span, the largest
+change taken for the span, the sign turned, the published extent's edge read
+as 0, a 304 not kept, an unreachable server not falling back on the copy, a
+preview recolouring the difference, a new build keeping none, the fetch made
+for every mode, the legend pinching, the ramp left choosable, the profile
+filled with the ground, and nothing ever said unchanged.

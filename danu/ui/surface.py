@@ -39,14 +39,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.square import WorkingSet
-from ..surface import preview, shade, strips
+from ..surface import difference, preview, shade, strips
 from ..surface.params import Params
 from ..surface.ramp import Ramp, spectral, traditional
 from .trace import grid as _grid
 from .trace import trace as _trace
 
 RESOLUTIONS = ((3.0, '3″ - a minute a set, the .hgt archive\'s'), (1.0, '1″ - the published DEM\'s, slow'))
-MODES = ('shaded relief', 'hillshade', 'relief', 'slope')
+MODES = ('shaded relief', 'hillshade', 'relief', 'slope', 'difference')
 RAMPS = {'spectral': spectral, 'traditional': traditional}
 
 
@@ -401,6 +401,12 @@ def _composed_now(shaded, style: 'Style'):
     over. One implementation, called on a worker or on the calling thread -
     two would be two things to keep in step, and the whole point of the worker
     is that it produces what the inline path would have."""
+    if style.mode == 'difference':
+        # its own diverging ramp, over its own span: the exact build less the
+        # published DEM, clear until that has been worked out (H3c)
+        half = shaded.difference_span
+        return (np.ascontiguousarray(difference.rgba(shaded.difference, half, shaded.dem.shape)),
+                (-half, half))
     ramp: Ramp | None = None if style.mode == 'hillshade' else RAMPS[style.ramp]()
     # only where a ramp will use it: in 'auto', range_for is a min and a max
     # over the land in the whole array, and compose returns before it touches
@@ -832,6 +838,9 @@ class SurfaceLayer(QGraphicsItem):
         cols = min(cols, self._pixmap.width() - x0)
         if rows <= 0 or cols <= 0:
             return False
+        if self.style.mode == 'difference':
+            # the exact build's, and a preview changes nothing of it
+            return True
         _trace('box', at=f'{y0},{x0}', size=f'{rows}x{cols}', of=_grid(self.shaded))
         sl = (slice(y0, y0 + rows), slice(x0, x0 + cols))
         ramp: Ramp | None = None if self.style.mode == 'hillshade' else RAMPS[self.style.ramp]()
@@ -1003,8 +1012,9 @@ class SurfacePanel(QDockWidget):
             w.setEnabled(manual)
         for w in (self.centre, self.width):
             w.setEnabled(pinch)
-        # slope's colours are degrees, hillshade has none: neither has a ramp to choose or scale
-        coloured = self.mode.currentText() not in ('hillshade', 'slope')
+        # slope's colours are degrees, a difference's its own, hillshade has
+        # none: none of them has a ramp to choose or scale
+        coloured = self.mode.currentText() not in ('hillshade', 'slope', 'difference')
         self.ramp.setEnabled(coloured)
         self.scaling.setEnabled(coloured and self.ramp.currentText() != 'traditional')
         self.layer.set_style(self.current_style())

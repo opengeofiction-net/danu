@@ -40,6 +40,7 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from ..core.ladder import format_ele
+from ..surface import difference as surface_difference
 from ..surface import shade
 from .surface import RAMPS, SurfaceLayer, SurfacePanel
 
@@ -102,6 +103,16 @@ class Legend(QWidget):
     def slope(self) -> bool:
         return self.layer.style.mode == 'slope'
 
+    @property
+    def difference(self) -> bool:
+        return self.layer.style.mode == 'difference'
+
+    @property
+    def fixed(self) -> bool:
+        """A scale of its own, which no pinch moves: slope's degrees, or a
+        difference's metres either side of nothing changed."""
+        return self.slope or self.difference
+
     def refresh(self, *_):
         """What the bar spans: the land in the surface, else nothing to show."""
         shaded = self.layer.shaded
@@ -110,6 +121,9 @@ class Legend(QWidget):
             self.land = None
         elif style.mode == 'slope':
             self.land = (0.0, shade.SLOPE_MAX)                  # degrees, whatever the ground
+        elif style.mode == 'difference':
+            half = shaded.difference_span
+            self.land = (-half, half) if shaded.difference is not None else None
         elif style.scaling.mode == 'view' and style.scaling.window is not None:
             self.land = style.scaling.range_for(shaded.dem)     # what is in view, as the map is coloured
         else:
@@ -129,6 +143,9 @@ class Legend(QWidget):
         values = np.asarray(values, dtype=float)
         if self.slope:
             return shade.SLOPE_RAMP.rgba(values)
+        if self.difference:
+            half = self.layer.shaded.difference_span or surface_difference.SPAN_MIN_M
+            return surface_difference.DIFF_RAMP.rescaled(-half, half).rgba(np.nan_to_num(values))
         style = self.layer.style
         return shade.ramp_rgba(RAMPS[style.ramp](), values, style.scaling, self.layer.shaded.dem)
 
@@ -168,7 +185,7 @@ class Legend(QWidget):
 
     # -- the moves, in this widget's coordinates; the event handlers call them
     def press(self, pos: QPoint, button) -> bool:
-        if not self.has_land or self.slope:
+        if not self.has_land or self.fixed:
             return False
         if button == Qt.MouseButton.RightButton:
             self.pinch_on_active()
@@ -179,13 +196,13 @@ class Legend(QWidget):
         return True
 
     def move(self, pos: QPoint, buttons) -> bool:
-        if not self.has_land or self.slope or not (buttons & Qt.MouseButton.LeftButton):
+        if not self.has_land or self.fixed or not (buttons & Qt.MouseButton.LeftButton):
             return False
         self.pinch(centre=round(self.value_at(pos.y()), 1))
         return True
 
     def wheel(self, delta: int) -> bool:
-        if not self.has_land or self.slope or not delta:
+        if not self.has_land or self.fixed or not delta:
             return False
         w = self.layer.style.scaling.width
         self.pinch(width=round(w / WHEEL_FACTOR if delta > 0 else w * WHEEL_FACTOR, 1))
@@ -229,11 +246,15 @@ class Legend(QWidget):
         # land's own extremes read 1061.819 m and 0.012 m, which says nothing
         # a reader wants and crowds the bar
         nice = (lambda v: f'{v:.1f}') if hi - lo < 10 else (lambda v: f'{round(v):,}')
-        top = f'{format_ele(hi)}°+' if self.slope else f'{nice(hi)} m'
-        low = f'{format_ele(lo)}°' if self.slope else f'{nice(lo)} m'
+        if self.slope:
+            top, low = f'{format_ele(hi)}°+', f'{format_ele(lo)}°'
+        elif self.difference:
+            top, low = f'+{nice(hi)} m', f'−{nice(-lo)} m'
+        else:
+            top, low = f'{nice(hi)} m', f'{nice(lo)} m'
         p.drawText(QRect(labels.left(), r.top() - 2, labels.width(), 14), right, top)
         p.drawText(QRect(labels.left(), r.bottom() - 11, labels.width(), 14), right, low)
-        if style.scaling.mode == 'pinch' and not self.slope:
+        if style.scaling.mode == 'pinch' and not self.fixed:
             s = style.scaling
             y0, y1 = self.y_for(s.centre + s.width / 2), self.y_for(s.centre - s.width / 2)
             yc = self.y_for(s.centre)
