@@ -24,6 +24,7 @@ from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
 from ..surface import along, shade
+from ..surface import difference as surface_difference
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config, josm
@@ -43,6 +44,7 @@ from .measure import MeasureTool, ProfileDock
 from .messages import install as quieten_qt
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
+from .published import PublishedDem
 from .selection_panel import SelectionPanel
 from .settings import Settings
 from .squares import SquaresItem
@@ -289,6 +291,14 @@ class MainWindow(QMainWindow):
         self.splitDockWidget(self.elevation_panel, self.selection_panel, Qt.Orientation.Vertical)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
         self.legend.changed.connect(self.profile_dock.plot.update)       # the fill follows the map's colours
+        # the difference (H3c): the published DEM fetched when it is first
+        # asked for, and the exact build less it worked out on a worker
+        self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None, parent=self)
+        self.published.ready.connect(self._published_ready)
+        self.published.failed.connect(self._published_failed)
+        self._difference_runner = QThreadPool.globalInstance().start
+        self._difference_job = None
+        self.surface_panel.styleChanged.connect(lambda _style: self._difference_wanted())
         self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
         self.controls.importHeights.connect(self.import_heights)
@@ -353,6 +363,16 @@ class MainWindow(QMainWindow):
             return ''
         c = int(np.floor((x - left) / (right - left) * cols))
         r = int(np.floor((y - top) / (bottom - top) * rows))
+        if self.surface.style.mode == 'difference':
+            diff = shaded.difference
+            if diff is None:
+                return ''
+            v = float(diff[r, c]) if 0 <= r < rows and 0 <= c < cols else float('nan')
+            if np.isnan(v):
+                return 'not published   '
+            if abs(v) < surface_difference.UNCHANGED_M:
+                return 'unchanged   '
+            return f'changed {v:+,.1f} m   '
         if z <= 0:
             return 'sea   '
         if self.surface.style.mode == 'slope':
@@ -1292,11 +1312,63 @@ class MainWindow(QMainWindow):
         self.editor.overlay.update()
         self.statusBar().showMessage(f.explain())
 
+    # ---------------------------------------------------------- difference
+    def _difference_wanted(self) -> None:
+        """Difference shown, and this build's not worked out: fetch the
+        published DEM - or find it kept - and work it out."""
+        shaded = self.surface.shaded
+        if self.surface.style.mode != 'difference' or shaded is None or shaded.difference is not None:
+            return
+        if self.zone_dir is None:
+            return
+        self.statusBar().showMessage(f'difference: fetching the published {self.zone_dir.name} DEM…')
+        self.published.request(self.zone_dir.name)
+
+    def _published_ready(self, zone: str, path, what: str) -> None:
+        shaded = self.surface.shaded
+        if shaded is None or self.zone_dir is None or zone != self.zone_dir.name:
+            return
+        when = time.strftime('%d %b %Y', time.localtime(Path(path).stat().st_mtime))
+
+        def work():
+            pub = surface_difference.published_on(Path(path), shaded)
+            d = surface_difference.difference(shaded.dem, pub)
+            return d, surface_difference.span(d)
+
+        def done(answer):
+            self._difference_job = None
+            if shaded is not self.surface.shaded:
+                self._difference_wanted()          # a build landed meanwhile: its own
+                return
+            shaded.difference, shaded.difference_span = answer
+            self.surface.recolour()
+            self.legend.refresh()
+            self._refresh_status()
+            kept = f' ({what})' if what.startswith('kept') else ''
+            self.statusBar().showMessage(
+                f'difference: the exact build less the published {zone} DEM of {when}{kept}, '
+                f'±{shaded.difference_span:g} m')
+
+        def failed(why):
+            self._difference_job = None
+            self.statusBar().showMessage(f'difference not worked out: {why.splitlines()[0]}')
+        self._difference_job = Job(work, done, failed)
+        self._difference_runner(self._difference_job)
+
+    def _published_failed(self, zone: str, why: str) -> None:
+        self.statusBar().showMessage(f'difference: the published {zone} DEM could not be fetched - {why}')
+
     def _profile_colours(self, line):
         """The colour the map gives each point along a measured line: by its
         slope while slope is shown, by its ground otherwise - the legend's
         colours, so the profile and the bar cannot differ."""
-        values = line.slope if self.surface.style.mode == 'slope' else line.ground
+        mode, shaded = self.surface.style.mode, self.surface.shaded
+        if mode == 'difference':
+            if shaded is None or shaded.difference is None:
+                return None
+            values = along.sample(shaded.difference, shaded.scene_rect, line.scene)
+        else:
+            values = line.slope if mode == 'slope' else line.ground
         return self.legend.colours(values) if values is not None else None
 
     def _show_place(self, w: float, s: float, e: float, n: float):
@@ -1407,6 +1479,7 @@ class MainWindow(QMainWindow):
         self.surface_panel.built(built.shaded, seconds)
         self.surface.set_preview(stale)     # a superseded build is provisional too
         self.measure.surface_changed()
+        self._difference_wanted()           # a new build, a new difference - if one is shown
         # Both, for every build, stale or not.
         #
         # The driver must point at the Shaded the layer is drawing, because the
