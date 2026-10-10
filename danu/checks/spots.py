@@ -179,7 +179,12 @@ def nearest_levels(segments: _Segments, lon: float, lat: float) -> list[float]:
     k = 111320 * math.cos(math.radians(lat))
     ax, ay = (A[:, 0] - lon) * k, (A[:, 1] - lat) * 110540
     bx, by = (B[:, 0] - lon) * k, (B[:, 1] - lat) * 110540
-    near = np.minimum(np.hypot(ax, ay), np.hypot(bx, by)) < RANGE_M + 2000     # a segment's length of slack
+    # the segments within reach: the point's distance to each, not to its ends,
+    # so a long segment passing by with both ends far off is kept
+    ex, ey = bx - ax, by - ay
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t = np.clip(np.nan_to_num(-(ax * ex + ay * ey) / (ex * ex + ey * ey)), 0.0, 1.0)
+    near = np.hypot(ax + t * ex, ay + t * ey) <= RANGE_M
     ax, ay, bx, by, lv = ax[near], ay[near], bx[near], by[near], L[near]
     ex, ey = bx - ax, by - ay
     out = []
@@ -317,7 +322,9 @@ class Index:
             # moved - not the edited contour's whole box, which for a long one
             # is most of the square
             pts = lambda seg: set(map(tuple, np.vstack([seg[0], seg[1][-1:]]))) if seg else set()  # noqa: E731
-            moved ^= pts(old) ^ pts(now)
+            # each way's own difference, gathered by union: two edited contours
+            # sharing the node that moved would cancel each other's out
+            moved |= pts(old) ^ pts(now)
         self._rings[square.name] = rings = list(rings.values())
         heights = spot_heights(square)
         again = set(spot_ids)

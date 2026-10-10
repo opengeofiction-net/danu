@@ -279,3 +279,46 @@ def test_a_contour_moved_in_beside_a_spot_height_in_no_ring_clears_it_though_the
     gone.apply(sq)
     index.update(sq, {k})
     assert [c.node for c in index.contradictions()] == [i], 'a deleted contour still judged by'
+
+
+def test_a_node_two_edited_contours_share_moved_in_beside_one_asks_it_again():
+    """Both contours are the edit's; each lost the node's old place and has
+    its new one - gathered together those must not cancel."""
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    i = spot(sq, 125.5, -22.5, 69)
+    ids = []
+    for x, y in ((125.8, -22.2), (125.9, -22.2), (125.9, -22.3)):
+        k = next(_ids)
+        sq.nodes[k] = Node(id=k, lon=x, lat=y)
+        ids.append(k)
+    shared, a, b = ids[0], ids[1], ids[2]
+    for refs, ele in (([a, shared], '70'), ([b, shared], '75')):
+        k = next(_ids)
+        sq.ways[k] = Way(id=k, refs=refs, tags={'ele': ele})
+    index = spots.Index(w)
+    assert [c.node for c in index.contradictions()] == [i]
+    move = edits.MoveNode(shared, (125.8, -22.2), (125.501, -22.5))
+    move.apply(sq)
+    index.update(sq, move.ways(sq))
+    assert sorted(c.node for c in index.contradictions()) == sorted(c.node for c in spots.find(w))
+
+
+def test_a_long_segment_passing_close_with_both_ends_far_off_is_met():
+    """A 70 m contour as one segment 20 km long, passing 400 m from the
+    spot height: both its ends are far beyond reach, and it is the nearest
+    contour on that side."""
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    i = spot(sq, 125.5, -22.5, 69)
+    assert [c.node for c in spots.find(w)] == [i]
+    ends = []
+    for x, y in ((125.4, -22.502), (125.6, -22.502)):          # 0.2 degrees long, just south of it
+        k = next(_ids)
+        sq.nodes[k] = Node(id=k, lon=x, lat=y)
+        ends.append(k)
+    k = next(_ids)
+    sq.ways[k] = Way(id=k, refs=ends, tags={'ele': '70'})
+    assert spots.find(w) == [], 'the long contour beside it not met'

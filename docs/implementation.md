@@ -3890,7 +3890,11 @@ are now kept the same way, an edited way's replaced: rebuilt whole they had
 been 48 ms of every edit since R38 came in. 16 to 19 ms now, on N20E086, and a
 random-edit test holds the kept list to a fresh scan.
 
-Nine mutations, each failing a test: no ring not judged, no step of slack,
+Eleven mutations, each failing a test: no ring not judged, no step of slack,
 below not asked, too few directions judged, the farthest contour taken for the
 first, an edit not asking the spot heights within reach of what moved, a
-deleted contour's segments kept, and the panel not counting them apart.
+deleted contour's segments kept, the panel not counting them apart - and the
+two the review found: what moved gathered across the edit's ways by symmetric
+difference, so a node two of them share cancelled itself out; and the reach
+taken from a segment's ends, a fixed 2 km of slack, so a long segment passing
+close with both ends far off was not met.
