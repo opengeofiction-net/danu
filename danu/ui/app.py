@@ -56,6 +56,7 @@ from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
+from .usage import UsageLog
 from .water import WaterImporter, fetch_heights, height_commands, heights_held, heights_work
 from .water import commands as water_commands
 
@@ -321,6 +322,8 @@ class MainWindow(QMainWindow):
         # directory, as the edits pause and once a minute; none without one,
         # which is how the tests make a window that writes nowhere
         self.autosave = AutoSaver(self, Store(data_dir / 'autosave'), self) if data_dir else None
+        # and the usage log (H4c): what was done, to replay a bug from
+        self.usage = None
         if self.autosave is not None:
             self.editor.edited.connect(self.autosave.edited)
             self.autosave.failed.connect(lambda t: self.statusBar().showMessage(t))
@@ -330,7 +333,15 @@ class MainWindow(QMainWindow):
         self.loader.finished.connect(self._loaded)
         self.loader.failed.connect(self._load_failed)
         self._pending: tuple[Path, SquareName, int] | None = None
+        if data_dir:
+            # before the menus, so each action is told to the log before its
+            # own slot runs, and the log has it ahead of what it did
+            self.usage = UsageLog(self, data_dir / 'usage', self)
+            self.editor.stepped.connect(self.usage.stepped)
         self._menus()
+        if self.usage is not None:
+            self.editor.toolChanged.connect(lambda name: self.usage.write('tool', name=name))
+            self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
         self._territory = QLabel('')
         self._territory.setToolTip('the territory and owner under the working set, from the wiki and territory.json')
         self.statusBar().addPermanentWidget(self._territory)
@@ -601,6 +612,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Discard and self.autosave is not None:
                 self.autosave.discard()                  # thrown away on purpose, autosave and all
         self.write_session()
+        if self.usage is not None:
+            self.usage.close()
         self.territory.abort()
         self.fetcher.abort()
         # before the builder: the idle timer asks for builds by itself, and one
@@ -644,6 +657,14 @@ class MainWindow(QMainWindow):
         self.elevation.pick_up(hit[1].ele if hit else None)
 
     # ------------------------------------------------------------- menus
+    def _logged(self, action: QAction, name: str) -> None:
+        """The usage log told of ``action`` - connected before its own slot,
+        so it is written ahead of what it does. A tool and the loupe are
+        logged by what they became instead, which their buttons change
+        without triggering the action."""
+        if self.usage is not None and not name.startswith('tool.') and name != 'view.magnify':
+            action.triggered.connect(lambda _=False, n=name: self.usage.action(n))
+
     def _menus(self):
         file = self.menuBar().addMenu('&File')
         self.open_action = QAction('&Open square…', self)
@@ -655,10 +676,12 @@ class MainWindow(QMainWindow):
         file.addSeparator()
         self.save_action = QAction('&Save', self)
         self.save_action.setShortcut(QKeySequence(self.settings.key('file.save')))
+        self._logged(self.save_action, 'file.save')
         self.save_action.triggered.connect(self.save_all)
         file.addAction(self.save_action)
         self.save_as_action = QAction('Save square &as…', self)
         self.save_as_action.setShortcut(QKeySequence(self.settings.key('file.save_as')))
+        self._logged(self.save_as_action, 'file.save_as')
         self.save_as_action.triggered.connect(self.save_as)
         file.addAction(self.save_as_action)
         self.file_actions = {'file.save': self.save_action, 'file.save_as': self.save_as_action}
@@ -697,6 +720,7 @@ class MainWindow(QMainWindow):
                 ('view.magnify', '&Magnify at the cursor', None)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
+            self._logged(a, name)
             if fn is not None:
                 a.triggered.connect(fn)
             if name.startswith('tool.') or name == 'view.magnify':
@@ -749,6 +773,7 @@ class MainWindow(QMainWindow):
                 ('elevation.sea_level', 'Sea level', c.sea_level)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
+            self._logged(a, name)
             a.triggered.connect(fn)
             elevation.addAction(a)
             self.elevation_actions[name] = a
@@ -763,6 +788,7 @@ class MainWindow(QMainWindow):
         surface.addAction(self.rebuild_action)
         self.pinch_action = QAction('&Pinch the ramp on the active elevation', self)
         self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
+        self._logged(self.pinch_action, 'surface.pinch')
         self.pinch_action.triggered.connect(self.legend.pinch_on_active)
         surface.addAction(self.pinch_action)
         self.surface_actions = {'surface.pinch': self.pinch_action}
