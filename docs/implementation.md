@@ -4040,34 +4040,35 @@ filled with the ground, and nothing ever said unchanged.
 A loupe at the cursor, because contours are drawn at cell precision and the
 map is not: at zoom 14 a 3" cell is ten pixels and a 1" cell three, and a
 mapper drawing there cannot see which cells a contour runs through or where
-two come into one. V, or the lens under the tools, turns it on; a circle
-240 px across centred on the cursor shows the map four times over, and shift
-and the wheel step it through 2, 4, 8 and 16 - shift and the wheel zoom the
-map as before while it is off.
+two come into one. V, or the lens under the tools, turns it on; a circle 240
+px across centred on the cursor shows the map four times over, and shift and
+the wheel step it through 2, 4, 8 and 16 - shift and the wheel zoom the map as
+before while it is off.
 
-**The scene again, not the screen scaled.** `QGraphicsScene.render` draws
-the 60 px about the cursor into the loupe, so every layer paints at the
-loupe's scale: cosmetic lines stay a pixel wide, labels are the size they are
-on the map, and the measure line or the contour being drawn is in it as it
-is drawn. The loupe is drawn again when anything in the scene changes, and a
-paint is 10 ms on the gobras 3x3 at zoom 14. Two layers are told they are in
-the loupe for its render. The surface draws its pixmap unsmoothed, so a cell
-is a square of its own colour, and the loupe draws the cells' grid over it
-once a cell is 8 px across. The tiles stay at the map's zoom, scaled up: they
-are the background, and left alone the tile layer asked for tiles one to four
-zooms deeper wherever the loupe went.
+**The scene again, not the screen scaled.** `QGraphicsScene.render` draws the
+60 px about the cursor into the loupe, so every layer paints at the loupe's
+scale: cosmetic lines stay a pixel wide, labels are the size they are on the
+map, and the measure line or the contour being drawn is in it as it is drawn.
+The loupe is drawn again when anything in the scene changes, and a paint is 10
+ms on the gobras 3x3 at zoom 14. Two layers are told they are in the loupe for
+its render. The surface draws its pixmap unsmoothed, so a cell is a square of
+its own colour, and the loupe draws the cells' grid over it once a cell is 8
+px across each way. The tiles stay at the map's zoom, scaled up: they are the
+background, and left alone the tile layer asked for tiles one to four zooms
+deeper wherever the loupe went.
 
-**It takes no click.** `WA_TransparentForMouseEvents`, so a press lands on
-the map under the cross, and the tools go on as they were. A child of the
-view, as the legend and the map's buttons are, and hidden when the cursor
-leaves the viewport.
+**It takes no click.** `WA_TransparentForMouseEvents`, so a press lands on the
+map under the cross, and the tools go on as they were. A child of the view, as
+the legend and the map's buttons are, and hidden when the cursor leaves the
+viewport.
 
-Twenty mutations, each failing a test: the surface smoothed in the loupe, or
-left unsmoothed on the map after it, the map's own paint ignoring the flag,
-the grid always drawn, or never, the magnification not applied, the loupe
-off centre, shown while off, following while off, not hidden off the map -
-by the view or by the loupe - not shown on turning on under a cursor already there,
-taking the click, shift and the wheel zooming the map while it is on, or
-stepping the loupe while it is off, the magnification wrapping past its end,
-the button not turning it on, the tiles fetched deeper or left capped after,
-and not drawn again when the scene changes.
+Twenty-one mutations, each failing a test: the surface smoothed in the loupe,
+or left unsmoothed on the map after it, the map's own paint ignoring the flag,
+the grid always drawn, or never, or for cells too short to see, the
+magnification not applied, the loupe off centre, shown while off, following
+while off, not hidden off the map - by the view or by the loupe - not shown on
+turning on under a cursor already there, taking the click, shift and the wheel
+zooming the map while it is on, or stepping the loupe while it is off, the
+magnification wrapping past its end, the button not turning it on, the tiles
+fetched deeper or left capped after, and not drawn again when the scene
+changes.

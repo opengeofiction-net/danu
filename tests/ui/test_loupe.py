@@ -170,3 +170,21 @@ def test_drawn_again_when_the_map_under_it_changes(w, qtbot):
     w.loupe.update = lambda *a: asked.append(a)
     w.contours.update()                             # an edit, a tile come in
     qtbot.waitUntil(lambda: bool(asked), timeout=2000)
+
+
+def test_no_grid_while_the_cells_are_too_short_to_see(w):
+    """500 m wide and 50 m high: 52 px across in the loupe, and 5 high."""
+    import numpy as np
+
+    from danu.surface import shade
+    s = rising_north()
+    x0, _, _, y1, _, _ = s.geotransform
+    dem = np.repeat(s.dem, 10, axis=0)
+    w.surface.set_runner(None)
+    w.surface.set_shaded(shade.Shaded(dem=dem, shade=np.zeros(dem.shape, np.uint8),
+                                      geotransform=(x0, 500.0, 0.0, y1, 0.0, -50.0), metres=50.0))
+    w.surface.set_preview(False)
+    w.edit_actions['view.magnify'].trigger()
+    moved(w, w.map.viewport().rect().center())
+    image(w)
+    assert w.loupe.drawn_grid == 0

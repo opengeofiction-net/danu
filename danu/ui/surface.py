@@ -871,7 +871,8 @@ class SurfaceLayer(QGraphicsItem):
 
     def cells(self) -> tuple[QRectF, int, int] | None:
         """What is drawn, as a grid: its rect in the scene, and its columns
-        and rows - for the loupe's cell lines (H3d)."""
+        and rows - the pixmap's, a pixel a cell - for the loupe's cell lines
+        (H3d)."""
         if self._pixmap is None:
             return None
         return self._rect, self._pixmap.width(), self._pixmap.height()

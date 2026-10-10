@@ -135,7 +135,7 @@ def _magnifier(p: QPainter, colour: QColor):
 
 
 class MapControls(QWidget):
-    """The tools, and the one action that is not a tool.
+    """The tools, the loupe that goes over any of them, and the imports.
 
     ``importWater`` is a signal rather than a call on the editor: the import
     reaches the network and lands on the window's history across the whole

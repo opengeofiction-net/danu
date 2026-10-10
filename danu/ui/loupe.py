@@ -82,7 +82,10 @@ class Loupe(QWidget):
 
     def source(self) -> QRectF:
         """The scene shown: SIZE pixels at the view's scale times the factor,
-        about the scene point under the cursor."""
+        about the scene point under the cursor; nothing before the cursor
+        has been seen."""
+        if self._at is None:
+            return QRectF()
         c = self.view.mapToScene(self._at.toPoint())
         half = SIZE / 2 / (self.view.transform().m11() * self.factor)
         return QRectF(c.x() - half, c.y() - half, 2 * half, 2 * half)
@@ -134,14 +137,14 @@ class Loupe(QWidget):
         p.end()
 
     def _grid(self, p: QPainter, source: QRectF):
-        """The surface's cells, where one is GRID_PX or more across."""
+        """The surface's cells, where one is GRID_PX or more across each way."""
         cells = self.surface.cells() if self.surface is not None and self.surface.isVisible() else None
         if cells is None:
             return
         rect, cols, rows = cells
         sx = SIZE / source.width()
         cw, ch = rect.width() / cols, rect.height() / rows
-        if cw * sx < GRID_PX:
+        if min(cw, ch) * sx < GRID_PX:
             return
         shown = rect.intersected(source)
         if shown.isEmpty():

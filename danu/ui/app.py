@@ -647,10 +647,13 @@ class MainWindow(QMainWindow):
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
                 ('view.josm', 'Show in &JOSM', self.show_in_josm),
-                ('view.magnify', '&Magnify at the cursor', self.loupe.set_on)):
+                # toggled turns the loupe on and off, below: the button's toggle reaches it
+                # through setChecked, which triggers nothing
+                ('view.magnify', '&Magnify at the cursor', None)):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
-            a.triggered.connect(fn)
+            if fn is not None:
+                a.triggered.connect(fn)
             if name.startswith('tool.') or name == 'view.magnify':
                 a.setCheckable(True)
             self.edit_actions[name] = a
@@ -683,7 +686,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['view.magnify'])
         magnify = self.edit_actions['view.magnify']
         magnify.toggled.connect(self.controls.magnify.setChecked)
-        magnify.toggled.connect(self.loupe.set_on)          # from the button too, which triggers nothing
+        magnify.toggled.connect(self.loupe.set_on)          # from V, the menu and the button alike
         self.controls.magnify.toggled.connect(magnify.setChecked)
         self._tool_changed('select')
         self._edited()
