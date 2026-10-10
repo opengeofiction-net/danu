@@ -4261,3 +4261,23 @@ patch not counting it up; no `no-cache`; any address bound; the
 size limit gone; any projection taken; the PNG's filter bytes misplaced;
 pixels off the surface coloured; the difference left out; JOSM asked for TMS;
 the server left running on closing; and a JOSM asked with no surface built.
+
+## H6, zooms 19 and 20
+
+The map went to 19, the tiles' limit; it goes to 20 now (`mercator.MAX_ZOOM`).
+The scene is still measured at 19, so 20 is a view scale of 2 and nothing
+else moves: the tile layer asks for 19 and draws it stretched, and the
+contours, water, spot heights, selection and overlays are vector and draw at
+any zoom. Measured on the gobras 3x3 at 20: only 19's tiles asked for, and a
+zoom from 20 to 19 and back about a point leaves it where it was, to the
+scene unit. Zoom in is greyed at 20.
+
+Why 20 and no further. The view's scroll bars are ints, and the scene with
+its margin of a world each side is 3 * 2**27 units across: at 20 that is 805
+million pixels, inside 2**31; 22 would overflow it. And 20 is what the case
+that raised it needs. The Water of Meeonoa on gobras, a stream a median
+1.4 m from the outline of the river area it runs in, is 5 px from it at 19,
+inside the 8 px pick radius; at 20 it is 10 px, outside it. A test draws the
+two 1.4 m apart: a click 3 px off the stream picks the outline at 19 and the
+stream at 20. Preferring a line to an outline, and cycling through what is
+under the cursor as JOSM does, stay with the interface review.
