@@ -4143,3 +4143,33 @@ save; an earlier run's autosave taken away by a flush; the timers armed by
 opening a set, or not by an undo back to clean, or the idle's or the
 minute's not at all; a save, a discarding close or leaving a set not seen
 to; and what is not taken left where it was.
+
+## H4b, the session
+
+`danu/ui/session.py`: `session.json` beside the autosave, holding the
+working set, the view (centre and zoom), the window's geometry and Qt's saved
+state of its docks, the layer and its opacity, every choice on the surface
+panel and the resolution of a surface built, the tool, the loupe and the
+active elevation. A surface is never kept, only how to make it: one that was
+built is built again as the set lands - four seconds at 3" on the gobras
+3x3.
+
+Written a second after any of those changes - the view coming to rest, a
+style, a tool, a layer, the set landing - and on closing, so a kill loses at
+most the last second. Read by `main()` when Danu is started with no square:
+the window and its docks put back before it is shown, so it opens there
+rather than jumping, then the choices, then the set opened; the view, the
+elevation and the surface once it has landed, after the window's own fit to
+the centre square. What a square holds is the squares' and, unsaved, the
+autosave's: reopening the set makes the recovery offer as any opening does.
+
+Run twice through `main()` against a data directory of its own: the first
+opened gobras at N20E086, built the surface, moved to zoom 13 at 86.4, 20.4
+and chose relief; the second, given nothing, opened there, in relief, with
+the surface built again.
+
+Fourteen mutations, each failing a test: the zoom, the centre, the elevation,
+the tool, the loupe, the layer, the mode or the docks not put back; the
+surface not built again, or said built when none was; the session not
+written on closing, or not as things change; a zone that is gone opened
+anyway; and a file of another version read.
