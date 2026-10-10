@@ -2,8 +2,8 @@
 
 The keys and the menus have them, but a hand on a map looks for them on the
 map - the phase 3 review asked for zoom there, and for the mode beside it.
-Five buttons down the top left of the view: in, out, select, draw, spot
-height.
+Six buttons down the top left of the view: in, out, select, draw, spot
+height, measure.
 
 A child of the **view**, not of its viewport, for the reason
 ``danu.ui.legend`` records: a scroll takes a viewport's children with it.
@@ -109,6 +109,20 @@ def _peak(p: QPainter, colour: QColor):
     p.drawPolygon([QPointF(10.2, 3.8), QPointF(14.8, 3.8), QPointF(12.5, 6.6)])
 
 
+def _ruler(p: QPainter, colour: QColor):
+    """A ruler laid across - measure, H3b."""
+    pen = QPen(colour, 1.4)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.save()
+    p.translate(9, 9)
+    p.rotate(-35)
+    p.drawRect(QRectF(-8, -2.6, 16, 5.2))
+    for i, x in enumerate(range(-6, 7, 2)):
+        p.drawLine(QPointF(x, -2.6), QPointF(x, -0.6 if i % 2 else 0.6))
+    p.restore()
+
+
 class MapControls(QWidget):
     """The tools, and the one action that is not a tool.
 
@@ -143,10 +157,14 @@ class MapControls(QWidget):
         self.spot = self._button('', self._tip('Place a spot height at the active elevation',
                                                'tool.spot'), column,
                                  checkable=True, icon=_icon(_spot, ink))
+        self.measure = self._button('', self._tip('Measure - a line, and the ground along it',
+                                                  'tool.measure'), column,
+                                    checkable=True, icon=_icon(_ruler, ink))
         self.modes = QButtonGroup(self)
         self.modes.addButton(self.select)
         self.modes.addButton(self.draw)
         self.modes.addButton(self.spot)
+        self.modes.addButton(self.measure)
         self.select.setChecked(True)
         column.addSpacing(8)
         self.water = self._button(
@@ -167,6 +185,7 @@ class MapControls(QWidget):
             self.select.clicked.connect(lambda: editor.set_tool('select'))
             self.draw.clicked.connect(lambda: editor.set_tool('draw'))
             self.spot.clicked.connect(lambda: editor.set_tool('spot'))
+            self.measure.clicked.connect(lambda: editor.set_tool('measure'))
             editor.toolChanged.connect(self.tool_changed)
         # the viewport's resize, held by name: see danu.ui.legend
         self._viewport = view.viewport()
@@ -213,3 +232,4 @@ class MapControls(QWidget):
         self.select.setChecked(name == 'select')
         self.draw.setChecked(name == 'draw')
         self.spot.setChecked(name == 'spot')
+        self.measure.setChecked(name == 'measure')
