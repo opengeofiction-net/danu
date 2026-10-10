@@ -280,12 +280,15 @@ class MainWindow(QMainWindow):
         self.profile_dock = ProfileDock(self.measure, self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.profile_dock)
         self.profile_dock.hide()
-        self.profile_dock.climbChosen.connect(self._show_issue_place)
+        self.profile_dock.placeChosen.connect(lambda lon, lat: self._show_place(lon, lat, lon, lat))
+        # filled under its line in the map's colours, and again when they change
+        self.profile_dock.plot.colourer = self._profile_colours
         # what is selected, under the elevation panel: the active elevation is
         # what the tools will use, and this is what the selection already has
         self.selection_panel = SelectionPanel(self.editor, self)
         self.splitDockWidget(self.elevation_panel, self.selection_panel, Qt.Orientation.Vertical)
         self.legend = Legend(self.map, self.surface, self.surface_panel, self.elevation)
+        self.legend.changed.connect(self.profile_dock.plot.update)       # the fill follows the map's colours
         self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
         self.controls.importHeights.connect(self.import_heights)
@@ -1289,11 +1292,12 @@ class MainWindow(QMainWindow):
         self.editor.overlay.update()
         self.statusBar().showMessage(f.explain())
 
-    def _show_issue_place(self, issue) -> None:
-        """The map to a span the profile shaded - its scene points' box."""
-        lonlat = [m.scene_to_lonlat(x, y) for x, y in issue.path]
-        xs, ys = [p[0] for p in lonlat], [p[1] for p in lonlat]
-        self._show_place(min(xs), min(ys), max(xs), max(ys))
+    def _profile_colours(self, line):
+        """The colour the map gives each point along a measured line: by its
+        slope while slope is shown, by its ground otherwise - the legend's
+        colours, so the profile and the bar cannot differ."""
+        values = line.slope if self.surface.style.mode == 'slope' else line.ground
+        return self.legend.colours(values) if values is not None else None
 
     def _show_place(self, w: float, s: float, e: float, n: float):
         """The map to something a grade found - G6d-3. A margin round a span,

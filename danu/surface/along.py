@@ -2,9 +2,10 @@
 
 The line is the mapper's: points clicked, or a drag's two ends. Along it, the
 surface the layer draws, read a cell at a time as the status line reads the
-one under the cursor - so the profile and the reading agree - and the
-distance on the ground, in metres. The contours and the water it crosses are
-the layer's to find; this puts them at their distance along.
+one under the cursor - so the profile and the reading agree - and its slope as
+the map's slope mode shows it, with the distance on the ground in metres. The
+contours and the water it crosses are the layer's to find; this puts them at
+their distance along.
 
 From the exact surface only (the spec's "a profile ... is taken from an exact
 surface or refuses to answer"): the caller asks whether a preview stands.
@@ -21,8 +22,7 @@ import numpy as np
 
 from ..core.profile import seg_lengths
 from ..ui import mercator as m
-
-CLIMB_MIN_M = 1.0                # a climb under this is the surface's rounding
+from . import shade
 
 
 @dataclass
@@ -35,6 +35,7 @@ class Along:
     dist: np.ndarray
     ground: np.ndarray | None
     vertex_d: list
+    slope: np.ndarray | None = None                   # the ground's slope at each, degrees
     contours: list = field(default_factory=list)      # (metres along, ele)
     water: list = field(default_factory=list)         # (metres along, label, level or None)
 
@@ -73,40 +74,12 @@ class Along:
         k = self._known()
         return float(np.nanmin(self.ground)) if len(k) else None
 
-    def climbs(self, least: float = CLIMB_MIN_M) -> list[tuple[float, float, float]]:
-        """Where the ground climbs, walking the line as drawn - each from a
-        trough to the peak after it, a rise or a fall of ``least`` the turn:
-        (from, to metres along, the climb). So a line drawn down a valley
-        shows where water drawn that way could not run.
-
-        Not the grade's ground above the lowest the line has been, which was
-        tried first: on gobras' rolling lowland it shaded nearly the whole of
-        a 25 km line, everything after its first dip. A gap off the surface
-        ends a climb and starts again past it."""
-        k = self._known()
-        if len(k) < 2:
-            return []
-        g = self.ground[k]
-        out, lo, hi = [], 0, None
-        for j in range(1, len(g)):
-            if k[j] != k[j - 1] + 1:               # off the surface and back
-                if hi is not None:
-                    out.append((lo, hi))
-                lo, hi = j, None
-                continue
-            if hi is None:
-                if g[j] <= g[lo]:
-                    lo = j                         # the last of a flat trough
-                elif g[j] - g[lo] >= least:
-                    hi = j
-            elif g[j] > g[hi]:
-                hi = j                             # the first of a flat top
-            elif g[hi] - g[j] >= least:
-                out.append((lo, hi))
-                lo, hi = j, None
-        if hi is not None:
-            out.append((lo, hi))
-        return [(float(self.dist[k[a]]), float(self.dist[k[b]]), float(g[b] - g[a])) for a, b in out]
+    @property
+    def steepest(self) -> float | None:
+        """The steepest the ground is anywhere along it, in degrees."""
+        if self.slope is None or np.isnan(self.slope).all():
+            return None
+        return float(np.nanmax(self.slope))
 
     def at(self, d: float) -> tuple[float, float]:
         """The scene point ``d`` metres along."""
@@ -117,10 +90,16 @@ class Along:
         return float(p[0]), float(p[1])
 
     def ground_at(self, d: float) -> float | None:
-        if self.ground is None:
+        return self._value_at(self.ground, d)
+
+    def slope_at(self, d: float) -> float | None:
+        return self._value_at(self.slope, d)
+
+    def _value_at(self, values, d: float) -> float | None:
+        if values is None:
             return None
         i = int(np.clip(np.searchsorted(self.dist, d), 0, len(self.dist) - 1))
-        v = self.ground[i]
+        v = values[i]
         return None if np.isnan(v) else float(v)
 
     def distance_of(self, k: int, t: float) -> float:
@@ -146,16 +125,39 @@ def line(points, step: float) -> tuple[np.ndarray, list]:
     return np.array(out), at
 
 
+def cells(shape: tuple, scene_rect: tuple, scene: np.ndarray):
+    """The row and column of the cell each scene point falls in, and which
+    are on the grid."""
+    left, top, right, bottom = scene_rect
+    rows, cols = shape
+    c = np.floor((scene[:, 0] - left) / (right - left) * cols).astype(np.int64)
+    r = np.floor((scene[:, 1] - top) / (bottom - top) * rows).astype(np.int64)
+    return r, c, (r >= 0) & (r < rows) & (c >= 0) & (c < cols)
+
+
 def sample(dem: np.ndarray, scene_rect: tuple, scene: np.ndarray) -> np.ndarray:
     """The surface at each scene point: the cell it falls in, NaN off the
     grid. The status line's reading is this, so the two agree."""
-    left, top, right, bottom = scene_rect
-    rows, cols = dem.shape
-    c = np.floor((scene[:, 0] - left) / (right - left) * cols).astype(np.int64)
-    r = np.floor((scene[:, 1] - top) / (bottom - top) * rows).astype(np.int64)
-    ok = (r >= 0) & (r < rows) & (c >= 0) & (c < cols)
+    r, c, ok = cells(dem.shape, scene_rect, scene)
     out = np.full(len(scene), np.nan)
     out[ok] = dem[r[ok], c[ok]]
+    return out
+
+
+def slope(shaded, scene: np.ndarray) -> np.ndarray:
+    """The ground's slope at each scene point, in degrees, as the map's slope
+    mode and the status line give it - `shade.slope_degrees` over the cells
+    the line's box holds and one round it, read at the cell each point is
+    in. NaN off the grid."""
+    r, c, ok = cells(shaded.dem.shape, shaded.scene_rect, scene)
+    out = np.full(len(scene), np.nan)
+    if not ok.any():
+        return out
+    rows, cols = shaded.dem.shape
+    r0, r1 = max(int(r[ok].min()) - 1, 0), min(int(r[ok].max()) + 2, rows)
+    c0, c1 = max(int(c[ok].min()) - 1, 0), min(int(c[ok].max()) + 2, cols)
+    deg = shade.slope_degrees(shaded.dem[r0:r1, c0:c1], shaded.geotransform, r0)
+    out[ok] = deg[r[ok] - r0, c[ok] - c0]
     return out
 
 
@@ -171,8 +173,10 @@ def along(points, shaded=None) -> Along:
         step = float('inf')
     scene, at = line(pts, step)
     dist = _metres(scene)
-    ground = sample(shaded.dem, shaded.scene_rect, scene) if shaded is not None else None
-    return Along(scene, dist, ground, [float(dist[i]) for i in at])
+    if shaded is None:
+        return Along(scene, dist, None, [float(dist[i]) for i in at])
+    ground = sample(shaded.dem, shaded.scene_rect, scene)
+    return Along(scene, dist, ground, [float(dist[i]) for i in at], slope=slope(shaded, scene))
 
 
 def level_between(levels: list[tuple[float, float]], d: float) -> float | None:

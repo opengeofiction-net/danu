@@ -54,6 +54,7 @@ class Legend(QWidget):
     """Reads the layer and the panel; writes the panel."""
 
     pinched = Signal(float, float)        # centre, width - after any change from here
+    changed = Signal()                    # the colours may be others now: the profile's fill (H3b)
 
     def __init__(self, view, layer: SurfaceLayer, panel: SurfacePanel, elevation=None):
         super().__init__(view)
@@ -117,6 +118,19 @@ class Legend(QWidget):
         self.place()
         self.setVisible(self.has_land)
         self.update()
+        self.changed.emit()
+
+    def colours(self, values) -> np.ndarray | None:
+        """RGBA for elevations - or degrees, while slope is shown - as the
+        bar and the map colour them; None in hillshade, which has no colours,
+        and with no surface. The profile fills under its line with this."""
+        if self.layer.shaded is None or self.layer.style.mode == 'hillshade':
+            return None
+        values = np.asarray(values, dtype=float)
+        if self.slope:
+            return shade.SLOPE_RAMP.rgba(values)
+        style = self.layer.style
+        return shade.ramp_rgba(RAMPS[style.ramp](), values, style.scaling, self.layer.shaded.dem)
 
     def value_at(self, y: int) -> float:
         """The elevation at a row of the bar - top is high."""
@@ -195,15 +209,10 @@ class Legend(QWidget):
         if not self.has_land:
             return
         style = self.layer.style
-        ramp = RAMPS[style.ramp]()
         lo, hi = self.land
         r = self.bar_rect()
         # the bar: each row is one elevation, coloured as compose() colours a cell
-        rows = np.linspace(hi, lo, r.height())
-        if self.slope:
-            rgba = shade.SLOPE_RAMP.rgba(rows)
-        else:
-            rgba = shade.ramp_rgba(ramp, rows, style.scaling, self.layer.shaded.dem)
+        rgba = self.colours(np.linspace(hi, lo, r.height()))
         img = QImage(1, r.height(), QImage.Format.Format_RGBA8888)
         for i, c in enumerate(rgba):
             img.setPixelColor(0, i, QColor(int(c[0]), int(c[1]), int(c[2])))

@@ -37,7 +37,7 @@ def test_the_length_is_on_the_ground_and_the_drawn_points_are_kept():
     want = seg_lengths([(126.2, -23.9), (126.2, -23.5), (126.4, -23.5)])
     assert a.length == pytest.approx(want.sum(), rel=1e-6)
     assert a.vertex_d[1] == pytest.approx(want[0], rel=1e-6) and len(a.vertex_d) == 3
-    assert a.ground is None and a.ends is None and a.climbs() == []
+    assert a.ground is None and a.ends is None and a.slope is None and a.steepest is None
 
 
 def test_the_ground_is_read_a_cell_apart_as_the_status_line_reads_it():
@@ -63,37 +63,29 @@ def test_off_the_grid_is_nan_and_the_ends_are_where_it_reaches():
     assert a.ends == (100, 100)
 
 
-def test_a_climb_is_from_a_trough_to_the_peak_after_it():
-    """Down a valley, over a 30 m knoll, and down again: the knoll's near
-    side is the climb, and the fall after it is not; drawn the other way,
-    the climbs are the knoll's other side and the long rise after it."""
-    def z(lat, lon):
-        x = (lon - 126.2) / 0.4                                      # 0 to 1 along
-        return 100 - 80 * x + 30 * np.exp(-((x - 0.5) / 0.06) ** 2)
-    s = grid(126.0, -23.0, 100, 240, 300.0, z)
-    pts = scene((126.2, -23.1), (126.6, -23.1))
-    a = A.along(pts, s)
-    (d0, d1, rise), = a.climbs()
-    mid = a.length / 2
-    assert 0.35 * a.length < d0 < d1 < mid and 15 < rise < 30
-    peak = a.ground_at(d1)
-    assert peak == pytest.approx(np.nanmax(a.ground[(a.dist > d0) & (a.dist < mid * 1.2)]))
-    back = A.along(pts[::-1], s).climbs()
-    assert len(back) == 2 and back[0][1] < back[1][0] and back[1][2] > 30
-    flat = A.along(pts, grid(126.0, -23.0, 100, 240, 300.0, lambda lat, lon: 0 * lat + 5))
-    assert flat.climbs() == []
+def test_the_slope_is_the_maps_slope_at_each_cell_along_it():
+    """A plane rising 1 m in 10 m northward: 5.7 degrees on the ground,
+    everywhere - and read as `shade.slope_degrees` reads the whole grid."""
+    s = grid(126.0, -23.0, 300, 300, 500.0, lambda lat, lon: (lat + 24) * 11054)
+    a = A.along(scene((126.2, -23.8), (126.2, -23.2), (126.6, -23.2)), s)
+    whole = shade.slope_degrees(s.dem, s.geotransform)
+    r, c, ok = A.cells(s.dem.shape, s.scene_rect, a.scene)
+    assert ok.all() and np.allclose(a.slope, whole[r, c])
+    assert np.nanmedian(a.slope) == pytest.approx(5.7, abs=0.3) and a.steepest == pytest.approx(a.slope.max())
+    assert a.slope_at(a.length / 2) == pytest.approx(5.7, abs=0.3)
+    # and where it varies - steeper eastward - each point its own cell's
+    v = grid(126.0, -23.0, 300, 200, 500.0, lambda lat, lon: (lat + 24) * 11054 * (lon - 125.9) * 3)
+    b = A.along(scene((126.05, -23.9), (126.6, -23.3)), v)
+    r, c, ok = A.cells(v.dem.shape, v.scene_rect, b.scene)
+    assert ok.all() and np.allclose(b.slope, shade.slope_degrees(v.dem, v.geotransform)[r, c])
+    assert b.slope[-1] > 2 * b.slope[0]
 
 
-def test_a_rise_and_fall_under_the_least_is_not_a_turn():
-    """A metre's wobble on a long climb leaves it one climb."""
-    a = A.Along(np.zeros((7, 2)), np.arange(7.0) * 100, np.array([10, 15, 14.5, 20, 19.2, 25, 10.0]), [0, 600])
-    assert a.climbs() == [(0.0, 500.0, 15.0)]
-    assert np.array(a.climbs(least=0.4)) == pytest.approx(np.array([(0, 100, 5.0), (200, 300, 5.5), (400, 500, 5.8)]))
-
-
-def test_a_climb_under_a_metre_is_the_surface_rounding():
-    s = grid(126.0, -23.0, 100, 240, 300.0, lambda lat, lon: 50 + 0.4 * np.sin(lon * 900))
-    assert A.along(scene((126.2, -23.1), (126.6, -23.1)), s).climbs() == []
+def test_off_the_grid_the_slope_is_nan_too():
+    s = grid(126.0, -23.0, 100, 100, 500.0, lambda lat, lon: 100 + 0 * lat)
+    a = A.along(scene((125.9, -23.1), (126.2, -23.1)), s)
+    assert np.isnan(a.slope[0]) and a.slope[-1] == 0 and a.slope_at(0.0) is None
+    assert A.along(scene((120.0, -23.1), (120.5, -23.1)), s).steepest is None
 
 
 def test_a_place_along_a_drawn_segment_is_its_distance():
@@ -120,4 +112,3 @@ def test_off_the_surface_and_back_neither_climbs_nor_falls_across_the_gap():
     a = A.Along(np.zeros((9, 2)), np.arange(9.0) * 100, g, [0, 800])
     up, down = a.up_down
     assert up == pytest.approx(1 + 0.5 + 1.5) and down == pytest.approx(1 + 0.2)
-    assert [c[:2] for c in a.climbs()] == [(0.0, 100.0), (500.0, 700.0)]

@@ -5,11 +5,14 @@ Enter or a right click; or a drag, which is a straight line of its two ends.
 While it is drawn the status line says how long it is and the ground at the
 cursor against the start. Ended, it is measured: its length on the ground,
 the ground at its ends, the rise and the gradient between them, what it climbs
-and falls along the way - and the profile panel draws the ground along it,
-the contours it crosses at their values, the water at its levels, and shades
-the climbs - each rise from a trough to the peak after it, walking the line as
-drawn, so a line drawn down a valley shows where water could not run. The
-grade's plot, reused.
+and falls along the way and the steepest it gets - and the profile panel draws
+the ground along it, with the contours it crosses at their values and the
+water at its levels, or the ground's slope along it, as the map's slope mode
+gives it. A click on the profile takes the map to the place.
+
+No climbs shaded, as the grade's plot shades them: on a line drawn anywhere a
+climb is only the ground going up, and there is nothing to do about it. A
+river's climbs are the grade's to show and the burn's to mend.
 
 The ground is the exact surface's, or nothing: while a preview stands the
 profile says so, and is drawn again when the exact build lands - the spec's
@@ -21,16 +24,28 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QDockWidget, QGraphicsItem, QLabel, QSizePolicy, QToolTip, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QDockWidget,
+    QGraphicsItem,
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QToolButton,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..core.square import parse_ele
 from ..surface import along as A
 from . import mercator as m
 from .contours import water_feature
-from .selection_panel import SPAN_FILL, ProfileView
-from .tools import FAST_PX, ISSUE_PEN, Issue
+from .tools import FAST_PX
 
 GROUND = QColor(120, 75, 30)
+SLOPE = QColor(200, 90, 20)
+SLOPE_FLOOR = 5.0                # degrees: the slope plot's least top, so the flat reads flat
 WATER = QColor(30, 100, 200)
 LINE = QColor(20, 20, 20)
 AGAIN_MS = 500                   # edits this long apart, and an ended line is measured again
@@ -223,17 +238,6 @@ class MeasureTool(QObject):
             self._again.start()
 
     # ----------------------------------------------------------- reading
-    def climbs(self) -> list[Issue]:
-        a = self.result
-        if a is None or self.why_not:
-            return []
-        out = []
-        for d0, d1, rise in a.climbs():
-            run = [a.at(d0), *[tuple(p) for p, x in zip(a.scene, a.dist, strict=True) if d0 < x < d1], a.at(d1)]
-            out.append(Issue('climb', f'climbs {rise:,.0f} m over {metres(d1 - d0)}',
-                             tuple(run), (d0, d1)))
-        return out
-
     def summary(self) -> str:
         a = self.result
         if a is None:
@@ -250,7 +254,8 @@ class MeasureTool(QObject):
                          + (f' ({100 * rise / a.length:+.1f}%)' if a.length else ''))
             up, down = a.up_down
             parts.append(f'along it {up:,.0f} m up and {down:,.0f} m down, '
-                         f'{a.lowest:,.0f} to {a.highest:,.0f} m')
+                         f'{a.lowest:,.0f} to {a.highest:,.0f} m'
+                         + (f', steepest {a.steepest:.1f}°' if a.steepest is not None else ''))
         crossed = []
         if a.contours:
             crossed.append(f'{len(a.contours)} contour{"s" * (len(a.contours) != 1)}')
@@ -263,8 +268,7 @@ class MeasureTool(QObject):
 
 class MeasureOverlay(QGraphicsItem):
     """The line on the map: drawn, the stretch to the cursor while it is
-    being drawn, the climbs over it in red, and the place the profile points
-    at."""
+    being drawn, and the place the profile points at."""
 
     def __init__(self, tool: MeasureTool):
         super().__init__()
@@ -296,14 +300,6 @@ class MeasureOverlay(QGraphicsItem):
         for p_ in (halo, pen):
             painter.setPen(p_)
             painter.drawPath(path)
-        red = QPen(ISSUE_PEN['climb'], 4.0)
-        red.setCosmetic(True)
-        painter.setPen(red)
-        for issue in t.climbs():
-            run = QPainterPath(QPointF(*issue.path[0]))
-            for p in issue.path[1:]:
-                run.lineTo(*p)
-            painter.drawPath(run)
         painter.setPen(QPen(LINE, 0))
         painter.setBrush(QColor(255, 255, 255))
         r = 3.0 / scale
@@ -314,30 +310,42 @@ class MeasureOverlay(QGraphicsItem):
             painter.drawEllipse(QPointF(*t.result.at(t.hover_d)), 5.0 / scale, 5.0 / scale)
 
 
-class TerrainProfile(ProfileView):
-    """The ground along the line - the grade's plot, drawn of the ground
-    rather than of a river's levels: the ground brown, the contours crossed
-    as dark dots at their values, the water as blue triangles at its level
-    (hollow, at the ground, where it has none), and the climbs shaded. Hover
-    for the ground at a place, which the map marks; a climb clicked is shown."""
+class TerrainProfile(QWidget):
+    """The ground along the line, distance across. In elevation, the ground
+    brown, the contours crossed as dark dots at their values and the water as
+    blue triangles at its level - hollow, at the ground, where it has none.
+    In slope, the ground's slope in degrees, and the contours and the water
+    as ticks along the foot. Under the line, each stretch filled in the
+    colour the map gives that place - ``colourer`` says what that is. Hover
+    for the ground at a place, which the map marks; a click takes the map
+    there."""
 
     hovered = Signal(object)              # metres along, or None
+    chosen = Signal(float)                # metres along: show it on the map
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.line: A.Along | None = None
-        self.issues: list = []
+        self.mode = 'elevation'
+        self._x = None                    # metres along to pixels, as last painted
         self._plot = None
+        # (Along) -> RGBA a point, or None for no colours: the window's, from
+        # the legend, so the fill is the map's colour scale as it stands
+        self.colourer = None
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def show_line(self, line, issues) -> None:
+    def show_line(self, line) -> None:
         self.line = line if line is not None and line.ground is not None else None
-        self.issues = issues
-        self._x = None
+        self._x = self._plot = None
         self.setVisible(self.line is not None)
         self.update()
 
-    def spans(self) -> list:
-        return [i for i in self.issues if i.span is not None]
+    def set_mode(self, mode: str) -> None:
+        if mode not in ('elevation', 'slope'):
+            raise ValueError(mode)
+        self.mode = mode
+        self.update()
 
     def _d_at(self, px: float):
         if self._plot is None:
@@ -347,36 +355,78 @@ class TerrainProfile(ProfileView):
         return d if 0 <= d <= length else None
 
     def mouseMoveEvent(self, event):
-        if self.span_at(event.position().x()) is not None:
-            self.hovered.emit(None)
-            super().mouseMoveEvent(event)
-            return
-        self.unsetCursor()
         d = self._d_at(event.position().x())
         self.hovered.emit(d)
         if d is not None and self.line is not None:
-            g = self.line.ground_at(d)
+            g, sl = self.line.ground_at(d), self.line.slope_at(d)
+            said = [f'ground {g:,.0f} m'] if g is not None else []
+            said += [f'slope {sl:.1f}°'] if sl is not None else []
             QToolTip.showText(event.globalPosition().toPoint(),
-                              f'{metres(d)} along' + (f' - ground {g:,.0f} m' if g is not None else ''), self)
+                              f'{metres(d)} along' + (' - ' + ', '.join(said) if said else '')
+                              + '. Click to show it on the map.', self)
         else:
             QToolTip.hideText()
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        d = self._d_at(event.position().x())
+        if d is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.chosen.emit(d)
+            return
+        super().mousePressEvent(event)
 
     def leaveEvent(self, event):
         self.hovered.emit(None)
         super().leaveEvent(event)
 
+    def _values(self):
+        a = self.line
+        v = a.slope if self.mode == 'slope' else a.ground
+        return v if v is not None else np.full(len(a.dist), np.nan)
+
+    def _fill(self, painter, a, v, x, y, r) -> None:
+        """Under the line, from each point to the next, in the colour the
+        map gives the first of them; grey where the map has no colours."""
+        rgba = self.colourer(a) if self.colourer is not None else None
+        grey = QColor(200, 200, 200)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)   # no seams between stretches
+        painter.setPen(Qt.PenStyle.NoPen)
+        for i in range(len(v) - 1):
+            if np.isnan(v[i]) or np.isnan(v[i + 1]):
+                continue
+            c = rgba[i] if rgba is not None else None
+            painter.setBrush(grey if c is None else QColor(int(c[0]), int(c[1]), int(c[2])))
+            x0, x1 = x(a.dist[i]), x(a.dist[i + 1])
+            path = QPainterPath(QPointF(x0, r.bottom()))
+            path.lineTo(x0, y(v[i]))
+            path.lineTo(x1, y(v[i + 1]))
+            path.lineTo(x1, r.bottom())
+            path.closeSubpath()
+            painter.drawPath(path)
+        painter.restore()
+
     def paintEvent(self, _event):
         a = self.line
         if a is None:
             return
-        g = a.ground
-        values = [float(v) for v in g[~np.isnan(g)]] + [e for _, e in a.contours] \
-            + [v for _, _, v in a.water if v is not None]
-        if not values:
-            return
-        lo, hi = min(values), max(values)
-        pad = max(1.0, (hi - lo) * 0.08)
-        lo, hi = lo - pad, hi + pad
+        slope = self.mode == 'slope'
+        v = self._values()
+        if slope:
+            known = v[~np.isnan(v)]
+            if not len(known):
+                return
+            lo, hi = 0.0, max(SLOPE_FLOOR, float(known.max()) * 1.08)
+            top_label, foot_label = f'{hi:.0f}°', '0°'
+        else:
+            values = [float(x) for x in v[~np.isnan(v)]] + [e for _, e in a.contours] \
+                + [x for _, _, x in a.water if x is not None]
+            if not values:
+                return
+            lo, hi = min(values), max(values)
+            pad = max(1.0, (hi - lo) * 0.08)
+            top_label, foot_label = f'{hi:,.0f}', f'{lo:,.0f}'
+            lo, hi = lo - pad, hi + pad
         length = a.length or 1.0
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -386,54 +436,65 @@ class TerrainProfile(ProfileView):
         y = lambda e: r.bottom() - r.height() * (e - lo) / (hi - lo)  # noqa: E731
         self._x = x
         self._plot = (r.left(), r.width(), length)
-        for issue in self.spans():
-            d0, d1 = issue.span
-            painter.fillRect(QRectF(x(d0), r.top(), max(1.0, x(d1) - x(d0)), r.height()),
-                             SPAN_FILL[issue.kind])
-        painter.setPen(QPen(GROUND, 1.6))
+        self._fill(painter, a, v, x, y, r)
+        painter.setPen(QPen(SLOPE if slope else GROUND, 1.6))
         path, open_ = QPainterPath(), False
-        for d, v in zip(a.dist, g, strict=True):
-            if np.isnan(v):
+        for d, e in zip(a.dist, v, strict=True):
+            if np.isnan(e):
                 open_ = False
                 continue
             if open_:
-                path.lineTo(x(d), y(v))
+                path.lineTo(x(d), y(e))
             else:
-                path.moveTo(x(d), y(v))
+                path.moveTo(x(d), y(e))
                 open_ = True
         painter.drawPath(path)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(40, 40, 40))
-        for d, e in a.contours:
-            painter.drawEllipse(QPointF(x(d), y(e)), 2.4, 2.4)
-        for d, _, level in a.water:
-            at = level if level is not None else a.ground_at(d)
-            if at is None:
-                continue
-            tri = QPainterPath()
-            tri.moveTo(x(d) - 4, y(at) - 5)
-            tri.lineTo(x(d) + 4, y(at) - 5)
-            tri.lineTo(x(d), y(at) + 1)
-            tri.closeSubpath()
-            if level is not None:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(WATER)
-            else:
-                painter.setPen(QPen(WATER, 1.2))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(tri)
+        # the contours in the text's colour, so they read on the plot's own
+        # ground in a dark theme as in a light one - charcoal was lost on dark
+        ink, ground = self.palette().text().color(), self.palette().base().color()
+        if slope:
+            # what it crosses, where: a tick along the foot, as no slope is theirs
+            painter.setPen(QPen(ink, 1.2))
+            for d, _ in a.contours:
+                painter.drawLine(QPointF(x(d), r.bottom()), QPointF(x(d), r.bottom() - 6))
+            painter.setPen(QPen(WATER, 2.0))
+            for d, _, _ in a.water:
+                painter.drawLine(QPointF(x(d), r.bottom()), QPointF(x(d), r.bottom() - 9))
+        else:
+            painter.setPen(QPen(ground, 1.0))            # a ring, to stand off the fill too
+            painter.setBrush(ink)
+            for d, e in a.contours:
+                painter.drawEllipse(QPointF(x(d), y(e)), 2.6, 2.6)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for d, _, level in a.water:
+                at = level if level is not None else a.ground_at(d)
+                if at is None:
+                    continue
+                tri = QPainterPath()
+                tri.moveTo(x(d) - 4, y(at) - 5)
+                tri.lineTo(x(d) + 4, y(at) - 5)
+                tri.lineTo(x(d), y(at) + 1)
+                tri.closeSubpath()
+                if level is not None:
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(WATER)
+                else:
+                    painter.setPen(QPen(WATER, 1.2))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(tri)
         painter.setPen(self.palette().text().color())
-        painter.drawText(QRectF(0, r.top() - 6, 38, 14), Qt.AlignmentFlag.AlignRight, f'{hi - pad:,.0f}')
-        painter.drawText(QRectF(0, r.bottom() - 8, 38, 14), Qt.AlignmentFlag.AlignRight, f'{lo + pad:,.0f}')
+        painter.drawText(QRectF(0, r.top() - 6, 38, 14), Qt.AlignmentFlag.AlignRight, top_label)
+        painter.drawText(QRectF(0, r.bottom() - 8, 38, 14), Qt.AlignmentFlag.AlignRight, foot_label)
         painter.drawText(QRectF(r.left(), r.bottom() + 1, r.width(), 14),
                          Qt.AlignmentFlag.AlignRight, metres(length))
         painter.end()
 
 
 class ProfileDock(QDockWidget):
-    """What the measured line says, and its profile."""
+    """What the measured line says, and its profile - of the ground or of
+    its slope."""
 
-    climbChosen = Signal(object)          # an Issue: take the map to it
+    placeChosen = Signal(float, float)    # lon, lat: take the map there
 
     def __init__(self, tool: MeasureTool, parent=None):
         super().__init__('Profile', parent)
@@ -441,35 +502,57 @@ class ProfileDock(QDockWidget):
         self.tool = tool
         body = QWidget()
         box = QVBoxLayout(body)
+        top = QHBoxLayout()
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        top.addWidget(self.summary, 1)
+        self.modes = QButtonGroup(self)
+        self.mode_buttons = {}
+        for mode, text in (('elevation', 'Elevation'), ('slope', 'Slope')):
+            b = QToolButton()
+            b.setText(text)
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)      # the map keeps the keys
+            b.clicked.connect(lambda _=False, mode=mode: self.set_mode(mode))
+            self.modes.addButton(b)
+            self.mode_buttons[mode] = b
+            top.addWidget(b)
+        self.mode_buttons['elevation'].setChecked(True)
         self.plot = TerrainProfile()
         self.plot.setMinimumHeight(150)
         self.plot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.hint = QLabel('M measures: click points along a line - a double click, Enter or a right click '
-                           'ends it - or drag a straight one. Esc clears it. Shaded: where the ground '
-                           'climbs, as the line is drawn - down a valley, where water could not run.')
+                           'ends it - or drag a straight one. Esc clears it. A click on the profile shows '
+                           'the place on the map.')
         self.hint.setWordWrap(True)
         self.hint.setStyleSheet('color: palette(mid);')
-        box.addWidget(self.summary)
+        box.addLayout(top)
         box.addWidget(self.plot, 1)
         box.addWidget(self.hint)
         self.setWidget(body)
         self.plot.hovered.connect(self._hovered)
-        self.plot.issueClicked.connect(self.climbChosen)
+        self.plot.chosen.connect(self._chosen)
         tool.measured.connect(self.refresh)
         tool.ended.connect(self._ended)
         self.refresh()
+
+    def set_mode(self, mode: str) -> None:
+        self.plot.set_mode(mode)
+        self.mode_buttons[mode].setChecked(True)
 
     def _hovered(self, d) -> None:
         self.tool.hover_d = d
         self.tool.changed.emit()
 
+    def _chosen(self, d: float) -> None:
+        if self.tool.result is not None:
+            self.placeChosen.emit(*m.scene_to_lonlat(*self.tool.result.at(d)))
+
     def refresh(self) -> None:
         t = self.tool
         self.summary.setText(t.summary() if t.result is not None else 'No line measured.')
-        self.plot.show_line(t.result if t.why_not is None else None, t.climbs())
+        self.plot.show_line(t.result if t.why_not is None else None)
 
     def _ended(self) -> None:
         # shown when a line ends, and only then: measured again after an
