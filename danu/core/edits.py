@@ -98,6 +98,18 @@ class Command:
         that are not say so."""
         return set()
 
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        """Every node, way and relation this command creates, changes or
+        removes - what an autosave writes (H4). Exact where ``ways`` and
+        ``spots`` are for redrawing: a relation is named, and so is every
+        node a removal takes with it.
+
+        From the command's own fields, as ``ways`` is. Asked before an apply
+        or an undo and again after it, and the two answers together are the
+        whole: a field an apply fills - the orphans a deletion takes - is
+        there after it, and one an undo empties is there before it."""
+        raise NotImplementedError(type(self).__name__)
+
 
 def ways_holding(square: Square, node_id: int) -> set[int]:
     """The ways of a square that reference a node."""
@@ -115,6 +127,9 @@ class AddWay(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.node_ids), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         for nid, (lon, lat) in zip(self.node_ids, self.coords, strict=True):
             square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
@@ -140,6 +155,9 @@ class ExtendWay(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, {self.way_id}, set()
     def apply(self, square: Square) -> None:
         lon, lat = self.coord
         square.nodes[self.node_id] = Node(id=self.node_id, lat=lat, lon=lon)
@@ -166,6 +184,9 @@ class ExtendWayWithExisting(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         refs = square.ways[self.way_id].refs
         refs.append(self.node_id) if self.at_end else refs.insert(0, self.node_id)
@@ -193,6 +214,9 @@ class AddNode(Command):
     def ways(self, square: Square) -> set[int]:
         return set()
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, set(), set()
     def spots(self, square: Square) -> set[int]:
         return {self.node_id}
 
@@ -220,6 +244,9 @@ class SetNodeTags(Command):
     def ways(self, square: Square) -> set[int]:
         return ways_holding(square, self.node_id)
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, set(), set()
     def spots(self, square: Square) -> set[int]:
         return {self.node_id}
 
@@ -245,6 +272,9 @@ class InsertNode(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, {self.way_id}, set()
     def apply(self, square: Square) -> None:
         lon, lat = self.coord
         square.nodes[self.node_id] = Node(id=self.node_id, lat=lat, lon=lon)
@@ -269,6 +299,9 @@ class MoveNode(Command):
     def ways(self, square: Square) -> set[int]:
         return ways_holding(square, self.node_id)
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, set(), set()
     def spots(self, square: Square) -> set[int]:
         return {self.node_id}
 
@@ -302,6 +335,9 @@ class TranslateWay(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.moves) | {new for new, _ in self.copies.values()}, {self.way_id}, set()
     def spots(self, square: Square) -> set[int]:
         # what it writes: the nodes it moves and the copies it makes; a
         # shared node it copied from is left as it was
@@ -491,6 +527,9 @@ class DeleteNode(Command):
     def ways(self, square: Square) -> set[int]:
         return ways_holding(square, self.node_id) | set(self.positions) | set(self.removed_ways)
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {self.node_id}, set(self.positions) | set(self.removed_ways), set()
     def spots(self, square: Square) -> set[int]:
         return {self.node_id}
 
@@ -529,6 +568,9 @@ class DeleteWay(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.orphans), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         self.way = square.ways.pop(self.way_id)
         still_used = {r for w in square.ways.values() for r in w.refs}
@@ -562,6 +604,9 @@ class ReplaceWay(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id, *(wid for wid, _ in self.pieces)}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.new_nodes) | set(self.orphans), self.ways(square), set()
     def apply(self, square: Square) -> None:
         self.original = square.ways.pop(self.way_id)
         for nid, (lon, lat) in self.new_nodes.items():
@@ -604,6 +649,9 @@ class SetNodeLevels(Command):
     def ways(self, square: Square) -> set[int]:
         return set(self.way_ids)
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.changes), set(), set()
     def spots(self, square: Square) -> set[int]:
         return set(self.changes)
 
@@ -636,6 +684,9 @@ class SetRelationTags(Command):
         rel = square.relations.get(self.relation_id)
         return {m.ref for m in rel.members if m.type == 'way'} if rel else set()
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), set(), {self.relation_id}
     def apply(self, square: Square) -> None:
         square.relations[self.relation_id].tags = dict(self.after)
 
@@ -662,6 +713,9 @@ class DeleteRelation(Command):
         rel = self.relation or square.relations.get(self.relation_id)
         return {m.ref for m in rel.members if m.type == 'way'} if rel else set()
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), set(), {self.relation_id}
     def apply(self, square: Square) -> None:
         self.relation = square.relations.pop(self.relation_id)
 
@@ -732,6 +786,9 @@ class RotateRing(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         way = square.ways[self.way_id]
         way.refs[:] = rotate_ring(way.refs, self.by)
@@ -763,6 +820,9 @@ class ReplaceSection(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.orphans), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         way = square.ways[self.way_id]
         self.old = way.refs[self.start:self.end + 1]
@@ -793,6 +853,9 @@ class SetTags(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), {self.way_id}, set()
     def apply(self, square: Square) -> None:
         square.ways[self.way_id].tags = dict(self.after)
 
@@ -856,6 +919,14 @@ class ImportWater(Command):
         # contour snapped to a river goes where the river goes
         return set(self.new_ways) | self.moved
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        # before an apply, what it was given; after it, the snapshot of every
+        # id it wrote or removed, which the undo empties - so asked before
+        # that, it is still there
+        b = self.before
+        return ({*self.new_nodes, *b.get('nodes', ())}, {*self.new_ways, *b.get('ways', ())},
+                {*self.new_relations, *b.get('relations', ())})
     def spots(self, square: Square) -> set[int]:
         """The nodes that carry an elevation, not every node imported.
 
@@ -942,6 +1013,13 @@ class Compound(Command):
     def ways(self, square: Square) -> set[int]:
         return set().union(*(c.ways(square) for c in self.commands)) if self.commands else set()
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        out = (set(), set(), set())
+        for c in self.commands:
+            for into, ids in zip(out, c.touched(square), strict=True):
+                into |= ids
+        return out
     def spots(self, square: Square) -> set[int]:
         return set().union(*(c.spots(square) for c in self.commands)) if self.commands else set()
 
@@ -1004,6 +1082,9 @@ class _ReplaceWays(Command):
     def ways(self, square: Square) -> set[int]:
         return {self.way_id, *(nid for nid, _, _ in self.pieces)}
 
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), self.ways(square), set(self.members)
     def apply(self, square: Square) -> None:
         del square.ways[self.way_id]
         for nid, refs, tags in self.pieces:
@@ -1112,6 +1193,11 @@ class SetUndoStack:
         self._squares: dict[int, Square] = {}      # every square touched, by identity
         self._clean: dict[int, object] = {}        # id(square) -> its last step at the last save
         self._alloc: IdAllocator | None = None
+        # what each square's edits have touched since its last save, for the
+        # autosave (H4): kind -> id -> [the step it was last touched at,
+        # whether the file held it]. The size of the edit, not of the square
+        self._journal: dict[int, dict[str, dict[int, list]]] = {}
+        self._gen = 0
 
     def alloc(self, square: Square) -> IdAllocator:
         """The working set's allocator, widened to clear this square too.
@@ -1141,8 +1227,11 @@ class SetUndoStack:
         steps = list(steps)
         if not steps:
             return
+        self._gen += 1
         for square, cmd in steps:
+            self._note(square, cmd, before=True)
             cmd.apply(square)
+            self._note(square, cmd, before=False)
             self._squares[id(square)] = square
         self._done.append(steps)
         self._undone.clear()
@@ -1159,8 +1248,11 @@ class SetUndoStack:
         if not self._done:
             return None
         step = self._done.pop()
+        self._gen += 1
         for square, cmd in reversed(step):
+            self._note(square, cmd, before=True)
             cmd.undo(square)
+            self._note(square, cmd, before=False)
         self._undone.append(step)
         return step
 
@@ -1172,8 +1264,11 @@ class SetUndoStack:
         if not self._undone:
             return None
         step = self._undone.pop()
+        self._gen += 1
         for square, cmd in step:
+            self._note(square, cmd, before=True)
             cmd.apply(square)
+            self._note(square, cmd, before=False)
         self._done.append(step)
         return step
 
@@ -1209,11 +1304,51 @@ class SetUndoStack:
     def dirty_squares(self) -> list[Square]:
         return [sq for sq in self._squares.values() if self.dirty(sq)]
 
-    def mark_clean(self, square: Square, state=...) -> None:
+    def mark_clean(self, square: Square, state=..., generation: int | None = None) -> None:
         """The square as saved - as it stands now, or at ``state``, taken from
-        ``state`` when the text was, for a write that lands after more edits."""
+        ``state`` when the text was, for a write that lands after more edits.
+        The journal forgets what was touched up to ``generation``, the
+        history's when the text was taken: the file has it now. What an edit
+        made during the write touched stays, still read against the file
+        before - so a node made before the save and moved during it is
+        written as created when the file has it, which a recovery's upsert
+        takes the same way."""
         self._squares[id(square)] = square
         self._clean[id(square)] = self.state(square) if state is ... else state
+        gen = self._gen if generation is None else generation
+        for entries in self._journal.get(id(square), {}).values():
+            for i in [i for i, (g, _) in entries.items() if g <= gen]:
+                del entries[i]
+
+    @property
+    def generation(self) -> int:
+        """A count of the steps done, undone and redone - what a save takes
+        with the square's text, to tell the journal what the file has."""
+        return self._gen
+
+    def _note(self, square: Square, cmd: Command, before: bool) -> None:
+        """What ``cmd`` touches, into the square's journal. The first time an
+        id is touched since the save, whether the file has it: asked before
+        the command runs, it is whether the square holds it now; an id the
+        command names only once it has run - the orphans a deletion takes, a
+        relation a split mends - is one it found there, so the file has it."""
+        j = self._journal.setdefault(id(square), {'node': {}, 'way': {}, 'relation': {}})
+        for kind, holder, ids in zip(('node', 'way', 'relation'),
+                                     (square.nodes, square.ways, square.relations),
+                                     cmd.touched(square), strict=True):
+            entries = j[kind]
+            for i in ids:
+                e = entries.get(i)
+                if e is None:
+                    entries[i] = [self._gen, (i in holder) if before else True]
+                else:
+                    e[0] = self._gen
+
+    def journal(self, square: Square) -> dict[str, dict[int, bool]]:
+        """What the square's edits have touched since it was saved: kind ->
+        id -> whether its file holds that id."""
+        j = self._journal.get(id(square), {})
+        return {kind: {i: e[1] for i, e in j.get(kind, {}).items()} for kind in ('node', 'way', 'relation')}
 
 
 def snapshot(square: Square) -> tuple:
