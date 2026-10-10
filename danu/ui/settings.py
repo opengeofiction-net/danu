@@ -29,6 +29,8 @@ DEFAULT_KEYS = {
     # Q, A, Z: the tools are a column under the left hand, as the
     # elevation keys are, and for the same reason
     'tool.spot': 'Z',
+    # M for measure: a line, and the ground along it - H3b
+    'tool.measure': 'M',
     'edit.undo': 'Ctrl+Z',
     'edit.redo': 'Ctrl+Shift+Z',
     'edit.delete': 'Delete',

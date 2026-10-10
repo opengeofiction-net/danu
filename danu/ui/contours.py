@@ -923,6 +923,55 @@ class ContourLayer(QGraphicsItem):
                 out += [tuple(p + (q - p) * tt) for tt in t if not np.isnan(tt)]
         return out
 
+    def line_crossings(self, pts) -> tuple[list, list]:
+        """What a line of scene points crosses - H3b's profile: the contours,
+        as (segment of the line, t along it, elevation), by the grid
+        ``crossings_of`` reads; and the water, as (segment, t, square, way,
+        segment of the water way, t along that), culled by each way's own
+        rectangle as ``pick_water`` is."""
+        pts = np.asarray(pts, dtype=float)
+        contours, water = [], []
+        self._ensure_arrays()
+        grid, _ = self._graded_index()
+        for k, (p, q) in enumerate(zip(pts[:-1], pts[1:], strict=True)):
+            if not len(self._seg_ele):
+                break
+            x0, y0 = np.floor(np.minimum(p, q) / self.GRID).astype(np.int64)
+            x1, y1 = np.floor(np.maximum(p, q) / self.GRID).astype(np.int64)
+            parts = [grid[(cx, cy)] for cx in range(x0, x1 + 1) for cy in range(y0, y1 + 1)
+                     if (cx, cy) in grid]
+            if not parts:
+                continue
+            cand = np.unique(np.concatenate(parts)) if len(parts) > 1 else parts[0]
+            hit = geometry.crossings(p, q, self._seg_a[cand], self._seg_b[cand])
+            if hit.any():
+                t = geometry.crossing_t(p, q, self._seg_a[cand][hit], self._seg_b[cand][hit])
+                contours += [(k, float(tt), float(e)) for tt, e in zip(t, self._seg_ele[cand][hit], strict=True)
+                             if not np.isnan(tt)]
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        for key, piece in self.water.items():
+            r = piece.rect
+            if r.right() < lo[0] or r.left() > hi[0] or r.bottom() < lo[1] or r.top() > hi[1]:
+                continue
+            g = self._geoms.get(key)
+            if g is None or len(g.pts) < 2:
+                continue
+            a, b = g.pts[:-1], g.pts[1:]
+            for k, (p, q) in enumerate(zip(pts[:-1], pts[1:], strict=True)):
+                hit = geometry.crossings(p, q, a, b)
+                if not hit.any():
+                    continue
+                t = geometry.crossing_t(p, q, a[hit], b[hit])
+                # and where on the water way: the line's crossing point put to its segment
+                for tt, j in zip(t, np.flatnonzero(hit), strict=True):
+                    if np.isnan(tt):
+                        continue
+                    x = p + (q - p) * tt
+                    seg = b[j] - a[j]
+                    u = float(np.dot(x - a[j], seg) / (np.dot(seg, seg) or 1.0))
+                    water.append((k, float(tt), g.square, g.way, int(j), u))
+        return contours, water
+
     def node_xy(self, square: Square, node_id: int) -> tuple[float, float]:
         n = square.nodes[node_id]
         return m.lonlat_to_scene(n.lon, n.lat)

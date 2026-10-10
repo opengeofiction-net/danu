@@ -851,6 +851,12 @@ class SurfaceLayer(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         return self._rect
 
+    @property
+    def previewing(self) -> bool:
+        """Whether what is drawn is a preview's - which nothing measured
+        may be taken from (H3b)."""
+        return self._preview
+
     def set_preview(self, previewing: bool):
         """Whether what is drawn is a preview or the exact build - R19's "the
         two states are distinguishable at a glance"."""

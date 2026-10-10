@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
@@ -22,7 +23,7 @@ from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
-from ..surface import shade
+from ..surface import along, shade
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config, josm
@@ -38,6 +39,7 @@ from .legend import Legend
 from .loader import WorkingSetLoader
 from .mapcontrols import MapControls
 from .mapview import MapView
+from .measure import MeasureTool, ProfileDock
 from .messages import install as quieten_qt
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
@@ -270,6 +272,15 @@ class MainWindow(QMainWindow):
         self.editor.toolChanged.connect(self._tool_changed)
         self.editor.placeAsked.connect(self._show_place)
         self.editor.flattened.connect(lambda sq, f: self.gone_dock.mark_flattened(sq.name, f))
+        # measure and profile (H3b): the editor routes the tool's input to it
+        self.measure = MeasureTool(self.map, self.contours, self.surface, self)
+        self.editor.measure = self.measure
+        self.measure.message.connect(lambda t: self.statusBar().showMessage(t))
+        self.editor.edited.connect(self.measure.edited)
+        self.profile_dock = ProfileDock(self.measure, self)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.profile_dock)
+        self.profile_dock.hide()
+        self.profile_dock.climbChosen.connect(self._show_issue_place)
         # what is selected, under the elevation panel: the active elevation is
         # what the tools will use, and this is what the selection already has
         self.selection_panel = SelectionPanel(self.editor, self)
@@ -333,11 +344,12 @@ class MainWindow(QMainWindow):
         x, y = m.lonlat_to_scene(lon, lat)
         left, top, right, bottom = shaded.scene_rect
         rows, cols = shaded.dem.shape
-        c = int((x - left) / (right - left) * cols)
-        r = int((y - top) / (bottom - top) * rows)
-        if not (0 <= r < rows and 0 <= c < cols):
+        # the cell the profile reads too (H3b), by the one function
+        z = float(along.sample(shaded.dem, shaded.scene_rect, np.array([[x, y]]))[0])
+        if np.isnan(z):
             return ''
-        z = float(shaded.dem[r, c])
+        c = int(np.floor((x - left) / (right - left) * cols))
+        r = int(np.floor((y - top) / (bottom - top) * rows))
         if z <= 0:
             return 'sea   '
         if self.surface.style.mode == 'slope':
@@ -591,6 +603,7 @@ class MainWindow(QMainWindow):
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
+                ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
                 ('edit.import_water', '&Import water', self.import_water),
                 ('edit.import_heights', 'Import spot &heights', self.import_heights),
                 ('edit.set_level', 'Set the &level of the water', ed.set_level),
@@ -623,6 +636,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['tool.select'])
         edit.addAction(self.edit_actions['tool.draw'])
         edit.addAction(self.edit_actions['tool.spot'])
+        edit.addAction(self.edit_actions['tool.measure'])
         edit.addSeparator()
         edit.addAction(self.edit_actions['edit.import_water'])
         edit.addAction(self.edit_actions['edit.import_heights'])
@@ -635,6 +649,7 @@ class MainWindow(QMainWindow):
         edit.addAction(self.edit_actions['edit.cut_loop'])
         edit.addAction(self.gone_dock.toggleViewAction())
         edit.addAction(self.checks_dock.toggleViewAction())
+        edit.addAction(self.profile_dock.toggleViewAction())
         edit.addAction(self.edit_actions['view.josm'])
         self._tool_changed('select')
         self._edited()
@@ -758,6 +773,7 @@ class MainWindow(QMainWindow):
         self.territory.refresh()
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
+        self.measure.clear()
         self.legend.refresh()
         self.unreached.set_shaded(None)
         self.envelope.set_rings([])
@@ -1273,6 +1289,12 @@ class MainWindow(QMainWindow):
         self.editor.overlay.update()
         self.statusBar().showMessage(f.explain())
 
+    def _show_issue_place(self, issue) -> None:
+        """The map to a span the profile shaded - its scene points' box."""
+        lonlat = [m.scene_to_lonlat(x, y) for x, y in issue.path]
+        xs, ys = [p[0] for p in lonlat], [p[1] for p in lonlat]
+        self._show_place(min(xs), min(ys), max(xs), max(ys))
+
     def _show_place(self, w: float, s: float, e: float, n: float):
         """The map to something a grade found - G6d-3. A margin round a span,
         so it is seen against what is round it, and never nearer than z16: a
@@ -1335,6 +1357,7 @@ class MainWindow(QMainWindow):
         # bring them back, so recomposing it would only redraw the same stale
         # overlay. It is told it is stale instead - see classesStale
         self.surface.set_preview(True)
+        self.measure.surface_changed()             # which refuses, until the exact one
         self.surface_panel.previewed(seconds)
         self.statusBar().showMessage(
             f'preview: {painted:,} cells in {seconds * 1000:.0f} ms - exact on idle')
@@ -1379,6 +1402,7 @@ class MainWindow(QMainWindow):
         self.envelope.set_rings(built.envelope_rings)
         self.surface_panel.built(built.shaded, seconds)
         self.surface.set_preview(stale)     # a superseded build is provisional too
+        self.measure.surface_changed()
         # Both, for every build, stale or not.
         #
         # The driver must point at the Shaded the layer is drawing, because the

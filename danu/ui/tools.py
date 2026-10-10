@@ -288,6 +288,7 @@ class EditController(QObject):
         # the press was, and the contour as it would be, in scene points
         self._carry: tuple[Square, Way, QPointF] | None = None
         self.ghost: list | None = None
+        self.measure = None                  # H3b's tool, the window's to give
         view.tool = self
 
     @property
@@ -310,12 +311,16 @@ class EditController(QObject):
         self.edited.emit()
 
     def set_tool(self, name: str):
-        if name not in ('select', 'draw', 'spot'):
+        if name not in ('select', 'draw', 'spot', 'measure'):
             raise ValueError(name)
         if name != self.tool:
             self._stop_drawing()
             self.tool = name
             self.view.setDragMode(MapView.DragMode.ScrollHandDrag if name == 'select' else MapView.DragMode.NoDrag)
+            if self.measure is not None and name != 'measure' and not self.measure.done:
+                # a line half drawn goes; one ended stays, with its profile,
+                # measured again as the edits made against it land
+                self.measure.clear()
             self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor if name == 'select'
                                            else Qt.CursorShape.CrossCursor)
             self.toolChanged.emit(name)
@@ -397,6 +402,8 @@ class EditController(QObject):
     # ------------------------------------------------------------ events
     # each returns True when it consumed the event
     def mouse_press(self, event, pos: QPointF) -> bool:
+        if self.tool == 'measure' and self.measure is not None:
+            return self.measure.mouse_press(event, pos)       # H3b: any map, a set or none
         if self.working_set is None:
             return False
         if self.tool == 'draw':
@@ -505,6 +512,8 @@ class EditController(QObject):
 
     def mouse_move(self, event, pos: QPointF) -> bool:
         self.cursor = (pos.x(), pos.y())
+        if self.tool == 'measure' and self.measure is not None:
+            return self.measure.mouse_move(event, pos)
         if self.working_set is None:
             return False
         if self.tool == 'draw':
@@ -539,6 +548,8 @@ class EditController(QObject):
         return False
 
     def mouse_release(self, event, pos: QPointF) -> bool:
+        if self.tool == 'measure' and self.measure is not None:
+            return self.measure.mouse_release(event, pos)
         if self._carry is not None:
             carry, self._carry = self._carry, None
             ghost, self.ghost = self.ghost, None
@@ -758,6 +769,8 @@ class EditController(QObject):
         self.overlay.update()
 
     def mouse_double_click(self, event, pos: QPointF) -> bool:
+        if self.tool == 'measure' and self.measure is not None:
+            return self.measure.mouse_double_click(event, pos)
         if self.working_set is None or event.button() != Qt.MouseButton.LeftButton:
             return False
         if self.tool == 'draw':
@@ -789,6 +802,8 @@ class EditController(QObject):
         if self.proposal is not None and key == Qt.Key.Key_Escape:
             self.cancel_proposal()
             return True
+        if self.tool == 'measure' and self.measure is not None and self.measure.key_press(event):
+            return True                              # Esc with no line falls through to the select tool
         if key == Qt.Key.Key_Escape:
             if self.tool == 'draw' and (self.drawing or self.pending):
                 self._stop_drawing()

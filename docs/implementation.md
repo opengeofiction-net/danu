@@ -3898,3 +3898,62 @@ two the review found: what moved gathered across the edit's ways by symmetric
 difference, so a node two of them share cancelled itself out; and the reach
 taken from a segment's ends, a fixed 2 km of slack, so a long segment passing
 close with both ends far off was not met.
+
+## H3b, measure and profile
+
+One tool, M or the ruler on the map, for both: a line and what lies along it.
+Points clicked, ended by a double click, Enter or a right click - the draw
+tool's gestures - or a drag, which is a straight line of its two ends. While
+it is drawn the status line reads the length and the ground at the cursor
+against the start; ended, the profile panel, docked along the bottom, gives
+the length on the ground, the ground at the ends, the rise and gradient
+between them and what the line climbs and falls along the way, and draws it.
+
+**The ground** is read a cell apart from the arrays the layer draws, by the
+arithmetic the status line's reading uses, so the two agree; and only from an
+exact surface, the spec's rule for any measurement. While a preview stands
+the panel says so and draws nothing, and the window tells the tool when the
+exact build lands. With no surface built it measures the distance alone.
+
+**What it crosses** is the layer's to say, from the grid of contour segments
+the grade's crossings already read, and the water by each way's rectangle as a
+click on water is picked: the contours at their values, a lake at its level, a
+river at the level between those its vertices carry either side - and none
+past the first or the last, since a river's level is not carried beyond where
+anyone gave it one.
+
+**The climbs.** The grade's question first - ground above the lowest the line
+has been, walking it as drawn, `OGF::Terrain::RiverProfile`'s - and on a 25 km
+line across gobras' rolling lowland it shaded nearly all of it: everything
+after the first dip counts. A climb is now a rise from a trough to the peak
+after it, a turn wanting a metre of fall or rise so the surface's rounding is
+not one. Drawn down a valley, the shading is still where water could not run;
+across a hill, it is the hill's near side. Shaded in the profile and red on
+the map, and a climb clicked takes the map to it.
+
+**Kept.** An ended line stays when another tool is taken up, and is measured
+again as the edits made against it land - once they pause for half a second,
+since an edit makes the layer's crossing index stale and asking it again is
+0.3 s on the gobras 3x3; 2 ms otherwise. A line half drawn goes with its tool.
+
+On gobras at 3 arcseconds, a 21 km line from the Gobras City lowland into the
+hills south: 5 m to 75 m, 121 m up and 51 m down along it, 30 contours crossed,
+eight climbs, the last 60 m over 2 km. The squares hold no water yet, so the
+water is held by tests: a stream between levels of 40 and 20 m crossed at 25,
+and a lake at its 33.
+
+**After review.** The status line's reading and the profile read the cell
+under a point by one function, `along.sample`, rather than by two that were
+said to agree; and a line off the surface and back on neither climbs nor
+falls across the gap - the review's, the jump from the last cell before to the
+first after counted as ground walked. A profile panel the mapper closed stays
+closed when the line is measured again after an edit; a line ended shows it.
+
+Sixteen mutations, each failing a test: rows and columns swapped in the
+sampling, the last climb dropped, no metre of fall before a turn, the trough
+followed only when the ground falls a metre below it, a river's level carried
+past its last, distance in scene units rather than on the ground, a preview
+not refused, a lake's level and a river's not read, an edit not measuring
+again, a drag not a line, a crossing put at the wrong end of its segment, the
+window not telling the tool of an exact build, a climb or a fall across a gap,
+and a closed panel shown again.
