@@ -89,6 +89,30 @@ def test_a_pinch_is_a_node_held_twice_and_cutting_it_keeps_the_node_once():
     assert sq.ways[x.id].refs == [a, b, e]
 
 
+def test_a_node_twice_in_a_row_is_said_so_and_one_cut_takes_every_such_in_the_way():
+    """w-65047261 in Gobras City: a ring drawn with a double at four clicks.
+    No loop to cut - a segment of no length - and four rows of the panel to
+    mend one at a time; the one cut holds every node once."""
+    w, sq = ws()
+    a, b, c_, d = nodes(sq, [(125.30, LAT), (125.31, LAT), (125.31, LAT + 0.01), (125.30, LAT + 0.01)])
+    x = way(sq, [a, b, b, c_, c_, d, d], closed=True)
+    found = loops.find(w)
+    assert [lp.node for lp in found] == [b, c_, d] and all(lp.doubled for lp in found)
+    assert found[0].describe().endswith(f'through node {b} twice in a row')
+    c = apply(sq, x, found[1])
+    assert sq.ways[x.id].refs == [a, b, c_, d, a] and c.doubles == 3 and c.nodes == 0
+    assert loops.find(w) == [] and all(n in sq.nodes for n in (a, b, c_, d))
+
+
+def test_a_pinch_with_a_loop_is_not_said_to_be_in_a_row():
+    w, sq = ws()
+    a, b, c_, d, e = nodes(sq, [(125.30, LAT), (125.31, LAT), (125.31, LAT + 0.01),
+                                (125.32, LAT + 0.01), (125.30, LAT - 0.01)])
+    way(sq, [a, b, c_, d, b, e])
+    (lp,) = loops.find(w)
+    assert not lp.doubled and lp.describe().endswith(f'through node {b} twice')
+
+
 def test_a_spike_out_and_back_along_a_segment_is_a_pinch_cut_the_same():
     w, sq = ws()
     a, b, c_, d = nodes(sq, [(125.30, LAT), (125.31, LAT), (125.31, LAT + 0.003), (125.32, LAT)])

@@ -10,12 +10,15 @@ found on gobras:
 - **a pinch** - the contour passing through one node twice: 61 places in 20
   contours of the originals, 12 in 6 after. Some are a loop through a node; some a spike, out along
   a segment and back over it; some a run out along a straight edge and back
-  over the same nodes, one pinch for each node of it.
+  over the same nodes, one pinch for each node of it; some the node twice in
+  a row, a segment of no length - w-65047261 in Gobras City, drawn in Danu
+  by clicks whose hand moved, a pinch at each.
 
 Each is cut out the same way: the part of the contour between the two
 visits goes - at a crossing, a node is put where the strands cross - and on a
 closed contour, which has two such parts, the shorter. A run out and back
-goes whole with its outermost pinch.
+goes whole with its outermost pinch. A node twice in a row goes once,
+and every other such in the contour with it.
 
 No Qt and no GDAL. Segments in metres, bucketed by cell as the crossings
 check does, and each cell's pairs tested at once.
@@ -47,16 +50,24 @@ class Loop:
     lat: float
     node: int | None = None
 
+    @property
+    def doubled(self) -> bool:
+        """The node twice in a row: no loop, a segment of no length."""
+        return self.kind == 'pinch' and self.j == self.i + 1
+
+    def _what(self, verb: str) -> str:
+        if self.kind == 'crossing':
+            return 'crosses itself'
+        return f'{verb} node {self.node} twice{" in a row" * self.doubled}'
+
     def describe(self) -> str:
         """Short enough for a row of the panel."""
         _, wid, ele = self.contour
-        what = 'crosses itself' if self.kind == 'crossing' else f'through node {self.node} twice'
-        return f'{ele:g} m contour, way {wid} - {what}'
+        return f'{ele:g} m contour, way {wid} - {self._what("through")}'
 
     def explain(self) -> str:
         sq, wid, ele = self.contour
-        what = 'crosses itself' if self.kind == 'crossing' else f'passes through node {self.node} twice'
-        return f'the {ele:g} m contour, way {wid} in {sq}, {what}'
+        return f'the {ele:g} m contour, way {wid} in {sq}, {self._what("passes through")}'
 
 
 def _k(lat0: float) -> np.ndarray:
@@ -185,6 +196,7 @@ class Cut:
     removed: list
     metres: float
     nodes: int                          # vertices it takes with it
+    doubles: int = 0                    # a node twice in a row: how many held once again
 
 
 def cut(square, way, loop: Loop, alloc) -> Cut | str:
@@ -200,6 +212,15 @@ def cut(square, way, loop: Loop, alloc) -> Cut | str:
     pts = _lonlat(square, way)
     k = _k(float(pts[:, 1].mean()))
     new_nodes = {}
+    if loop.doubled:
+        # nothing to cut out: the repeat goes, and every other in the way -
+        # a contour drawn so has one at every click that did it
+        keep = [r for k, r in enumerate(refs) if k == 0 or r != refs[k - 1]]
+        if len(set(keep)) < (3 if closed else 2):
+            return 'nothing of the contour would be left'
+        n = loop.node
+        at = [(square.nodes[n].lon, square.nodes[n].lat)] * 2
+        return Cut(edits.ReplaceWay(way.id, [(way.id, keep)], {}), at, 0.0, 0, len(refs) - len(keep))
     if loop.kind == 'pinch':
         inner = refs[loop.i:loop.j + 1]                  # from the node round to it again
         inner_xy = pts[loop.i:loop.j + 1]

@@ -665,6 +665,57 @@ def test_a_straight_stroke_onto_a_node_while_already_drawing(w):
     assert square.ways[wid].refs == ids
 
 
+def jittered_click(w, lon, lat, dx_px=5):
+    """A click whose hand moves while the button is down - past FAST_PX, so
+    a stroke, and let go within the snap radius of where it was pressed."""
+    pos = at(w, lon, lat)
+    w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    p = pos + QPoint(dx_px, 0)
+    w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, p, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, p, buttons=Qt.MouseButton.NoButton))
+
+
+def test_a_click_that_jitters_is_one_node_not_the_same_node_twice(w):
+    """w-65047261 and w-65047244 in Gobras City, drawn click by click: a
+    node held twice in a row at every click whose hand moved. The stroke
+    was let go on the node its own press had just put down, and a stroke
+    let go on a node joins onto it."""
+    square = w.working_set.squares[TEN]
+    w.elevation.set(123)
+    w.editor.set_tool('draw')
+    click(w, 126.30, -23.86)
+    jittered_click(w, 126.35, -23.86)                       # the second: the way begins
+    jittered_click(w, 126.40, -23.86)                       # and goes on
+    click(w, 126.45, -23.86)
+    key(w, Qt.Key.Key_Return)
+    (way,) = ways_at(square, 123)
+    assert len(way.refs) == 4 and len(set(way.refs)) == 4, way.refs
+    assert all(a != b for a, b in pairwise(way.refs))
+
+
+def test_a_stroke_let_go_on_an_earlier_node_of_its_own_line_is_refused(w):
+    """Back onto its own line other than at the far end is a loop, refused
+    as a click onto it is; the stroke goes, and the press's node with it."""
+    square = w.working_set.squares[TEN]
+    w.elevation.set(123)
+    w.editor.set_tool('draw')
+    click(w, 126.30, -23.86); click(w, 126.35, -23.86); click(w, 126.40, -23.86)
+    (way,) = ways_at(square, 123)
+    before = list(way.refs)
+    middle = square.nodes[before[1]]
+    pos = at(w, 126.40, -23.84)
+    w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos))
+    target = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(middle.lon, middle.lat)))
+    for f in range(1, 11):
+        w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos + (target - pos) * f / 10,
+                                   Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton))
+    w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, target, buttons=Qt.MouseButton.NoButton))
+    assert square.ways[way.id].refs == before, square.ways[way.id].refs
+    assert 'may not cross itself' in w.statusBar().currentMessage()
+    assert w.editor.drawing is not None                     # still drawing, from where it was
+
+
 def test_a_line_looping_back_to_where_it_began_closes_rather_than_redrawing(w):
     """There is no stretch between a node and itself, so this is not a redraw:
     what was drawn is a contour of its own, closed, sharing the node it left
