@@ -291,11 +291,14 @@ class ChecksDock(QDockWidget):
         row that was current stays so where it is still listed."""
         item = self.spots_tree.currentItem()
         was = item.data(0, _ROW) if item is not None else None
-        below = sum(c.kind == 'below' for c in found)
-        above = len(found) - below
+        open_ = sum(c.open for c in found)
+        below = sum(c.kind == 'below' and not c.open for c in found)
+        above = len(found) - below - open_
         parts = [f'{below:,} below the ring round {"them" if below != 1 else "it"}'] if below else []
         if above:
             parts.append(f'{above:,} past the next contour')
+        if open_:
+            parts.append(f'{open_:,} in no ring and far off the contours nearest {"them" if open_ != 1 else "it"}')
         self.spots_summary.setText(
             'No spot height contradicts the contours round it.' if not found else
             f'{len(found):,} spot height{"s" * (len(found) != 1)} the contours contradict (R38): '

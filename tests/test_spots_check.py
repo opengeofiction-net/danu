@@ -109,7 +109,7 @@ def test_a_rivers_vertex_with_a_level_is_not_a_spot_height():
     assert spots.find(w) == []
 
 
-def test_one_in_no_ring_is_not_judged():
+def test_one_far_from_any_contour_is_not_judged():
     w, sq = ws()
     hill(sq)
     spot(sq, 125.9, -22.9, 5)
@@ -178,3 +178,147 @@ def test_a_ring_deleted_round_a_spot_height_takes_its_contradiction_with_it():
     gone.apply(sq)
     index.update(sq, {top.id})
     assert index.contradictions() == [], 'judged against the ring that was'
+
+
+def open_box(sq, cx, cy, r, eles):
+    """Four separate ways round a point, one a side: contours in every
+    direction and no ring."""
+    corners = [(cx - r, cy - r), (cx + r, cy - r), (cx + r, cy + r), (cx - r, cy + r)]
+    for k, ele in enumerate(eles):
+        (x0, y0), (x1, y1) = corners[k], corners[(k + 1) % 4]
+        refs = []
+        for x, y in ((x0, y0), (x1, y1)):
+            i = next(_ids)
+            sq.nodes[i] = Node(id=i, lon=x, lat=y)
+            refs.append(i)
+        i = next(_ids)
+        sq.ways[i] = Way(id=i, refs=refs, tags={'ele': str(ele)})
+
+
+def a_ladder(sq):
+    """A 25 m ladder for the square, far off."""
+    for k, ele in enumerate((100, 125, 150, 175)):
+        ring(sq, 125.1 + 0.05 * k, -22.9, 0.01, ele)
+
+
+def test_in_no_ring_one_far_above_the_contours_nearest_it_is_found():
+    """Suprrina Hill: 69 m, the contours round it 5 to 7 m."""
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    open_box(sq, 125.5, -22.5, 0.012, (300, 300, 300, 300))     # beyond them, and not the nearest
+    i = spot(sq, 125.5, -22.5, 69, name='Suprrina Hill')
+    spot(sq, 125.501, -22.5, 20)                          # within a step of 7: a rise between them
+    (c,) = spots.find(w)
+    assert (c.node, c.kind, c.open, c.lo, c.hi, c.bound) == (i, 'above', True, 5, 7, 32)
+    assert c.describe() == 'Suprrina Hill 69 m - in no ring, the contours nearest it 5 to 7 m'
+    assert '62 m above the highest' in c.explain()
+
+
+def test_in_no_ring_one_far_below_them_is_found_and_one_with_too_few_round_it_is_not():
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (100, 100, 125, 125))
+    i = spot(sq, 125.5, -22.5, 60)
+    (c,) = spots.find(w)
+    assert (c.node, c.kind, c.open) == (i, 'below', True)
+    # two sides only: four directions of eight meet a contour
+    w2, sq2 = ws()
+    a_ladder(sq2)
+    open_box(sq2, 125.5, -22.5, 0.005, (100, 100, 125, 125))
+    for wid in [x for x, way in sq2.ways.items() if way.ele == 125 and x not in
+                {r for r in sq2.ways if sq2.ways[r].refs[0] == sq2.ways[r].refs[-1]}]:
+        del sq2.ways[wid]
+    spot(sq2, 125.5, -22.5, 60)
+    assert spots.find(w2) == []
+
+
+def test_the_index_follows_a_contour_moved_near_a_spot_height_in_no_ring_and_agrees_with_a_fresh_scan():
+    import random
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    spot(sq, 125.5, -22.5, 20)
+    index = spots.Index(w)
+    assert index.contradictions() == []
+    rnd = random.Random(5)
+    for step in range(60):
+        nid = rnd.choice([i for i, n in sq.nodes.items() if 'ele' not in n.tags])
+        n = sq.nodes[nid]
+        cmd = edits.MoveNode(nid, (n.lon, n.lat), (n.lon + rnd.uniform(-0.004, 0.004), n.lat + rnd.uniform(-0.004, 0.004)))
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq))
+        assert sorted(c.describe() for c in index.contradictions()) == sorted(c.describe() for c in spots.find(w)), step
+    t = next(x for x in sq.ways.values() if x.ele == 7)
+    cmd = edits.SetTags(t.id, dict(t.tags), {'ele': '-30'})                 # the 7 m becomes -30: 20 m is far above
+    cmd.apply(sq)
+    index.update(sq, {t.id})
+    assert sorted(c.describe() for c in index.contradictions()) == sorted(c.describe() for c in spots.find(w))
+
+
+def test_a_contour_moved_in_beside_a_spot_height_in_no_ring_clears_it_though_the_edit_names_only_the_contour():
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    i = spot(sq, 125.5, -22.5, 69)
+    far = []
+    for x, y in ((125.8, -22.2), (125.81, -22.2)):
+        k = next(_ids)
+        sq.nodes[k] = Node(id=k, lon=x, lat=y)
+        far.append(k)
+    k = next(_ids)
+    sq.ways[k] = Way(id=k, refs=far, tags={'ele': '70'})
+    index = spots.Index(w)
+    assert [c.node for c in index.contradictions()] == [i]
+    moves = edits.Compound([edits.MoveNode(far[0], (125.8, -22.2), (125.502, -22.503)),
+                            edits.MoveNode(far[1], (125.81, -22.2), (125.502, -22.497))])
+    moves.apply(sq)
+    index.update(sq, moves.ways(sq))
+    assert index.contradictions() == [], 'the spot height beside it not asked again'
+    gone = edits.DeleteWay(k)
+    gone.apply(sq)
+    index.update(sq, {k})
+    assert [c.node for c in index.contradictions()] == [i], 'a deleted contour still judged by'
+
+
+def test_a_node_two_edited_contours_share_moved_in_beside_one_asks_it_again():
+    """Both contours are the edit's; each lost the node's old place and has
+    its new one - gathered together those must not cancel."""
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    i = spot(sq, 125.5, -22.5, 69)
+    ids = []
+    for x, y in ((125.8, -22.2), (125.9, -22.2), (125.9, -22.3)):
+        k = next(_ids)
+        sq.nodes[k] = Node(id=k, lon=x, lat=y)
+        ids.append(k)
+    shared, a, b = ids[0], ids[1], ids[2]
+    for refs, ele in (([a, shared], '70'), ([b, shared], '75')):
+        k = next(_ids)
+        sq.ways[k] = Way(id=k, refs=refs, tags={'ele': ele})
+    index = spots.Index(w)
+    assert [c.node for c in index.contradictions()] == [i]
+    move = edits.MoveNode(shared, (125.8, -22.2), (125.501, -22.5))
+    move.apply(sq)
+    index.update(sq, move.ways(sq))
+    assert sorted(c.node for c in index.contradictions()) == sorted(c.node for c in spots.find(w))
+
+
+def test_a_long_segment_passing_close_with_both_ends_far_off_is_met():
+    """A 70 m contour as one segment 20 km long, passing 400 m from the
+    spot height: both its ends are far beyond reach, and it is the nearest
+    contour on that side."""
+    w, sq = ws()
+    a_ladder(sq)
+    open_box(sq, 125.5, -22.5, 0.005, (5, 5, 7, 7))
+    i = spot(sq, 125.5, -22.5, 69)
+    assert [c.node for c in spots.find(w)] == [i]
+    ends = []
+    for x, y in ((125.4, -22.502), (125.6, -22.502)):          # 0.2 degrees long, just south of it
+        k = next(_ids)
+        sq.nodes[k] = Node(id=k, lon=x, lat=y)
+        ends.append(k)
+    k = next(_ids)
+    sq.ways[k] = Way(id=k, refs=ends, tags={'ele': '70'})
+    assert spots.find(w) == [], 'the long contour beside it not met'

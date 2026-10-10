@@ -63,3 +63,26 @@ def test_setting_its_height_takes_it_off_the_list(peak, qtbot):
     qtbot.waitUntil(lambda: rows(w.checks_dock) == [], timeout=2000)
     w.editor.undo()
     qtbot.waitUntil(lambda: len(rows(w.checks_dock)) == 1, timeout=2000)
+
+
+def test_one_in_no_ring_is_counted_apart_in_the_summary(window, qtbot):
+    w = window
+    sq = w.working_set.squares[NORTH]
+    for k, ele in enumerate((100, 125, 150, 175)):
+        ring(sq, 125.1 + 0.05 * k, -22.9, 0.01, ele)                 # the square's ladder, far off
+    corners = [(125.495, -22.505), (125.505, -22.505), (125.505, -22.495), (125.495, -22.495)]
+    for k, ele in enumerate((5, 5, 7, 7)):                          # four ways round it, no ring
+        refs = []
+        for x, y in (corners[k], corners[(k + 1) % 4]):
+            i = next(_ids)
+            sq.nodes[i] = Node(id=i, lon=x, lat=y)
+            refs.append(i)
+        i = next(_ids)
+        sq.ways[i] = Way(id=i, refs=refs, tags={'ele': str(ele)})
+    w.contours.set_working_set(w.working_set)
+    nid = w.editor.history.alloc(sq).take()
+    w.editor.do(sq, edits.AddNode(nid, (125.5, -22.5), {'ele': '69', 'name': 'Suprrina Hill'}))
+    w.checks_dock.toggleViewAction().trigger()
+    qtbot.waitUntil(lambda: w.spot_index is not None, timeout=5000)
+    assert 'Suprrina Hill 69 m - in no ring, the contours nearest it 5 to 7 m' in rows(w.checks_dock)
+    assert '1 in no ring and far off the contours nearest it' in w.checks_dock.spots_summary.text()
