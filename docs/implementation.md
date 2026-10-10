@@ -4216,6 +4216,6 @@ Sixteen mutations, each failing a test: hovering logged move by move, or its
 last place not at all; the press's snap left out; the replay not at the
 logged zoom, centre or elevation; the log made after the menus, so an action
 comes after what it did; a step done, or one undone and redone, not told; the
-keys not logged; a cut last line raising; changed files not said; old logs
+keys not logged; a line that does not read raising; changed files not said; old logs
 kept; lines left in a buffer; a parting not reported; and the wheel not
 replayed.

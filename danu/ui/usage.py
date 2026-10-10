@@ -31,10 +31,9 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt
 
 from . import mercator as m
+from .tools import PICK_PX, SNAP_PX  # what a press would snap to, as the tools find it
 
 KEEP = 20                      # runs whose logs are kept
-SNAP_PX = 10.0                 # danu.ui.tools': what a press would snap to, logged
-PICK_PX = 8.0
 
 _MOUSE = {QEvent.Type.MouseButtonPress: 'press', QEvent.Type.MouseButtonRelease: 'release',
           QEvent.Type.MouseButtonDblClick: 'double', QEvent.Type.MouseMove: 'move'}
@@ -75,8 +74,10 @@ class UsageLog(QObject):
             self.write('hover', **hover)
         rec = {'t': round(time.monotonic() - self._t0, 3), 'kind': kind, **fields}
         try:
-            self._f.write(json.dumps(rec) + '\n')
-        except (OSError, ValueError):
+            # default=str: a value json does not know is written as text, not
+            # the end of the log
+            self._f.write(json.dumps(rec, default=str) + '\n')
+        except OSError:
             self._f = None                            # a full disk stops the log, not the editor
 
     def close(self) -> None:

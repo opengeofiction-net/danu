@@ -42,13 +42,14 @@ _TYPE = {'press': QEvent.Type.MouseButtonPress, 'release': QEvent.Type.MouseButt
 
 
 def records(path: Path) -> list[dict]:
-    """The log's records, up to a line a crash cut short."""
+    """The log's records. A line that does not read - the last, cut short by
+    the crash being looked into, as a rule - is passed over."""
     out: list[dict] = []
     for line in Path(path).read_text(encoding='utf-8').splitlines():
         try:
             out.append(json.loads(line))
         except ValueError:
-            break                                     # a line cut by the crash being looked into
+            continue
     return out
 
 
@@ -140,12 +141,12 @@ class Replayer:
         if kind == 'magnify':
             win.edit_actions['view.magnify'].setChecked(bool(rec['on']))
             return True
+        if kind == 'action' and rec['name'].startswith(SKIPPED):
+            report.skipped.append(rec['name'])
+            return False
         self._as_then(rec)
         if kind == 'action':
             name = rec['name']
-            if name.startswith(SKIPPED):
-                report.skipped.append(name)
-                return False
             for table in (win.file_actions, win.edit_actions, win.elevation_actions, win.surface_actions):
                 if name in table:
                     table[name].trigger()
