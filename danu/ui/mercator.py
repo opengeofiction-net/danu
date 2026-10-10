@@ -26,7 +26,13 @@ import numpy as np
 
 TILE = 256
 SCENE_ZOOM = 19
-MAX_ZOOM = SCENE_ZOOM
+# two past the scene's own zoom - the tiles stop at 19 and are drawn
+# stretched beyond it, while the editor's own layers are vector and draw at
+# any zoom. At 20 a contour's nodes and a river inside a narrow river area
+# come apart under the pick radius, which at 19 they do not (H6). The view's
+# scroll bars are ints, and the scene with its margin is 3 * WORLD * 2**(z - 19)
+# pixels across: 805 million at 20, inside 2**31; 22 would not be
+MAX_ZOOM = 20
 WORLD = TILE * (1 << SCENE_ZOOM)
 # the Mercator cut, where y would go to infinity
 MAX_LAT = math.degrees(math.atan(math.sinh(math.pi)))   # 85.0511...
