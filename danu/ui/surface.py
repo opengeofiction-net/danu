@@ -484,6 +484,9 @@ class SurfaceLayer(QGraphicsItem):
         # smoothed as the map draws it; the loupe (H3d) turns it off for its
         # own render, so a cell there is a square of its own colour
         self.smooth = True
+        # counted up whenever what is drawn changes - a surface, a recolour, a
+        # preview's patch - for what serves it to say so (H5's ETag)
+        self.revision = 0
         # None means compose on the calling thread, which is what every test
         # and every small raster wants. The window installs a runner - see
         # MainWindow - because at 1 arcsecond composing is 21 s and the UI
@@ -736,6 +739,7 @@ class SurfaceLayer(QGraphicsItem):
             self.prepareGeometryChange()
             self._rect = rect
         self._stretch = stretch
+        self.revision += 1
         rows, cols = rgba.shape[:2]
         # _composed_now made it contiguous on whichever thread composed it
         # QImage over the array, and no copy of either. QPixmap.fromImage
@@ -857,6 +861,7 @@ class SurfaceLayer(QGraphicsItem):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.drawImage(x0, y0, img)
         painter.end()
+        self.revision += 1
         self.update()
         return True
 
@@ -868,6 +873,12 @@ class SurfaceLayer(QGraphicsItem):
         """Whether what is drawn is a preview's - which nothing measured
         may be taken from (H3b)."""
         return self._preview
+
+    @property
+    def stretch(self) -> tuple | None:
+        """The range the last whole recolour stretched the ramp over, which a
+        rectangle composed later is coloured by to match."""
+        return self._stretch
 
     def cells(self) -> tuple[QRectF, int, int] | None:
         """What is drawn, as a grid: its rect in the scene, and its columns

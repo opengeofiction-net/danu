@@ -1127,10 +1127,14 @@ class MainWindow(QMainWindow):
             return None
         if self.wms is None:
             surface = self.surface
-            self.wms = wms.SurfaceServer(lambda: (surface.shaded, surface.style, surface._stretch),
-                                         self.settings.wms_port)
+            self.wms = wms.SurfaceServer(lambda: (surface.shaded, surface.style, surface.stretch,
+                                                  surface.revision), self.settings.wms_port)
         url = wms.getmap_url(self.wms.base)
-        return self.josm.imagery('Danu surface', url, f'the surface, served at {self.wms.base}')
+        what = f'the surface, served at {self.wms.base}'
+        if self.wms.port != self.settings.wms_port and self.settings.wms_port:
+            what += (f' - port {self.settings.wms_port} is in use, and a layer JOSM kept from before'
+                     ' will not find this one')
+        return self.josm.imagery('Danu surface', url, what)
 
     def _view_settled(self) -> None:
         """The surface's rows and columns on screen, to the panel - which

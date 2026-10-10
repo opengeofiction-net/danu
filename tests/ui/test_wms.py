@@ -39,7 +39,11 @@ def w(window):
 
 
 def snap(w):
-    return w.surface.shaded, w.surface.style, w.surface._stretch
+    return w.surface.shaded, w.surface.style, w.surface.stretch
+
+
+def served_snap(w):
+    return (*snap(w), w.surface.revision)
 
 
 def cell_rgba(w, lon, lat):
@@ -96,7 +100,8 @@ def test_in_4326_the_same_ground(w):
 
 
 def test_the_png_reads_back(w):
-    rgba = wms.render(*snap(w), (*merc(126.4, -23.8), *merc(126.6, -23.6)), 20, 10)
+    rgba = wms.render(*snap(w), (*merc(126.8, -23.8), *merc(127.2, -23.6)), 20, 10)   # half off: alpha both ways
+    assert (rgba[..., 3] == 0).any() and (rgba[..., 3] == 255).any()
     img = QImage.fromData(wms.png(rgba), 'PNG').convertToFormat(QImage.Format.Format_RGBA8888)
     assert img.width() == 20 and img.height() == 10
     back = np.frombuffer(bytes(img.constBits()), np.uint8).reshape(10, 20, 4)
@@ -107,7 +112,7 @@ def test_the_png_reads_back(w):
 
 @pytest.fixture
 def served(w):
-    s = wms.SurfaceServer(lambda: snap(w), port=0)
+    s = wms.SurfaceServer(lambda: served_snap(w), port=0)
     yield s
     s.stop()
 
@@ -144,6 +149,10 @@ def test_getmap_as_josm_asks_it_and_asked_again_unchanged_is_304(served, w):
     w.surface_panel.mode.setCurrentText('relief')
     code, again, _ = get(url, {'If-None-Match': headers['ETag']})
     assert code == 200 and again['ETag'] != headers['ETag'], 'another style, another tag'
+    w.surface.shaded.dem[100:110, 100:110] += 5                    # a preview's patch
+    assert w.surface.recolour_box(100, 100, 10, 10)
+    code, third, _ = get(url, {'If-None-Match': again['ETag']})
+    assert code == 200 and third['ETag'] != again['ETag'], 'a preview, drawn, is a new tag'
 
 
 def test_what_is_not_served_is_said(served):

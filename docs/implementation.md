@@ -4240,22 +4240,24 @@ ground's at any stride and at a tile's edge. On the gobras 3x3 at 3", a
 256-pixel tile is 8 to 24 ms from zoom 8 to 17, and 1024 pixels square over
 the set 142 ms; at a point, a tile's colour is the map's to the byte.
 
-**Kept current, cheaply.** Each answer carries an ETag of the surface, the
-style and the scale, and `no-cache`, so JOSM asks again and is told 304
-until the map has changed. A preview patch changes the surface in place and
-not the tag; the exact build that follows does. The PNG is written with zlib
-so the server's thread never touches Qt, and the server reads the layer's
-surface and style as they stand, never waiting on the UI thread nor making
-it wait. 127.0.0.1 only; started the first time it is asked for, stopped on
-closing.
+**Kept current, cheaply.** Each answer carries an ETag of the layer's
+revision - which every new surface, recolour and preview patch counts up -
+with the style and the scale, and `no-cache`, so JOSM asks again and is told
+304 until the map has changed. The PNG is written with zlib so the server's
+thread never touches Qt, and the server reads the layer's surface and style
+as they stand, never waiting on the UI thread nor making it wait. 127.0.0.1
+only; started the first time it is asked for, stopped on closing. If the
+port is in use - another Danu, as a rule - another is taken, and the status
+line says a layer JOSM kept will not find it.
 
 Not tried against a running JOSM in the making of it - the tests stand a
 remote control up on the loopback, and the mapper's JOSM was left alone.
 
-Seventeen mutations, each failing a test: the window coloured over its own
+Nineteen mutations, each failing a test: the window coloured over its own
 range, not the surface's; slope without its halo, or at the cells' spacing
 rather than the stride's; EPSG:4326 taken as metres, or 1.3.0's axis order
-ignored; the tag blind to the style; no `no-cache`; any address bound; the
+ignored; the tag blind to the style, or to the layer's revision, or a preview
+patch not counting it up; no `no-cache`; any address bound; the
 size limit gone; any projection taken; the PNG's filter bytes misplaced;
 pixels off the surface coloured; the difference left out; JOSM asked for TMS;
 the server left running on closing; and a JOSM asked with no surface built.

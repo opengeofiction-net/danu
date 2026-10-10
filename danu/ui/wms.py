@@ -19,8 +19,9 @@ of the ground and not of the resampling.
 
 Served from a thread of its own, reading the layer's surface and style as
 they stand; nothing on the UI thread waits for JOSM. Each answer carries an
-ETag of the surface and the style, and ``no-cache``, so JOSM asks again and is
-told 304 until the map has changed.
+ETag of what the layer has drawn - its revision, which every new surface,
+recolour and preview patch counts up - and the style, and ``no-cache``, so
+JOSM asks again and is told 304 until the map has changed.
 
 Loopback only: the server binds 127.0.0.1, and nothing is served to anything
 else.
@@ -170,7 +171,7 @@ def getmap_url(base: str) -> str:
 
 class SurfaceServer:
     """The WMS, over whatever ``snapshot()`` answers - (shaded, style,
-    stretch) as the layer has them."""
+    stretch, revision) as the layer has them."""
 
     def __init__(self, snapshot, port: int = PORT):
         self.snapshot = snapshot
@@ -212,7 +213,7 @@ class SurfaceServer:
         if u.path.rstrip('/') != '/wms':
             return 404, {'Content-Type': 'text/plain'}, b'not here: /wms\n'
         q = {k.upper(): v[-1] for k, v in parse_qs(u.query, keep_blank_values=True).items()}
-        shaded, style, stretch = self.snapshot()
+        shaded, style, stretch, revision = self.snapshot()
         req = q.get('REQUEST', '').lower()
         if req == 'getcapabilities':
             return 200, {'Content-Type': 'application/vnd.ogc.wms_xml'}, capabilities(self.base, shaded).encode()
@@ -232,7 +233,7 @@ class SurfaceServer:
             return 400, {'Content-Type': 'application/vnd.ogc.se_xml'}, _exception('a BBOX of four and a size within 4096 square')
         if srs == 'EPSG:4326' and q.get('VERSION') == '1.3.0':
             bbox = [bbox[1], bbox[0], bbox[3], bbox[2]]          # 1.3.0's 4326 is lat, lon
-        etag = self.etag(shaded, style, stretch)
+        etag = self.etag(revision, style, stretch)
         headers = {'ETag': etag, 'Cache-Control': 'no-cache'}
         if etag_asked == etag:
             return 304, headers, b''
@@ -240,9 +241,9 @@ class SurfaceServer:
         return 200, {**headers, 'Content-Type': 'image/png'}, png(rgba)
 
     @staticmethod
-    def etag(shaded, style, stretch) -> str:
-        """The surface and how it is coloured: a new build, a new style or a
-        new scale is a new tag. A preview patch is not - it changes the
-        surface in place - so JOSM is told again when the exact build lands."""
-        key = repr((id(shaded), shaded.geotransform if shaded is not None else None, style, stretch))
+    def etag(revision, style, stretch) -> str:
+        """What is drawn and how it is coloured: the layer's revision, which
+        a new surface, a recolour and a preview's patch each count up, and the
+        style and scale."""
+        key = repr((revision, style, stretch))
         return '"' + hashlib.sha1(key.encode()).hexdigest()[:16] + '"'
