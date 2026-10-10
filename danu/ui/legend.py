@@ -40,7 +40,8 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from ..core.ladder import format_ele
-from ..surface import difference, shade
+from ..surface import difference as surface_difference
+from ..surface import shade
 from .surface import RAMPS, SurfaceLayer, SurfacePanel
 
 WIDTH = 22                 # the bar
@@ -143,8 +144,8 @@ class Legend(QWidget):
         if self.slope:
             return shade.SLOPE_RAMP.rgba(values)
         if self.difference:
-            half = self.layer.shaded.difference_span or difference.SPAN_MIN_M
-            return difference.DIFF_RAMP.rescaled(-half, half).rgba(np.nan_to_num(values))
+            half = self.layer.shaded.difference_span or surface_difference.SPAN_MIN_M
+            return surface_difference.DIFF_RAMP.rescaled(-half, half).rgba(np.nan_to_num(values))
         style = self.layer.style
         return shade.ramp_rgba(RAMPS[style.ramp](), values, style.scaling, self.layer.shaded.dem)
 

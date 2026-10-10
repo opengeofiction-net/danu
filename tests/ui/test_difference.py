@@ -144,3 +144,21 @@ def test_the_profile_is_filled_with_the_difference_along_it(w):
     first, last = got[0], got[-1]
     assert tuple(first[:3]) == tuple(D.DIFF_RAMP.colours[2][:3]), 'unchanged in the west: the ramp\'s middle'
     assert last[0] > last[2] + 50, 'raised in the east: red'
+
+
+def test_a_difference_being_worked_out_is_not_asked_for_again(w):
+    """Away and back while the worker has it: one job for the build, not two."""
+    held = []
+    w._difference_runner = held.append
+    w.surface_panel.mode.setCurrentText('difference')
+    w.surface_panel.mode.setCurrentText('slope')
+    w.surface_panel.mode.setCurrentText('difference')
+    assert len(held) == 1
+    held[0].run()
+    assert w.surface.shaded.difference is not None
+
+
+def test_a_failure_for_a_zone_left_is_not_said(w):
+    w.statusBar().showMessage('quiet')
+    w._published_failed('elsewhere', 'no published DEM')
+    assert w.statusBar().currentMessage() == 'quiet'

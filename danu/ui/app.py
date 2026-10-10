@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         self.published.failed.connect(self._published_failed)
         self._difference_runner = QThreadPool.globalInstance().start
         self._difference_job = None
+        self._difference_for = None             # the build it is being worked out for
         self.surface_panel.styleChanged.connect(lambda _style: self._difference_wanted())
         self.controls = MapControls(self.map, self.editor, self.settings)
         self.controls.importWater.connect(self.import_water)
@@ -1319,14 +1320,16 @@ class MainWindow(QMainWindow):
         shaded = self.surface.shaded
         if self.surface.style.mode != 'difference' or shaded is None or shaded.difference is not None:
             return
-        if self.zone_dir is None:
-            return
+        if self.zone_dir is None or self._difference_for is shaded:
+            return                                 # already being worked out, for this build
         self.statusBar().showMessage(f'difference: fetching the published {self.zone_dir.name} DEM…')
         self.published.request(self.zone_dir.name)
 
     def _published_ready(self, zone: str, path, what: str) -> None:
         shaded = self.surface.shaded
         if shaded is None or self.zone_dir is None or zone != self.zone_dir.name:
+            return
+        if self._difference_for is shaded:
             return
         when = time.strftime('%d %b %Y', time.localtime(Path(path).stat().st_mtime))
 
@@ -1336,7 +1339,7 @@ class MainWindow(QMainWindow):
             return d, surface_difference.span(d)
 
         def done(answer):
-            self._difference_job = None
+            self._difference_job = self._difference_for = None
             if shaded is not self.surface.shaded:
                 self._difference_wanted()          # a build landed meanwhile: its own
                 return
@@ -1350,12 +1353,15 @@ class MainWindow(QMainWindow):
                 f'±{shaded.difference_span:g} m')
 
         def failed(why):
-            self._difference_job = None
+            self._difference_job = self._difference_for = None
             self.statusBar().showMessage(f'difference not worked out: {why.splitlines()[0]}')
+        self._difference_for = shaded
         self._difference_job = Job(work, done, failed)
         self._difference_runner(self._difference_job)
 
     def _published_failed(self, zone: str, why: str) -> None:
+        if self.zone_dir is None or zone != self.zone_dir.name:
+            return                                     # a zone left since it was asked for
         self.statusBar().showMessage(f'difference: the published {zone} DEM could not be fetched - {why}')
 
     def _profile_colours(self, line):
