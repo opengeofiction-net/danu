@@ -22,13 +22,16 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, Q
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
+from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet
 from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import flatten, peaks
 from ..water.gone import gone
+from . import autosave as autosave_ui
 from . import config, josm
 from . import mercator as m
+from .autosave import AutoSaver
 from .background import Job
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
@@ -80,6 +83,12 @@ def user_config_dir() -> Path:
         QStandardPaths.StandardLocation.AppConfigLocation))
 
 
+def user_data_dir() -> Path:
+    """~/.local/share/danu on Linux: the autosave and, later, the session."""
+    return Path(QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.AppLocalDataLocation))
+
+
 def user_cache_dir() -> Path:
     """~/.cache/danu on Linux; tiles and, later, Overpass live under it."""
     return Path(QStandardPaths.writableLocation(
@@ -118,7 +127,8 @@ def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report
 
 class MainWindow(QMainWindow):
     def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None,
-                 settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None):
+                 settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None,
+                 data_dir: Path | None = None):
         super().__init__()
         self.setWindowTitle('Danu')
         self.layers = layers
@@ -307,6 +317,13 @@ class MainWindow(QMainWindow):
         # magnify (H3d): the map again at the cursor, a few times over
         self.loupe = Loupe(self.map, self.surface)
         self.map.loupe = self.loupe
+        # not losing work (H4): each dirty square's change, under the data
+        # directory, as the edits pause and once a minute; none without one,
+        # which is how the tests make a window that writes nowhere
+        self.autosave = AutoSaver(self, Store(data_dir / 'autosave'), self) if data_dir else None
+        if self.autosave is not None:
+            self.editor.edited.connect(self.autosave.edited)
+            self.autosave.failed.connect(lambda t: self.statusBar().showMessage(t))
         self.map.elevationWheel.connect(self.elevation.step)
         self.map.opacityWheel.connect(self._opacity_wheel)
         self.loader = WorkingSetLoader(self)
@@ -476,6 +493,8 @@ class MainWindow(QMainWindow):
         def done(_path):
             self._writes.remove(job)
             self._written.append(save.finish(pending, self.editor.history))
+            if self.autosave is not None:
+                self.autosave.saved(sq)
             self.squares.set_working_set(self.working_set)   # a blank square is present now
             self._edited()
             self._saved()
@@ -566,6 +585,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Save and self.editor.dirty():
                 event.ignore()                           # a write failed, and said so
                 return
+            if answer == QMessageBox.StandardButton.Discard and self.autosave is not None:
+                self.autosave.discard()                  # thrown away on purpose, autosave and all
         self.territory.abort()
         self.fetcher.abort()
         # before the builder: the idle timer asks for builds by itself, and one
@@ -753,6 +774,10 @@ class MainWindow(QMainWindow):
         False if a read is already running; the status line says so."""
         zone_dir = Path(zone_dir)
         self.wait_for_writes()                           # what is read is what was saved
+        if self.autosave is not None and self.editor.dirty():
+            # the set being left has edits nobody saved: kept, and offered
+            # back the next time it is opened
+            self.autosave.flush()
         if not self.loader.load(zone_dir, centre, size):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
@@ -815,6 +840,36 @@ class MainWindow(QMainWindow):
         self.unreached.set_shaded(None)
         self.envelope.set_rings([])
         self.surface_panel.status.setText('no surface built for this set yet')
+        if self.autosave is not None:
+            # once the set is on screen, so the offer is made over the squares it is about
+            QTimer.singleShot(0, self._offer_recovery)
+
+    def _offer_recovery(self) -> None:
+        """What an earlier run autosaved for this set and never saved, offered
+        back square by square; what is not taken is set aside, not lost."""
+        ws, zone = self.working_set, self.zone_dir
+        if ws is None or zone is None:
+            return
+        store = self.autosave.store
+        mine = [e for e in store.entries(zone) if e.square in ws.squares]
+        elsewhere = [e for e in store.entries() if e not in mine]
+        said = []
+        if mine:
+            chosen = autosave_ui.offer(mine, self) or []
+            steps = autosave_ui.recovery_steps(chosen, ws)
+            if steps:
+                self.editor.do_across(steps)
+                said.append('put back the autosaved edits to ' + ', '.join(str(sq.name) for sq, _ in steps))
+            aside = [store.set_aside(e) for e in mine if e not in chosen]
+            if aside:
+                said.append(f'set aside {len(aside)} in {aside[0].parent}')
+            self.autosave.flush()                        # the recovery is the autosave now
+        if elsewhere:
+            names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])
+            said.append(f'autosaved edits are held for {names}{" and more" if len(elsewhere) > 4 else ""}'
+                        ' - open there to recover them')
+        if said:
+            self.statusBar().showMessage('; '.join(said))
 
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:
@@ -1560,7 +1615,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
-    win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles')
+    win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir())
     win.show()
     # connected before the open is asked for; the signal is queued to the
     # event loop either way, but the order reads as it runs

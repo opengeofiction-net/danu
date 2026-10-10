@@ -72,6 +72,9 @@ class _ClosedAddWay(edits.Command):
     def ways(self, square: Square) -> set[int]:
         return {self.add.way_id}
 
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return self.add.touched(square)
+
 
 @dataclass
 class SaveReport:
@@ -149,6 +152,7 @@ class Pending:
     text: str
     state: object
     report: SaveReport
+    generation: int = 0              # the history's, as the text was taken: what the file holds
 
 
 def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike | None = None) -> Pending:
@@ -170,7 +174,7 @@ def prepare(square: Square, history: edits.SetUndoStack, path: str | os.PathLike
         history.do(square, split)
         report.split = len(split.commands)
     text = square_text(square)
-    return Pending(square, path, text, history.state(square), report)
+    return Pending(square, path, text, history.state(square), report, history.generation)
 
 
 def write(pending: Pending) -> Path:
@@ -183,7 +187,9 @@ def finish(pending: Pending, history: edits.SetUndoStack) -> SaveReport:
     """The file written: the square is that file's, and clean as it was."""
     pending.square.path = pending.path
     pending.square.present = True
-    history.mark_clean(pending.square, pending.state)
+    st = pending.path.stat()
+    pending.square.stamp = (st.st_size, st.st_mtime_ns)
+    history.mark_clean(pending.square, pending.state, pending.generation)
     return pending.report
 
 

@@ -200,6 +200,10 @@ class Square:
     # must carry forward unchanged, since it is what stops JOSM putting these
     # negative ids onto the live map
     attrs: dict[str, str] = field(default_factory=dict)
+    # the file as it was read or last saved, (size, mtime_ns): what an
+    # autosave's change is against, and a recovery refuses a file that is
+    # not this any more (H4)
+    stamp: tuple[int, int] | None = None
 
     @property
     def bounds(self) -> tuple[float, float, float, float]:
@@ -269,7 +273,8 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
     path = Path(path)
     if name is None:
         name = SquareName.from_filename(path)
-    square = Square(name=name, path=path, present=True)
+    st = path.stat()
+    square = Square(name=name, path=path, present=True, stamp=(st.st_size, st.st_mtime_ns))
 
     root = None
     with open_square_file(path) as f:
@@ -472,6 +477,23 @@ def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu
     failure mid-write leaves the old file whole. The two halves are
     ``square_text`` and ``write_text``, which the editor runs apart."""
     return write_text(square_text(square, generator), path, preset)
+
+
+def xml_quote(v) -> str:
+    """An attribute value in single quotes, as JOSM writes them; & < > '
+    escaped."""
+    import html
+    return "'" + html.escape(str(v), quote=True).replace('&quot;', '"') + "'"
+
+
+def xml_degrees(v: float) -> str:
+    """A coordinate as the shortest digits that read back to the same float,
+    a plain decimal - see ``square_text``."""
+    s = repr(float(v))
+    if 'e' in s or 'E' in s:
+        from decimal import Decimal
+        return format(Decimal(s), 'f')
+    return s
 
 
 def square_text(square: Square, generator: str = 'danu') -> str:
