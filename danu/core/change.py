@@ -219,9 +219,13 @@ class ApplyChange(Command):
                 if i not in at_end:
                     holder[i] = _copy(kind, obj)
             for i in tail:
+                # what the change has, or - a manifest out of step with its
+                # change - what the square has: either way at the end, in order
                 if i in put:
                     holder.pop(i, None)
                     holder[i] = _copy(kind, put[i])
+                elif i in holder:
+                    holder[i] = holder.pop(i)
 
     def undo(self, square: Square) -> None:
         for kind in KINDS:

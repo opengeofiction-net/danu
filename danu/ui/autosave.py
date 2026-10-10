@@ -109,8 +109,10 @@ class AutoSaver(QObject):
 
 
 def offer(entries: list[Entry], parent=None) -> list[Entry] | None:
-    """The autosaves to put back, chosen in a dialog; None if it was closed.
-    The tests answer it by replacing this function."""
+    """The autosaves to put back, chosen in a dialog; None if it was closed
+    or all were set aside, which the caller takes as none chosen - so every
+    one is set aside, none left to be written over. The tests answer it by
+    replacing this function."""
     dlg = RecoveryDialog(entries, parent)
     if not dlg.exec():
         return None
@@ -148,6 +150,7 @@ class RecoveryDialog(QDialog):
         body.addWidget(scroll)
         buttons = QDialogButtonBox()
         buttons.addButton('Put back the chosen', QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton('Set them all aside', QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         body.addWidget(buttons)

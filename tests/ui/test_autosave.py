@@ -79,15 +79,23 @@ def test_an_edit_arms_both_timers_and_a_flush_writes_the_change(run):
     assert e.change_path.suffix == '.osc' and e.change_path.parent.parent == w.autosave.store.root
 
 
-def test_the_edits_stopping_writes_them_and_going_on_does_not_put_it_off(run, qtbot, monkeypatch):
+def test_the_edits_stopping_writes_them(run, qtbot, monkeypatch):
     monkeypatch.setattr(A, 'IDLE_MS', 50)
+    monkeypatch.setattr(A, 'EVERY_MS', 60_000)         # never reached here: only the idle can fire
+    w = run()
+    edit(w)
+    qtbot.waitUntil(lambda: w.autosave.store.entries() != [], timeout=2000)
+
+
+def test_edits_going_on_do_not_put_it_off(run, qtbot, monkeypatch):
+    monkeypatch.setattr(A, 'IDLE_MS', 60_000)          # never reached here: only the minute's can fire
     monkeypatch.setattr(A, 'EVERY_MS', 120)
     w = run()
     edit(w)
     qtbot.waitUntil(lambda: w.autosave.store.entries() != [], timeout=2000)
     w.autosave.store.remove(w.zone_dir, TEN)
     sq = w.working_set.squares[TEN]
-    for _ in range(12):                              # never still for the idle's 50 ms
+    for _ in range(12):                              # each edit restarts the idle timer
         n = next(iter(sq.nodes.values()))
         w.editor.do(sq, edits.MoveNode(n.id, (n.lon, n.lat), (n.lon + 1e-5, n.lat)))
         qtbot.wait(20)

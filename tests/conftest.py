@@ -85,5 +85,6 @@ if os.environ.get('DANU_CHECK_JOURNAL'):
             _base.pop(id(square), None)
             _untracked.add(id(square))
         else:
+            _untracked.discard(id(square))
             _base[id(square)] = (weakref.ref(square), _frozen(square))
     _edits.SetUndoStack.mark_clean = _clean

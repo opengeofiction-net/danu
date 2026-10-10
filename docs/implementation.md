@@ -4107,11 +4107,11 @@ back from the end while what is met was touched; the recovery puts the tail
 back at the end in that order. Put back, the square is the one that was in
 memory, order and all.
 
-**Held to that by the whole suite.** `DANU_CHECK_JOURNAL=1` checks every step
-any test does, undoes or redoes: the change the journal gives, through its
-text and back, put onto a copy of the square as it was at its last save, is
-the square as it now is - every node, way and relation, in their order. It
-passes over the 1,145 tests; with the orphans of `DeleteWay` left out of
+**Held to that by the whole suite.** `DANU_CHECK_JOURNAL=1` checks every
+step any test does, undoes or redoes: the change the journal gives, through
+its text and back, put onto a copy of the square as it was at its last save,
+is the square as it now is - every node, way and relation, in their order.
+It passes over the 1,145 tests; with the orphans of `DeleteWay` left out of
 `touched` two of the core tests fail, and with those of `ReplaceWay` five of
 the interface's.
 
@@ -4133,13 +4133,13 @@ leaving a set with unsaved edits writes them first, kept for the next time
 it is opened. Killed with SIGKILL on the gobras 3x3 4.8 s after the last
 edit, the next run put both squares back exactly.
 
-Twenty mutations, each failing a test: whether the file holds an id
+Twenty-one mutations, each failing a test: whether the file holds an id
 taken as always, or read after the command ran as well as before; the tail
 left out, or not put at the end; the journal not forgotten on a save, or
 forgotten past an edit made during it; deletions not applied; the note
 before an apply or before an undo left out; the old change removed before
 the manifest is moved; the file's stamp not compared, or not taken on a
 save; an earlier run's autosave taken away by a flush; the timers armed by
-opening a set, or not by an undo back to clean, or the minute's not at all;
-a save, a discarding close or leaving a set not seen to; and what is not
-taken left where it was.
+opening a set, or not by an undo back to clean, or the idle's or the
+minute's not at all; a save, a discarding close or leaving a set not seen
+to; and what is not taken left where it was.
