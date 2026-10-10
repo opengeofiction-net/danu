@@ -29,7 +29,7 @@ from ..surface import difference as surface_difference
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import autosave as autosave_ui
-from . import config, josm
+from . import config, josm, session
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
@@ -346,6 +346,19 @@ class MainWindow(QMainWindow):
         self._view_settle.setSingleShot(True)
         self._view_settle.setInterval(400)
         self._view_settle.timeout.connect(self._view_settled)
+        # the session (H4b): written a second after anything it holds changes -
+        # the view's once it has come to rest, 400 ms on -
+        # and on closing, so a Danu killed reopens where it was as well
+        self.session_path = data_dir / session.FILE if data_dir else None
+        self._session_timer = QTimer(self)
+        self._session_timer.setSingleShot(True)
+        self._session_timer.setInterval(1000)
+        self._session_timer.timeout.connect(self.write_session)
+        if self.session_path is not None:
+            for sig in (self._view_settle.timeout, self.surface_panel.styleChanged, self.editor.toolChanged,
+                        self.loader.finished, self.elevation.changed, self.panel.group.idToggled,
+                        self.panel.slider.valueChanged, self.edit_actions['view.magnify'].toggled):
+                sig.connect(lambda *_: self._session_timer.start())
         self.map.zoomChanged.connect(lambda _: self._view_settle.start())
         self.map.horizontalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.map.verticalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
@@ -587,6 +600,7 @@ class MainWindow(QMainWindow):
                 return
             if answer == QMessageBox.StandardButton.Discard and self.autosave is not None:
                 self.autosave.discard()                  # thrown away on purpose, autosave and all
+        self.write_session()
         self.territory.abort()
         self.fetcher.abort()
         # before the builder: the idle timer asks for builds by itself, and one
@@ -601,6 +615,16 @@ class MainWindow(QMainWindow):
         if not self.builder.cleanup():
             self.statusBar().showMessage('a build was still running; its working files are left behind')
         super().closeEvent(event)
+
+    def write_session(self) -> None:
+        """The session as it stands, to its file - H4b."""
+        self._session_timer.stop()
+        if self.session_path is None:
+            return
+        try:
+            session.write(self.session_path, session.capture(self))
+        except OSError as e:
+            self.statusBar().showMessage(f'the session was not written: {e}')
 
     def _tool_changed(self, name: str):
         for key, a in self.edit_actions.items():
@@ -1616,6 +1640,9 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir())
+    last = session.read(win.session_path) if not args.zone_dir else None
+    if last is not None:
+        session.restore_window(win, last)
     win.show()
     # connected before the open is asked for; the signal is queued to the
     # event loop either way, but the order reads as it runs
@@ -1623,6 +1650,8 @@ def main(argv: list[str] | None = None) -> int:
         win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a))
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
+    elif last is not None and session.restore(win, last):
+        pass                                     # restore opened the set; the view and surface follow it
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
     return app.exec()
