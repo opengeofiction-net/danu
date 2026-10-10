@@ -4173,3 +4173,49 @@ the tool, the loupe, the layer, the mode or the docks not put back; the
 surface not built again, or said built when none was; the session not
 written on closing, or not as things change; a zone that is gone opened
 anyway; and a file of another version read.
+
+## H4c, the usage log and its replay
+
+`danu/ui/usage.py` writes a JSON line an event under
+`~/.local/share/danu/usage/`, a file a run, the last twenty kept, each line
+flushed as it is written so a crash leaves the log whole. An event filter on
+the map's viewport and on the view takes the input as Qt delivers it - a
+press, a release, a double click, a move while a button is held, a wheel
+turn, a key - with the place on the ground, the zoom, the centre, the tool
+and the active elevation. A press carries what it could mean: the node within
+the snap radius and how many pixels off, the contour within the pick radius
+and the segment, the spot height - the print that found the phase 3 review's
+two misread bugs, kept. Actions are logged by name, connected ahead of their
+own slots so the line comes before what they did; a tool and the loupe by
+what they became, since their buttons do not trigger the actions. The
+editor's new `stepped` signal gives each step done, undone or redone, with
+what `touched` names, and its messages are logged as said.
+
+**The cursor between inputs matters.** The first replay of a test log drew a
+contour the recorded run had refused: the tools keep the cursor from the
+last move, a draw click's crossing check reads it, and the log had dropped
+hovering. Every hover would be sixty lines a second, so the cursor's last
+place is written just before the next input instead - which is all of it the
+tools keep.
+
+`danu/ui/replay.py` plays a log back: the set opened, then each input at the
+same place on the ground with the view at the logged zoom and centre and the
+elevation set to the mapper's - a snap radius is in pixels, so the zoom
+decides what a press reaches - and each action triggered by name. What the
+tools do in answer, the steps and the messages, is held against what the log
+says they did, and the first input where they part is reported. Files changed
+since the log was written are said before anything is played; saves and the
+imports are not replayed.
+
+Recorded and replayed on the gobras 3x3 through real events: a stroke of 25
+moves that made a 16-node contour, a line of clicks refused where it crossed
+it, an undo and a redo - 44 events, every outcome as logged, and the square
+the same, in 4 s.
+
+Sixteen mutations, each failing a test: hovering logged move by move, or its
+last place not at all; the press's snap left out; the replay not at the
+logged zoom, centre or elevation; the log made after the menus, so an action
+comes after what it did; a step done, or one undone and redone, not told; the
+keys not logged; a line that does not read raising; changed files not said; old logs
+kept; lines left in a buffer; a parting not reported; and the wheel not
+replayed.

@@ -241,6 +241,7 @@ class EditController(QObject):
     # change means comparing Selections, and a Selection's dataclass equality
     # compares its Square, which is every node and way in it
     selectionChanged = Signal()
+    stepped = Signal(str, object)    # 'did', 'undid' or 'redid', and the step's (square, command) pairs - H4c
     proposalChanged = Signal()       # a grade proposed, accepted or dropped
     placeAsked = Signal(float, float, float, float)   # west, south, east, north: show it
     flattened = Signal(object, object)                # square, lake: a flatten accepted
@@ -332,6 +333,7 @@ class EditController(QObject):
     # ---------------------------------------------------------- history
     def do(self, square: Square, cmd: edits.Command):
         self.history.do(square, cmd)
+        self.stepped.emit('did', [(square, cmd)])
         ways, spots = cmd.ways(square), cmd.spots(square)
         self.layer.refresh(square, ways)
         self.layer.refresh_spots(square, spots)
@@ -360,6 +362,7 @@ class EditController(QObject):
         if not steps:
             return
         self.history.do_across(steps)
+        self.stepped.emit('did', steps)
         self._refresh_step(steps)
 
     def _refresh_step(self, step) -> None:
@@ -376,6 +379,7 @@ class EditController(QObject):
         stops being one square's business."""
         if not step:
             return
+        self.stepped.emit(verb, step)
         self._refresh_step(step)
         self.message.emit(f'{verb} {step[0][1].describe()}')
 
