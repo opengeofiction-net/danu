@@ -60,6 +60,8 @@ DEFAULT_KEYS = {
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map
     'view.josm': 'J',
+    # V for view closer: the loupe at the cursor, on and off - H3d
+    'view.magnify': 'V',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'C',

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
@@ -115,6 +115,8 @@ class MapView(QGraphicsView):
     cursorMoved = Signal(float, float)      # lon, lat
     elevationWheel = Signal(bool, bool)     # big, down
     opacityWheel = Signal(bool)             # down
+    pointerMoved = Signal(QPointF)          # the cursor, in viewport pixels - the loupe's (H3d)
+    pointerLeft = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -144,6 +146,8 @@ class MapView(QGraphicsView):
         # the editing tool, if any, sees mouse and key events first and says
         # whether it took them; panning and the cursor report carry on either way
         self.tool = None
+        # the loupe (H3d), whose magnification shift and the wheel step while it is shown
+        self.loupe = None
         self._pan_last: QPointF | None = None      # the right button dragging the map
         self._pan_moved = False
         self._apply_zoom()
@@ -203,6 +207,8 @@ class MapView(QGraphicsView):
             self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), delta < 0)
         elif mods & Qt.KeyboardModifier.AltModifier:
             self.opacityWheel.emit(delta < 0)
+        elif mods & Qt.KeyboardModifier.ShiftModifier and self.loupe is not None and self.loupe.on:
+            self.loupe.step(delta < 0)
         else:
             self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
         event.accept()
@@ -232,6 +238,7 @@ class MapView(QGraphicsView):
         p = self.mapToScene(event.position().toPoint())
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         self.cursorMoved.emit(lon, lat)
+        self.pointerMoved.emit(event.position())
         if self.panning and event.buttons() & Qt.MouseButton.RightButton:
             self.pan_to(event.position())
             event.accept()
@@ -303,6 +310,11 @@ class MapView(QGraphicsView):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Type.Leave:
+            self.pointerLeft.emit()
+        return super().viewportEvent(event)
 
     def keyPressEvent(self, event):
         if self.tool is not None and self.tool.key_press(event):

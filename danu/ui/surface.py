@@ -481,6 +481,9 @@ class SurfaceLayer(QGraphicsItem):
         self._rect = QRectF()
         self._stretch: tuple | None = None
         self._preview = False
+        # smoothed as the map draws it; the loupe (H3d) turns it off for its
+        # own render, so a cell there is a square of its own colour
+        self.smooth = True
         # None means compose on the calling thread, which is what every test
         # and every small raster wants. The window installs a runner - see
         # MainWindow - because at 1 arcsecond composing is 21 s and the UI
@@ -866,6 +869,13 @@ class SurfaceLayer(QGraphicsItem):
         may be taken from (H3b)."""
         return self._preview
 
+    def cells(self) -> tuple[QRectF, int, int] | None:
+        """What is drawn, as a grid: its rect in the scene, and its columns
+        and rows - for the loupe's cell lines (H3d)."""
+        if self._pixmap is None:
+            return None
+        return self._rect, self._pixmap.width(), self._pixmap.height()
+
     def set_preview(self, previewing: bool):
         """Whether what is drawn is a preview or the exact build - R19's "the
         two states are distinguishable at a glance"."""
@@ -876,7 +886,7 @@ class SurfaceLayer(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._pixmap is None:
             return
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.smooth)
         painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
         if self._preview:
             # A dashed edge around the surface. Cosmetic, so the width is in

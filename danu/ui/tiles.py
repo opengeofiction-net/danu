@@ -176,6 +176,9 @@ class TileLayer(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
         self.setOpacity(layer.opacity)
         self.setVisible(layer.visible)
+        # the loupe (H3d) draws the tiles the map already has, scaled, rather
+        # than asking the tile server for zooms deeper on every hover
+        self.zoom_at_most: int | None = None
         fetcher.ready.connect(self._tile_ready)
 
     def boundingRect(self) -> QRectF:
@@ -193,6 +196,8 @@ class TileLayer(QGraphicsItem):
         if rect.isEmpty():
             return
         z = self.zoom_for(painter.worldTransform().m11())
+        if self.zoom_at_most is not None:
+            z = min(z, self.zoom_at_most)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         for _, x, y in m.tiles_in_rect(rect.left(), rect.top(), rect.right(), rect.bottom(), z):
             wx = m.wrap_x(x, z)
