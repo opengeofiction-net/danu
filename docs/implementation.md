@@ -3957,3 +3957,36 @@ not refused, a lake's level and a river's not read, an edit not measuring
 again, a drag not a line, a crossing put at the wrong end of its segment, the
 window not telling the tool of an exact build, a climb or a fall across a gap,
 and a closed panel shown again.
+
+## H3b again: slope, the map's colours, and no climbs
+
+**No climbs.** Asked what the red meant and what to do about it, there was no
+good answer: on a line drawn anywhere a climb is only the ground going up, and
+the profile already shows that. It meant something only along a river drawn
+downstream, where the grade already shows the climbs on the river's own
+geometry and the burn mends them. Gone, from the profile and the map.
+
+**Slope.** A switch over the profile, Elevation or Slope. The slope is the
+ground's as the map's slope mode gives it - `shade.slope_degrees` over the
+cells the line's box holds and one round them, read at each point's cell - so
+it is the status line's "slope N°" along the line, not the gradient of the
+line itself, which the elevation profile already shows. The steepest goes in
+the summary: 10.1° on the 21 km gobras line, where the hills begin. In slope,
+what the line crosses is ticks along the foot, since no slope is theirs.
+
+**Filled in the map's colours.** Under the line, each stretch is the colour
+the map gives that place, from the legend's own colours - `Legend.colours`,
+which the bar now draws itself with - so the profile, the bar and the map
+cannot differ: the ramp through the scaling in force, pinch and view
+included, or the slope's colours while the map shows slope, whichever the
+profile is drawn as; grey in hillshade, which has none. The legend says when
+its colours change, and the profile repaints.
+
+**A click on the profile** takes the map to the place, as a climb clicked did.
+
+Ten mutations, each failing a test: rows and columns swapped in the slope's
+cells, the slope window's first row taken for the grid's, the mean taken for
+the steepest, the fill by the ground while the map shows slope, colours in
+hillshade, the legend not saying its colours changed, the fill grey always, a
+click on the profile not taking the map there, the switch not switching, and
+the slope plot drawing the ground.

@@ -93,18 +93,19 @@ def test_a_line_clicked_north_is_measured_on_the_ground_with_its_profile(w):
     # the five contours, at their values and in order going north
     assert [e for _, e in a.contours] == [10, 20, 30, 40, 50]
     assert all(d0 < d1 for (d0, _), (d1, _) in pairwise(a.contours))
-    # rising all the way, drawn as water would run uphill: one climb shaded
-    assert len(t.climbs()) == 1
+    # 100 m a degree of latitude: 0.41 m a 458 m cell, 0.05 degrees
+    assert a.steepest == pytest.approx(0.0515, abs=0.002)
     s = w.profile_dock.summary.text()
     assert s.startswith(f'{a.length / 1000:,.2f} km') and 'crosses 5 contours' in s and '%' in s
+    assert 'steepest 0.1°' in s
     assert w.profile_dock.isVisible() and w.profile_dock.plot.isVisible()
     assert w.statusBar().currentMessage() == s
 
 
-def test_drawn_downhill_nothing_climbs(w):
+def test_drawn_downhill_it_only_falls(w):
     click(w, 126.3, -23.45)
     double_click(w, 126.3, -23.95)
-    assert w.measure.climbs() == [] and w.measure.result.up_down[0] == pytest.approx(0, abs=1)
+    assert w.measure.result.up_down[0] == pytest.approx(0, abs=1)
     assert 'along it 0 m up' in w.profile_dock.summary.text()
 
 
@@ -135,7 +136,6 @@ def test_a_preview_refuses_the_ground_and_the_exact_build_brings_it_back(w):
     w.measure.surface_changed()
     assert w.measure.why_not.startswith('a preview stands')
     assert 'a preview stands' in w.profile_dock.summary.text() and not w.profile_dock.plot.isVisible()
-    assert w.measure.climbs() == []
     w.surface.set_preview(False)
     w.measure.surface_changed()
     assert w.measure.why_not is None and w.profile_dock.plot.isVisible()
@@ -235,13 +235,39 @@ def test_hovering_the_profile_marks_the_place_on_the_map(w):
     assert w.measure.hover_d is None
 
 
-def test_a_climb_clicked_in_the_profile_takes_the_map_to_it(w):
+def press_plot(w, d):
+    plot = w.profile_dock.plot
+    plot.repaint()
+    at = QPointF(plot._x(d), plot.height() / 2)
+    plot.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, at, plot.mapToGlobal(at.toPoint()),
+                                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                                     Qt.KeyboardModifier.NoModifier))
+
+
+def test_a_click_on_the_profile_takes_the_map_to_the_place(w):
     click(w, 126.3, -23.95)
     double_click(w, 126.3, -23.45)
     w.map.set_zoom(6)
-    w.profile_dock.plot.issueClicked.emit(w.measure.climbs()[0])
+    w.map.center_on_lonlat(120.0, -20.0)
+    press_plot(w, w.measure.result.length / 4)
     lon, lat = w.map.center_lonlat()
-    assert lon == pytest.approx(126.3, abs=0.05) and -23.95 < lat < -23.45 and w.map.zoom > 6
+    assert lon == pytest.approx(126.3, abs=0.01) and lat == pytest.approx(-23.825, abs=0.01)
+    assert w.map.zoom > 6
+
+
+def test_the_profile_switches_to_slope_and_back(w):
+    click(w, 126.3, -23.95)
+    double_click(w, 126.3, -23.45)
+    d = w.profile_dock
+    assert d.plot.mode == 'elevation' and d.mode_buttons['elevation'].isChecked()
+    d.mode_buttons['slope'].click()
+    assert d.plot.mode == 'slope' and d.mode_buttons['slope'].isChecked()
+    assert np.array_equal(d.plot._values(), w.measure.result.slope, equal_nan=True)
+    d.plot.repaint()                                   # draws the slope without falling over
+    press_plot(w, w.measure.result.length / 2)          # and a click still shows the place
+    assert w.map.center_lonlat()[1] == pytest.approx(-23.70, abs=0.01)
+    d.mode_buttons['elevation'].click()
+    assert d.plot.mode == 'elevation'
 
 
 def test_the_window_tells_it_when_a_preview_lands_and_when_the_exact_build_does(w):
@@ -264,3 +290,42 @@ def test_a_lake_crossed_is_at_its_level(w):
     click(w, 126.65, -23.85)
     double_click(w, 126.65, -23.65)
     assert [(label, level) for _, label, level in w.measure.result.water] == [('water "Loch Test"', 33.0)] * 2
+
+
+def test_the_profile_is_filled_in_the_colours_the_map_gives_each_place(w):
+    """The legend's colours at the ground along the line; at its slope while
+    the map shows slope; none in hillshade - and the plot told to repaint
+    when the map's colours change."""
+    click(w, 126.3, -23.95)
+    double_click(w, 126.3, -23.45)
+    a = w.measure.result
+    plot = w.profile_dock.plot
+    got = plot.colourer(a)
+    assert np.array_equal(got, w.legend.colours(a.ground))
+    assert not np.array_equal(got[0], got[-1]), 'the ground rises 50 m and the colour does not follow'
+    w.surface_panel.mode.setCurrentText('slope')
+    assert np.array_equal(plot.colourer(a), w.legend.colours(a.slope))
+    assert np.array_equal(w.legend.colours(a.slope), shade.SLOPE_RAMP.rgba(a.slope))
+    w.surface_panel.mode.setCurrentText('hillshade')
+    assert plot.colourer(a) is None
+    plot.repaint()                                      # grey, without falling over
+    told = []
+    w.legend.changed.connect(lambda: told.append(1))
+    w.surface_panel.mode.setCurrentText('relief')
+    assert told
+
+
+def test_the_fill_is_the_colour_under_the_line(w, qtbot):
+    """Rendered: a pixel just under the line, mid-profile, is the legend's
+    colour for the ground there."""
+    click(w, 126.3, -23.95)
+    double_click(w, 126.3, -23.45)
+    plot = w.profile_dock.plot
+    plot.resize(600, 200)
+    img = plot.grab().toImage()
+    a = w.measure.result
+    d = a.length / 2
+    i = int(np.searchsorted(a.dist, d))
+    want = w.legend.colours(a.ground)[i]
+    px = img.pixelColor(int(plot._x(d)), int(plot.height() - 20))
+    assert (px.red(), px.green(), px.blue()) == pytest.approx(tuple(int(c) for c in want[:3]), abs=3)
