@@ -111,3 +111,13 @@ def test_a_rivers_level_is_between_the_levels_given_and_not_past_them():
     assert A.level_between(levels, 50.0) is None and A.level_between(levels, 400.0) is None
     assert A.level_between([], 10.0) is None
     assert A.level_between([(10.0, 7.0)], 10.0) == 7.0 and A.level_between([(10.0, 7.0)], 11.0) is None
+
+
+def test_off_the_surface_and_back_neither_climbs_nor_falls_across_the_gap():
+    """Out over 10 m, off the surface, back on at 60 m: no 50 m climb that
+    nobody walking the line would make."""
+    g = np.array([10, 11, 10, np.nan, np.nan, 60, 60.5, 62, 61.8])
+    a = A.Along(np.zeros((9, 2)), np.arange(9.0) * 100, g, [0, 800])
+    up, down = a.up_down
+    assert up == pytest.approx(1 + 0.5 + 1.5) and down == pytest.approx(1 + 0.2)
+    assert [c[:2] for c in a.climbs()] == [(0.0, 100.0), (500.0, 700.0)]

@@ -3942,10 +3942,18 @@ eight climbs, the last 60 m over 2 km. The squares hold no water yet, so the
 water is held by tests: a stream between levels of 40 and 20 m crossed at 25,
 and a lake at its 33.
 
-Thirteen mutations, each failing a test: rows and columns swapped in the
+**After review.** The status line's reading and the profile read the cell
+under a point by one function, `along.sample`, rather than by two that were
+said to agree; and a line off the surface and back on neither climbs nor
+falls across the gap - the review's, the jump from the last cell before to the
+first after counted as ground walked. A profile panel the mapper closed stays
+closed when the line is measured again after an edit; a line ended shows it.
+
+Sixteen mutations, each failing a test: rows and columns swapped in the
 sampling, the last climb dropped, no metre of fall before a turn, the trough
 followed only when the ground falls a metre below it, a river's level carried
 past its last, distance in scene units rather than on the ground, a preview
 not refused, a lake's level and a river's not read, an edit not measuring
-again, a drag not a line, a crossing put at the wrong end of its segment, and
-the window not telling the tool of an exact build.
+again, a drag not a line, a crossing put at the wrong end of its segment, the
+window not telling the tool of an exact build, a climb or a fall across a gap,
+and a closed panel shown again.

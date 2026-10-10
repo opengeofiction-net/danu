@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
@@ -22,7 +23,7 @@ from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.square import Square, SquareName, WorkingSet
-from ..surface import shade
+from ..surface import along, shade
 from ..water import flatten, peaks
 from ..water.gone import gone
 from . import config, josm
@@ -343,11 +344,12 @@ class MainWindow(QMainWindow):
         x, y = m.lonlat_to_scene(lon, lat)
         left, top, right, bottom = shaded.scene_rect
         rows, cols = shaded.dem.shape
-        c = int((x - left) / (right - left) * cols)
-        r = int((y - top) / (bottom - top) * rows)
-        if not (0 <= r < rows and 0 <= c < cols):
+        # the cell the profile reads too (H3b), by the one function
+        z = float(along.sample(shaded.dem, shaded.scene_rect, np.array([[x, y]]))[0])
+        if np.isnan(z):
             return ''
-        z = float(shaded.dem[r, c])
+        c = int(np.floor((x - left) / (right - left) * cols))
+        r = int(np.floor((y - top) / (bottom - top) * rows))
         if z <= 0:
             return 'sea   '
         if self.surface.style.mode == 'slope':

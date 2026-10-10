@@ -204,6 +204,17 @@ def test_an_ended_line_stays_with_the_other_tools_and_follows_the_edits(w, qtbot
     qtbot.waitUntil(lambda: [e for _, e in w.measure.result.contours] == [10, 20, 40, 50], timeout=2000)
 
 
+def test_a_profile_closed_stays_closed_when_the_line_is_measured_again(w):
+    click(w, 126.3, -23.95)
+    double_click(w, 126.3, -23.45)
+    w.profile_dock.close()
+    w.measure.surface_changed()
+    assert not w.profile_dock.isVisible()
+    click(w, 126.2, -23.95)
+    double_click(w, 126.2, -23.45)
+    assert w.profile_dock.isVisible(), 'a new line ended and its profile not shown'
+
+
 def test_a_line_half_drawn_goes_with_its_tool(w):
     click(w, 126.3, -23.9)
     w.editor.set_tool('draw')

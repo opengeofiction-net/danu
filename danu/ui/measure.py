@@ -45,6 +45,7 @@ class MeasureTool(QObject):
 
     changed = Signal()               # the line, the cursor or the reading moved: repaint
     measured = Signal()              # a line ended and measured, or measured again
+    ended = Signal()                 # a line ended: the profile is shown
     message = Signal(str)
 
     def __init__(self, view, layer, surface, parent=None):
@@ -148,6 +149,7 @@ class MeasureTool(QObject):
             return
         self.done = True
         self.measure()
+        self.ended.emit()
         self.message.emit(self.summary())
 
     def live(self) -> str:
@@ -457,6 +459,7 @@ class ProfileDock(QDockWidget):
         self.plot.hovered.connect(self._hovered)
         self.plot.issueClicked.connect(self.climbChosen)
         tool.measured.connect(self.refresh)
+        tool.ended.connect(self._ended)
         self.refresh()
 
     def _hovered(self, d) -> None:
@@ -467,6 +470,9 @@ class ProfileDock(QDockWidget):
         t = self.tool
         self.summary.setText(t.summary() if t.result is not None else 'No line measured.')
         self.plot.show_line(t.result if t.why_not is None else None, t.climbs())
-        if t.result is not None and t.done:
-            self.show()
-            self.raise_()
+
+    def _ended(self) -> None:
+        # shown when a line ends, and only then: measured again after an
+        # edit, a panel the mapper closed stays closed
+        self.show()
+        self.raise_()

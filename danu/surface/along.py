@@ -54,11 +54,13 @@ class Along:
 
     @property
     def up_down(self) -> tuple[float, float]:
-        """The metres climbed and fallen along it, as drawn."""
-        k = self._known()
-        if len(k) < 2:
+        """The metres climbed and fallen along it, as drawn - between
+        neighbouring cells, so a line off the surface and back on does not
+        climb across the gap."""
+        if self.ground is None or len(self.ground) < 2:
             return 0.0, 0.0
-        d = np.diff(self.ground[k])
+        d = np.diff(self.ground)
+        d = d[~np.isnan(d)]
         return float(d[d > 0].sum()), abs(float(d[d < 0].sum()))
 
     @property
@@ -79,13 +81,19 @@ class Along:
 
         Not the grade's ground above the lowest the line has been, which was
         tried first: on gobras' rolling lowland it shaded nearly the whole of
-        a 25 km line, everything after its first dip."""
+        a 25 km line, everything after its first dip. A gap off the surface
+        ends a climb and starts again past it."""
         k = self._known()
         if len(k) < 2:
             return []
         g = self.ground[k]
         out, lo, hi = [], 0, None
         for j in range(1, len(g)):
+            if k[j] != k[j - 1] + 1:               # off the surface and back
+                if hi is not None:
+                    out.append((lo, hi))
+                lo, hi = j, None
+                continue
             if hi is None:
                 if g[j] <= g[lo]:
                     lo = j                         # the last of a flat trough
@@ -139,8 +147,8 @@ def line(points, step: float) -> tuple[np.ndarray, list]:
 
 
 def sample(dem: np.ndarray, scene_rect: tuple, scene: np.ndarray) -> np.ndarray:
-    """The surface at each scene point, as the status line reads it: the
-    cell it falls in. NaN off the grid."""
+    """The surface at each scene point: the cell it falls in, NaN off the
+    grid. The status line's reading is this, so the two agree."""
     left, top, right, bottom = scene_rect
     rows, cols = dem.shape
     c = np.floor((scene[:, 0] - left) / (right - left) * cols).astype(np.int64)
@@ -156,6 +164,7 @@ def along(points, shaded=None) -> Along:
     apart where there is a surface, and the drawn points alone where not."""
     pts = np.asarray(points, dtype=float).reshape(-1, 2)
     if shaded is not None:
+        # a cell's width: the Mercator grids are square-celled (shade.py)
         left, _, right, _ = shaded.scene_rect
         step = (right - left) / shaded.dem.shape[1]
     else:
