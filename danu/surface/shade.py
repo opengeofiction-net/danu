@@ -108,6 +108,10 @@ class Shaded:
     metres: float
     classes: np.ndarray | None = None   # first-pass classes on the same grid, or None
     reading: dict | None = None         # first_pass_reading(), measured on the lat/lon grid
+    # the working surface less the published DEM, on this grid, and the ramp's
+    # half-width - H3c's, worked out when a difference is asked of this build
+    difference: np.ndarray | None = None
+    difference_span: float = 0.0
 
     @property
     def scene_rect(self) -> tuple[float, float, float, float]:
