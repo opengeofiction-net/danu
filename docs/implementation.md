@@ -3861,3 +3861,36 @@ ground, no halo, the view window ignored, the sea coloured, the legend not
 spanning the view, the panel dropping the window, slope pinchable, the window
 not told; and for the reading, slope never read, rows and columns swapped, the
 mode not followed, and the sea read as ground.
+
+## R38, a spot height in no ring
+
+"Rogue spot heights, created by a mapper ignorant of the DEM": the main map's
+Suprrina Hill, 69 m, 100 m from the 5 m contour, and Apson Hill, 192 m, 432 m
+from the 10 m with nothing over 30 m within 2.7 km. R38 had judged a spot height
+only against the rings round it, and neither stands in one; one in no ring was
+left to R39.
+
+**In no ring, a spot height stands between the contours nearest it.** So it is
+judged against them: the first contour each of eight rays from it meets
+within 3 km. More than a step of the square's ladder above the highest of
+those is a summit nobody drew a ring round, or a height that is wrong; as far
+below the lowest, a hollow, the same. Fewer than six of the eight meeting a
+contour is too little to say. On the gobras squares, of the 29 spot heights so
+judged, 12: Neetaukeit Hill 405 m among contours of 25 to 50 m, Paza Peak 309
+m among 75 to 87, Apson Hill and Suprrina Hill, and down to Zunda Hill, 52 m
+among 10 to 20. They are rows of R38's list, said as in no ring, with the
+nearest contours' range.
+
+**Kept as edited.** The contours as segments, a way at a time, so an edit
+replaces its own; a spot height in no ring is asked again when a point of a
+contour within 3 km of it moved, rather than when anything in the edited
+contour's box did - for a long contour that box is most of the square, and
+the first version asked 112 spot heights again, at 105 ms an edit. The rings
+are now kept the same way, an edited way's replaced: rebuilt whole they had
+been 48 ms of every edit since R38 came in. 16 to 19 ms now, on N20E086, and a
+random-edit test holds the kept list to a fresh scan.
+
+Nine mutations, each failing a test: no ring not judged, no step of slack,
+below not asked, too few directions judged, the farthest contour taken for the
+first, an edit not asking the spot heights within reach of what moved, a
+deleted contour's segments kept, and the panel not counting them apart.

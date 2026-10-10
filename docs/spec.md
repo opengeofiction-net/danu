@@ -170,7 +170,8 @@ Numbered from R36 because the earlier numbers are cited from the code.
   `demCheckZeroLine.py`.
 - **R33** A water body spanning more than one contour.
 - **R38** A spot height which contradicts the contours around it: one which
-  does not lie between the elevations of the rings enclosing it.
+  does not lie between the elevations of the rings enclosing it, or, in no
+  ring, within a step of the contours nearest it.
 - **R39** A closed contour ring with no spot height inside it. A report rather
   than a warning: plenty of rings are the foot of a slope, not a summit.
 
@@ -1218,6 +1219,7 @@ Recorded so the reasoning is not relitigated:
 | slope (H3a) | a fourth mode beside shaded relief, hillshade and relief: the ground's slope against the ground, not the map - a Mercator cell is cos(latitude) of itself on the ground - coloured in degrees, pale on the flat, yellow by 5, orange by 15, red by 30, dark past 45; the ramp and the scaling do not apply, the sea stays clear, and the legend reads 0 to 45 degrees and does not pinch |
 | the view scaling (H3a) | the ramp stretched over the land on screen rather than the whole set's, recoloured once the map has been still for 400 ms; with no land in view, the set's; the legend spans what is in view, its ends to the metre |
 | the status line's reading | bottom right, after the active elevation: what the surface on screen reads under the cursor - "ground 182 m", or "slope 11.1°" while slope is shown, "sea" at sea level - from the arrays the layer draws, so a preview reads as it looks; nothing off the surface or with none built |
+| a spot height in no ring | judged against the first contour met in each of eight directions within 3 km: more than a ladder step above the highest of them, or below the lowest, is listed with the spot heights R38 finds, "in no ring, the contours nearest it 5 to 7 m"; fewer than six directions meeting a contour is too little to judge by |
 | the checks' first scan, seen | the panel brought to the front, a bar a check naming the one it is on, the lists and buttons put away until there is something in them, and the status line saying so - and how long it took when it lands |
 | JOSM | J, or the Show in JOSM button in the checks panel and the import report: JOSM's remote control `/zoom` at `http://127.0.0.1:8111` (`josm/url` in the INI) to the box the map shows, selecting what is selected if it came from the main map - a positive id; nothing is downloaded, and a refusal or a JOSM not running is said in the status line |
 | the pinch key | C, the surface's pinch, since P became the split |
