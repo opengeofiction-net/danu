@@ -930,6 +930,21 @@ class EditController(QObject):
         square_now = self.drawing[0] if self.drawing else (self.pending[0] if self.pending else None)
         hit = self.layer.pick_node(stroke[-1][0], stroke[-1][1], self._px(SNAP_PX))
         end_node = hit[1] if hit is not None and square_now is not None and hit[0] is square_now else None
+        if end_node is not None and self.drawing:
+            refs = self.drawing[0].ways[self.drawing[1]].refs
+            at_end = self.drawing[2]
+            if end_node == refs[-1 if at_end else 0]:
+                # let go on the node its own press put down: a click whose
+                # hand moved, and joining onto it held the node twice in a row
+                # - w-65047261 in Gobras City, at every such click
+                return
+            if end_node in refs and end_node != refs[0 if at_end else -1]:
+                # onto its own line other than the far end: a loop, refused
+                # as a click onto it is
+                if self._press_added:
+                    self.undo()
+                self.message.emit('stroke not drawn: a contour may not cross itself')
+                return
         if end_node is not None:
             pts = pts[:-1]
         if not pts:
@@ -1227,10 +1242,11 @@ class EditController(QObject):
         self.set_tool('select')
         self.selection = Selection(square, way)
         nodes = f'{c.nodes} node{"s" * (c.nodes != 1)}'
+        text = (f'{c.doubles} node{"s" * (c.doubles != 1)} of the {format_ele(way.ele)} m contour held '
+                'twice in a row, held once' if c.doubles else
+                f'cut out the loop: {c.metres:,.0f} m of the {format_ele(way.ele)} m contour and {nodes} go')
         self._set_proposal(Proposal(
-            square, way, c.command,
-            f'cut out the loop: {c.metres:,.0f} m of the {format_ele(way.ele)} m contour and {nodes} '
-            'go', issues=[], removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in c.removed]],
+            square, way, c.command, text, issues=[], removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in c.removed]],
             kind='loop'))
 
     def delete_selected(self):

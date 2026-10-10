@@ -96,3 +96,24 @@ def test_o_with_nothing_chosen_says_how(looped):
 
 def test_o_is_the_key(window):
     assert window.edit_actions['edit.cut_loop'].shortcut().toString() == 'O'
+
+
+def test_a_contour_with_nodes_twice_in_a_row_is_mended_in_one_cut(window, qtbot):
+    """Two rows for the one contour; O on either holds both nodes once."""
+    sq = window.working_set.squares[NORTH]
+    alloc = window.editor.history.alloc(sq)
+    wid, ids = alloc.take(), [alloc.take() for _ in range(4)]
+    pts = [(125.40, LAT), (125.41, LAT), (125.42, LAT), (125.43, LAT)]
+    window.editor.do(sq, edits.AddWay(wid, ids, pts, {'ele': '160'}))
+    window.editor.do(sq, edits.ReplaceWay(wid, [(wid, [ids[0], ids[1], ids[1], ids[2], ids[2], ids[3]])], {}))
+    window.checks_dock.toggleViewAction().trigger()
+    qtbot.waitUntil(lambda: window.loop_index is not None, timeout=5000)
+    assert rows(window.checks_dock) == [f'160 m contour, way {wid} - through node {n} twice in a row'
+                                        for n in ids[1:3]]
+    choose(window)
+    window.edit_actions['edit.cut_loop'].trigger()
+    p = window.editor.proposal
+    assert p is not None and p.summary == '2 nodes of the 160 m contour held twice in a row, held once'
+    window.editor.accept_proposal()
+    assert sq.ways[wid].refs == ids
+    qtbot.waitUntil(lambda: rows(window.checks_dock) == [], timeout=2000)
