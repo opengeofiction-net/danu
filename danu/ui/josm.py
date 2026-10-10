@@ -48,6 +48,13 @@ def zoom_url(base: str, bounds, ids=()) -> str:
     return f'{base.rstrip("/")}/zoom?{urlencode(query, safe=",")}'
 
 
+def imagery_url(base: str, title: str, url: str) -> str:
+    """``/imagery`` adding a WMS layer: JOSM's own placeholders - ``{proj}``,
+    ``{bbox}``, ``{width}``, ``{height}`` - left in the URL it is given, and
+    the URL last, encoded, as JOSM's handler takes it."""
+    return f'{base.rstrip("/")}/imagery?{urlencode({"title": title, "type": "wms", "url": url})}'
+
+
 class JosmRemote(QObject):
     """One request at a time to JOSM's remote control; a newer one replaces
     one still out."""
@@ -64,7 +71,13 @@ class JosmRemote(QObject):
         self._replaced: set = set()
 
     def zoom(self, bounds, ids=(), what: str = '') -> str:
-        url = zoom_url(self.base, bounds, ids)
+        return self._get(zoom_url(self.base, bounds, ids), what)
+
+    def imagery(self, title: str, url: str, what: str = '') -> str:
+        """A WMS layer added to JOSM - Danu's surface, H5."""
+        return self._get(imagery_url(self.base, title, url), what)
+
+    def _get(self, url: str, what: str) -> str:
         if self._reply is not None:
             # said so before the abort: a reply cancelled by its own timeout
             # is cancelled too, and that one is a JOSM not answering
