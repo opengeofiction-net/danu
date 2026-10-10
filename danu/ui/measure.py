@@ -449,19 +449,23 @@ class TerrainProfile(QWidget):
                 path.moveTo(x(d), y(e))
                 open_ = True
         painter.drawPath(path)
+        # the contours in the text's colour, so they read on the plot's own
+        # ground in a dark theme as in a light one - charcoal was lost on dark
+        ink, ground = self.palette().text().color(), self.palette().base().color()
         if slope:
             # what it crosses, where: a tick along the foot, as no slope is theirs
-            painter.setPen(QPen(QColor(40, 40, 40), 1.2))
+            painter.setPen(QPen(ink, 1.2))
             for d, _ in a.contours:
                 painter.drawLine(QPointF(x(d), r.bottom()), QPointF(x(d), r.bottom() - 6))
             painter.setPen(QPen(WATER, 2.0))
             for d, _, _ in a.water:
                 painter.drawLine(QPointF(x(d), r.bottom()), QPointF(x(d), r.bottom() - 9))
         else:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(40, 40, 40))
+            painter.setPen(QPen(ground, 1.0))            # a ring, to stand off the fill too
+            painter.setBrush(ink)
             for d, e in a.contours:
-                painter.drawEllipse(QPointF(x(d), y(e)), 2.4, 2.4)
+                painter.drawEllipse(QPointF(x(d), y(e)), 2.6, 2.6)
+            painter.setPen(Qt.PenStyle.NoPen)
             for d, _, level in a.water:
                 at = level if level is not None else a.ground_at(d)
                 if at is None:

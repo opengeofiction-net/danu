@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip('PySide6')
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 
 from danu.core import edits
 from danu.core.profile import seg_lengths
@@ -329,3 +329,29 @@ def test_the_fill_is_the_colour_under_the_line(w, qtbot):
     want = w.legend.colours(a.ground)[i]
     px = img.pixelColor(int(plot._x(d)), int(plot.height() - 20))
     assert (px.red(), px.green(), px.blue()) == pytest.approx(tuple(int(c) for c in want[:3]), abs=3)
+
+
+@pytest.mark.parametrize('dark', [True, False])
+def test_the_contours_are_in_the_texts_colour_light_or_dark(w, dark):
+    """Charcoal dots were lost on a dark theme's plot: white there, black
+    in a light one."""
+    from PySide6.QtGui import QPalette
+    click(w, 126.3, -23.95)
+    double_click(w, 126.3, -23.45)
+    plot = w.profile_dock.plot
+    pal = QPalette(plot.palette())
+    ink, ground = (QColor(255, 255, 255), QColor(30, 30, 30)) if dark else (QColor(0, 0, 0), QColor(255, 255, 255))
+    pal.setColor(QPalette.ColorRole.Text, ink)
+    pal.setColor(QPalette.ColorRole.Base, ground)
+    plot.setPalette(pal)
+    plot.resize(600, 200)
+    img = plot.grab().toImage()
+    d, e = w.measure.result.contours[2]
+    ys = [float(v) for v in w.measure.result.ground[~np.isnan(w.measure.result.ground)]] + [10, 50]
+    lo, hi = min(ys), max(ys)
+    pad = max(1.0, (hi - lo) * 0.08)
+    lo, hi = lo - pad, hi + pad
+    top, bottom = 6, plot.height() - 16
+    y = bottom - (bottom - top) * (e - lo) / (hi - lo)
+    px = img.pixelColor(round(plot._x(d)), round(y))
+    assert abs(px.red() - ink.red()) < 60 and abs(px.blue() - ink.blue()) < 60, (px.name(), ink.name())
