@@ -346,7 +346,8 @@ class MainWindow(QMainWindow):
         self._view_settle.setSingleShot(True)
         self._view_settle.setInterval(400)
         self._view_settle.timeout.connect(self._view_settled)
-        # the session (H4b): written a second after anything it holds changes,
+        # the session (H4b): written a second after anything it holds changes -
+        # the view's once it has come to rest, 400 ms on -
         # and on closing, so a Danu killed reopens where it was as well
         self.session_path = data_dir / session.FILE if data_dir else None
         self._session_timer = QTimer(self)
@@ -1650,7 +1651,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
     elif last is not None and session.restore(win, last):
-        pass                                     # the set, the view and the surface as they were left
+        pass                                     # restore opened the set; the view and surface follow it
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
     return app.exec()

@@ -65,7 +65,11 @@ def write(path: Path, data: dict) -> None:
         raise
 
 
-def read(path: Path) -> dict | None:
+def read(path: Path | None) -> dict | None:
+    """The session, or None: no data directory, no file, or one of another
+    version."""
+    if path is None:
+        return None
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):

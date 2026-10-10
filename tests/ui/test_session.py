@@ -105,7 +105,7 @@ def test_a_session_in_a_zone_that_is_gone_opens_nothing_and_says_so(make, tmp_pa
 
 def test_a_file_from_another_version_or_none_is_no_session(tmp_path):
     p = tmp_path / 'session.json'
-    assert session.read(p) is None
+    assert session.read(p) is None and session.read(None) is None
     p.write_text('{"version": 99}')
     assert session.read(p) is None
     p.write_text('not json')
