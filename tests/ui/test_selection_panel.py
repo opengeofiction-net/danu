@@ -256,3 +256,127 @@ def test_l_at_the_level_a_lake_already_has_is_no_step(w):
     w.editor.set_level()
     assert len(w.editor.history._done) == depth, 'the same level again went on the history'
     assert 'already' in w.statusBar().currentMessage()
+
+
+# ------------------------------------------------------------ copying, H6c
+
+def copied():
+    from PySide6.QtGui import QGuiApplication
+    return QGuiApplication.clipboard().text()
+
+
+def right_click(label):
+    """The actions a right click on ``label`` offers, by their text."""
+    assert label.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
+    return {a.text(): a for a in label.actions()}
+
+
+def test_the_name_is_copied_from_a_right_click(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100])
+    menu = right_click(w.selection_panel.name)
+    assert list(menu) == ['Copy name'] and menu['Copy name'].isEnabled()
+    menu['Copy name'].trigger()
+    assert copied() == 'Bosco'
+
+
+def test_no_name_nothing_to_copy(w):
+    sq, way = contour(w)
+    w.editor.selection = Selection(sq, way)
+    assert not right_click(w.selection_panel.name)['Copy name'].isEnabled()
+
+
+def test_an_upstream_way_is_copied_as_its_id_or_its_page(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100])
+    menu = right_click(w.selection_panel.where)
+    assert list(menu) == ['Copy ID', 'Copy URL'] and all(a.isEnabled() for a in menu.values())
+    menu['Copy ID'].trigger()
+    assert copied() == 'w100'
+    menu['Copy URL'].trigger()
+    assert copied() == 'https://opengeofiction.net/way/100'
+
+
+def test_a_ring_of_a_lake_copies_the_lake(w):
+    """The relation ahead of the way: the lake is what a mapper means."""
+    sq = w.working_set.squares[NORTH]
+    for sel in (Selection(sq, sq.ways[200]), Selection(sq, None, relation=sq.relations[300])):
+        w.editor.selection = sel
+        assert w.selection_panel.info.osm == ('relation', 300)
+    right_click(w.selection_panel.where)['Copy ID'].trigger()
+    assert copied() == 'r300'
+
+
+def test_a_point_on_a_river_copies_the_node(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100], 2)
+    assert w.selection_panel.info.osm == ('node', 2)
+
+
+def test_a_spot_height_copies_its_node(w):
+    sq = w.working_set.squares[NORTH]
+    sq.nodes[7] = Node(id=7, lon=125.6, lat=-22.6, tags={'ele': '300'})
+    w.editor.selection = Selection(sq, None, 7)
+    assert w.selection_panel.info.osm == ('node', 7)
+
+
+def test_a_local_contour_has_no_id_to_copy(w):
+    sq, way = contour(w)
+    w.editor.selection = Selection(sq, way)
+    assert way.id < 0 and w.selection_panel.info.osm is None
+    menu = right_click(w.selection_panel.where)
+    assert not menu['Copy ID'].isEnabled() and not menu['Copy URL'].isEnabled()
+
+
+def test_a_contour_upstream_copies_the_way_not_its_node(w):
+    sq, way = contour(w)
+    sq.ways[4242] = Way(id=4242, refs=list(way.refs), tags=dict(way.tags))
+    w.editor.selection = Selection(sq, sq.ways[4242], way.refs[1])
+    assert w.selection_panel.info.osm == ('way', 4242)
+
+
+def test_the_server_is_the_inis(w, tmp_path):
+    from danu.ui.selection_panel import osm_ids
+    from danu.ui.settings import Settings
+    s = Settings(tmp_path / 'other.ini')
+    assert s.server_url == 'https://opengeofiction.net'
+    s.q.setValue('ogf/server', 'https://test.example/')
+    assert osm_ids(('way', 5), s.server_url) == ['w5', 'https://test.example/way/5']
+
+
+def test_the_elevation_has_its_unit_beside_it_not_in_it(w):
+    p = w.selection_panel
+    assert p.ele.parentWidget().unit.text() == 'm'
+    assert p.pull_back.suffix() == '' and p.pull_back.parentWidget().unit.text() == 'm'
+
+
+def test_only_a_water_relation_holding_the_way_comes_first(w):
+    """A route through a river is not the river; and a node of the
+    relation's that has the way's number is not the way."""
+    sq = w.working_set.squares[NORTH]
+    sq.relations[600] = Relation(id=600, tags={'type': 'route', 'route': 'canoe'},
+                                 members=[Member('way', 100)])
+    sq.relations[700] = Relation(id=700, tags={'natural': 'water', 'water': 'river'},
+                                 members=[Member('node', 100)])
+    w.editor.selection = Selection(sq, sq.ways[100])
+    assert w.selection_panel.info.osm == ('way', 100)
+
+
+
+def test_choosing_does_not_move_the_map(w):
+    """The panel is as wide from the start as a lake's buttons make it."""
+    from PySide6.QtWidgets import QApplication
+    sq = w.working_set.squares[NORTH]
+    QApplication.processEvents()
+    widths = set()
+    for sel in (None, Selection(sq, None, relation=sq.relations[300]), Selection(sq, sq.ways[100]),
+                Selection(sq, sq.ways[100], 2), contour(w) and Selection(*contour(w)), None):
+        w.editor.selection = sel
+        QApplication.processEvents()
+        widths.add(w.map.viewport().width())
+        p = w.selection_panel
+        room = p.widget().viewport().width()
+        for b in (p.grade_btn, p.network_btn, p.flatten_btn):
+            if b.isVisible():
+                assert b.mapTo(p.widget().widget(), b.rect().topRight()).x() < room, 'a button cut off'
+    assert len(widths) == 1, widths

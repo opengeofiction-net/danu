@@ -157,6 +157,11 @@ class Settings:
             return PORT
 
     @property
+    def server_url(self) -> str:
+        """The OGF server: where an object's page is, by its id (H6c)."""
+        return str(self.q.value('ogf/server', '') or 'https://opengeofiction.net').rstrip('/')
+
+    @property
     def josm_url(self) -> str:
         """JOSM's remote control, which listens on the loopback only."""
         from .josm import DEFAULT_URL

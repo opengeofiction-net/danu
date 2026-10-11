@@ -22,19 +22,21 @@ find Q typed into the field.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QToolTip,
@@ -47,6 +49,7 @@ from ..core.ladder import format_ele
 from ..core.square import parse_ele
 from ..water.overpass import flows
 from .contours import water_tags
+from .widgets import copy, unit
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,7 @@ class Info:
     why_not: str = ''            # why the elevation cannot be edited, when it cannot
     where: str = ''
     tags: str = ''               # the rest of the tags, read-only
+    osm: tuple[str, int] | None = None   # the object upstream, to copy its id: none if local
 
 NOTHING = Info('Nothing selected', why_not='select something to see it here')
 
@@ -76,9 +80,48 @@ def _others(tags: dict) -> str:
     return '\n'.join(rest)
 
 
+def _upstream(kind: str, i: int | None) -> tuple[str, int] | None:
+    return (kind, i) if i is not None and i > 0 else None
+
+
+def _water_relation(sq, way_id: int):
+    """The water relation a way is a ring of, if one is - a lake's id is the
+    relation's, not its ring's."""
+    for rel in sq.relations.values():
+        if water_tags(rel.tags) and any(m.type == 'way' and m.ref == way_id for m in rel.members):
+            return rel
+    return None
+
+
+def osm_ids(osm: tuple[str, int] | None, server: str) -> list[str]:
+    """The forms an id is copied in: ``w633126``, and its page on the server."""
+    if osm is None:
+        return []
+    kind, i = osm
+    return [f'{kind[0]}{i}', f'{server}/{kind}/{i}']
+
+
 def describe(sel, layer) -> Info:
-    """The selection, as the panel shows it. No widgets - so every case is a
-    test of a function rather than of a form."""
+    """The selection, as the panel shows it - with ``osm`` the object whose id
+    is copied: the relation for a ring of one, ahead of the way."""
+    info = _describe(sel, layer)
+    if sel is None or info is NOTHING:
+        return info
+    if sel.relation is not None:
+        osm = _upstream('relation', sel.relation.id)
+    elif sel.spot:
+        osm = _upstream('node', sel.node)
+    elif info.kind.startswith('point on'):
+        osm = _upstream('node', sel.node)
+    else:
+        rel = _water_relation(sel.square, sel.way.id)
+        osm = _upstream('relation', rel.id) if rel is not None else _upstream('way', sel.way.id)
+    return replace(info, osm=osm)
+
+
+def _describe(sel, layer) -> Info:
+    """The rest of it. No widgets - so every case is a test of a function
+    rather than of a form."""
     if sel is None:
         return NOTHING
     sq = sel.square
@@ -301,9 +344,21 @@ class SelectionPanel(QDockWidget):
         self.tags = QLabel()
         self.tags.setWordWrap(True)
         self.tags.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # copied from a right click (H6c): the name, and the id upstream as
+        # w123 or its page on the server
+        self.copy_name = QAction('Copy name', self)
+        self.copy_name.triggered.connect(lambda: copy(self.info.name))
+        self.copy_id = QAction('Copy ID', self)
+        self.copy_id.triggered.connect(lambda: copy(osm_ids(self.info.osm, self.server)[0]))
+        self.copy_url = QAction('Copy URL', self)
+        self.copy_url.triggered.connect(lambda: copy(osm_ids(self.info.osm, self.server)[1]))
+        for label, actions in ((self.name, [self.copy_name]), (self.where, [self.copy_id, self.copy_url])):
+            label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+            label.addActions(actions)
+        self.server = getattr(getattr(parent, 'settings', None), 'server_url', 'https://opengeofiction.net')
         form.addRow('What', self.kind)
         form.addRow('Name', self.name)
-        form.addRow('Elevation (m)', self.ele)
+        form.addRow('Elevation', unit(self.ele))
         form.addRow('', self.why)
         form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
@@ -347,7 +402,6 @@ class SelectionPanel(QDockWidget):
         self.pull_back = QSpinBox()
         self.pull_back.setRange(0, 2000)
         self.pull_back.setSingleStep(25)
-        self.pull_back.setSuffix(' m')
         self.pull_back.setToolTip('How far a contour crossing the shore at another level is '
                                   'drawn back from the water')
         self.pull_back.valueChanged.connect(self._pull_back_changed)
@@ -356,14 +410,27 @@ class SelectionPanel(QDockWidget):
         row.setContentsMargins(0, 0, 0, 0)
         self.pull_back_label = QLabel('Draw back from the shore')
         row.addWidget(self.pull_back_label)
-        row.addWidget(self.pull_back)
+        row.addWidget(unit(self.pull_back))
         box.addWidget(self.summary)
         box.addWidget(self.pull_back_row)
         box.addWidget(self.issues)
         box.addWidget(self.profile)
         box.addLayout(buttons)
         form.addRow(self.proposal_box)
-        self.setWidget(body)
+        # one width whatever is chosen. A lake's buttons widened the dock as
+        # it was chosen, and a river's reason and buttons made it taller than
+        # the column had room for, which the window paid for in width: the
+        # map beside it jumped. Its minimum is the widest selection's, and a
+        # selection taller than the room scrolls. Measured before refresh
+        # hides the parts this selection does not use
+        body.setMinimumWidth(body.minimumSizeHint().width())
+        scroll = QScrollArea()
+        scroll.setWidget(body)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(body.minimumWidth() + scroll.verticalScrollBar().sizeHint().width())
+        self.setWidget(scroll)
         editor.proposalChanged.connect(self.refresh_proposal)
         self.info = NOTHING
         self.ele.returnPressed.connect(self._commit)
@@ -382,6 +449,9 @@ class SelectionPanel(QDockWidget):
         self.ele.setToolTip(info.why_not or 'Enter to set it; empty and Enter to clear a '
                             "water level. Escape puts it back.")
         self.where.setText(info.where or '—')
+        self.copy_name.setEnabled(bool(info.name))
+        self.copy_id.setEnabled(info.osm is not None)
+        self.copy_url.setEnabled(info.osm is not None)
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
         water = sel is not None and (
