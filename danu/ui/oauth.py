@@ -1,6 +1,7 @@
 """Signing in to OGF (H6f): OAuth 2 with PKCE against the server, so the
 username the territory check uses is the server's own - wangi, not the
-wiki's Wangi - and there is a token for what comes later, uploading.
+wiki's Wangi. The scope is ``read_prefs``, enough to ask who; uploading, when
+it comes, will sign in again for the scope it needs.
 
 Danu is a public client registered on OpenGeofiction: its client id is not a
 secret, and PKCE stands in for the secret it cannot keep. The flow:
@@ -13,8 +14,9 @@ secret, and PKCE stands in for the secret it cannot keep. The flow:
 3. The code and the verifier are exchanged at ``/oauth2/token`` for a token.
 4. ``/api/0.6/user/details.json``, with the token, gives the display name.
 
-The token and the name are kept in the INI (``ogf/token``, ``user/name``),
-the INI then readable by its owner alone; and the roles the server gives the
+The window keeps what comes back in the INI (``MainWindow._signed_in``) -
+the token and the name (``ogf/token``, ``user/name``), the INI then made its
+owner's alone with ``private``; and the roles the server gives the
 user (``user/roles``) - an administrator is told they are one beside a warning
 that the ground is somebody else's. Signing out forgets both and asks
 the server to revoke the token; whether it does is not waited on.
@@ -131,6 +133,7 @@ class SignIn(QObject):
         while self.listener is not None and self.listener.hasPendingConnections():
             sock = self.listener.nextPendingConnection()
             sock.readyRead.connect(lambda s=sock: self._request(s))
+            sock.disconnected.connect(lambda s=sock: (self._read.pop(s, None), s.deleteLater()))
 
     def _request(self, sock) -> None:
         data = self._read.pop(sock, b'') + bytes(sock.readAll())
