@@ -207,7 +207,9 @@ def test_the_active_level_is_drawn_heavier(zone, qtbot):
         img.fill(QColor('white'))
         p = QPainter(img); view.render(p); p.end()
         w, h = img.width(), img.height()
-        return sum(1 for x in range(0, w, 4) for y in range(h) if QColor(img.pixel(x, y)).hsvSaturation() > 40)
+        # a line's pixel: dark, as the lines are up to BLEND_ZOOM, or coloured, as the active level is
+        return sum(1 for x in range(0, w, 4) for y in range(h)
+                   if QColor(img.pixel(x, y)).hsvSaturation() > 40 or QColor(img.pixel(x, y)).value() < 160)
 
     plain = coloured_pixels()
     layer.set_active(30.0)

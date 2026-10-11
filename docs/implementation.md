@@ -4576,3 +4576,32 @@ Then, from the review of H6g, the open dialog:
   N18E088, N18E089, N19E088, N20E086: south to north, then west to east, as
   SRTM's tiles sort. They were sorted west to east first.
 
+## The contour lines over the ground
+
+A contour was stroked in its level's colour from the ramp, and the surface
+under it is coloured by the same ramp: a line on ground of its own height was
+the colour of that ground, and the mapper's complaint was that the lines
+could be "real hard to see". Hard light was suggested; it does nothing for
+a colour in the middle of the ramp, since a mid tone hard-lit over itself is
+itself.
+
+Six blends were compared over gobras N20E086's 3" surface, the surface and
+the lines rendered apart and composited per pixel - Normal, Multiply, Colour
+burn, Hard light, Difference, Divide (which Qt does not have) - in the ramp's
+colours, a fixed dark and a fixed light, at z12, z14 and z16. The lines'
+density decides it, and it changes with the zoom:
+
+- **Up to z13** (`BLEND_ZOOM`), dense: dark lines, `#202020`, multiplied onto
+  the ground - they read, and the shading still shows through. Dark drawn
+  plain buried the terrain at z12; the ramp's colours vanished.
+- **From z14**, few: each level in its own colour, colour-burned into the
+  ground - darker than the ground, of the level's hue, so the line reads and
+  the legend still says its height.
+
+`ContourLayer.paint` sets the mode for the levels' pass and puts
+`SourceOver` back after it: the active level, the spot heights, the labels
+and their halos are drawn plain over the lines, their colours their own -
+blended, Difference and Divide turned the labels pink. Water is drawn
+before, plain. A test reads the painter: each line's mode and pen at z12,
+z13, z14 and z16, and the active level's plain.
+

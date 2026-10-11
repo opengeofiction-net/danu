@@ -75,6 +75,16 @@ ZOOM_SPOTS = 12
 # what it is
 ZOOM_WATER_LABELS = 16
 WATER_LABEL_PX = 60.0
+# how the lines meet the surface under them, which colours the ground by the
+# same ramp they are drawn in - so a line in its own colour on ground of its
+# own height was all but invisible. Compared on gobras over Normal, Multiply,
+# Colour burn, Hard light, Difference and Divide, in the ramp's colours and a
+# fixed dark and light, at z12, z14 and z16: up to BLEND_ZOOM the lines are
+# dense, and dark ones multiplied onto the ground read without burying it;
+# from it they are few, and colour burn darkens each in its own hue, so they
+# read and still say their height by the legend
+BLEND_ZOOM = 14
+DARK = QColor(32, 32, 32)
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9
@@ -1012,6 +1022,9 @@ class ContourLayer(QGraphicsItem):
         # said rather than inherited: a contour is a line, and the pass below
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        far = zoom < BLEND_ZOOM
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if far
+                                   else QPainter.CompositionMode.CompositionMode_ColorBurn)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
@@ -1022,13 +1035,16 @@ class ContourLayer(QGraphicsItem):
             visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
             if not visible:
                 continue
-            pen = QPen(self.colour(ele), 1.8 if index else 1.0)
+            pen = QPen(DARK if far else self.colour(ele), 1.8 if index else 1.0)
             pen.setCosmetic(True)
             painter.setPen(pen)
             for piece in visible:
                 painter.drawPath(piece.path)
             self.drawn_ways += len(visible)
             self.drawn_levels += 1
+        # what goes over the lines is drawn as it is: the active level, the
+        # spot heights and the labels keep their own colours
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         if self.active is not None and self.active in self.paths and zoom >= ZOOM_INDEX:
             # the level being drawn at, over everything: the mapper needs to
             # see where it already runs

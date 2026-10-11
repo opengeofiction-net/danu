@@ -884,3 +884,79 @@ def test_the_nearest_spot_height_is_the_one_picked(view, ws):
     # and nothing at all below the zoom they are drawn at
     assert layer.pick_spot(x, y, wide, ZOOM_SPOTS - 1) is None, (
         'a spot height was picked where it is not drawn')
+
+
+def _line_pixel(view, img):
+    """The pixel nearest the view's centre that a line drew - darker than
+    the background around it."""
+    cx, cy = view.viewport().rect().center().x(), view.viewport().rect().center().y()
+    best = None
+    for dx in range(-3, 4):
+        for dy in range(-3, 4):
+            c = img.pixelColor(cx + dx, cy + dy)
+            if best is None or c.value() < best.value():
+                best = c
+    return best
+
+
+@pytest.mark.parametrize('zoom', [13, 14])
+def test_the_lines_meet_the_ground_by_the_zoom(view, ws, zoom):
+    """Up to 13, dark and multiplied: over the view's grey, the dark itself
+    times the grey; from 14, the level's own colour burned into the grey -
+    darker than the colour drawn plain, and of its hue."""
+    from danu.ui.contours import BLEND_ZOOM, DARK
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(w for w in sq.contours() if len(w.refs) > 20 and not layer.is_index(w.ele))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+    view.set_zoom(zoom)
+    view.center_on_lonlat(lon, lat)
+    img = render(view)
+    c = _line_pixel(view, img)
+    grey = 235 / 255
+    if zoom < BLEND_ZOOM:
+        want = [round(255 * v * grey) for v in (DARK.redF(), DARK.greenF(), DARK.blueF())]
+        assert max(abs(a - b) for a, b in zip((c.red(), c.green(), c.blue()), want, strict=True)) < 40, (c.name(), want)
+    else:
+        s = layer.colour(way.ele)
+        burn = [round(255 * (1 - min(1, (1 - grey) / max(v, 1e-6)))) for v in (s.redF(), s.greenF(), s.blueF())]
+        assert max(abs(a - b) for a, b in zip((c.red(), c.green(), c.blue()), burn, strict=True)) < 60, (c.name(), burn)
+        assert c.value() < s.value() or s.value() < 60, 'not burned'
+
+
+@pytest.mark.parametrize('zoom', [12, 13, 14, 16])
+def test_each_line_is_drawn_in_the_mode_and_colour_its_zoom_asks(view, ws, zoom, monkeypatch):
+    """Read from the painter: the mode each line is drawn under and its pen,
+    and the mode put back before what goes over them."""
+    from PySide6.QtGui import QPainter
+
+    from danu.ui.contours import BLEND_ZOOM, DARK
+    seen = []
+    real_mode, real_path = QPainter.setCompositionMode, QPainter.drawPath
+    monkeypatch.setattr(QPainter, 'setCompositionMode', lambda p, m: (seen.append(('mode', m)), real_mode(p, m))[1])
+    monkeypatch.setattr(QPainter, 'drawPath', lambda p, path: (seen.append(('line', p.pen().color().name(),
+                                                                            p.compositionMode(), p.pen().widthF())),
+                                                               real_path(p, path))[1])
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(w for w in sq.contours() if len(w.refs) > 20)
+    layer.set_active(way.ele)                      # the level the view is on
+    view.set_zoom(zoom)
+    view.center_on_lonlat(*sq.coords(way)[len(way.refs) // 2])
+    render(view)
+    M = QPainter.CompositionMode
+    lines = [e for e in seen if e[0] == 'line']
+    want_mode = M.CompositionMode_Multiply if zoom < BLEND_ZOOM else M.CompositionMode_ColorBurn
+    blended = [e for e in lines if e[2] == want_mode]
+    assert blended, "no line drawn in the zoom's mode"
+    if zoom < BLEND_ZOOM:
+        assert {e[1] for e in blended} == {DARK.name()}
+    else:
+        assert DARK.name() not in {e[1] for e in blended} and len({e[1] for e in blended}) > 1, "not the levels' colours"
+    # the active level, heavier, drawn plain over the rest
+    active = [e for e in lines if e[3] == pytest.approx(3.2)]
+    assert active and all(e[2] == M.CompositionMode_SourceOver for e in active)
