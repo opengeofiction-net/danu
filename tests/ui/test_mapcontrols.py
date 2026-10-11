@@ -40,8 +40,12 @@ def test_the_zoom_buttons_stop_at_the_ends(window):
 def test_the_buttons_follow_the_window_as_it_is_resized(window, size, columns):
     """A window too short for them holds them in two columns, a group never
     split between them."""
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QDockWidget
     w = window
+    # the panels away: their widths are the platform's fonts', and on
+    # windows-latest they left the map 68 px of a 1400 px window
+    for d in w.findChildren(QDockWidget):
+        d.hide()
     w.resize(*size)
     QApplication.processEvents()
     vp = w.map.viewport().geometry()
