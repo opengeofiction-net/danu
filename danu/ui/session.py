@@ -84,7 +84,7 @@ def restore_window(win, data: dict) -> None:
     if w.get('geometry'):
         win.restoreGeometry(QByteArray.fromBase64(w['geometry'].encode()))
     if w.get('state'):
-        win.restoreState(QByteArray.fromBase64(w['state'].encode()))
+        win.restore_layout(QByteArray.fromBase64(w['state'].encode()))
 
 
 def restore(win, data: dict) -> bool:

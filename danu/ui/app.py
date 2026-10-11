@@ -15,9 +15,17 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QStandardPaths, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QByteArray, QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QDockWidget,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+)
 
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
@@ -341,6 +349,8 @@ class MainWindow(QMainWindow):
             self.usage = UsageLog(self, data_dir / 'usage', self)
             self.editor.stepped.connect(self.usage.stepped)
         self._menus()
+        self._docked_only()
+        self._default_layout = self.saveState()       # what Reset panels goes back to
         if self.usage is not None:
             self.editor.toolChanged.connect(lambda name: self.usage.write('tool', name=name))
             self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
@@ -671,6 +681,46 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _=False, n=name: self.usage.action(n))
 
     def _menus(self):
+        ed = self.editor
+        self.edit_actions: dict[str, QAction] = {}
+        for name, text, fn in (
+                ('edit.undo', '&Undo', ed.undo),
+                ('edit.redo', '&Redo', ed.redo),
+                ('edit.delete', '&Delete', ed.delete_selected),
+                ('edit.delete_way', 'Delete &contour', ed.delete_way),
+                ('tool.select', '&Select', lambda: ed.set_tool('select')),
+                ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
+                ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
+                ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
+                ('edit.import_water', '&Import', self.import_water),
+                ('edit.import_heights', '&Import', self.import_heights),
+                ('edit.set_level', 'Set &level', ed.set_level),
+                ('edit.grade', '&Grade', ed.grade),
+                ('edit.grade_network', 'Grade river &network', ed.grade_network),
+                # a lambda, not the method: triggered passes checked=False, which
+                # flatten took for a pull-back of 0 m - F flattened with none
+                ('edit.flatten', '&Flatten lake', lambda: ed.flatten()),
+                ('edit.burn', '&Burn climb', lambda: ed.burn()),
+                ('edit.burn_all', 'Burn &all climbs', lambda: ed.burn(every=True)),
+                ('edit.split', 'S&plit', ed.split),
+                ('edit.unglue', 'U&nglue', ed.unglue),
+                ('edit.cut_loop', 'Cut &out the loop chosen',
+                 lambda: ed.cut_loop(self.checks_dock.current_loop())),
+                ('view.josm', 'Show in &JOSM', self.show_in_josm),
+                ('view.josm_surface', 'Show in &JOSM', self.show_surface_in_josm),
+                # toggled turns the loupe on and off, below: the button's toggle reaches it
+                # through setChecked, which triggers nothing
+                ('view.magnify', '&Magnify', None)):
+            a = QAction(text, self)
+            a.setShortcut(QKeySequence(self.settings.key(name)))
+            self._logged(a, name)
+            if fn is not None:
+                a.triggered.connect(fn)
+            if name.startswith('tool.') or name == 'view.magnify':
+                a.setCheckable(True)
+            self.edit_actions[name] = a
+        e = self.edit_actions
+
         file = self.menuBar().addMenu('&File')
         self.open_action = QAction('&Open square…', self)
         self.open_action.setShortcut(QKeySequence.StandardKey.Open)
@@ -693,112 +743,6 @@ class MainWindow(QMainWindow):
         self.new_square_action = QAction('&New blank square…', self)
         self.new_square_action.triggered.connect(self.new_blank_square)
         file.addAction(self.new_square_action)
-        edit = self.menuBar().addMenu('&Edit')
-        ed = self.editor
-        self.edit_actions: dict[str, QAction] = {}
-        for name, text, fn in (
-                ('edit.undo', '&Undo', ed.undo),
-                ('edit.redo', '&Redo', ed.redo),
-                ('edit.delete', '&Delete selected', ed.delete_selected),
-                ('edit.delete_way', 'Delete whole &contour', ed.delete_way),
-                ('tool.select', '&Select', lambda: ed.set_tool('select')),
-                ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
-                ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
-                ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
-                ('edit.import_water', '&Import water', self.import_water),
-                ('edit.import_heights', 'Import spot &heights', self.import_heights),
-                ('edit.set_level', 'Set the &level of the water', ed.set_level),
-                ('edit.grade', '&Grade from the contours', ed.grade),
-                ('edit.grade_network', 'Grade the river &network', ed.grade_network),
-                # a lambda, not the method: triggered passes checked=False, which
-                # flatten took for a pull-back of 0 m - F flattened with none
-                ('edit.flatten', '&Flatten the lake', lambda: ed.flatten()),
-                ('edit.burn', '&Burn the climb chosen', lambda: ed.burn()),
-                ('edit.burn_all', 'Burn every climb the grade &found', lambda: ed.burn(every=True)),
-                ('edit.split', 'S&plit the contour at the node', ed.split),
-                ('edit.unglue', '&Unglue the node from the other contours', ed.unglue),
-                ('edit.cut_loop', 'Cut &out the loop chosen',
-                 lambda: ed.cut_loop(self.checks_dock.current_loop())),
-                ('view.josm', 'Show in &JOSM', self.show_in_josm),
-                ('view.josm_surface', 'Show the &surface in JOSM', self.show_surface_in_josm),
-                # toggled turns the loupe on and off, below: the button's toggle reaches it
-                # through setChecked, which triggers nothing
-                ('view.magnify', '&Magnify at the cursor', None)):
-            a = QAction(text, self)
-            a.setShortcut(QKeySequence(self.settings.key(name)))
-            self._logged(a, name)
-            if fn is not None:
-                a.triggered.connect(fn)
-            if name.startswith('tool.') or name == 'view.magnify':
-                a.setCheckable(True)
-            self.edit_actions[name] = a
-        edit.addAction(self.edit_actions['edit.undo'])
-        edit.addAction(self.edit_actions['edit.redo'])
-        edit.addSeparator()
-        edit.addAction(self.edit_actions['edit.delete'])
-        edit.addAction(self.edit_actions['edit.delete_way'])
-        edit.addAction(self.edit_actions['edit.split'])
-        edit.addAction(self.edit_actions['edit.unglue'])
-        edit.addSeparator()
-        edit.addAction(self.edit_actions['tool.select'])
-        edit.addAction(self.edit_actions['tool.draw'])
-        edit.addAction(self.edit_actions['tool.spot'])
-        edit.addAction(self.edit_actions['tool.measure'])
-        edit.addSeparator()
-        edit.addAction(self.edit_actions['edit.import_water'])
-        edit.addAction(self.edit_actions['edit.import_heights'])
-        edit.addAction(self.edit_actions['edit.set_level'])
-        edit.addAction(self.edit_actions['edit.grade'])
-        edit.addAction(self.edit_actions['edit.grade_network'])
-        edit.addAction(self.edit_actions['edit.flatten'])
-        edit.addAction(self.edit_actions['edit.burn'])
-        edit.addAction(self.edit_actions['edit.burn_all'])
-        edit.addAction(self.edit_actions['edit.cut_loop'])
-        edit.addAction(self.gone_dock.toggleViewAction())
-        edit.addAction(self.checks_dock.toggleViewAction())
-        edit.addAction(self.profile_dock.toggleViewAction())
-        edit.addAction(self.edit_actions['view.josm'])
-        edit.addAction(self.edit_actions['view.josm_surface'])
-        edit.addAction(self.edit_actions['view.magnify'])
-        magnify = self.edit_actions['view.magnify']
-        magnify.toggled.connect(self.controls.magnify.setChecked)
-        magnify.toggled.connect(self.loupe.set_on)          # from V, the menu and the button alike
-        self.controls.magnify.toggled.connect(magnify.setChecked)
-        self._tool_changed('select')
-        self._edited()
-        elevation = self.menuBar().addMenu('&Elevation')
-        self.elevation_actions: dict[str, QAction] = {}
-        c = self.elevation
-        for name, text, fn in (
-                ('elevation.big_up', 'Big step &up', lambda: c.step(True, False)),
-                ('elevation.small_up', 'Small step u&p', lambda: c.step(False, False)),
-                ('elevation.small_down', 'Small step d&own', lambda: c.step(False, True)),
-                ('elevation.big_down', 'Big step do&wn', lambda: c.step(True, True)),
-                ('elevation.nudge_up', 'A metre up', lambda: c.nudge(False)),
-                ('elevation.nudge_down', 'A metre down', lambda: c.nudge(True)),
-                ('elevation.pick_up', 'Pick up the contour under the cursor', self.pick_up),
-                ('elevation.sea_level', 'Sea level', c.sea_level)):
-            a = QAction(text, self)
-            a.setShortcut(QKeySequence(self.settings.key(name)))
-            self._logged(a, name)
-            a.triggered.connect(fn)
-            elevation.addAction(a)
-            self.elevation_actions[name] = a
-        elevation.addSeparator()
-        reload_ladders = QAction('Re-read the ladder overrides', self)
-        reload_ladders.triggered.connect(self.elevation.reload_overrides)
-        elevation.addAction(reload_ladders)
-        surface = self.menuBar().addMenu('&Surface')
-        self.rebuild_action = QAction('&Rebuild surface', self)
-        self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
-        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
-        surface.addAction(self.rebuild_action)
-        self.pinch_action = QAction('&Pinch the ramp on the active elevation', self)
-        self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
-        self._logged(self.pinch_action, 'surface.pinch')
-        self.pinch_action.triggered.connect(self.legend.pinch_on_active)
-        surface.addAction(self.pinch_action)
-        self.surface_actions = {'surface.pinch': self.pinch_action}
         file.addSeparator()
         user_action = QAction('Your OGF &username…', self)
         user_action.triggered.connect(self.set_user)
@@ -808,6 +752,115 @@ class MainWindow(QMainWindow):
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
         file.addAction(quit_action)
+
+        edit = self.menuBar().addMenu('&Edit')
+        for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
+                     None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
+            if name:
+                edit.addAction(e[name])
+            else:
+                edit.addSeparator()
+        water = edit.addMenu('&Water')
+        for name in ('edit.import_water', 'edit.set_level', 'edit.grade', 'edit.grade_network', 'edit.flatten',
+                     'edit.burn', 'edit.burn_all'):
+            water.addAction(e[name])
+        edit.addMenu('Spot &height').addAction(e['edit.import_heights'])
+        edit.addAction(e['edit.cut_loop'])
+
+        view = self.menuBar().addMenu('&View')
+        view.addAction(e['view.magnify'])
+        view.addAction(e['view.josm'])
+        view.addSeparator()
+        # the surface panel's three overlays, the same choices as its boxes
+        p = self.surface_panel
+        self.view_actions: dict[str, QAction] = {}
+        for name, text, box in (('view.unknown', '&Unknown ground', p.show_unreached),
+                                ('view.single_level', 'Single-&level ground', p.show_one_level),
+                                ('view.envelope', '&Envelope', p.show_envelope)):
+            a = QAction(text, self)
+            a.setCheckable(True)
+            a.setChecked(box.isChecked())
+            a.toggled.connect(box.setChecked)
+            box.toggled.connect(a.setChecked)
+            view.addAction(a)
+            self.view_actions[name] = a
+        # single-level ground is a part of the unknown, and nothing without it
+        unknown = self.view_actions['view.unknown']
+        unknown.toggled.connect(self.view_actions['view.single_level'].setEnabled)
+        view.addSeparator()
+        for dock in self.docks():
+            view.addAction(dock.toggleViewAction())
+        view.addSeparator()
+        reset = QAction('&Reset panels', self)
+        reset.triggered.connect(self.reset_panels)
+        view.addAction(reset)
+        self.view_actions['view.reset_panels'] = reset
+        magnify = e['view.magnify']
+        magnify.toggled.connect(self.controls.magnify.setChecked)
+        magnify.toggled.connect(self.loupe.set_on)          # from V, the menu and the button alike
+        self.controls.magnify.toggled.connect(magnify.setChecked)
+        self._tool_changed('select')
+        self._edited()
+
+        elevation = self.menuBar().addMenu('E&levation')
+        self.elevation_actions: dict[str, QAction] = {}
+        c = self.elevation
+        for name, text, fn in (
+                ('elevation.big_up', 'Big step &up', lambda: c.step(True, False)),
+                ('elevation.small_up', 'Small step u&p', lambda: c.step(False, False)),
+                ('elevation.small_down', 'Small step d&own', lambda: c.step(False, True)),
+                ('elevation.big_down', 'Big step do&wn', lambda: c.step(True, True)),
+                ('elevation.nudge_up', '&Metre up', lambda: c.nudge(False)),
+                ('elevation.nudge_down', 'M&etre down', lambda: c.nudge(True)),
+                ('elevation.pick_up', '&Pick under cursor', self.pick_up),
+                ('elevation.sea_level', '&Sea level', c.sea_level)):
+            a = QAction(text, self)
+            a.setShortcut(QKeySequence(self.settings.key(name)))
+            self._logged(a, name)
+            a.triggered.connect(fn)
+            elevation.addAction(a)
+            self.elevation_actions[name] = a
+        elevation.addSeparator()
+        reload_ladders = QAction('Re-read &ladder', self)
+        reload_ladders.triggered.connect(self.elevation.reload_overrides)
+        elevation.addAction(reload_ladders)
+
+        surface = self.menuBar().addMenu('&Surface')
+        self.rebuild_action = QAction('&Rebuild surface', self)
+        self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
+        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
+        surface.addAction(self.rebuild_action)
+        self.pinch_action = QAction('&Pinch ramp on active elevation', self)
+        self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
+        self._logged(self.pinch_action, 'surface.pinch')
+        self.pinch_action.triggered.connect(self.legend.pinch_on_active)
+        surface.addAction(self.pinch_action)
+        surface.addAction(e['view.josm_surface'])
+        self.surface_actions = {'surface.pinch': self.pinch_action}
+
+    # ------------------------------------------------------------ panels
+    def docks(self) -> list[QDockWidget]:
+        """The panels, in the order the View menu lists them."""
+        return [self.panel, self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,
+                self.profile_dock, self.selection_panel]
+
+    def _docked_only(self) -> None:
+        """Every panel docked, never floating: under Wayland a floating panel
+        cannot be moved again - Qt may not grab the mouse for it."""
+        for dock in self.docks():
+            dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable
+                             | QDockWidget.DockWidgetFeature.DockWidgetMovable)
+            dock.setFloating(False)
+
+    def restore_layout(self, state: QByteArray) -> bool:
+        """The panels as ``state`` had them - docked, whatever it says."""
+        ok = self.restoreState(state)
+        self._docked_only()
+        return ok
+
+    def reset_panels(self) -> None:
+        """The panels back where a new window has them."""
+        self.restore_layout(self._default_layout)
 
     def _fill_recent(self):
         self.recent_menu.clear()

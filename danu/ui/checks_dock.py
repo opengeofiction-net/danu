@@ -56,7 +56,7 @@ class ChecksDock(QDockWidget):
     findingChosen = Signal(object)
 
     def __init__(self, parent=None):
-        super().__init__('Checks', parent)
+        super().__init__('Validation', parent)
         self.setObjectName('checks')
         body = QWidget()
         box = QVBoxLayout(body)
