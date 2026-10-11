@@ -121,6 +121,19 @@ class TerritoryIndex:
     def territory(self, rel: int) -> Territory:
         return self.attributes.get(rel, Territory(rel))
 
+    def is_territory(self, rel: int) -> bool:
+        """Whether a relation is a territory to name under a square. The
+        geometry file holds more than territories: a timezone is a relation
+        with rings and no ogf:id, and so no record - 304988, GOBRAS PEN,
+        lies over all of Gobrassanya. And a territory split into admin
+        level 3 and 4 sub-territories is an ``outline`` over them, the parts
+        holding the status and the owner that matter. With the records not
+        read yet, every polygon counts, and says it is unknown."""
+        if not self.attributes:
+            return True
+        t = self.attributes.get(rel)
+        return t is not None and t.status != 'outline'
+
     def contains(self, rel: int, pt: Point) -> bool:
         """Even-odd over the relation's rings, so a hole is a hole."""
         box = self._boxes.get(rel)
@@ -148,6 +161,8 @@ class TerritoryIndex:
         found: dict[int, int] = {}                  # rel -> rank
         for rel, (bw, bs, be, bn) in self._boxes.items():
             if be < w or bw > e or bn < s or bs > n:
+                continue
+            if not self.is_territory(rel):
                 continue
             for i, pt in enumerate(samples):
                 if self.contains(rel, pt):

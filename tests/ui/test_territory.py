@@ -61,11 +61,11 @@ def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window,
     qtbot.waitUntil(lambda: 'Tenmetre' in w._territory.text(), timeout=5000)
     # the centre, 126.5, is exactly on the fixture's border and falls east; both are named
     assert w._territory.text() == 'Tenmetre (AR032), collaborative; Pizarrales (AR031), owned by Luciano'
-    # north: a polygon with no record
+    # north: a polygon with no record - a timezone, say - is no territory
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.open_working_set(w.zone_dir, SquareName(125, -22))
-    qtbot.waitUntil(lambda: 'unknown' in w._territory.text(), timeout=5000)
-    assert w._territory.text() == 'unknown territory (relation 103)'
+    qtbot.waitUntil(lambda: 'no territory' in w._territory.text(), timeout=5000)
+    assert w._territory.text() == 'no territory here'
 
 
 def test_a_window_asks_the_network_for_nothing(qtbot, tmp_path):
