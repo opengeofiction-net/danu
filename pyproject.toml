@@ -138,3 +138,6 @@ include = ["danu*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# a test running past two minutes dumps every thread's stack - a hang on CI
+# then says where it is, rather than the job sitting until it is cancelled
+faulthandler_timeout = 120

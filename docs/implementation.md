@@ -4456,3 +4456,45 @@ dialog of three tabs, from File › Preferences…; it writes the settings, and
   territory module at files, and a copy taken at import was the real server
   - the guard against the suite reaching OGF's servers caught it.
 
+## H6f, signing in to OGF
+
+The username was typed in, "as the wiki has it" - and the wiki's is not the
+server's: Wangi on the wiki, wangi on opengeofiction.net, and the territory
+administration data holds the server's. A typed name was a guess at that,
+and the check compared without case to forgive it. Danu signs in now, and the
+name is the one the server gives; the comparison is exact, OGF's names being
+case- and punctuation-sensitive.
+
+`danu/ui/oauth.py` is the flow, on Qt's own networking:
+
+1. `SignIn.start` listens on `127.0.0.1:8116` - the redirect registered for
+   the public client `Danu`, so the port is fixed and not a preference - and
+   opens the browser at `/oauth2/authorize` with a verifier's S256 challenge
+   and a state, scope `read_prefs`.
+2. The browser comes back to the listener. A request with another state is
+   answered 400 and the listener kept, for the real one; an `error` is said;
+   a code is answered with a page saying to close the tab, and the listener
+   closed.
+3. The code and verifier are exchanged at `/oauth2/token`, and
+   `/api/0.6/user/details.json` with the token gives the display name and
+   the roles.
+4. Token, name and roles go into the INI - `ogf/token`, `user/name`,
+   `user/roles` - and the INI is made its owner's alone (0600).
+
+A browser not back in five minutes is given up. The port taken - another
+sign-in, or anything else - is said rather than listened past.
+
+**Signing out** forgets the three and posts the token to `/oauth2/revoke`,
+not waiting on the answer. **At start** a kept token is asked who it is for:
+refused (401), it is forgotten and the mapper told; the server not reached,
+it is kept, Danu being usable offline; a name or roles changed on the server
+are taken.
+
+**Administrators.** An `administrator` among the roles is told so beside the
+territory line - "(administrator)" - and warned off somebody else's ground
+as anyone is, so as to see it. A moderator is no one special here.
+
+The tests stand a thread in for the server's three ends, as
+openstreetmap-website answers them, and play the browser with a GET to the
+listener on a free port.
+

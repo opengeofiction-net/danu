@@ -37,7 +37,7 @@ from ..surface import difference as surface_difference
 from ..water import flatten, overpass, peaks
 from ..water.gone import gone
 from . import autosave as autosave_ui
-from . import config, josm, session, wms
+from . import config, josm, oauth, session, wms
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
@@ -355,6 +355,12 @@ class MainWindow(QMainWindow):
         self._menus()
         self._docked_only()
         self._default_layout = self.saveState()       # what Reset panels goes back to
+        # signing in to OGF (H6f): the tests hand in where the browser goes
+        self.signin = None
+        self._signin_options: dict = {}
+        self._account_nam = None
+        self._account_changed()
+        self._check_signed_in()
         if self.usage is not None:
             self.editor.toolChanged.connect(lambda name: self.usage.write('tool', name=name))
             self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
@@ -470,7 +476,7 @@ class MainWindow(QMainWindow):
         if self.working_set is None or self.territory.index is None:
             return
         found = self.territory.index.under(self.working_set.centre.bounds)
-        line, warn = territory.describe(found, self.settings.user)
+        line, warn = territory.describe(found, self.settings.user, self.settings.admin and bool(self.settings.token))
         if not self.territory.complete:
             line += ' (owners not read yet)'
         elif 'attributes' in self.territory.stale:
@@ -482,12 +488,66 @@ class MainWindow(QMainWindow):
         if warn:
             self.statusBar().showMessage(f'{self.working_set.centre} is {line} - opening it anyway')
 
-    def set_user(self):
-        text, ok = QInputDialog.getText(self, 'Your OGF username', 'Username, as the wiki has it:',
-                                        text=self.settings.user)
-        if ok:
-            self.settings.user = text
-            self.show_territory()
+    # ---------------------------------------------------------- signing in
+    def account(self) -> None:
+        """File's sign in, or sign out once signed in (H6f)."""
+        if self.settings.token:
+            self.sign_out()
+        else:
+            self.sign_in()
+
+    def sign_in(self) -> None:
+        if self.signin is not None:
+            self.signin.stop()
+        self.signin = oauth.SignIn(self.settings.server_url, self, **self._signin_options)
+        self.signin.waiting.connect(self.statusBar().showMessage)
+        self.signin.failed.connect(lambda why: self.statusBar().showMessage(f'not signed in: {why}'))
+        self.signin.signedIn.connect(self._signed_in)
+        self.signin.start()
+
+    def _signed_in(self, name: str, token: str, roles: list) -> None:
+        self.settings.user, self.settings.token, self.settings.roles = name, token, roles
+        self.settings.q.sync()
+        oauth.private(self.settings.file)
+        self._account_changed()
+        self.statusBar().showMessage(f'signed in to OGF as {name}' + (' - an administrator' if self.settings.admin else ''))
+
+    def sign_out(self) -> None:
+        token, name = self.settings.token, self.settings.user
+        self.settings.token, self.settings.user, self.settings.roles = '', '', []
+        if token:
+            oauth.revoke(self._nam(), self.settings.server_url, token)
+        self._account_changed()
+        self.statusBar().showMessage(f'signed out of OGF{f" - {name}" if name else ""}')
+
+    def _check_signed_in(self) -> None:
+        """At start: a token kept is asked who it is for. One the server no
+        longer takes is forgotten; the server not reached, it is kept."""
+        if not self.settings.token:
+            return
+
+        def refused(why):
+            self.settings.token, self.settings.user, self.settings.roles = '', '', []
+            self.statusBar().showMessage(f'signed out of OGF: {why}')
+            self._account_changed()
+
+        def ok(name, roles):
+            if (name, roles) != (self.settings.user, self.settings.roles):
+                self.settings.user, self.settings.roles = name, roles
+                self._account_changed()
+        oauth.details(self._nam(), self.settings.server_url, self.settings.token, ok,
+                      lambda why: self.statusBar().showMessage(f'OGF: {why}'), refused)
+
+    def _nam(self):
+        if self._account_nam is None:
+            from PySide6.QtNetwork import QNetworkAccessManager
+            self._account_nam = QNetworkAccessManager(self)
+        return self._account_nam
+
+    def _account_changed(self) -> None:
+        user = self.settings.user if self.settings.token else ''
+        self.account_action.setText(f'Sign &out ({user})' if user else 'Sign &in to OGF…')
+        self.show_territory()
 
     # -------------------------------------------------------------- save
     def save_all(self) -> bool:
@@ -748,9 +808,9 @@ class MainWindow(QMainWindow):
         self.new_square_action.triggered.connect(self.new_blank_square)
         file.addAction(self.new_square_action)
         file.addSeparator()
-        user_action = QAction('Your OGF &username…', self)
-        user_action.triggered.connect(self.set_user)
-        file.addAction(user_action)
+        self.account_action = QAction(self)
+        self.account_action.triggered.connect(self.account)
+        file.addAction(self.account_action)
         self.preferences_action = QAction('&Preferences…', self)
         self.preferences_action.setShortcut(QKeySequence.StandardKey.Preferences)
         self.preferences_action.triggered.connect(self.preferences)
