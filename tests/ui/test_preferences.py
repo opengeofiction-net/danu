@@ -134,3 +134,15 @@ def test_the_keys_are_listed_in_the_menus_order(window, dlg):
     rows = [dlg.table.item(r, 0).text() for r in range(dlg.table.rowCount())]
     assert rows[0] == 'File › Save' and rows.index('Edit › Undo') < rows.index('Edit › Water › Grade') \
         < rows.index('Elevation › Big step up') < rows.index('Surface › Pinch ramp on active elevation')
+
+
+def test_every_address_the_dialog_lists_has_a_default():
+    from danu.ui.settings import URLS
+    assert all(default_url(k).startswith('http') or default_url(k).startswith('file:') for k in URLS)
+
+
+def test_every_keyed_map_button_is_told_again(window):
+    c = window.controls
+    keyed = {b for b, _what, _action in c._tipped}
+    assert keyed == {c.select, c.draw, c.spot, c.measure, c.undo, c.redo, c.delete, c.split, c.unglue,
+                     c.magnify, c.water, c.heights}
