@@ -1334,9 +1334,7 @@ class MainWindow(QMainWindow):
                 self._checks_job = None
                 first = why.splitlines()[0]
                 self.statusBar().showMessage(f'the checks failed: {first}')
-                self.checks_dock.summary.setText(f'The checks could not be found: {first}. '
-                                                 'Close the panel and open it again to try again.')
-                self.checks_dock.progress.setVisible(False)
+                self.checks_dock.failed(first)
 
             self.checks_dock.bare_min_ha = self.settings.bare_min_hectares
             bare_min = self.checks_dock.bare_min_ha * 1e4

@@ -36,17 +36,17 @@ def looped(window, qtbot):
 
 
 def rows(dock):
-    return [dock.loops_tree.topLevelItem(i).text(0) for i in range(dock.loops_tree.topLevelItemCount())]
+    return [r.text(0) for r in dock.rows('loops')]
 
 
 def choose(w):
-    w.checks_dock.loops_tree.setCurrentItem(w.checks_dock.loops_tree.topLevelItem(0))
+    w.checks_dock.tree.setCurrentItem(w.checks_dock.rows('loops')[0])
 
 
 def test_the_panel_lists_a_contour_crossing_itself(looped):
     w, sq, way = looped
     assert rows(w.checks_dock) == [f'150 m contour, way {way.id} - crosses itself']
-    assert '1 place where a contour crosses itself' in w.checks_dock.loops_summary.text()
+    assert w.checks_dock.node('loops').text(0) == 'Contours crossing themselves (1)'
     assert not w.checks_dock.cut_btn.isEnabled(), 'the button before a loop is chosen'
 
 
@@ -73,8 +73,9 @@ def test_o_proposes_the_cut_enter_does_it_and_the_panel_follows(looped, qtbot):
     assert len(sq.ways[way.id].refs) == 3
     assert w.editor.selection.way is sq.ways[way.id], 'the selection is the contour as it was'
     qtbot.waitUntil(lambda: rows(w.checks_dock) == [], timeout=2000)
-    assert 'No contour crosses itself' in w.checks_dock.loops_summary.text()
-    assert w.checks_dock.loops_tree.isHidden(), 'an empty list still takes the panel'
+    node = w.checks_dock.node('loops')
+    assert node.text(0) == 'Contours crossing themselves (0)' and node.childCount() == 0
+    assert not w.checks_dock.cut_btn.isEnabled(), 'a loop to cut, with none listed'
     w.editor.undo()
     assert edits.snapshot(sq) == before, 'one Ctrl+Z did not put the loop back'
     qtbot.waitUntil(lambda: len(rows(w.checks_dock)) == 1, timeout=2000)

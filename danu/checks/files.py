@@ -50,7 +50,7 @@ class Finding:
 
 def _what(way) -> str:
     if way.ele is not None and set(way.tags) <= {'ele', 'contour'}:
-        return f'the {L.format_ele(way.ele)} m contour, way {way.id}'
+        return f'{L.format_ele(way.ele)} m contour, way {way.id}'
     kind = way.tags.get('waterway') or way.tags.get('natural') or 'way'
     name = way.tags.get('name')
     return f'{kind} "{name}", way {way.id}' if name else f'{kind}, way {way.id}'

@@ -48,22 +48,19 @@ def touching(window, qtbot):
 
 
 def rows(dock):
-    items = [dock.touches_tree.topLevelItem(i) for i in range(dock.touches_tree.topLevelItemCount())]
-    return [it.text(0) for it in items if it.data(0, 256).a[0] == NORTH]
+    return [it.text(0) for it in dock.rows('touches') if it.data(0, 256).a[0] == NORTH]
 
 
 def choose(w):
     dock = w.checks_dock
-    item = next(dock.touches_tree.topLevelItem(i) for i in range(dock.touches_tree.topLevelItemCount())
-                if dock.touches_tree.topLevelItem(i).data(0, 256).a[0] == NORTH)
-    dock.touches_tree.setCurrentItem(item)
+    dock.tree.setCurrentItem(next(it for it in dock.rows('touches') if it.data(0, 256).a[0] == NORTH))
 
 
 def test_the_panel_lists_a_node_two_levels_share(touching):
     w, sq, line, v, b = touching
     (row,) = rows(w.checks_dock)
     assert f'share node {b}' in row
-    assert '1 node two levels share' in w.checks_dock.touches_summary.text()
+    assert '1 node two levels share' in w.checks_dock.node('touches').toolTip(0)
 
 
 def test_choosing_it_selects_the_contour_at_the_node_and_u_unglues_it(touching, qtbot):
@@ -77,7 +74,7 @@ def test_choosing_it_selects_the_contour_at_the_node_and_u_unglues_it(touching, 
     assert 'unglued 1 contour from the node' in w.statusBar().currentMessage()
     assert len({id(x) for x in sq.ways.values() if b in x.refs}) == 1
     qtbot.waitUntil(lambda: rows(w.checks_dock) == [], timeout=2000)
-    assert 'two levels share' not in w.checks_dock.touches_summary.text()
+    assert 'node two levels share' not in w.checks_dock.node('touches').toolTip(0).splitlines()[0]
     w.editor.undo()
     assert edits.snapshot(sq) == before
     qtbot.waitUntil(lambda: len(rows(w.checks_dock)) == 1, timeout=2000)
@@ -92,7 +89,7 @@ def test_a_stretch_of_one_level_on_another_is_listed(window, qtbot):
     qtbot.waitUntil(lambda: window.touch_index is not None, timeout=5000)
     (row,) = rows(window.checks_dock)
     assert 'on top of' in row
-    assert '1 stretch of one level on another' in window.checks_dock.touches_summary.text()
+    assert '1 stretch of one level on another' in window.checks_dock.node('touches').toolTip(0)
 
 
 def test_u_with_no_node_chosen_says_how(window):

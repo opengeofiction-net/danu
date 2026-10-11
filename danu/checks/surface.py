@@ -110,7 +110,7 @@ def climbs(snap: Snapshot, dem: np.ndarray, gt: tuple, least: float = CLIMB_MIN)
             km = float(seg[i0:i1 + 1].sum()) / 1000
             at = dense[(i0 + i1) // 2]
             box = _box(dense[i0:i1 + 2])
-            where = f', its highest single climb {rise:,.0f} m over {km:,.1f} km'
+            where = f', highest single climb {rise:,.0f} m over {km:,.1f} km'
         else:
             at, box, where = dense[len(dense) // 2], _box(pts), ''
         out.append((lost, Finding(square, 'climb', f'{what}, way {wid} - climbs {lost:,.0f} m it cannot lose{where}',
@@ -218,7 +218,7 @@ def unreached(snap: Snapshot, classes: np.ndarray, gt: tuple) -> list[Finding]:
         share = 100 * none / inside
         ys, xs = np.nonzero(block == UNREACHED)
         at = (gt[0] + (c0 + xs.mean() + 0.5) * gt[1], gt[3] + (r0 + ys.mean() + 0.5) * gt[5])
-        out.append((none, Finding(name, 'unreached', f'{none:,.1f} km² unreached, {share:.1f}% of the drawn area',
+        out.append((none, Finding(name, 'unreached', f'{none:,.1f} km² unreached, {share:.1f}% of drawn area',
                            'ground in the drawn area the first pass had no contour in reach of: the surface '
                            'there is the second pass carrying values across it - the overlay shows where',
                            float(at[0]), float(at[1]), (name.lon, name.lat, name.lon + 1, name.lat + 1))))

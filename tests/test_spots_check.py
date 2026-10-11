@@ -42,7 +42,7 @@ def test_a_peak_below_the_ring_it_stands_inside_is_found():
     i = spot(sq, 125.5, -22.5, 149, name='Nate Peak')
     (c,) = spots.find(w)
     assert (c.node, c.kind, c.level, c.hollow) == (i, 'below', 150, False)
-    assert c.describe() == 'Nate Peak 149 m - below the 150 m ring round it'
+    assert c.describe() == 'Nate Peak 149 m - below 150 m ring round it'
 
 
 def test_one_past_the_next_contour_is_found_and_one_between_is_not():
@@ -52,7 +52,7 @@ def test_one_past_the_next_contour_is_found_and_one_between_is_not():
     spot(sq, 125.505, -22.5, 170)                       # between 150 and 175: right
     (c,) = spots.find(w)
     assert (c.node, c.kind, c.bound) == (i, 'above', 175)
-    assert 'past the 175 m, which is not drawn round it' in c.describe()
+    assert 'past 175 m, not drawn round it' in c.describe()
 
 
 def test_the_next_contour_is_the_ladders_not_an_off_ladder_value_the_square_holds():
@@ -88,7 +88,7 @@ def test_in_a_hollow_it_is_turned_over():
     spot(sq, 125.505, -22.5, 90)                         # below 100, above 75: right
     (c,) = spots.find(w)
     assert (c.node, c.kind, c.hollow) == (i, 'below', True)
-    assert 'above the 100 m ring' in c.describe()
+    assert 'above 100 m ring' in c.describe()
 
 
 def test_the_innermost_ring_is_the_one_that_counts():
@@ -211,7 +211,7 @@ def test_in_no_ring_one_far_above_the_contours_nearest_it_is_found():
     spot(sq, 125.501, -22.5, 20)                          # within a step of 7: a rise between them
     (c,) = spots.find(w)
     assert (c.node, c.kind, c.open, c.lo, c.hi, c.bound) == (i, 'above', True, 5, 7, 32)
-    assert c.describe() == 'Suprrina Hill 69 m - in no ring, the contours nearest it 5 to 7 m'
+    assert c.describe() == 'Suprrina Hill 69 m - in no ring, nearest contours 5 to 7 m'
     assert '62 m above the highest' in c.explain()
 
 

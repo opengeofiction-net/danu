@@ -207,10 +207,10 @@ class _Square:
         if not levels:
             return None
         lo, hi = min(levels), max(levels)
-        span = f'the {L.format_ele(lo)} m' if lo == hi else f'{L.format_ele(lo)} to {L.format_ele(hi)} m'
+        span = f'{L.format_ele(lo)} m' if lo == hi else f'{L.format_ele(lo)} to {L.format_ele(hi)} m'
         n = len(levels)
-        level = f', its level {L.format_ele(body.level)} m' if body.level is not None else ''
-        text = f'{body.what} - {n} contour level{"s" * (n != 1)} inside it, {span}{level}'
+        level = f', level {L.format_ele(body.level)} m' if body.level is not None else ''
+        text = f'{body.what} - {n} contour level{"s" * (n != 1)} inside, {span}{level}'
         why = (f'a lake is flat, and contours at {span} inside it say the ground under it is not - '
                'select it and F flattens it at its level, or move the contours out of it')
         X, Y = body.rings[0]
@@ -233,7 +233,7 @@ class _Square:
         near = [p for p in self.spots.values() if x0 <= p[0] <= x1 and y0 <= p[1] <= y1]
         if near and inside([p[0] for p in near], [p[1] for p in near], ring).any():
             return None
-        text = f'the {L.format_ele(ln.ele)} m ring, way {ln.id} - {ln.area / 1e4:,.0f} ha, nothing inside it'
+        text = f'{L.format_ele(ln.ele)} m ring, way {ln.id} - {ln.area / 1e4:,.0f} ha, nothing inside'
         why = ('a closed contour with no contour and no spot height inside: the top of a hill or the '
                'bottom of a hollow, with nothing to say how high or deep it goes - a spot height '
                'would (R37); plenty are meant')

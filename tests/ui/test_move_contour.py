@@ -138,7 +138,7 @@ def test_the_checks_panel_follows_a_contour_carried_clear(board, qtbot):
     qtbot.waitUntil(lambda: w.crossing_index is not None, timeout=5000)
     assert len(w.crossing_index.crossings()) == 2
     drag(w, (125.32, -22.70), (125.32, -22.60))
-    qtbot.waitUntil(lambda: 'No contour crosses another' in w.checks_dock.summary.text(), timeout=2000)
+    qtbot.waitUntil(lambda: w.checks_dock.node('crossings').text(0) == 'Crossing contours (0)', timeout=2000)
 
 
 def test_the_contour_selected_is_carried_though_another_runs_nearer(board):

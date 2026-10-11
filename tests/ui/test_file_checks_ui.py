@@ -24,11 +24,7 @@ def line(sq, n, tags, lat):
 
 
 def rows(dock):
-    out = {}
-    for i in range(dock.files_tree.topLevelItemCount()):
-        head = dock.files_tree.topLevelItem(i)
-        out[head.text(0)] = [head.child(j) for j in range(head.childCount())]
-    return out
+    return {dock.node(k).text(0): dock.rows(k) for k in ('long', 'ele', 'ladder')}
 
 
 @pytest.fixture
@@ -49,21 +45,18 @@ def north(window, qtbot):
 def test_the_panel_lists_them_under_a_heading_a_kind(north):
     w, sq, long_, lake, odd = north
     heads = rows(w.checks_dock)
-    assert [h.rsplit(' (', 1)[0] for h in heads] == [
-        'Ways too long for the API or GDAL (R30) - save splits them',
-        'An ele that is not a number (R31) - the build drops it',
-        'Off the ladder, used once or twice - a mistyped value?']
+    assert [h.rsplit(' (', 1)[0] for h in heads] == ['Ways too long', 'Ele not a number', 'Off the ladder']
     mine = {h.rsplit(' (', 1)[0]: [r.data(0, 256).way or r.data(0, 256).node for r in v
                                     if r.data(0, 256).square == NORTH] for h, v in heads.items()}
     assert list(mine.values()) == [[long_.id], [lake.id], [odd.id]]
-    assert 'In the files:' in w.checks_dock.files_summary.text()
+    assert 'save splits them' in w.checks_dock.node('long').toolTip(0)
 
 
 def test_choosing_a_row_selects_it_and_an_edit_takes_it_off(north):
     w, sq, long_, lake, odd = north
     (row,) = [r for h, v in rows(w.checks_dock).items() if h.startswith('Off the ladder')
               for r in v if r.data(0, 256).square == NORTH]
-    w.checks_dock.files_tree.setCurrentItem(row)
+    w.checks_dock.tree.setCurrentItem(row)
     assert w.editor.selection.way is odd and 'mistyped' in w.statusBar().currentMessage()
     w.editor.do(sq, edits.SetTags(odd.id, dict(odd.tags), {'ele': '125'}))
     w._refresh_checks()

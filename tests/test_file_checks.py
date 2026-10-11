@@ -64,7 +64,7 @@ def test_a_value_off_the_ladder_used_once_is_a_row_and_one_on_it_is_not():
     for k in range(3):
         line(sq, 3, {'ele': '120'}, lat=-22.15 + k * 0.01)
     (f,) = [f for f in files.find(w) if f.kind == 'ladder']
-    assert f.way == odd.id and 'the 113 m contour' in f.describe() and 'used once between 100 and 120' in f.describe()
+    assert f.way == odd.id and '113 m contour' in f.describe() and 'used once between 100 and 120' in f.describe()
 
 
 def test_the_index_follows_an_edit():
