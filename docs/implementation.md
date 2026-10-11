@@ -4646,3 +4646,32 @@ contour moves it, and with it what is in reach, so that starts again too.
 The order is otherwise what it was: a spot height before anything, a node
 before its line, shift the line.
 
+## Phase 6 ends
+
+On its three measures, on 2026-10-11:
+
+- **The validation table.** Its ten rows are checks in the panel - the two
+  long-way rows one, Ways too long, the finding's text saying which limit; a
+  duplicate is Touching contours' - and `test_validation_places.py` reads the
+  table out of this spec, so a row added without a check fails. Choosing a
+  row of each kind was already tested through the panel for crossings,
+  loops, touches, spot heights, an off-ladder value, a lake and sea level;
+  the rest - a long way, an ele not a number, a bare ring, a river climbing
+  or drawn backwards, unreached ground - are put through `_choose_finding`
+  there, each selecting its way, or for a place alone ringing it, and
+  bringing it into view from across the set.
+- **Killed mid-edit.** The H4a run again on the build as it stands: the
+  gobras 3x3 opened, edits in N20E086 and N20E087 - a contour drawn, a node
+  moved, a way deleted, one cut short, an ele changed - and Danu killed by
+  SIGKILL. The autosave had them 5.3 s after the last edit, the idle wait
+  being 5 s, a flush 5.6 ms; the next start offered both squares and put
+  them back exactly as they were when it was killed.
+- **The surface in JOSM.** The mapper showed it in their own JOSM with
+  Shift+J and it behaved as it should; until then H5 had been tried against
+  a stand-in for JOSM's remote control only.
+
+Beyond the plan, from the mapper's use of it: signing in showed timezones
+and outlines named as territories, which they are not; the contours' blend
+and width became the mapper's to choose; and a click near a stream and its
+river area means the stream.
+

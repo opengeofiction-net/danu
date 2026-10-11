@@ -1045,10 +1045,18 @@ among them; H6c the elevation, selected and surface panels; H6d the checks as
 one validation tree; H6e preferences; H6f signing in to OGF by OAuth 2; H6g
 importing a zone's squares from `data.opengeofiction.net`.
 
-Ends when every row of the validation table is a row in the panel, each a
-place to go to; when Danu killed mid-edit on the gobras 3x3 loses no more
-than the autosave interval, the next start putting the edits back; and when
-the working surface shows in JOSM as a layer.
+It ended on its three measures, all met on 2026-10-11:
+
+- Every row of the validation table is a check in the panel - the ways over
+  2,000 and 10,000 nodes under Ways too long, a duplicate under Touching
+  contours, the rest a check of their own - and a row of every kind chosen
+  selects what it is about and brings it into view, or, for a place alone,
+  shows and rings the place (`tests/ui/test_validation_places.py`).
+- Danu killed by SIGKILL mid-edit on the gobras 3x3, edits in two squares,
+  had written them 5.3 s after the last - the 5 s idle - and the next start
+  offered both and put them back exactly.
+- The working surface shows in JOSM as a layer: the mapper used it in their
+  own JOSM, Shift+J, and it worked as it should.
 
 **Revisit z19 as the maximum zoom**, in H6. It is the tiles' limit, and the map
 stops there (`mercator.MAX_ZOOM`), but the editor's own layers are vector and
