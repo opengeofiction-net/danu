@@ -265,29 +265,35 @@ def copied():
     return QGuiApplication.clipboard().text()
 
 
-def test_the_name_is_copied(w):
+def right_click(label):
+    """The actions a right click on ``label`` offers, by their text."""
+    assert label.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
+    return {a.text(): a for a in label.actions()}
+
+
+def test_the_name_is_copied_from_a_right_click(w):
     sq = w.working_set.squares[NORTH]
     w.editor.selection = Selection(sq, sq.ways[100])
-    p = w.selection_panel
-    assert p.copy_name.isEnabled() and p.copy_name.menu() is None
-    p.copy_name.click()
+    menu = right_click(w.selection_panel.name)
+    assert list(menu) == ['Copy name'] and menu['Copy name'].isEnabled()
+    menu['Copy name'].trigger()
     assert copied() == 'Bosco'
 
 
 def test_no_name_nothing_to_copy(w):
     sq, way = contour(w)
     w.editor.selection = Selection(sq, way)
-    assert not w.selection_panel.copy_name.isEnabled()
+    assert not right_click(w.selection_panel.name)['Copy name'].isEnabled()
 
 
-def test_an_upstream_way_is_copied_as_w_and_as_its_page(w):
+def test_an_upstream_way_is_copied_as_its_id_or_its_page(w):
     sq = w.working_set.squares[NORTH]
     w.editor.selection = Selection(sq, sq.ways[100])
-    p = w.selection_panel
-    assert p.copy_id.isEnabled()
-    menu = [a.text() for a in p.copy_id.menu().actions()]
-    assert menu == ['w100', 'https://opengeofiction.net/way/100']
-    p.copy_id.menu().actions()[1].trigger()
+    menu = right_click(w.selection_panel.where)
+    assert list(menu) == ['Copy ID', 'Copy URL'] and all(a.isEnabled() for a in menu.values())
+    menu['Copy ID'].trigger()
+    assert copied() == 'w100'
+    menu['Copy URL'].trigger()
     assert copied() == 'https://opengeofiction.net/way/100'
 
 
@@ -297,7 +303,8 @@ def test_a_ring_of_a_lake_copies_the_lake(w):
     for sel in (Selection(sq, sq.ways[200]), Selection(sq, None, relation=sq.relations[300])):
         w.editor.selection = sel
         assert w.selection_panel.info.osm == ('relation', 300)
-    assert [a.text() for a in w.selection_panel.copy_id.menu().actions()][0] == 'r300'
+    right_click(w.selection_panel.where)['Copy ID'].trigger()
+    assert copied() == 'r300'
 
 
 def test_a_point_on_a_river_copies_the_node(w):
@@ -317,7 +324,8 @@ def test_a_local_contour_has_no_id_to_copy(w):
     sq, way = contour(w)
     w.editor.selection = Selection(sq, way)
     assert way.id < 0 and w.selection_panel.info.osm is None
-    assert not w.selection_panel.copy_id.isEnabled()
+    menu = right_click(w.selection_panel.where)
+    assert not menu['Copy ID'].isEnabled() and not menu['Copy URL'].isEnabled()
 
 
 def test_a_contour_upstream_copies_the_way_not_its_node(w):
@@ -338,8 +346,8 @@ def test_the_server_is_the_inis(w, tmp_path):
 
 def test_the_elevation_has_its_unit_beside_it_not_in_it(w):
     p = w.selection_panel
-    assert p.ele.parentWidget().unit.text() == '(m)'
-    assert p.pull_back.suffix() == '' and p.pull_back.parentWidget().unit.text() == '(m)'
+    assert p.ele.parentWidget().unit.text() == 'm'
+    assert p.pull_back.suffix() == '' and p.pull_back.parentWidget().unit.text() == 'm'
 
 
 def test_only_a_water_relation_holding_the_way_comes_first(w):
@@ -353,13 +361,3 @@ def test_only_a_water_relation_holding_the_way_comes_first(w):
     w.editor.selection = Selection(sq, sq.ways[100])
     assert w.selection_panel.info.osm == ('way', 100)
 
-
-def test_choosing_again_and_again_keeps_one_menu(w):
-    from PySide6.QtWidgets import QMenu
-    sq = w.working_set.squares[NORTH]
-    b = w.selection_panel.copy_id
-    for _ in range(5):
-        w.editor.selection = Selection(sq, sq.ways[100])
-        w.editor.selection = Selection(sq, None, relation=sq.relations[300])
-    assert len(b.findChildren(QMenu)) == 1
-    assert [a.text() for a in b.menu().actions()] == ['r300', 'https://opengeofiction.net/relation/300']

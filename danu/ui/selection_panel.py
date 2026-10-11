@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFormLayout,
@@ -47,7 +47,7 @@ from ..core.ladder import format_ele
 from ..core.square import parse_ele
 from ..water.overpass import flows
 from .contours import water_tags
-from .widgets import CopyButton, unit
+from .widgets import copy, unit
 
 
 @dataclass(frozen=True)
@@ -320,16 +320,6 @@ def _mark(kind: str) -> QIcon:
     return QIcon(pix)
 
 
-def _with(label: QLabel, button: QWidget) -> QWidget:
-    """A label, and a button at its right."""
-    box = QWidget()
-    row = QHBoxLayout(box)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.addWidget(label, 1)
-    row.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
-    return box
-
-
 class SelectionPanel(QDockWidget):
     def __init__(self, editor, parent=None):
         super().__init__('Selected', parent)
@@ -352,15 +342,23 @@ class SelectionPanel(QDockWidget):
         self.tags = QLabel()
         self.tags.setWordWrap(True)
         self.tags.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.copy_name = CopyButton('Copy the name')
-        self.copy_id = CopyButton('Copy its id upstream - as w123, or its page on the server')
+        # copied from a right click (H6c): the name, and the id upstream as
+        # w123 or its page on the server
+        self.copy_name = QAction('Copy name', self)
+        self.copy_name.triggered.connect(lambda: copy(self.info.name))
+        self.copy_id = QAction('Copy ID', self)
+        self.copy_id.triggered.connect(lambda: copy(osm_ids(self.info.osm, self.server)[0]))
+        self.copy_url = QAction('Copy URL', self)
+        self.copy_url.triggered.connect(lambda: copy(osm_ids(self.info.osm, self.server)[1]))
+        for label, actions in ((self.name, [self.copy_name]), (self.where, [self.copy_id, self.copy_url])):
+            label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+            label.addActions(actions)
         self.server = getattr(getattr(parent, 'settings', None), 'server_url', 'https://opengeofiction.net')
         form.addRow('What', self.kind)
-        form.addRow('Name', _with(self.name, self.copy_name))
+        form.addRow('Name', self.name)
         form.addRow('Elevation', unit(self.ele))
         form.addRow('', self.why)
-        form.addRow('Where', _with(self.where, self.copy_id))
+        form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
         # grading, for water - G6b: the action, findable without its key, and
         # the proposal it makes, shown before it lands
@@ -436,8 +434,9 @@ class SelectionPanel(QDockWidget):
         self.ele.setToolTip(info.why_not or 'Enter to set it; empty and Enter to clear a '
                             "water level. Escape puts it back.")
         self.where.setText(info.where or '—')
-        self.copy_name.set_texts([info.name] if info.name else [])
-        self.copy_id.set_texts(osm_ids(info.osm, self.server))
+        self.copy_name.setEnabled(bool(info.name))
+        self.copy_id.setEnabled(info.osm is not None)
+        self.copy_url.setEnabled(info.osm is not None)
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
         water = sel is not None and (

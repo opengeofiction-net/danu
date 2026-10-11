@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QLabel
 def test_the_elevation_fields_carry_no_unit_and_have_one_beside(window):
     p = window.elevation_panel
     for f in (p.value, p.small, p.big):
-        assert f.suffix() == '' and f.parentWidget().unit.text() == '(m)'
+        assert f.suffix() == '' and f.parentWidget().unit.text() == 'm'
         assert f.parentWidget().unit.isVisibleTo(p)
 
 
