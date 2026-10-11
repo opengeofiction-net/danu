@@ -287,3 +287,11 @@ def test_a_root_holding_zones_is_a_root_though_it_holds_a_square_too(qtbot, root
     dlg = OpenDialog(root, 3)
     qtbot.addWidget(dlg)
     assert dlg.root == root and dlg.zone.currentText() == 'pizarrales' and not dlg.hint.text()
+
+
+def test_a_directory_that_cannot_be_read_is_not_taken_for_a_zone(tmp_path, monkeypatch):
+    from danu.ui import open_dialog
+    monkeypatch.setattr(open_dialog, 'list_squares', lambda d: (_ for _ in ()).throw(PermissionError('no')))
+    assert not open_dialog.is_zone(tmp_path)
+    monkeypatch.setattr(open_dialog, 'list_squares', lambda d: (_ for _ in ()).throw(FileExistsError('two')))
+    assert open_dialog.is_zone(tmp_path)

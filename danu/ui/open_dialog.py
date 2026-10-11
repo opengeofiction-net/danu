@@ -7,8 +7,9 @@ are what ``list_squares`` finds, shown by name, label and file size, in the
 order of their names as written - N18E088, N18E089, N19E088 - as SRTM's are.
 
 A zone given as the root - an easy slip in the folder browser - is taken
-for what it is: the root is the directory above it, and that zone chosen
-(H6g's review).
+for what it is when it is plainly one, holding squares and no zone of its
+own: the root is the directory above it, and that zone chosen (H6g's
+review).
 """
 
 from __future__ import annotations
@@ -47,11 +48,15 @@ def size_text(n: int) -> str:
 
 
 def is_zone(d: Path) -> bool:
-    """A directory that holds squares itself."""
+    """A directory that holds squares itself. Two files for one square is
+    still a zone - opening it says what is wrong - but a directory that
+    could not be read is not taken for one."""
     try:
         return d.is_dir() and bool(list_squares(d))
-    except OSError:
+    except FileExistsError:
         return True
+    except OSError:
+        return False
 
 
 def zones_under(root: Path) -> list[Path]:
