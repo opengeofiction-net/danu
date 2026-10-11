@@ -40,7 +40,7 @@ def crossed(window, qtbot):
 
 
 def top_rows(dock):
-    return [dock.tree.topLevelItem(i).text(0) for i in range(dock.tree.topLevelItemCount())]
+    return [r.text(0) for r in dock.rows('crossings')]
 
 
 def test_opening_the_panel_lists_the_contour_that_crosses_most_first(crossed):
@@ -48,7 +48,8 @@ def test_opening_the_panel_lists_the_contour_that_crosses_most_first(crossed):
     rows = top_rows(w.checks_dock)
     assert rows[0].startswith(f'425 m contour, way {rogue}') and 'crosses 3 contours' in rows[0]
     assert len(rows) == 4
-    assert '3 crossings between contours' in w.checks_dock.summary.text()
+    node = w.checks_dock.node('crossings')
+    assert node.text(0) == 'Crossing contours (4)' and '3 crossings among 4 contours' in node.toolTip(0)
 
 
 def test_the_map_marks_crossings_only_while_the_panel_is_open(crossed):
@@ -62,11 +63,11 @@ def test_the_map_marks_crossings_only_while_the_panel_is_open(crossed):
 def test_choosing_a_row_selects_the_contour_and_rings_its_crossings(crossed):
     w, rogue = crossed
     dock = w.checks_dock
-    dock.tree.setCurrentItem(dock.tree.topLevelItem(0))
+    dock.tree.setCurrentItem(dock.rows('crossings')[0])
     assert w.editor.selection is not None and w.editor.selection.way.id == rogue
     assert len(w.editor.marks_focus) == 3
     assert 'delete it or redraw over it' in w.statusBar().currentMessage()
-    child = dock.tree.topLevelItem(0).child(0)
+    child = dock.rows('crossings')[0].child(0)
     dock.tree.setCurrentItem(child)
     assert len(w.editor.marks_focus) == 1, 'a partner row rings only the crossings with it'
 
@@ -78,7 +79,7 @@ def test_the_panel_follows_an_edit_and_its_undo(crossed, qtbot):
     qtbot.waitUntil(lambda: 'crosses 4 contours' in top_rows(w.checks_dock)[0], timeout=2000)
     w.editor.do(sq, edits.DeleteWay(rogue))
     qtbot.waitUntil(lambda: top_rows(w.checks_dock) == [], timeout=2000)
-    assert 'No contour crosses another' in w.checks_dock.summary.text()
+    assert w.checks_dock.node('crossings').text(0) == 'Crossing contours (0)'
     w.editor.undo()
     qtbot.waitUntil(lambda: len(top_rows(w.checks_dock)) == 5, timeout=2000)
 

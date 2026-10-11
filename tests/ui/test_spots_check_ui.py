@@ -26,8 +26,7 @@ def ring(sq, cx, cy, r, ele):
 
 
 def rows(dock):
-    items = [dock.spots_tree.topLevelItem(i) for i in range(dock.spots_tree.topLevelItemCount())]
-    return [it.text(0) for it in items if it.data(0, 256).square == NORTH]
+    return [it.text(0) for it in dock.rows('spots') if it.data(0, 256).square == NORTH]
 
 
 @pytest.fixture
@@ -48,9 +47,7 @@ def test_the_panel_lists_it_and_choosing_it_selects_it(peak):
     w, sq, nid = peak
     assert rows(w.checks_dock) == ['Nate Peak 149 m - below the 150 m ring round it']
     dock = w.checks_dock
-    item = next(dock.spots_tree.topLevelItem(i) for i in range(dock.spots_tree.topLevelItemCount())
-                if dock.spots_tree.topLevelItem(i).data(0, 256).square == NORTH)
-    dock.spots_tree.setCurrentItem(item)
+    dock.tree.setCurrentItem(next(it for it in dock.rows('spots') if it.data(0, 256).square == NORTH))
     sel = w.editor.selection
     assert sel.way is None and sel.node == nid
     assert 'set its height' in w.statusBar().currentMessage()
@@ -65,7 +62,7 @@ def test_setting_its_height_takes_it_off_the_list(peak, qtbot):
     qtbot.waitUntil(lambda: len(rows(w.checks_dock)) == 1, timeout=2000)
 
 
-def test_one_in_no_ring_is_counted_apart_in_the_summary(window, qtbot):
+def test_one_in_no_ring_is_counted_apart_in_the_tooltip(window, qtbot):
     w = window
     sq = w.working_set.squares[NORTH]
     for k, ele in enumerate((100, 125, 150, 175)):
@@ -85,4 +82,4 @@ def test_one_in_no_ring_is_counted_apart_in_the_summary(window, qtbot):
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.spot_index is not None, timeout=5000)
     assert 'Suprrina Hill 69 m - in no ring, the contours nearest it 5 to 7 m' in rows(w.checks_dock)
-    assert '1 in no ring and far off the contours nearest it' in w.checks_dock.spots_summary.text()
+    assert '1 in no ring and far off the contours nearest it' in w.checks_dock.node('spots').toolTip(0)

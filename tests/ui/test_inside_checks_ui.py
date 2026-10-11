@@ -24,11 +24,10 @@ def ring(sq, cx, cy, r, tags):
 
 
 def heads(dock):
-    return {dock.inside_tree.topLevelItem(i).text(0).rsplit(' (', 1)[0]: dock.inside_tree.topLevelItem(i)
-            for i in range(dock.inside_tree.topLevelItemCount())}
+    return {dock.node(k).text(0).rsplit(' (', 1)[0]: dock.node(k) for k in ('lake', 'bare')}
 
 
-def test_a_lake_spanning_contours_is_listed_open_and_the_report_folded(window, qtbot):
+def test_a_lake_spanning_contours_is_listed_and_a_node_unfolded_stays_so(window, qtbot):
     w = window
     sq = w.working_set.squares[NORTH]
     lake = ring(sq, 125.5, -22.5, 0.02, {'natural': 'water', 'name': 'Kinser'})
@@ -37,17 +36,16 @@ def test_a_lake_spanning_contours_is_listed_open_and_the_report_folded(window, q
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
     h = heads(w.checks_dock)
-    water = h['Water spanning contours (R33) - select it, and F flattens it']
-    report = h['Report: rings of 10 ha or more with nothing inside (R39) - a spot height would say how high']
-    assert water.isExpanded() and not report.isExpanded()
+    water, report = h['Lakes spanning contours'], h['Bare rings']
+    assert not water.isExpanded() and not report.isExpanded(), 'folded, as the tree starts'
+    assert 'F flattens it' in water.toolTip(0) and '10 ha or more' in report.toolTip(0)
     (row,) = [water.child(j) for j in range(water.childCount()) if water.child(j).data(0, 256).square == NORTH]
-    w.checks_dock.inside_tree.setCurrentItem(row)
+    w.checks_dock.tree.setCurrentItem(row)
     assert w.editor.selection.way is lake and 'F flattens it' in w.statusBar().currentMessage()
     marks = len(w.editor.marks)
     report.setExpanded(True)
     w._refresh_checks()
-    assert heads(w.checks_dock)['Report: rings of 10 ha or more with nothing inside (R39) - a spot height would say how high'] \
-        .isExpanded(), 'unfolded, it stays so'
+    assert heads(w.checks_dock)['Bare rings'].isExpanded(), 'unfolded, it stays so'
     bare = [f for f in w.inside_index.findings('bare') if f.square == NORTH]
     assert bare and all(m.lonlat_to_scene(f.lon, f.lat) not in w.editor.marks for f in bare), \
         'the report marks the map'
@@ -64,4 +62,4 @@ def test_the_threshold_is_the_inis(window, qtbot):
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
     assert hill.id not in {f.way for f in w.inside_index.findings('bare')}
-    assert any('1000 ha or more' in t for t in heads(w.checks_dock)) or not heads(w.checks_dock)
+    assert '1000 ha or more' in w.checks_dock.node('bare').toolTip(0)

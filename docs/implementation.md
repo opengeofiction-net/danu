@@ -4396,3 +4396,32 @@ their tooltips. Single-level ground is indented under Unknown ground and
 greyed while it is off, as the View menu's has been since H6a. Show in JOSM
 under them clicks the Shift+J action.
 
+## H6d, the validation tree
+
+The checks panel had grown to seven lists, each with a paragraph above it -
+"No contour crosses another in this working set" for a check with nothing
+to say. It is the Validation panel, one tree as JOSM's validator is, without
+JOSM's severities: Danu's checks have none.
+
+A node a check, in a fixed order (`checks_dock.CHECKS`): crossings, loops,
+touches, spot heights; the files' three kinds; the rings' two; the surface's
+four. The label is the check's name and its count; the tooltip says what it
+means and what to do - the old headings' wording - with the breakdown the
+summary lines gave ("2 nodes two levels share, 1 duplicate") above it. A
+node with nothing under it is greyed. Nodes are not rows: choosing one does
+nothing. They start folded, as JOSM's do - 179 bare rings on the gobras 3x3
+would otherwise push every other check off the panel - and a node opened
+stays open as the checks follow the edits.
+
+`_fill` replaces one node's rows, keeping the row chosen where its finding is
+still listed, by the key each check kept before. Choosing a row sends what
+the check's list sent: `chosen`, `loopChosen`, `touchChosen`, `spotChosen`, or
+`findingChosen` for the files', rings' and surface's findings. Cut out loop
+is enabled only while a loop is the row chosen.
+
+The surface's checks keep their state on their nodes: "(no build)" until a
+build has said them, "(building…)" while one is running, and "stale" beside
+the count once edits have been made since; the tooltip says when the build
+was. The busy bar they had is gone. The first scan still shows a bar a check,
+its text naming the check being found, in place of the tree.
+

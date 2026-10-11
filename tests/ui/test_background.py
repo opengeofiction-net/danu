@@ -84,7 +84,8 @@ def test_the_checks_scan_runs_on_a_worker_and_takes_the_edits_made_meanwhile(win
     held = []
     w._checks_runner = held.append
     w.checks_dock.toggleViewAction().trigger()
-    assert 'Finding' in w.checks_dock.summary.text() and w.crossing_index is None
+    assert 'Finding' in w.checks_dock.progress.format() and w.checks_dock.progress.isVisible()
+    assert w.crossing_index is None
     sq = w.working_set.squares[NORTH]
     a = draw_into(w, sq, 100, 125.3, -22.5)
     job = held.pop()
@@ -95,7 +96,7 @@ def test_the_checks_scan_runs_on_a_worker_and_takes_the_edits_made_meanwhile(win
     job.signals.done.emit(read)
     assert any(a.way_id in (c.a[1], c.b[1]) for c in w.crossing_index.crossings()), \
         'the crossing drawn while the scan ran is not listed'
-    assert 'crossing' in w.checks_dock.summary.text()
+    assert not w.checks_dock.progress.isVisible() and w.checks_dock.rows('crossings')
 
 
 def test_the_checks_scan_on_the_pool(window, qtbot):
@@ -103,7 +104,7 @@ def test_the_checks_scan_on_the_pool(window, qtbot):
     w._checks_runner = QThreadPool.globalInstance().start
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.spot_index is not None, timeout=15000)
-    assert w._checks_job is None and 'Finding' not in w.checks_dock.summary.text()
+    assert w._checks_job is None and not w.checks_dock.progress.isVisible()
 
 
 def test_a_scan_a_dict_changed_under_is_started_again(window, monkeypatch):
@@ -127,13 +128,15 @@ def test_a_scan_that_fails_says_so_in_the_panel(window, monkeypatch):
         raise ValueError('a square with no name')
     monkeypatch.setattr(app, 'find_checks', broken)
     window.checks_dock.toggleViewAction().trigger()
-    assert 'could not be found: ValueError: a square with no name' in window.checks_dock.summary.text()
+    d = window.checks_dock
+    assert 'could not be found: ValueError: a square with no name' in d.status.text()
+    assert d.status.isVisible() and not d.progress.isVisible()
     assert window._checks_job is None
 
 
-def test_the_scan_shows_its_progress_and_hides_the_empty_lists(window):
+def test_the_scan_shows_its_progress_and_hides_the_tree(window):
     """13.8 s on the gobras 3x3, with a line of text over six empty boxes for
-    all of it: a bar a check now, the lists and buttons put away, the status
+    all of it: a bar a check now, the tree and buttons put away, the status
     line saying so, and all of it gone when the indexes land."""
     w = window
     held = []
@@ -141,15 +144,14 @@ def test_the_scan_shows_its_progress_and_hides_the_empty_lists(window):
     w.checks_dock.toggleViewAction().trigger()
     d = w.checks_dock
     assert d.progress.isVisible() and d.progress.maximum() == 6 and d.progress.value() == 0
-    assert not any(t.isVisible() for t in (d.tree, d.loops_tree, d.touches_tree, d.spots_tree,
-                                           d.files_tree, d.inside_tree))
+    assert not d.tree.isVisible()
     assert not d.cut_btn.isVisible() and not d.josm_btn.isVisible()
     assert 'finding the checks' in w.statusBar().currentMessage()
     job = held.pop()
     seen = []
-    job.signals.progress.connect(lambda step: seen.append((step, d.summary.text(), d.progress.value())))
+    job.signals.progress.connect(lambda step: seen.append((step, d.progress.format(), d.progress.value())))
     job.run()
     assert [s[0][0] for s in seen] == [0, 1, 2, 3, 4, 5]
-    assert seen[1][1].endswith('contours crossing themselves…') and seen[1][2] == 1
-    assert not d.progress.isVisible() and d.josm_btn.isVisible()
+    assert 'contours crossing themselves' in seen[1][1] and seen[1][2] == 1
+    assert not d.progress.isVisible() and d.josm_btn.isVisible() and d.tree.isVisible()
     assert w.statusBar().currentMessage().startswith('checks found in')

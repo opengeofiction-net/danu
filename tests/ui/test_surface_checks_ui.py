@@ -56,28 +56,26 @@ def test_the_panel_says_pending_then_the_findings_then_stale(window, qtbot):
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
     d = w.checks_dock
-    assert 'nothing yet' in d.surface_summary.text() and not d.surface_busy.isVisible()
+    assert d.node('climb').text(0) == 'Climbing rivers (no build)' and 'Ctrl+R builds' in d.node('climb').toolTip(0)
     w.builder.checking = True
     w._surface_starting()
     w._refresh_checks()
-    assert 'the build now running will say them' in d.surface_summary.text() and d.surface_busy.isVisible()
+    assert d.node('sea').text(0) == 'Sea level off the shore (building…)'
     shaded = w.surface.shaded
     built = Built(shaded=shaded, checks=[CLIMB, SEA])
     w._surface_built_shown = lambda *a: None        # the surface itself is not what this is about
     w._surface_built(built, False, 1.0)
     w._refresh_checks()
-    assert not d.surface_busy.isVisible()
-    assert d.surface_summary.text().startswith('From the build at ')
-    assert '1 river climbing, 1 stretch of sea level off the shore' in d.surface_summary.text()
-    heads = [d.surface_tree.topLevelItem(i).text(0) for i in range(d.surface_tree.topLevelItemCount())]
-    assert heads == ['Rivers which climb on the surface (R29) - B burns a climb (1)',
-                     'Sea level off the drawn coastline (R32) (1)']
+    assert [d.node(k).text(0) for k in ('climb', 'backwards', 'sea', 'unreached')] == [
+        'Climbing rivers (1)', 'Rivers drawn backwards (0)', 'Sea level off the shore (1)', 'Unreached ground (0)']
+    assert d.node('climb').toolTip(0).startswith('From the build at ')
     # a sea level row is a place, with nothing to select
-    sea = d.surface_tree.topLevelItem(1).child(0)
-    d.surface_tree.setCurrentItem(sea)
+    sea = d.rows('sea')[0]
+    d.tree.setCurrentItem(sea)
     assert 'no coastline' in w.statusBar().currentMessage()
     sq = w.working_set.squares[NORTH]
     alloc = w.editor.history.alloc(sq)
     w.editor.do(sq, edits.AddNode(alloc.take(), (125.5, -22.5), {'ele': '300'}))
     w._refresh_checks()
-    assert 'edits since, so the next build will say again' in d.surface_summary.text()
+    assert 'edits since, so the next build will say again' in d.node('climb').toolTip(0)
+    assert d.node('climb').text(0) == 'Climbing rivers (1, stale)'
