@@ -121,7 +121,7 @@ class TerritoryIndex:
     def territory(self, rel: int) -> Territory:
         return self.attributes.get(rel, Territory(rel))
 
-    def counts(self, rel: int) -> bool:
+    def is_territory(self, rel: int) -> bool:
         """Whether a relation is a territory to name under a square. The
         geometry file holds more than territories: a timezone is a relation
         with rings and no ogf:id, and so no record - 304988, GOBRAS PEN,
@@ -162,7 +162,7 @@ class TerritoryIndex:
         for rel, (bw, bs, be, bn) in self._boxes.items():
             if be < w or bw > e or bn < s or bs > n:
                 continue
-            if not self.counts(rel):
+            if not self.is_territory(rel):
                 continue
             for i, pt in enumerate(samples):
                 if self.contains(rel, pt):

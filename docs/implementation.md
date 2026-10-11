@@ -4506,7 +4506,7 @@ territories - 266 of its 1,103 relations carry a timezone, and 11 of those
 are timezones alone, with no `ogf:id` and so no wiki record. 304988 is GOBRAS
 PEN, +05:00, over all of Gobrassanya.
 
-`TerritoryIndex.counts` says what is named under a square: a relation with a
+`TerritoryIndex.is_territory` says what is named under a square: a relation with a
 record, whose status is not `outline`. An outline - AR047, Collab:Astrasian
 Confederacy, owner admin - is split into the admin level 3 and 4
 sub-territories it holds, which have the status and owner that matter
