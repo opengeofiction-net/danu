@@ -9,7 +9,7 @@ import stat
 import threading
 import urllib.error
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -34,6 +34,10 @@ class FakeOgf:
         outer = self
 
         class H(BaseHTTPRequestHandler):
+            # a connection opened and never written to - Qt's, on Windows,
+            # held the one-at-a-time server and so its shutdown for ever
+            timeout = 5
+
             def log_message(self, *a):
                 pass
 
@@ -64,13 +68,17 @@ class FakeOgf:
                         self._send(200, {'user': {'id': 1, 'display_name': outer.tokens[token], 'roles': outer.roles}})
                     else:
                         self._send(401, {})
-        self.http = HTTPServer(('127.0.0.1', 0), H)
+        self.http = ThreadingHTTPServer(('127.0.0.1', 0), H)
+        self.http.daemon_threads = True
+        self.closed = False
         self.url = f'http://127.0.0.1:{self.http.server_port}'
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
 
     def close(self):
-        self.http.shutdown()
-        self.http.server_close()
+        if not self.closed:
+            self.closed = True
+            self.http.shutdown()
+            self.http.server_close()
 
 
 @pytest.fixture
