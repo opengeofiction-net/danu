@@ -93,5 +93,5 @@ def test_nothing_is_built_until_the_panel_is_opened(window):
     assert window.crossing_index is not None and window.crossing_index.crossings() == []
 
 
-def test_the_panel_is_in_the_edit_menu(window):
-    assert window.checks_dock.toggleViewAction() in window.menuBar().actions()[1].menu().actions()
+def test_the_panel_is_in_the_view_menu(window):
+    assert window.checks_dock.toggleViewAction() in window.menuBar().actions()[2].menu().actions()

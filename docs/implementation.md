@@ -4281,3 +4281,40 @@ inside the 8 px pick radius; at 20 it is 10 px, outside it. A test draws the
 two 1.4 m apart: a click 3 px off the stream picks the outline at 19 and the
 stream at 20. Preferring a line to an outline, and cycling through what is
 under the cursor as JOSM does, stay with the interface review.
+
+## H6a, the menus and panels
+
+The Edit menu had taken every action as it came. Now there are five menus:
+
+- **File**: open, recent, save, save as, a new blank square, the username,
+  quit.
+- **Edit**: undo and redo; delete, delete contour, split and unglue; the four
+  tools; a **Water** sub-menu (import, set level, grade, grade the river
+  network, flatten, burn and burn all) and a **Spot height** one (import);
+  cut out the loop chosen.
+- **View**: magnify and Show in JOSM; the surface panel's three overlays;
+  a toggle for each of the seven panels; Reset panels.
+- **Elevation**: the steps, the metre nudges, pick under cursor, sea level and
+  re-read ladder.
+- **Surface**: rebuild, pinch, and Show in JOSM for the surface (Shift+J).
+
+The labels are shorter, the explanation left to the tooltips. Every action
+keeps its name (`edit.grade`, `view.josm_surface`), so the INI's keys and the
+usage log mean what they did. The checks panel is titled Validation, ahead of
+its tree in H6d.
+
+The three overlays in View are their own actions, each kept in step with the
+surface panel's box both ways. Single-level ground is part of the unknown, so
+it is greyed while unknown ground is off.
+
+**Panels never float.** Under Wayland Qt cannot grab the mouse for a floating
+dock window, so one let go of could not be moved again (`This plugin
+supports grabbing the mouse only for popup windows`). Each panel is closable
+and movable only, and `restore_layout` - the session's restore and Reset
+panels both - docks any panel the saved state left floating, as a session
+from before this step may. Closing a panel was a way of losing it: Layers,
+Surface, Elevation and Selected had no menu entry. View has all seven.
+
+**Reset panels** is the window's `saveState` taken once the panels are
+built, before a session is restored over it.
+
