@@ -4618,3 +4618,31 @@ between two - the loupe's - goes to the nearer.
 **The active level** was its own colour darkened, 3.2 px: a blue line on blue
 ground, lost. It is black, 4 px, drawn plain over the rest in either style.
 
+## What a click selects
+
+z20 made the Water of Meeonoa's stream pickable apart from the outline of the
+river area it runs in, 1.4 m off, by zooming in. Two things from the review
+of H6 make it so at any zoom.
+
+**A line before an outline.** The select tool's press gathers everything in
+reach (`EditController._choices`): a spot height; a node; every contour
+(`ContourLayer.pick_lines`) and every water way (`pick_waters`) within the
+pick radius. The lines - contours, and water that runs as a line - come
+nearest first; the outlines of water areas after them, nearest first.
+`is_outline` is anything but an open waterway: a lake's ring, a river area,
+a riverbank, a ring a relation names. It was the nearer of the nearest
+contour and the nearest water before, so a click near both a stream and the
+outline round it was the outline, being nearer.
+
+**A click again for the next.** A press within 3 px (`CYCLE_PX`) of the last,
+with the same things in reach and nothing dragged between, chooses the next
+of them, and after the last the first. When more than one thing is in reach
+the status line says "1 of 3 here - click again for the next". JOSM cycles
+with alt and a click; on many Linux desktops alt and a drag moves the window,
+so here it is the click alone. A drag of a node, or a press anywhere else,
+starts from the first again; carrying a contour moves it, and with it what
+is in reach, so that starts again too.
+
+The order is otherwise what it was: a spot height before anything, a node
+before its line, shift the line.
+

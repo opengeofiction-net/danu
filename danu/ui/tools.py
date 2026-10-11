@@ -43,6 +43,7 @@ SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
 DRAG_PX = 3.0                   # a press that moves less is a click
+CYCLE_PX = 3.0                  # a click again this near the last is the next thing there
 FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
 SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within this of itself on release
 
@@ -285,6 +286,7 @@ class EditController(QObject):
         self._press: QPointF | None = None
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
         self._dragged = False
+        self._cycle = None                   # (where, what was there, which) of the last click
         # carrying a whole contour - shift and drag (G8b): square, way, where
         # the press was, and the contour as it would be, in scene points
         self._carry: tuple[Square, Way, QPointF] | None = None
@@ -426,39 +428,7 @@ class EditController(QObject):
         if self.tool == 'spot':
             self._place_spot(pos)
             return True
-        # a spot height first: it is a few pixels across and sits on ground a
-        # contour runs through, so a click that could mean either means the
-        # small thing. Shift is the line, as below, and skips this too
-        if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-            hit = self.layer.pick_spot(pos.x(), pos.y(), self._px(SNAP_PX), self.view.zoom)
-            if hit is not None:
-                square, nid, _ = hit
-                self.selection = Selection(square, None, nid)
-                self.elevation.pick_up(self.layer.spots[(square.name, nid)].ele)
-                n = square.nodes[nid]
-                self._drag = (square, nid, (n.lon, n.lat))
-                self._press = pos
-                self._dragged = False
-                self.overlay.update()
-                return True
-        # shift means the line, not a node of it. A contour's nodes are some
-        # 87 m apart in Gobras, which is under the snap radius at every zoom
-        # that shows a whole contour, so without this the way itself could
-        # only be selected by zooming in past seeing it
         whole = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        node = None if whole else self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
-        if node is not None:
-            square, nid, _ = node
-            way = self._way_holding(square, nid)
-            if way is not None:
-                self.selection = Selection(square, way, nid)
-                self.elevation.pick_up(way.ele)          # selecting is picking up, as space does
-                n = square.nodes[nid]
-                self._drag = (square, nid, (n.lon, n.lat))
-                self._press = pos
-                self._dragged = False
-                self.overlay.update()
-                return True
         if whole and self._on_selected_contour(pos):
             # the contour already selected - from the checks panel, as a rule
             # - is the one carried, though another runs nearer the press: in
@@ -466,29 +436,87 @@ class EditController(QObject):
             sel = self.selection
             self._carry = (sel.square, sel.way, pos)
             self.ghost = None
+            self._cycle = None
             return True
-        hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
-        wet = self.layer.pick_water(pos.x(), pos.y(), self._px(PICK_PX))
-        # the nearer of the two. A river runs down the valley a contour bends
-        # round, and contour-first would leave it unselectable at every zoom
-        # that shows both
-        if wet is not None and (hit is None or wet[2] < hit[2]):
-            self._select_water(wet, whole)
-            return True
-        if hit is not None:
-            self.selection = Selection(hit[0], hit[1])
-            self.elevation.pick_up(hit[1].ele)
-            if whole:
-                # shift is the line; shift and a drag carries it - a contour
-                # whose shape is right and whose place is not (G8b)
-                self._carry = (hit[0], hit[1], pos)
-                self.ghost = None
-            self.overlay.update()
-            return True
-        if self.selection is not None:
-            self.selection = None
-            self.overlay.update()
-        return False                                 # the view pans
+        choices = self._choices(pos, whole)
+        if not choices:
+            self._cycle = None
+            if self.selection is not None:
+                self.selection = None
+                self.overlay.update()
+            return False                                 # the view pans
+        # a click again where the last was, with nothing dragged between, is
+        # the next of what is there - as JOSM's, though JOSM asks for alt
+        keys = [key for key, _ in choices]
+        k = 0
+        c = self._cycle
+        if c is not None and not self._dragged and keys == c[1] \
+                and (pos - c[0]).manhattanLength() <= self._px(CYCLE_PX):
+            k = (c[2] + 1) % len(choices)
+        self._cycle = (pos, keys, k)
+        self._dragged = False
+        choices[k][1]()
+        if len(choices) > 1:
+            self.message.emit(f'{k + 1} of {len(choices)} here - click again for the next')
+        self.overlay.update()
+        return True
+
+    def _choices(self, pos: QPointF, whole: bool) -> list:
+        """What a click at ``pos`` could mean, in the order it means them,
+        each a key and what choosing it does. A spot height first - a few
+        pixels across, on ground a contour runs through, so a click that
+        could mean either means the small thing; then a node; then the lines,
+        contours and rivers, nearest first; then the outlines of water areas,
+        last - a stream inside its river area is a click on the stream (the
+        review of H6). Shift is the line, not a node or a spot height: a
+        contour's nodes are some 87 m apart in Gobras, under the snap radius
+        at every zoom that shows a whole contour."""
+        out = []
+        if not whole:
+            hit = self.layer.pick_spot(pos.x(), pos.y(), self._px(SNAP_PX), self.view.zoom)
+            if hit is not None:
+                out.append((('spot', hit[0].name, hit[1]), lambda h=hit: self._choose_spot(h, pos)))
+            node = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
+            if node is not None:
+                way = self._way_holding(node[0], node[1])
+                if way is not None:
+                    out.append((('node', node[0].name, node[1]),
+                                lambda n=node, w=way: self._choose_node(n, w, pos)))
+        tol = self._px(PICK_PX)
+        lines = [(d, ('way', sq.name, way.id), lambda sq=sq, way=way: self._choose_contour(sq, way, whole, pos))
+                 for sq, way, d in self.layer.pick_lines(pos.x(), pos.y(), tol)]
+        outlines = []
+        for wet in self.layer.pick_waters(pos.x(), pos.y(), tol):
+            entry = (wet[2], ('water', wet[0].name, wet[1].id), lambda wet=wet: self._select_water(wet[:5], whole))
+            (outlines if wet[5] else lines).append(entry)
+        for group in (lines, outlines):
+            out.extend((key, fn) for _d, key, fn in sorted(group, key=lambda e: e[0]))
+        return out
+
+    def _choose_spot(self, hit, pos: QPointF) -> None:
+        square, nid, _ = hit
+        self.selection = Selection(square, None, nid)
+        self.elevation.pick_up(self.layer.spots[(square.name, nid)].ele)
+        n = square.nodes[nid]
+        self._drag = (square, nid, (n.lon, n.lat))
+        self._press = pos
+
+    def _choose_node(self, node, way, pos: QPointF) -> None:
+        square, nid, _ = node
+        self.selection = Selection(square, way, nid)
+        self.elevation.pick_up(way.ele)          # selecting is picking up, as space does
+        n = square.nodes[nid]
+        self._drag = (square, nid, (n.lon, n.lat))
+        self._press = pos
+
+    def _choose_contour(self, square, way, whole: bool, pos: QPointF) -> None:
+        self.selection = Selection(square, way)
+        self.elevation.pick_up(way.ele)
+        if whole:
+            # shift is the line; shift and a drag carries it - a contour
+            # whose shape is right and whose place is not (G8b)
+            self._carry = (square, way, pos)
+            self.ghost = None
 
     def _select_water(self, wet, whole: bool) -> None:
         """A click on water - G6a. A lake, when the line is its ring; a
