@@ -3,7 +3,13 @@
 The squares live where the mapper put their mirror of the published
 ``osm-squares/`` tree - a root with one directory per zone - and that root is
 remembered. Zones are the directories under it that hold a square; squares
-are what ``list_squares`` finds, shown by name and label.
+are what ``list_squares`` finds, shown by name, label and file size, in the
+order of their names as written - N18E088, N18E089, N19E088 - as SRTM's are.
+
+A zone given as the root - an easy slip in the folder browser - is taken
+for what it is when it is plainly one, holding squares and no zone of its
+own: the root is the directory above it, and that zone chosen (H6g's
+review).
 """
 
 from __future__ import annotations
@@ -18,17 +24,39 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
 )
 
 from ..core.square import SquareName, list_squares
 
 SIZES = (1, 3, 5)
+
+
+def size_text(n: int) -> str:
+    """A file's size as a mapper reads it: 344 B, 67 KB, 1.7 MB."""
+    if n < 1024:
+        return f'{n} B'
+    if n < 1024 * 1024:
+        return f'{n / 1024:.0f} KB'
+    return f'{n / (1024 * 1024):.1f} MB'
+
+
+def is_zone(d: Path) -> bool:
+    """A directory that holds squares itself. Two files for one square is
+    still a zone - opening it says what is wrong - but a directory that
+    could not be read is not taken for one."""
+    try:
+        return d.is_dir() and bool(list_squares(d))
+    except FileExistsError:
+        return True
+    except OSError:
+        return False
 
 
 def zones_under(root: Path) -> list[Path]:
@@ -60,8 +88,17 @@ class OpenDialog(QDialog):
         row.addWidget(browse)
 
         self.zone = QComboBox()
-        self.squares = QListWidget()
+        self.squares = QTreeWidget()
+        self.squares.setColumnCount(3)
+        self.squares.setHeaderLabels(['Square', 'Name', 'Size'])
+        self.squares.setRootIsDecorated(False)
+        self.squares.setUniformRowHeights(True)
         self.squares.setMinimumHeight(220)
+        header = self.squares.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.squares.headerItem().setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.size = QComboBox()
         for n in SIZES:
             self.size.addItem(f'{n}×{n}', n)
@@ -86,7 +123,7 @@ class OpenDialog(QDialog):
         self.root_edit.editingFinished.connect(self.refresh_zones)
         self.zone.currentIndexChanged.connect(self.refresh_squares)
         self.squares.itemSelectionChanged.connect(self._selection_changed)
-        self.squares.itemDoubleClicked.connect(lambda _: self.accept())
+        self.squares.itemDoubleClicked.connect(lambda *_: self.accept())
         self.refresh_zones()
 
     # -------------------------------------------------------------- lists
@@ -101,16 +138,26 @@ class OpenDialog(QDialog):
             self.refresh_zones()
 
     def refresh_zones(self):
+        root, chosen, said = self.root, None, ''
+        zones = zones_under(root)
+        if not zones and is_zone(root) and root.parent != root:
+            # a zone given as the root: the root is above it, and that zone chosen
+            chosen, root = root, root.parent
+            self.root_edit.setText(str(root))
+            zones = zones_under(root)
+            said = f'{chosen.name} is a zone: its root, {root}, is used.'
         self.zone.blockSignals(True)
         self.zone.clear()
-        for d in zones_under(self.root):
+        for d in zones:
             self.zone.addItem(d.name, d)
+        if chosen is not None:
+            self.zone.setCurrentIndex(max(self.zone.findText(chosen.name), 0))
         self.zone.blockSignals(False)
         if self.zone.count() == 0:
             self.hint.setText('No zone directories with squares under that root. It should be a '
                               'mirror of the published osm-squares/ tree: one directory per zone.')
         else:
-            self.hint.setText('')
+            self.hint.setText(said)
         self.refresh_squares()
 
     def refresh_squares(self):
@@ -125,13 +172,19 @@ class OpenDialog(QDialog):
             self.hint.setText(str(e))
             self._selection_changed()
             return
-        for name, path in sorted(found.items()):
+        # by the name as written, S84E147 - the SRTM tiles' - so south to north, then west to east
+        for name, path in sorted(found.items(), key=lambda kv: str(kv[0])):
             label = path.name[len(name.name):].removesuffix('.osm.xz').removesuffix('.osm').lstrip('_')
-            item = QListWidgetItem(f'{name}   {label.replace("_", " ")}'.rstrip())
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            self.squares.addItem(item)
-        if self.squares.count():
-            self.squares.setCurrentRow(0)
+            try:
+                size = size_text(path.stat().st_size)
+            except OSError:
+                size = ''
+            item = QTreeWidgetItem([str(name), label.replace('_', ' '), size])
+            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setData(0, Qt.ItemDataRole.UserRole, name)
+            self.squares.addTopLevelItem(item)
+        if self.squares.topLevelItemCount():
+            self.squares.setCurrentItem(self.squares.topLevelItem(0))
         self._selection_changed()
 
     def _selection_changed(self):
@@ -143,7 +196,7 @@ class OpenDialog(QDialog):
         d = self.zone.currentData()
         if not items or d is None:
             return None
-        return Path(d), items[0].data(Qt.ItemDataRole.UserRole), int(self.size.currentData())
+        return Path(d), items[0].data(0, Qt.ItemDataRole.UserRole), int(self.size.currentData())
 
     def accept(self):
         self.result_ = self.selection()
