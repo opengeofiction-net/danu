@@ -80,13 +80,14 @@ URLS = {'ogf/server': 'OGF server',
         'territory/geometry': 'Territories',
         'territory/owners': 'Territory owners',
         'published/dem': 'Published DEM',
-        'josm/url': 'JOSM remote control'}
+        'josm/url': 'JOSM remote control',
+        'squares/mirror': 'Squares to import'}
 
 
 def default_url(key: str) -> str:
     """The address Danu uses when the INI gives none - read from its module
     as it is asked for, so a test pointing a module elsewhere is heeded."""
-    from ..core import published
+    from ..core import mirror, published
     from ..water import overpass
     from . import josm, territory
     return {'ogf/server': 'https://opengeofiction.net',
@@ -94,7 +95,8 @@ def default_url(key: str) -> str:
             'territory/geometry': territory.GEOMETRY_URL,
             'territory/owners': territory.ATTRIBUTES_URL,
             'published/dem': published.URL,
-            'josm/url': josm.DEFAULT_URL}[key]
+            'josm/url': josm.DEFAULT_URL,
+            'squares/mirror': mirror.URL}[key]
 
 
 class Settings:
@@ -117,6 +119,21 @@ class Settings:
     @squares_root.setter
     def squares_root(self, path: Path | None):
         self.q.setValue('squares/root', str(path) if path else '')
+
+    @property
+    def import_root(self) -> Path:
+        """Where File › Import mirrors a zone's squares to (H6g), a zone a
+        directory: ~/Documents/danu/osm-squares unless the INI says."""
+        v = self.q.value('squares/import_root', '')
+        if v:
+            return Path(v)
+        from PySide6.QtCore import QStandardPaths
+        docs = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        return Path(docs or Path.home() / 'Documents') / 'danu' / 'osm-squares'
+
+    @import_root.setter
+    def import_root(self, path: Path | None):
+        self.q.setValue('squares/import_root', str(path) if path else '')
 
     @property
     def size(self) -> int:

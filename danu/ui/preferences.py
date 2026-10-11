@@ -3,7 +3,8 @@ in the file - the elevation steps and the checks' threshold, a key for each
 action, and the servers Danu talks to.
 
 Three tabs. **General**: the small and big steps, which the Elevation panel
-also sets, and the area a bare ring is reported from. **Keys**: every
+also sets, the area a bare ring is reported from, and where File › Import
+puts a zone's squares. **Keys**: every
 rebindable action, by where it is in the menus, its key edited in place; a
 key two actions share, or one Open, Quit or Rebuild has, is refused on OK and
 said under the table. **Servers**: the addresses, each empty for its default,
@@ -14,6 +15,8 @@ The dialog writes the settings and nothing else; the window puts them to use
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
@@ -74,6 +77,12 @@ class PreferencesDialog(QDialog):
         form.addRow('Small step', unit(self.small))
         form.addRow('Big step', unit(self.big))
         form.addRow('Bare rings from', unit(self.bare, 'ha'))
+        # where File › Import puts a zone's squares (H6g)
+        self.import_root = QLineEdit(settings.q.value('squares/import_root', '') or '')
+        self.import_root.setPlaceholderText(str(settings.import_root) if not self.import_root.text() else '')
+        self.import_root.setToolTip('Where File › Import puts a zone\'s squares, a directory a zone; '
+                                    'empty for the default')
+        form.addRow('Import squares to', self.import_root)
         tabs.addTab(general, 'General')
 
         keys = QWidget()
@@ -160,6 +169,7 @@ class PreferencesDialog(QDialog):
         s = self.settings
         s.small_step, s.big_step = self.small.value(), self.big.value()
         s.bare_min_hectares = self.bare.value()
+        s.import_root = Path(self.import_root.text().strip()) if self.import_root.text().strip() else None
         for name, edit in self.edits.items():
             key = edit.keySequence().toString()
             if key == DEFAULT_KEYS[name]:

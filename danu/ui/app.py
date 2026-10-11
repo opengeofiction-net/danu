@@ -54,6 +54,7 @@ from .mapcontrols import MapControls
 from .mapview import MapView
 from .measure import MeasureTool, ProfileDock
 from .messages import install as quieten_qt
+from .mirror import Importer
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
 from .published import PublishedDem
@@ -352,6 +353,9 @@ class MainWindow(QMainWindow):
             # own slot runs, and the log has it ahead of what it did
             self.usage = UsageLog(self, data_dir / 'usage', self)
             self.editor.stepped.connect(self.usage.stepped)
+        self.importer = Importer(self, self)
+        self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
+        self.importer.finished.connect(self._imported)
         self._menus()
         self._docked_only()
         self._default_layout = self.saveState()       # what Reset panels goes back to
@@ -792,6 +796,10 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        # a zone's squares from the server (H6g)
+        self.import_action = QAction('&Import…', self)
+        self.import_action.triggered.connect(self.importer.start)
+        file.addAction(self.import_action)
         file.addSeparator()
         self.save_action = QAction('&Save', self)
         self.save_action.setShortcut(QKeySequence(self.settings.key('file.save')))
@@ -992,8 +1000,30 @@ class MainWindow(QMainWindow):
             a.triggered.connect(lambda _=False, z=zone_dir, n=name, s=size: self.open_working_set(z, n, s))
             self.recent_menu.addAction(a)
 
+    def _imported(self, answer) -> None:
+        """A zone imported: the open set opened again if its squares were
+        replaced - having no unsaved edits, or they would have been kept."""
+        _zone, zone_dir, done = answer
+        ws = self.working_set
+        if ws is None or self.zone_dir is None or Path(self.zone_dir) != Path(zone_dir):
+            return
+        # a file is its square's name and a place: N20E086_Gobras_City.osm.xz
+        replaced = {n.split('_')[0].split('.')[0] for n in (*done['new'], *done['updated'], *done['overwritten'])}
+        if any(str(name) in replaced for name in ws.squares):
+            said = self.statusBar().currentMessage()
+
+            def again(*_):
+                self.loader.finished.disconnect(again)
+                self.statusBar().showMessage(f'{said} - the set opened again from them')
+            self.loader.finished.connect(again)
+            self.open_working_set(self.zone_dir, ws.centre, ws.size)
+
     def open_dialog(self):
-        dlg = OpenDialog(self.settings.squares_root, self.settings.size, self)
+        # the import root when no other has been opened from (H6g)
+        root = self.settings.squares_root
+        if root is None and self.settings.import_root.exists():
+            root = self.settings.import_root
+        dlg = OpenDialog(root, self.settings.size, self)
         if dlg.exec() and dlg.result_:
             # remembered in _loaded, once the read has succeeded: a root and a
             # size are worth keeping when they led to a square, not before
