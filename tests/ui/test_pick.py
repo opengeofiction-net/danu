@@ -171,3 +171,15 @@ def test_nothing_there_clears_and_pans(w):
     press(w, at(w, 125.305, LAT))
     press(w, at(w, 125.305, LAT + 0.0005))
     assert w.editor.selection is None
+
+
+def test_another_tool_between_starts_again(w):
+    off = 2 / 110540.0
+    _sq, a, _ = way(w, [(125.30, LAT), (125.32, LAT)], {'ele': '100'})
+    way(w, [(125.30, LAT + off), (125.32, LAT + off)], {'ele': '125'})
+    p = at(w, 125.305, LAT + off / 3)
+    press(w, p)
+    w.edit_actions['tool.measure'].trigger()
+    w.edit_actions['tool.select'].trigger()
+    press(w, p)
+    assert selected(w) == a

@@ -196,7 +196,10 @@ def water_feature(square: Square, way: Way):
 def is_outline(way: Way) -> bool:
     """A water way that bounds an area - a lake's ring, a river area, a ring
     a relation names - rather than a line the water runs along: anything but
-    an open waterway. A click near both means the line (the review of H6)."""
+    an open waterway. A ring a relation names may be open, split among
+    several ways, and carries no tags of its own - the relation has them - so
+    untagged is an outline. A click near both means the line (the review of
+    H6)."""
     return way.closed or 'waterway' not in way.tags or way.tags.get('waterway') == 'riverbank'
 
 
@@ -871,7 +874,8 @@ class ContourLayer(QGraphicsItem):
     def pick_lines(self, x: float, y: float, tolerance: float) -> list[tuple[Square, Way, float]]:
         """Every contour within a tolerance of a scene point, nearest first,
         as (square, way, distance) - what a click there could mean, for the
-        select tool to go through."""
+        select tool to go through. No vertex: a click on a contour's line
+        is the way; a node is ``pick_node``'s."""
         self._ensure_arrays()
         if not len(self._seg_ele):
             return []
@@ -1306,10 +1310,11 @@ class ContourLayer(QGraphicsItem):
         return best
 
     def pick_waters(self, x: float, y: float, tolerance: float) -> list[tuple]:
-        """Every water way within ``tolerance``, nearest first, each as
-        ``pick_water`` gives one and whether it is an area's outline - a
-        lake's ring, a river area's - rather than a line: (square, way,
-        distance, nearest vertex id, its distance, outline)."""
+        """Every water way within ``tolerance``, nearest first: each the five
+        ``pick_water`` gives - its nearest vertex the way's own nearest, as
+        there - and a sixth, whether it is an area's outline rather than a
+        line: (square, way, distance, nearest vertex id, its distance,
+        outline)."""
         out = []
         for key, piece in self.water.items():
             r = piece.rect

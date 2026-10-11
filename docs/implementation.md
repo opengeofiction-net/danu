@@ -4640,8 +4640,8 @@ of them, and after the last the first. When more than one thing is in reach
 the status line says "1 of 3 here - click again for the next". JOSM cycles
 with alt and a click; on many Linux desktops alt and a drag moves the window,
 so here it is the click alone. A drag of a node, or a press anywhere else,
-starts from the first again; carrying a contour moves it, and with it what
-is in reach, so that starts again too.
+starts from the first again, and so does a change of tool; carrying a
+contour moves it, and with it what is in reach, so that starts again too.
 
 The order is otherwise what it was: a spot height before anything, a node
 before its line, shift the line.

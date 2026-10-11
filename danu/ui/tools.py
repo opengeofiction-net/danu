@@ -318,6 +318,7 @@ class EditController(QObject):
             raise ValueError(name)
         if name != self.tool:
             self._stop_drawing()
+            self._cycle = None                       # a click after another tool's is a first one
             self.tool = name
             self.view.setDragMode(MapView.DragMode.ScrollHandDrag if name == 'select' else MapView.DragMode.NoDrag)
             if self.measure is not None and name != 'measure' and not self.measure.done:
