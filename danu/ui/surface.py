@@ -26,6 +26,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QSlider,
     QWidget,
 )
@@ -924,6 +926,7 @@ class SurfacePanel(QDockWidget):
     layer's Style and asks the window to rebuild; it computes nothing."""
 
     rebuild = Signal(float)              # arcsec
+    contoursStyled = Signal(str)         # 'dark' or 'height': how the contour lines meet the ground
     styleChanged = Signal(object)        # the Style, after every change
 
     def __init__(self, layer: SurfaceLayer, parent=None, unreached=None, envelope=None):
@@ -980,6 +983,16 @@ class SurfacePanel(QDockWidget):
         self.show_one_level.setChecked(False)
         # a part of the unknown, so nothing without it
         self.show_unreached.toggled.connect(self.show_one_level.setEnabled)
+        # the contour lines over the ground: dark, or in their level's colour
+        self.contours_dark = QRadioButton('Dark')
+        self.contours_dark.setToolTip('Dark lines multiplied onto the ground: they read at any zoom')
+        self.contours_height = QRadioButton('Height colour')
+        self.contours_height.setToolTip("Each line in its level's colour, burned into the ground: "
+                                        'it still says its height by the legend')
+        self.contours_dark.setChecked(True)
+        self.contours_style = QButtonGroup(self)
+        self.contours_style.addButton(self.contours_dark)
+        self.contours_style.addButton(self.contours_height)
         self.show_envelope = QCheckBox('Envelope')
         self.show_envelope.setToolTip('The outline of the ground the contours describe: '
                                       'the fill does not reach beyond it (R21)')
@@ -994,6 +1007,13 @@ class SurfacePanel(QDockWidget):
         form.addRow('Min / max', self._pair(self.lo, self.hi))
         form.addRow('Pinch centre / width', self._pair(self.centre, self.width))
         form.addRow('Opacity', self.opacity)
+        styles = QWidget()
+        row = QHBoxLayout(styles)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.contours_dark)
+        row.addWidget(self.contours_height)
+        row.addStretch(1)
+        form.addRow('Contours', styles)
         form.addRow(self.show_unreached)
         indented = QWidget()
         row = QHBoxLayout(indented)
@@ -1014,6 +1034,7 @@ class SurfacePanel(QDockWidget):
             self.show_one_level.toggled.connect(self.unreached.set_one_level)
         if self.envelope is not None:
             self.show_envelope.toggled.connect(self.envelope.setVisible)
+        self.contours_dark.toggled.connect(lambda on: self.contoursStyled.emit('dark' if on else 'height'))
 
         for w in (self.mode, self.ramp, self.scaling):
             w.currentIndexChanged.connect(self._changed)
@@ -1022,6 +1043,13 @@ class SurfacePanel(QDockWidget):
         self.opacity.valueChanged.connect(lambda v: self.layer.setOpacity(v / 100.0))
         self.layer.setOpacity(0.85)
         self._changed()
+
+    @property
+    def contour_style(self) -> str:
+        return 'dark' if self.contours_dark.isChecked() else 'height'
+
+    def set_contour_style(self, style: str) -> None:
+        (self.contours_dark if style == 'dark' else self.contours_height).setChecked(True)
 
     @staticmethod
     def _pair(a, b):

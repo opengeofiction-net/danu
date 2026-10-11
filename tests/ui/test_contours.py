@@ -884,3 +884,100 @@ def test_the_nearest_spot_height_is_the_one_picked(view, ws):
     # and nothing at all below the zoom they are drawn at
     assert layer.pick_spot(x, y, wide, ZOOM_SPOTS - 1) is None, (
         'a spot height was picked where it is not drawn')
+
+
+def _line_pixel(view, img):
+    """The pixel nearest the view's centre that a line drew - darker than
+    the background around it."""
+    cx, cy = view.viewport().rect().center().x(), view.viewport().rect().center().y()
+    best = None
+    for dx in range(-3, 4):
+        for dy in range(-3, 4):
+            c = img.pixelColor(cx + dx, cy + dy)
+            if best is None or c.value() < best.value():
+                best = c
+    return best
+
+
+@pytest.mark.parametrize('style', ['dark', 'height'])
+def test_the_lines_meet_the_ground_as_the_style_says(view, ws, style):
+    """Dark: multiplied, over the view's grey the dark itself times the grey.
+    Height colour: the level's own colour burned into the grey - darker than
+    the colour drawn plain, and of its hue."""
+    from danu.ui.contours import DARK
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    layer.set_style(style)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(w for w in sq.contours() if len(w.refs) > 20 and not layer.is_index(w.ele))
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+    view.set_zoom(14)
+    view.center_on_lonlat(lon, lat)
+    img = render(view)
+    c = _line_pixel(view, img)
+    grey = 235 / 255
+    if style == 'dark':
+        want = [round(255 * v * grey) for v in (DARK.redF(), DARK.greenF(), DARK.blueF())]
+        assert max(abs(a - b) for a, b in zip((c.red(), c.green(), c.blue()), want, strict=True)) < 40, (c.name(), want)
+    else:
+        s = layer.colour(way.ele)
+        burn = [round(255 * (1 - min(1, (1 - grey) / max(v, 1e-6)))) for v in (s.redF(), s.greenF(), s.blueF())]
+        assert max(abs(a - b) for a, b in zip((c.red(), c.green(), c.blue()), burn, strict=True)) < 60, (c.name(), burn)
+        assert c.value() < s.value() or s.value() < 60, 'not burned'
+
+
+@pytest.mark.parametrize('style', ['dark', 'height'])
+@pytest.mark.parametrize('zoom', [12, 16])
+def test_each_line_is_drawn_in_the_mode_and_colour_its_style_asks(view, ws, zoom, style, monkeypatch):
+    """Read from the painter: the mode each line is drawn under and its pen,
+    at whatever zoom, and the mode put back before what goes over them."""
+    from PySide6.QtGui import QPainter
+
+    from danu.ui.contours import DARK
+    seen = []
+    real_mode, real_path = QPainter.setCompositionMode, QPainter.drawPath
+    monkeypatch.setattr(QPainter, 'setCompositionMode', lambda p, m: (seen.append(('mode', m)), real_mode(p, m))[1])
+    monkeypatch.setattr(QPainter, 'drawPath', lambda p, path: (seen.append(('line', p.pen().color().name(),
+                                                                            p.compositionMode(), p.pen().widthF())),
+                                                               real_path(p, path))[1])
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    way = next(w for w in sq.contours() if len(w.refs) > 20)
+    layer.set_active(way.ele)                      # the level the view is on
+    layer.set_style(style)
+    view.set_zoom(zoom)
+    view.center_on_lonlat(*sq.coords(way)[len(way.refs) // 2])
+    render(view)
+    M = QPainter.CompositionMode
+    lines = [e for e in seen if e[0] == 'line']
+    want_mode = M.CompositionMode_Multiply if style == 'dark' else M.CompositionMode_ColorBurn
+    blended = [e for e in lines if e[2] == want_mode]
+    assert blended, "no line drawn in the style's mode"
+    if style == 'dark':
+        assert {e[1] for e in blended} == {DARK.name()}
+    else:
+        assert DARK.name() not in {e[1] for e in blended} and len({e[1] for e in blended}) > 1, "not the levels' colours"
+    from danu.ui.contours import line_width
+    assert {round(e[3], 2) for e in blended} <= {line_width(zoom, False), line_width(zoom, True)}
+    assert any(e[3] == pytest.approx(line_width(zoom, False)) for e in blended), 'no ordinary contour at its width'
+    # the active level, heavier, drawn plain over the rest
+    from danu.ui.contours import ACTIVE, ACTIVE_WIDTH
+    active = [e for e in lines if e[3] == pytest.approx(ACTIVE_WIDTH)]
+    assert active and all(e[2] == M.CompositionMode_SourceOver for e in active)
+    assert {e[1] for e in active} == {ACTIVE.name()} == {'#000000'}, 'the active level not black'
+    assert ACTIVE_WIDTH > 1.5 * line_width(zoom, True), 'not plainly heavier than an index contour'
+
+
+def test_contours_are_thinner_where_dense_and_heavier_where_few():
+    from danu.ui.contours import line_width
+    assert [line_width(z, False) for z in (11, 12, 13, 15, 16, 19)] == [0.7, 0.7, 1.0, 1.0, 1.2, 1.2]
+    assert (line_width(12.4, False), line_width(12.6, False)) == (0.7, 1.0), 'a zoom between, to the nearer'
+    assert all(line_width(z, True) > line_width(z, False) * 1.7 for z in (12, 14, 16)), 'index not heavier'
+
+
+def test_a_style_it_does_not_know_is_refused():
+    with pytest.raises(ValueError):
+        ContourLayer().set_style('neon')

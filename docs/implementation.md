@@ -4576,3 +4576,45 @@ Then, from the review of H6g, the open dialog:
   N18E088, N18E089, N19E088, N20E086: south to north, then west to east, as
   SRTM's tiles sort. They were sorted west to east first.
 
+## The contour lines over the ground
+
+A contour was stroked in its level's colour from the ramp, and the surface
+under it is coloured by the same ramp: a line on ground of its own height was
+the colour of that ground, and the mapper's complaint was that the lines
+could be "real hard to see". Hard light was suggested; it does nothing for
+a colour in the middle of the ramp, since a mid tone hard-lit over itself is
+itself.
+
+Six blends were compared over gobras N20E086's 3" surface, the surface and
+the lines rendered apart and composited per pixel - Normal, Multiply, Colour
+burn, Hard light, Difference, Divide (which Qt does not have) - in the ramp's
+colours, a fixed dark and a fixed light, at z12, z14 and z16. Two read:
+
+- **Dark**: lines `#202020` multiplied onto the ground - they read, and the
+  shading shows through. Dark drawn plain buried the terrain at z12; the
+  ramp's colours vanished.
+- **Height colour**: each level in its own colour, colour-burned into the
+  ground - darker than the ground, of the level's hue, so the line reads
+  and the legend still says its height. Heavy where the lines pack tight.
+
+The first build switched between them by zoom, dark to z13 and height
+colour from z14. The mapper would rather choose: the surface panel's
+Contours is a pair of radio buttons, Dark the default, kept by the session,
+and `ContourLayer.set_style` puts it to the layer.
+
+`ContourLayer.paint` sets the mode for the levels' pass and puts
+`SourceOver` back after it: the active level, the spot heights, the labels
+and their halos are drawn plain over the lines, their colours their own -
+blended, Difference and Divide turned the labels pink. Water is drawn
+before, plain. A test reads the painter: each line's mode, pen and width in
+each style at z12 and z16, and the active level's plain.
+
+**Width by zoom.** The lines were 1.0 px, an index contour 1.8, at every
+zoom. `line_width` makes it 0.7 px up to z12, where the lines pack tight
+and dark at 1.0 left steep ground solid black; 1.0 to z15; 1.2 from z16,
+where they are few. An index contour stays 1.8 times the rest. A zoom
+between two - the loupe's - goes to the nearer.
+
+**The active level** was its own colour darkened, 3.2 px: a blue line on blue
+ground, lost. It is black, 4 px, drawn plain over the rest in either style.
+
