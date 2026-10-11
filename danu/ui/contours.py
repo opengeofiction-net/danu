@@ -1311,10 +1311,9 @@ class ContourLayer(QGraphicsItem):
 
     def pick_waters(self, x: float, y: float, tolerance: float) -> list[tuple]:
         """Every water way within ``tolerance``, nearest first: each the five
-        ``pick_water`` gives - its nearest vertex the way's own nearest, as
-        there - and a sixth, whether it is an area's outline rather than a
-        line: (square, way, distance, nearest vertex id, its distance,
-        outline)."""
+        ``pick_water`` gives - which is this one's first - and a sixth,
+        whether it is an area's outline rather than a line: (square, way,
+        distance, nearest vertex id, its distance, outline)."""
         out = []
         for key, piece in self.water.items():
             r = piece.rect
@@ -1343,23 +1342,8 @@ class ContourLayer(QGraphicsItem):
         each way's own rectangle first, which on the gobras 3x3 is four
         thousand rectangle tests and a handful of ways measured.
         """
-        best = None
-        for key, piece in self.water.items():
-            r = piece.rect
-            if not (r.left() - tolerance <= x <= r.right() + tolerance
-                    and r.top() - tolerance <= y <= r.bottom() + tolerance):
-                continue
-            g = self._geoms.get(key)
-            if g is None or len(g.pts) < 2:
-                continue
-            _, dist = geometry.nearest_point_on_segments((x, y), g.pts[:-1], g.pts[1:])
-            i = int(dist.argmin())
-            if dist[i] > tolerance or (best is not None and dist[i] >= best[2]):
-                continue
-            vd = np.hypot(g.pts[:, 0] - x, g.pts[:, 1] - y)
-            v = int(vd.argmin())
-            best = (g.square, g.way, float(dist[i]), g.refs[v], float(vd[v]))
-        return best
+        hits = self.pick_waters(x, y, tolerance)
+        return hits[0][:5] if hits else None
 
     def along(self, square: Square, way: Way) -> tuple[list[int], list[float]]:
         """A way's placed vertices and each one's distance along it in metres,
