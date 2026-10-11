@@ -70,6 +70,29 @@ DEFAULT_KEYS = {
 }
 
 
+# the addresses the preferences edit (H6e), as key: label
+URLS = {'ogf/server': 'OGF server',
+        'overpass/url': 'Overpass',
+        'territory/geometry': 'Territories',
+        'territory/owners': 'Territory owners',
+        'published/dem': 'Published DEM',
+        'josm/url': 'JOSM remote control'}
+
+
+def default_url(key: str) -> str:
+    """The address Danu uses when the INI gives none - read from its module
+    as it is asked for, so a test pointing a module elsewhere is heeded."""
+    from ..core import published
+    from ..water import overpass
+    from . import josm, territory
+    return {'ogf/server': 'https://opengeofiction.net',
+            'overpass/url': overpass.OVERPASS_URL,
+            'territory/geometry': territory.GEOMETRY_URL,
+            'territory/owners': territory.ATTRIBUTES_URL,
+            'published/dem': published.URL,
+            'josm/url': josm.DEFAULT_URL}[key]
+
+
 class Settings:
     def __init__(self, path: Path | None = None):
         if path is None:
@@ -156,16 +179,38 @@ class Settings:
         except (TypeError, ValueError):
             return PORT
 
+    @wms_port.setter
+    def wms_port(self, port: int):
+        self.q.setValue('josm/wms_port', int(port))
+
+    @bare_min_hectares.setter
+    def bare_min_hectares(self, ha: float):
+        self.q.setValue('checks/bare_min_hectares', float(ha))
+
+    # ------------------------------------------------------------ the servers
+    # Each read where it is used, so one changed in the preferences (H6e)
+    # holds from the next use on. Empty, or absent, is the default.
+    def url(self, key: str) -> str:
+        """The address under ``key`` - one of URLS - or its default."""
+        return str(self.q.value(key, '') or default_url(key)).strip()
+
+    def set_url(self, key: str, value: str) -> None:
+        value = value.strip()
+        self.q.setValue(key, '' if value == default_url(key) else value)
+
     @property
     def server_url(self) -> str:
         """The OGF server: where an object's page is, by its id (H6c)."""
-        return str(self.q.value('ogf/server', '') or 'https://opengeofiction.net').rstrip('/')
+        return self.url('ogf/server').rstrip('/')
 
     @property
     def josm_url(self) -> str:
         """JOSM's remote control, which listens on the loopback only."""
-        from .josm import DEFAULT_URL
-        return str(self.q.value('josm/url', '') or DEFAULT_URL)
+        return self.url('josm/url')
+
+    @property
+    def overpass_url(self) -> str:
+        return self.url('overpass/url')
 
     @property
     def ladders_file(self) -> Path:

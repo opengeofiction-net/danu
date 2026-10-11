@@ -34,7 +34,7 @@ from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet
 from ..surface import along, shade
 from ..surface import difference as surface_difference
-from ..water import flatten, peaks
+from ..water import flatten, overpass, peaks
 from ..water.gone import gone
 from . import autosave as autosave_ui
 from . import config, josm, session, wms
@@ -146,7 +146,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.map)
         self.fetcher = TileFetcher(cache_dir, parent=self)
         # the tests hand in a fetcher pointed at files; the app fetches the published ones
-        self.territory = territory_fetcher or TerritoryFetcher(cache_dir.parent / 'territory' if cache_dir else None, parent=self)
+        self.territory = territory_fetcher or TerritoryFetcher(
+            cache_dir.parent / 'territory' if cache_dir else None, parent=self,
+            geometry_url=self.settings.url('territory/geometry'), attributes_url=self.settings.url('territory/owners'))
         self.territory.setParent(self)
         self.territory.ready.connect(self._territory_ready)
         self.territory.failed.connect(lambda t: self.statusBar().showMessage(t))
@@ -244,7 +246,7 @@ class MainWindow(QMainWindow):
         self.builder.checks_snapshot = (
             lambda ws: surface_checks.snapshot(ws) if self.checks_dock.isVisible() else None)
         self.builder.failed.connect(self._surface_failed)
-        self.water = WaterImporter(self)
+        self.water = WaterImporter(self, fetch=lambda bounds: overpass.fetch(bounds, url=self.settings.overpass_url))
         # what the last import found held and no longer upstream - R40's
         # "reported rather than deleted". G5c gives it a dock
         self.gone_from_upstream: list = []
@@ -253,7 +255,8 @@ class MainWindow(QMainWindow):
         self.water.finished.connect(self._water_imported)
         self.water.failed.connect(self._water_failed)
         # the main map's spot heights, on the same footing (G9)
-        self.heights = WaterImporter(self, fetch=fetch_heights, work=heights_work, held=heights_held)
+        self.heights = WaterImporter(self, fetch=lambda bounds: fetch_heights(bounds, self.settings.overpass_url),
+                                     work=heights_work, held=heights_held)
         self.heights.started.connect(lambda ws: self.statusBar().showMessage(
             'importing spot heights from Overpass…'))
         self.heights.finished.connect(self._heights_imported)
@@ -313,7 +316,8 @@ class MainWindow(QMainWindow):
         self.legend.changed.connect(self.profile_dock.plot.update)       # the fill follows the map's colours
         # the difference (H3c): the published DEM fetched when it is first
         # asked for, and the exact build less it worked out on a worker
-        self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None, parent=self)
+        self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None,
+                                      url=self.settings.url('published/dem'), parent=self)
         self.published.ready.connect(self._published_ready)
         self.published.failed.connect(self._published_failed)
         self._difference_runner = QThreadPool.globalInstance().start
@@ -747,6 +751,10 @@ class MainWindow(QMainWindow):
         user_action = QAction('Your OGF &username…', self)
         user_action.triggered.connect(self.set_user)
         file.addAction(user_action)
+        self.preferences_action = QAction('&Preferences…', self)
+        self.preferences_action.setShortcut(QKeySequence.StandardKey.Preferences)
+        self.preferences_action.triggered.connect(self.preferences)
+        file.addAction(self.preferences_action)
         file.addSeparator()
         quit_action = QAction('&Quit', self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -839,6 +847,56 @@ class MainWindow(QMainWindow):
         surface.addAction(self.pinch_action)
         surface.addAction(e['view.josm_surface'])
         self.surface_actions = {'surface.pinch': self.pinch_action}
+
+    # ------------------------------------------------------- preferences
+    def keyed_actions(self) -> dict[str, QAction]:
+        """Every action whose key the INI holds, by its name there."""
+        return {**self.file_actions, **self.edit_actions, **self.elevation_actions, **self.surface_actions}
+
+    def action_labels(self) -> dict[str, str]:
+        """Each keyed action as the menus name it: 'Edit › Water › Grade'."""
+        by_action = {a: n for n, a in self.keyed_actions().items()}
+        out: dict[str, str] = {}
+
+        def walk(menu, path):
+            for a in menu.actions():
+                text = a.text().replace('&', '')
+                if a.menu() is not None:
+                    walk(a.menu(), [*path, text])
+                elif a in by_action:
+                    out.setdefault(by_action[a], ' › '.join([*path, text]))
+        for top in self.menuBar().actions():
+            walk(top.menu(), [top.text().replace('&', '')])
+        return out
+
+    def preferences(self) -> bool:
+        from .preferences import PreferencesDialog
+        dlg = PreferencesDialog(self.settings, self.action_labels(), self)
+        if not dlg.exec():
+            return False
+        self.apply_settings()
+        return True
+
+    def apply_settings(self) -> None:
+        """The settings put to use, as the preferences left them: keys at
+        once, the servers from their next use."""
+        s = self.settings
+        for name, a in self.keyed_actions().items():
+            a.setShortcut(QKeySequence(s.key(name)))
+        self.controls.retip()
+        self.elevation_panel.show_keys(s)
+        # both read first: setting the panel's small step writes its big one
+        # back, as the panel had it
+        small, big = s.small_step, s.big_step
+        self.elevation_panel.small.setValue(small)
+        self.elevation_panel.big.setValue(big)
+        self.josm.base = s.josm_url
+        self.territory.urls = {'geometry': s.url('territory/geometry'), 'attributes': s.url('territory/owners')}
+        self.published.url = s.url('published/dem')
+        if self.checks_dock.bare_min_ha != s.bare_min_hectares and self.crossing_index is not None:
+            # the rings reported from another area: found again
+            self.crossing_index = None
+            self._checks_shown(self.checks_dock.isVisible())
 
     # ------------------------------------------------------------ panels
     def docks(self) -> list[QDockWidget]:

@@ -280,6 +280,8 @@ class MapControls(QWidget):
         # the binding rather than written out: a rebound action used to be
         # named by the key it no longer had
         self.keys = settings.key if settings is not None else DEFAULT_KEYS.get
+        self._tips: list[tuple[str, str]] = []        # each keyed tip, what and action
+        self._tipped: list[QToolButton] = []          # and the button it is on
         column = self.column = _Column()
 
         ink = self.palette().color(QPalette.ColorRole.ButtonText)
@@ -386,13 +388,22 @@ class MapControls(QWidget):
 
     def _tip(self, what: str, action: str) -> str:
         key = self.keys(action)
+        self._tips.append((what, action))
         return f'{what} ({key})' if key else what
+
+    def retip(self) -> None:
+        """The tooltips again, a key rebound in the preferences (H6e)."""
+        tips, self._tips = self._tips, []
+        for b, (what, action) in zip(self._tipped, tips, strict=True):
+            b.setToolTip(self._tip(what, action))
 
     def _button(self, text: str, tip: str, column: _Column, checkable: bool = False,
                 icon: QIcon | None = None) -> QToolButton:
         b = QToolButton(self)
         b.setText(text)
         b.setToolTip(tip)
+        if len(self._tipped) < len(self._tips):       # this tip was a keyed one
+            self._tipped.append(b)
         if icon is not None:
             b.setIcon(icon)
             b.setIconSize(QSize(ICON, ICON))

@@ -64,8 +64,8 @@ def heights_work(payload: bytes, working_set, held: tuple) -> Answer:
                   nodes=got.answered, skipped=tuple(got.skipped), beyond=len(got.beyond))
 
 
-def fetch_heights(bounds) -> bytes:
-    return overpass.fetch(bounds, text=peaks.query(bounds))
+def fetch_heights(bounds, url: str = overpass.OVERPASS_URL) -> bytes:
+    return overpass.fetch(bounds, url=url, text=peaks.query(bounds))
 
 
 def held_by(working_set) -> dict:

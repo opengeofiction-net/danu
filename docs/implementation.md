@@ -4429,3 +4429,30 @@ the count once edits have been made since; the tooltip says when the build
 was. The busy bar they had is gone. The first scan still shows a bar a check,
 its text naming the check being found, in place of the tree.
 
+## H6e, preferences
+
+Everything below was in the INI and only there. `danu/ui/preferences.py` is a
+dialog of three tabs, from File › Preferences…; it writes the settings, and
+`MainWindow.apply_settings` puts them to use.
+
+- **General**: the small and big steps - the Elevation panel's, set there too
+  - and the area bare rings are reported from. A new area finds the checks
+  again, if they have been found.
+- **Keys**: every action under `[keys]`, listed in the menus' order by where
+  it is in them (`MainWindow.action_labels`: "Edit › Water › Grade"), each
+  edited in place with a `QKeySequenceEdit`, one key each, clearable. A key
+  two actions would share, or one of the keys not rebound here - Open, Quit,
+  Preferences, Rebuild - is refused on OK and said under the table. A key
+  back at its default is taken out of the INI rather than written there, so
+  a later change to the default reaches it. Defaults puts every one back.
+  A key changed holds at once: on the action, in the map buttons' tooltips
+  (`MapControls.retip`), and in the Elevation panel's "i".
+- **Servers**: the OGF server, Overpass, the territories and their owners,
+  the published DEM and JOSM's remote control, each a line empty for its
+  default, which it shows; and the port the surface is served to JOSM on.
+  `Settings.url` reads an address where it is used, so a change holds from
+  the next import, fetch or copy. The defaults are read from their modules
+  as asked (`default_url`), not copied at import: the UI tests point the
+  territory module at files, and a copy taken at import was the real server
+  - the guard against the suite reaching OGF's servers caught it.
+

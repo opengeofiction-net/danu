@@ -355,7 +355,7 @@ class SelectionPanel(QDockWidget):
         for label, actions in ((self.name, [self.copy_name]), (self.where, [self.copy_id, self.copy_url])):
             label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
             label.addActions(actions)
-        self.server = getattr(getattr(parent, 'settings', None), 'server_url', 'https://opengeofiction.net')
+        self.settings = getattr(parent, 'settings', None)
         form.addRow('What', self.kind)
         form.addRow('Name', self.name)
         form.addRow('Elevation', unit(self.ele))
@@ -437,6 +437,12 @@ class SelectionPanel(QDockWidget):
         editor.selectionChanged.connect(self.refresh)
         editor.edited.connect(self.refresh)
         self.refresh()
+
+    @property
+    def server(self) -> str:
+        """The server an id's page is on - read as it is copied, so one set
+        in the preferences holds at once."""
+        return self.settings.server_url if self.settings is not None else 'https://opengeofiction.net'
 
     def refresh(self) -> None:
         self.info = info = describe(self.editor.selection, self.editor.layer)
