@@ -247,6 +247,16 @@ def _magnifier(p: QPainter, colour: QColor):
     p.drawLine(QPointF(11.3, 11.3), QPointF(15.8, 15.8))
 
 
+class _Keyed(str):
+    """A tooltip naming an action's key, which carries what and which
+    action, so the button it goes on can be told again (``retip``)."""
+
+    def __new__(cls, text: str, what: str, action: str):
+        self = super().__new__(cls, text)
+        self.what, self.action = what, action
+        return self
+
+
 class _Column:
     """The buttons in their groups, as they are made. MapControls.place lays
     them out, GAP between the groups."""
@@ -280,6 +290,7 @@ class MapControls(QWidget):
         # the binding rather than written out: a rebound action used to be
         # named by the key it no longer had
         self.keys = settings.key if settings is not None else DEFAULT_KEYS.get
+        self._tipped: list[tuple[QToolButton, str, str]] = []   # a button with a keyed tip, what and action
         column = self.column = _Column()
 
         ink = self.palette().color(QPalette.ColorRole.ButtonText)
@@ -386,13 +397,20 @@ class MapControls(QWidget):
 
     def _tip(self, what: str, action: str) -> str:
         key = self.keys(action)
-        return f'{what} ({key})' if key else what
+        return _Keyed(f'{what} ({key})' if key else what, what, action)
+
+    def retip(self) -> None:
+        """The tooltips again, a key rebound in the preferences (H6e)."""
+        for b, what, action in self._tipped:
+            b.setToolTip(self._tip(what, action))
 
     def _button(self, text: str, tip: str, column: _Column, checkable: bool = False,
                 icon: QIcon | None = None) -> QToolButton:
         b = QToolButton(self)
         b.setText(text)
         b.setToolTip(tip)
+        if isinstance(tip, _Keyed):                  # said again if the key is rebound
+            self._tipped.append((b, tip.what, tip.action))
         if icon is not None:
             b.setIcon(icon)
             b.setIconSize(QSize(ICON, ICON))
