@@ -756,7 +756,10 @@ class MainWindow(QMainWindow):
         edit = self.menuBar().addMenu('&Edit')
         for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
                      None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
-            edit.addAction(e[name]) if name else edit.addSeparator()
+            if name:
+                edit.addAction(e[name])
+            else:
+                edit.addSeparator()
         water = edit.addMenu('&Water')
         for name in ('edit.import_water', 'edit.set_level', 'edit.grade', 'edit.grade_network', 'edit.flatten',
                      'edit.burn', 'edit.burn_all'):
