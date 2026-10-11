@@ -39,7 +39,6 @@ def info(text: str) -> QLabel:
     icon = label.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
     label.setPixmap(icon.pixmap(QSize(size, size)))
     label.setToolTip(text)
-    label.setCursor(Qt.CursorShape.WhatsThisCursor)
     return label
 
 
@@ -79,17 +78,19 @@ class CopyButton(QToolButton):
         self.setToolTip(tip)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.texts: list[str] = []
+        # one menu, refilled: set_texts runs on every selection change
+        self.forms = QMenu(self)
         self.clicked.connect(self._clicked)
         self.set_texts([])
 
     def set_texts(self, texts: list[str]) -> None:
         self.texts = list(texts)
         self.setEnabled(bool(self.texts))
+        self.forms.clear()
         if len(self.texts) > 1:
-            menu = QMenu(self)
             for t in self.texts:
-                menu.addAction(t, lambda t=t: copy(t))
-            self.setMenu(menu)
+                self.forms.addAction(t, lambda t=t: copy(t))
+            self.setMenu(self.forms)
             self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         else:
             self.setMenu(None)

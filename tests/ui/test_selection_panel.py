@@ -352,3 +352,14 @@ def test_only_a_water_relation_holding_the_way_comes_first(w):
                                  members=[Member('node', 100)])
     w.editor.selection = Selection(sq, sq.ways[100])
     assert w.selection_panel.info.osm == ('way', 100)
+
+
+def test_choosing_again_and_again_keeps_one_menu(w):
+    from PySide6.QtWidgets import QMenu
+    sq = w.working_set.squares[NORTH]
+    b = w.selection_panel.copy_id
+    for _ in range(5):
+        w.editor.selection = Selection(sq, sq.ways[100])
+        w.editor.selection = Selection(sq, None, relation=sq.relations[300])
+    assert len(b.findChildren(QMenu)) == 1
+    assert [a.text() for a in b.menu().actions()] == ['r300', 'https://opengeofiction.net/relation/300']
