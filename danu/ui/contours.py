@@ -193,6 +193,16 @@ def water_feature(square: Square, way: Way):
     return naming[0] if len(naming) == 1 else way
 
 
+def is_outline(way: Way) -> bool:
+    """A water way that bounds an area - a lake's ring, a river area, a ring
+    a relation names - rather than a line the water runs along: anything but
+    an open waterway. A ring a relation names may be open, split among
+    several ways, and carries no tags of its own - the relation has them - so
+    untagged is an outline. A click near both means the line (the review of
+    H6)."""
+    return way.closed or 'waterway' not in way.tags or way.tags.get('waterway') == 'riverbank'
+
+
 def _is_water(way: Way) -> bool:
     """A way an import brought, or a mapper drew, as water.
 
@@ -861,6 +871,21 @@ class ContourLayer(QGraphicsItem):
         g = self._ways[int(self._seg_way[i])]
         return g.square, g.way, float(dist[i]), int(self._seg_i[i])
 
+    def pick_lines(self, x: float, y: float, tolerance: float) -> list[tuple[Square, Way, float]]:
+        """Every contour within a tolerance of a scene point, nearest first,
+        as (square, way, distance) - what a click there could mean, for the
+        select tool to go through. No vertex: a click on a contour's line
+        is the way; a node is ``pick_node``'s."""
+        self._ensure_arrays()
+        if not len(self._seg_ele):
+            return []
+        _t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a, self._seg_b)
+        near: dict[int, float] = {}
+        for i in np.flatnonzero(dist <= tolerance):
+            w = int(self._seg_way[i])
+            near[w] = min(near.get(w, math.inf), float(dist[i]))
+        return [(self._ways[w].square, self._ways[w].way, d) for w, d in sorted(near.items(), key=lambda kv: kv[1])]
+
     def pick_node(self, x: float, y: float, tolerance: float,
                   skip: tuple | None = None) -> tuple[Square, int, float] | None:
         """The node - of a contour or a coastline, R15's two snap targets -
@@ -1284,17 +1309,12 @@ class ContourLayer(QGraphicsItem):
                 best = (spot.square, spot.node_id, d)
         return best
 
-    def pick_water(self, x: float, y: float, tolerance: float):
-        """The water way nearest a scene point, within ``tolerance``, as
-        (square, way, distance, nearest vertex id, its distance) - G6a.
-
-        Apart from ``pick``, and kept apart. ``pick`` works the segment arrays
-        that the crossing checks share, and water put in them would make every
-        contour drawn across a river a refused crossing. Water is culled by
-        each way's own rectangle first, which on the gobras 3x3 is four
-        thousand rectangle tests and a handful of ways measured.
-        """
-        best = None
+    def pick_waters(self, x: float, y: float, tolerance: float) -> list[tuple]:
+        """Every water way within ``tolerance``, nearest first: each the five
+        ``pick_water`` gives - which is this one's first - and a sixth,
+        whether it is an area's outline rather than a line: (square, way,
+        distance, nearest vertex id, its distance, outline)."""
+        out = []
         for key, piece in self.water.items():
             r = piece.rect
             if not (r.left() - tolerance <= x <= r.right() + tolerance
@@ -1305,12 +1325,25 @@ class ContourLayer(QGraphicsItem):
                 continue
             _, dist = geometry.nearest_point_on_segments((x, y), g.pts[:-1], g.pts[1:])
             i = int(dist.argmin())
-            if dist[i] > tolerance or (best is not None and dist[i] >= best[2]):
+            if dist[i] > tolerance:
                 continue
             vd = np.hypot(g.pts[:, 0] - x, g.pts[:, 1] - y)
             v = int(vd.argmin())
-            best = (g.square, g.way, float(dist[i]), g.refs[v], float(vd[v]))
-        return best
+            out.append((g.square, g.way, float(dist[i]), g.refs[v], float(vd[v]), is_outline(g.way)))
+        return sorted(out, key=lambda h: h[2])
+
+    def pick_water(self, x: float, y: float, tolerance: float):
+        """The water way nearest a scene point, within ``tolerance``, as
+        (square, way, distance, nearest vertex id, its distance) - G6a.
+
+        Apart from ``pick``, and kept apart. ``pick`` works the segment arrays
+        that the crossing checks share, and water put in them would make every
+        contour drawn across a river a refused crossing. Water is culled by
+        each way's own rectangle first, which on the gobras 3x3 is four
+        thousand rectangle tests and a handful of ways measured.
+        """
+        hits = self.pick_waters(x, y, tolerance)
+        return hits[0][:5] if hits else None
 
     def along(self, square: Square, way: Way) -> tuple[list[int], list[float]]:
         """A way's placed vertices and each one's distance along it in metres,
