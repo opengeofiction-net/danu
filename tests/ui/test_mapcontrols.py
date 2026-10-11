@@ -36,7 +36,7 @@ def test_the_zoom_buttons_stop_at_the_ends(window):
     assert not c.zoom_in.isEnabled() and c.zoom_out.isEnabled()
 
 
-@pytest.mark.parametrize('size, columns', [((1200, 800), 1), ((900, 480), 2)])
+@pytest.mark.parametrize('size, columns', [((1200, 800), 1), ((1400, 480), 2)])
 def test_the_buttons_follow_the_window_as_it_is_resized(window, size, columns):
     """A window too short for them holds them in two columns, a group never
     split between them."""
