@@ -72,7 +72,7 @@ def zone(tmp_path):
 GEOMETRY = {
     '101': [[-24.5, 124.5], [-24.5, 126.5], [-22.5, 126.5], [-22.5, 124.5]],          # over S24E125 and the west half of S24E126
     '102': [[[-24.5, 126.5], [-24.5, 127.5], [-22.5, 127.5], [-22.5, 126.5]]],        # the east half of S24E126
-    '103': [[[-21.5, 124.5], [-21.5, 125.5], [-20.5, 125.5], [-20.5, 124.5]]],        # no attribute record
+    '103': [[[-21.5, 124.5], [-21.5, 125.5], [-20.5, 125.5], [-20.5, 124.5]]],        # no attribute record: a timezone, say
 }
 ATTRIBUTES = [
     {'ogfId': 'AR031', 'name': 'Pizarrales', 'rel': 101, 'status': 'owned', 'owner': 'Luciano'},
