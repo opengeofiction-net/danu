@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .settings import DEFAULT_KEYS, URLS, Settings, default_url
+from .settings import DEFAULT_KEYS, REBUILD_KEY, URLS, Settings, default_url
 from .widgets import unit
 
 
@@ -45,7 +45,7 @@ def fixed() -> dict[str, str]:
     return {'Open square': QKeySequence(QKeySequence.StandardKey.Open).toString(),
             'Quit': QKeySequence(QKeySequence.StandardKey.Quit).toString(),
             'Preferences': QKeySequence(QKeySequence.StandardKey.Preferences).toString(),
-            'Rebuild surface': 'Ctrl+R'}
+            'Rebuild surface': REBUILD_KEY}
 
 
 class PreferencesDialog(QDialog):

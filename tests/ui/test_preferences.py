@@ -146,3 +146,13 @@ def test_every_keyed_map_button_is_told_again(window):
     keyed = {b for b, _what, _action in c._tipped}
     assert keyed == {c.select, c.draw, c.spot, c.measure, c.undo, c.redo, c.delete, c.split, c.unglue,
                      c.magnify, c.water, c.heights}
+
+
+def test_an_address_of_spaces_alone_is_the_default(window):
+    window.settings.q.setValue('josm/url', '   ')
+    assert window.settings.josm_url == default_url('josm/url')
+
+
+def test_rebuilds_key_is_the_one_the_clash_check_keeps(window, dlg):
+    dlg.edits['edit.grade'].setKeySequence(window.rebuild_action.shortcut())
+    assert not ok(window, dlg) and 'Rebuild surface' in dlg.clash.text()

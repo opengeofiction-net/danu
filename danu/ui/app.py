@@ -58,7 +58,7 @@ from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
 from .published import PublishedDem
 from .selection_panel import SelectionPanel
-from .settings import Settings
+from .settings import REBUILD_KEY, Settings
 from .squares import SquaresItem
 from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
@@ -837,7 +837,7 @@ class MainWindow(QMainWindow):
 
         surface = self.menuBar().addMenu('&Surface')
         self.rebuild_action = QAction('&Rebuild surface', self)
-        self.rebuild_action.setShortcut(QKeySequence('Ctrl+R'))
+        self.rebuild_action.setShortcut(QKeySequence(REBUILD_KEY))
         self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
         surface.addAction(self.rebuild_action)
         self.pinch_action = QAction('&Pinch ramp on active elevation', self)
@@ -894,7 +894,8 @@ class MainWindow(QMainWindow):
         self.territory.urls = {'geometry': s.url('territory/geometry'), 'attributes': s.url('territory/owners')}
         self.published.url = s.url('published/dem')
         if self.checks_dock.bare_min_ha != s.bare_min_hectares and self.crossing_index is not None:
-            # the rings reported from another area: found again
+            # the rings reported from another area: found again. The indexes
+            # are found together, and no crossing index is what asks for them
             self.crossing_index = None
             self._checks_shown(self.checks_dock.isVisible())
 

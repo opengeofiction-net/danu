@@ -12,6 +12,10 @@ from ..core.square import SquareName
 
 RECENT_MAX = 8
 
+# Rebuild's key, which is not rebound - the menu and the preferences' clash
+# check both read it here
+REBUILD_KEY = 'Ctrl+R'
+
 # the keys the spec gives, a column on a QWERTY keyboard: the left hand rests
 # on w and s and reaches 2 up and x down. All rebindable, under [keys] in the
 # INI, as Qt key sequences - 'Ctrl+Shift+E', 'PgUp', 'Space'
@@ -192,7 +196,7 @@ class Settings:
     # holds from the next use on. Empty, or absent, is the default.
     def url(self, key: str) -> str:
         """The address under ``key`` - one of URLS - or its default."""
-        return str(self.q.value(key, '') or default_url(key)).strip()
+        return str(self.q.value(key, '') or '').strip() or default_url(key)
 
     def set_url(self, key: str, value: str) -> None:
         value = value.strip()
