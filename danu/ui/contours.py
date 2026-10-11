@@ -1022,8 +1022,8 @@ class ContourLayer(QGraphicsItem):
         # said rather than inherited: a contour is a line, and the pass below
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        far = zoom < BLEND_ZOOM
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if far
+        zoomed_out = zoom < BLEND_ZOOM
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if zoomed_out
                                    else QPainter.CompositionMode.CompositionMode_ColorBurn)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
@@ -1035,7 +1035,7 @@ class ContourLayer(QGraphicsItem):
             visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
             if not visible:
                 continue
-            pen = QPen(DARK if far else self.colour(ele), 1.8 if index else 1.0)
+            pen = QPen(DARK if zoomed_out else self.colour(ele), 1.8 if index else 1.0)
             pen.setCosmetic(True)
             painter.setPen(pen)
             for piece in visible:
