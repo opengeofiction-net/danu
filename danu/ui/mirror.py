@@ -81,7 +81,7 @@ class Importer(QObject):
     tests' to replace; ``runner`` where the work goes."""
 
     message = Signal(str)
-    finished = Signal(object)            # (zone, what was done) - danu.core.mirror.settle's
+    finished = Signal(object)            # (zone, its directory, what was done - mirror.settle's)
     failed = Signal(str)
 
     def __init__(self, window, parent=None):
@@ -140,7 +140,7 @@ class Importer(QObject):
                 return
             overwrite = answer
         done = mirror.settle(f, overwrite, keep)
-        self.message.emit(summary(f.zone, done, held=bool(keep)))
+        self.message.emit(summary(f.zone, done))
         self.finished.emit((f.zone, f.zone_dir, done))
 
     def _held(self, zone_dir: Path) -> set[str]:
@@ -159,14 +159,15 @@ class Importer(QObject):
         self.failed.emit(first)
 
 
-def summary(zone: str, done: dict[str, list[str]], held: bool = False) -> str:
+def summary(zone: str, done: dict[str, list[str]]) -> str:
     parts = []
     for kind, word in (('new', 'new'), ('updated', 'updated'), ('overwritten', 'overwritten'),
-                       ('current', 'up to date'), ('kept', 'kept as here'), ('gone', 'no longer on the server')):
+                       ('current', 'up to date'), ('kept', 'kept as here'), ('held', 'held back'),
+                       ('gone', 'no longer on the server')):
         if done.get(kind):
             parts.append(f'{len(done[kind])} {word}')
     line = f'imported {zone}: ' + (', '.join(parts) if parts else 'nothing listed')
-    if held:
-        line += ' - the open squares kept, having unsaved edits'
+    if done.get('held'):
+        line += ' - the open squares held back, having unsaved edits'
     return line
 

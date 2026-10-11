@@ -96,7 +96,7 @@ class Fetched:
     updated: dict[str, Path] = field(default_factory=dict)    # unchanged here, newer there
     changed: dict[str, Path] = field(default_factory=dict)    # changed here, and different there: asked
     current: list[str] = field(default_factory=list)          # here as there
-    gone: list[str] = field(default_factory=list)             # here, no longer there
+    gone: list[str] = field(default_factory=list)             # mirrored before, no longer there
     hashes: dict[str, str] = field(default_factory=dict)      # name: sha256 of what was fetched or matched
 
     def discard(self) -> None:
@@ -123,7 +123,7 @@ def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen,
     server = files(_get(zone_url, opener, timeout).decode('utf-8', 'replace'))
     zone_dir = root / zone
     zone_dir.mkdir(parents=True, exist_ok=True)
-    for stale in zone_dir.glob(PART + '*'):          # a mirror killed part way
+    for stale in (*zone_dir.glob(PART + '*'), *zone_dir.glob('.manifest-*')):    # a mirror killed part way
         stale.unlink(missing_ok=True)
     manifest = read_manifest(zone_dir)
     out = Fetched(zone, zone_dir, server)
@@ -132,7 +132,8 @@ def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen,
     except BaseException:
         out.discard()
         raise
-    out.gone = sorted(p.name for p in zone_dir.glob('*.osm.xz') if p.name not in server)
+    # only what a mirror put here: a square of the mapper's own is not the server's to have dropped
+    out.gone = sorted(p.name for p in zone_dir.glob('*.osm.xz') if p.name not in server and p.name in manifest)
     if report is not None:
         report((len(server), len(server), ''))
     return out
@@ -145,7 +146,7 @@ def _fetch_files(out: Fetched, zone_url: str, manifest: dict, opener, report, ti
             report((k, len(server), name))
         here = zone_dir / name
         known = manifest.get(name) or {}
-        mine = sha256(here) if here.exists() else None
+        mine = _hash_here(here, known)
         untouched = mine is not None and mine == known.get('sha256')
         if untouched and known.get('server') == [size, date]:
             out.current.append(name)                       # as it was mirrored, and the server's the same
@@ -165,6 +166,22 @@ def _fetch_files(out: Fetched, zone_url: str, manifest: dict, opener, report, ti
             out.changed[name] = part
 
 
+def _stat(path: Path) -> list[int]:
+    st = path.stat()
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _hash_here(here: Path, known: dict) -> str | None:
+    """The square here's SHA-256 - taken as the manifest's when its size
+    and time are as the manifest has them, so a zone checked again is not
+    read again square by square."""
+    if not here.exists():
+        return None
+    if known.get('sha256') and known.get('stat') == _stat(here):
+        return known['sha256']
+    return sha256(here)
+
+
 def _download(url: str, into: Path, opener, timeout: float) -> Path:
     # opened as any file is, so it takes the umask's permissions - mkstemp's
     # are the owner's alone, and a square put in place kept them
@@ -182,24 +199,28 @@ def _download(url: str, into: Path, opener, timeout: float) -> Path:
 
 def settle(f: Fetched, overwrite: set[str], keep: set[str] = frozenset()) -> dict[str, list[str]]:
     """Phase two: the fetched files put in place - the new and the updated,
-    and of the changed only those in ``overwrite``; ``keep`` held back
-    whatever they are (a square open with unsaved edits). The manifest
-    records each file put in place or found the same. Answers what was
-    done, by kind."""
+    and of the changed only those in ``overwrite``, the rest ``kept``;
+    ``keep`` ``held`` back whatever they are (a square open with unsaved
+    edits). The manifest records each file put in place or found the same,
+    with its size and time here. Answers what was done, by kind."""
     manifest = read_manifest(f.zone_dir)
-    done: dict[str, list[str]] = {'new': [], 'updated': [], 'overwritten': [], 'kept': [], 'current': [],
-                                  'gone': list(f.gone)}
+    done: dict[str, list[str]] = {'new': [], 'updated': [], 'overwritten': [], 'kept': [], 'held': [],
+                                  'current': [], 'gone': list(f.gone)}
     for kind, parts in (('new', f.new), ('updated', f.updated), ('overwritten', f.changed)):
         for name, part in parts.items():
             if name in keep or (kind == 'overwritten' and name not in overwrite):
                 part.unlink(missing_ok=True)
-                done['kept'].append(name)
+                done['held' if name in keep else 'kept'].append(name)
                 continue
             os.replace(part, f.zone_dir / name)
-            manifest[name] = {'sha256': f.hashes[name], 'server': list(f.server[name])}
+            manifest[name] = _entry(f, name)
             done[kind].append(name)
     for name in f.current:
-        manifest[name] = {'sha256': f.hashes[name], 'server': list(f.server[name])}
+        manifest[name] = _entry(f, name)
         done['current'].append(name)
     write_manifest(f.zone_dir, manifest)
     return done
+
+
+def _entry(f: Fetched, name: str) -> dict:
+    return {'sha256': f.hashes[name], 'server': list(f.server[name]), 'stat': _stat(f.zone_dir / name)}

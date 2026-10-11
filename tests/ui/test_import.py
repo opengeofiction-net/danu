@@ -98,7 +98,8 @@ def test_the_open_set_with_unsaved_edits_is_kept_whatever_the_server_has(w):
     w.import_action.trigger()
     assert w.importer.asked == [], 'asked about a square the set holds edits over'
     assert (w.zone_dir / TEN_FILE).read_bytes() == before
-    assert 'the open squares kept, having unsaved edits' in w.statusBar().currentMessage()
+    assert '1 held back' in w.statusBar().currentMessage()
+    assert 'the open squares held back, having unsaved edits' in w.statusBar().currentMessage()
     assert ways_at(w.working_set.squares[TEN], '55'), 'the edits lost'
 
 

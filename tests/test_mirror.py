@@ -129,7 +129,7 @@ def test_a_square_gone_from_the_server_is_left_and_said(server, tmp_path):
 
 def test_a_square_held_back_is_kept_whatever_it_is(server, tmp_path):
     _f, done = run(server, tmp_path, keep={'N20E086_Gobras_City.osm.xz'})
-    assert 'N20E086_Gobras_City.osm.xz' in done['kept']
+    assert done['held'] == ['N20E086_Gobras_City.osm.xz'] and not done['kept']
     assert not (tmp_path / 'gobras' / 'N20E086_Gobras_City.osm.xz').exists()
     assert 'N20E086_Gobras_City.osm.xz' not in mirror.read_manifest(tmp_path / 'gobras')
 
@@ -171,3 +171,29 @@ def test_a_square_put_in_place_has_the_permissions_any_file_would(server, tmp_pa
     probe = tmp_path / 'probe'
     probe.write_bytes(b'')
     assert stat.S_IMODE(os.stat(tmp_path / 'gobras' / 'EMPTY.osm.xz').st_mode) == stat.S_IMODE(os.stat(probe).st_mode)
+
+
+def test_a_square_of_the_mappers_own_is_not_said_gone(server, tmp_path):
+    run(server, tmp_path)
+    (tmp_path / 'gobras' / 'N22E086_Mine.osm.xz').write_bytes(b'mine')
+    _f, done = run(server, tmp_path)
+    assert done['gone'] == []
+
+
+def test_a_square_unchanged_here_is_not_read_again(server, tmp_path, monkeypatch):
+    run(server, tmp_path)
+    hashed = []
+    real = mirror.sha256
+    monkeypatch.setattr(mirror, 'sha256', lambda p: (hashed.append(p.name), real(p))[1])
+    run(server, tmp_path)
+    assert hashed == [], 'a square read though its size and time were as mirrored'
+    (tmp_path / 'gobras' / 'EMPTY.osm.xz').write_bytes(b'touched')
+    f, _done = run(server, tmp_path)
+    assert 'EMPTY.osm.xz' in hashed and 'EMPTY.osm.xz' in f.changed, 'a change here not seen'
+
+
+def test_a_manifest_a_killed_write_left_is_cleared(server, tmp_path):
+    (tmp_path / 'gobras').mkdir()
+    (tmp_path / 'gobras' / '.manifest-xyz').write_text('{')
+    run(server, tmp_path)
+    assert not list((tmp_path / 'gobras').glob('.manifest-*'))

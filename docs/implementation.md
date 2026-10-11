@@ -4540,18 +4540,21 @@ minute and a size in bytes. `zones` reads the subdirectories, `files` the
    `os.replace`, and the manifest written.
 
 **Changed here** is the manifest, `.danu-mirror.json` in the zone: each
-square's SHA-256 as mirrored, and the server's size and date then. A square
-that hashes as the manifest says, with the server's size and date unchanged,
-is current and not fetched - a second import of gobras is 0.6 s, the first
+square's SHA-256 as mirrored, its size and time here then, and the server's
+size and date. A square whose size and time are as the manifest has them is
+taken to hash as it says, and not read again. One that hashes as the
+manifest says, with the server's size and date unchanged, is current and not
+fetched - a second import of gobras is 0.6 s, the first
 38 s for its 4 MB. One that hashes so but is newer there is replaced without
 asking. One that does not, or that the manifest does not know, was changed
 here, and the server's copy is fetched to compare: the same bytes are no
 question; different, it is asked about in a dialog of boxes, each unticked,
-and kept unless ticked. A square the server no longer has is left, and said.
+and kept unless ticked. A square the server no longer has is left, and said -
+one a mirror put there, not one of the mapper's own.
 
 **The open set.** With unsaved edits, its squares are held back whatever
-the server has - neither asked about nor replaced - and the status line says
-so. Without, any replaced is read again: the set opened anew, and the
+the server has - neither asked about nor replaced - and said apart from the
+squares kept by the mapper's answer. Without, any replaced is read again: the set opened anew, and the
 summary said once more when it has.
 
 The parts are opened as any file is, not by `mkstemp`, whose files are their
