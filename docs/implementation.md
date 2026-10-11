@@ -4564,3 +4564,15 @@ Open square starts at the import root, once it exists, until another root has
 been opened from. The root is a preference (General), and so is the mirror's
 address (Servers).
 
+Then, from the review of H6g, the open dialog:
+
+- A zone chosen as the root - the folder browser makes the slip easy - is
+  taken for what it is: a directory holding squares and no zone of its own is
+  a zone, the root is the directory above, and that zone is chosen, said
+  under the list. A root that holds zones is a root though it holds a square
+  too.
+- The squares are a list of three columns, the name, the place and the file's
+  size (344 B, 66 KB, 1.6 MB), in the order of their names as written -
+  N18E088, N18E089, N19E088, N20E086: south to north, then west to east, as
+  SRTM's tiles sort. They were sorted west to east first.
+

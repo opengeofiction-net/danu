@@ -171,10 +171,12 @@ def test_the_dialog_lists_zones_and_squares_and_returns_the_choice(qtbot, root):
     dlg = OpenDialog(root, 3)
     qtbot.addWidget(dlg)
     assert [dlg.zone.itemText(i) for i in range(dlg.zone.count())] == ['pizarrales']
-    texts = [dlg.squares.item(i).text() for i in range(dlg.squares.count())]
-    assert texts == ['S24E125   Los Pizarrales', 'S24E126']
+    rows = [dlg.squares.topLevelItem(i) for i in range(dlg.squares.topLevelItemCount())]
+    assert [(r.text(0), r.text(1)) for r in rows] == [('S24E125', 'Los Pizarrales'), ('S24E126', '')]
+    sizes = [r.text(2) for r in rows]
+    assert all(t.endswith((' B', ' KB', ' MB')) for t in sizes), sizes
     assert dlg.open_button.isEnabled()
-    dlg.squares.setCurrentRow(1)
+    dlg.squares.setCurrentItem(rows[1])
     dlg.size.setCurrentIndex(2)
     zone_dir, name, size = dlg.selection()
     assert zone_dir == root / 'pizarrales' and name == SquareName(126, -24) and size == 5
@@ -226,3 +228,62 @@ def test_a_failed_read_is_reported_and_the_window_recovers(qtbot, root, tmp_path
     assert shown and 'could not be read' in shown[0]
     assert w.working_set is None and w.settings.recent() == []
     assert w.settings.squares_root is None                              # nothing kept from a failure
+
+
+def test_a_zone_given_as_the_root_is_taken_as_that_zone_under_its_root(qtbot, root):
+    """The slip the folder browser invites: the zone chosen, not its root."""
+    dlg = OpenDialog(root / 'pizarrales', 3)
+    qtbot.addWidget(dlg)
+    assert dlg.root == root and dlg.zone.currentText() == 'pizarrales'
+    assert 'pizarrales is a zone' in dlg.hint.text()
+    assert dlg.squares.topLevelItemCount() == 2 and dlg.open_button.isEnabled()
+    zone_dir, _name, _size = dlg.selection()
+    assert zone_dir == root / 'pizarrales'
+
+
+def test_a_root_that_is_neither_still_says_so(qtbot, tmp_path):
+    (tmp_path / 'empty').mkdir()
+    dlg = OpenDialog(tmp_path / 'empty', 3)
+    qtbot.addWidget(dlg)
+    assert dlg.root == tmp_path / 'empty' and 'osm-squares' in dlg.hint.text()
+
+
+def test_a_double_click_opens(qtbot, root):
+    dlg = OpenDialog(root, 3)
+    qtbot.addWidget(dlg)
+    dlg.squares.itemDoubleClicked.emit(dlg.squares.topLevelItem(0), 0)
+    assert dlg.result_ is not None and dlg.result() == dlg.DialogCode.Accepted
+
+
+def test_sizes_are_written_as_a_mapper_reads_them():
+    from danu.ui.open_dialog import size_text
+    assert [size_text(n) for n in (344, 67396, 1729040)] == ['344 B', '66 KB', '1.6 MB']
+
+
+def test_the_squares_are_in_the_order_of_their_names(qtbot, tmp_path):
+    z = tmp_path / 'gobras'
+    z.mkdir()
+    for n in ('N20E086_Gobras_City', 'N21E086_Havreg', 'N18E089_Khaiwoon', 'N19E088_Kalabag', 'N18E088_Katyapura'):
+        (z / f'{n}.osm.xz').write_bytes(b'')
+    dlg = OpenDialog(tmp_path, 3)
+    qtbot.addWidget(dlg)
+    names = [dlg.squares.topLevelItem(i).text(0) for i in range(dlg.squares.topLevelItemCount())]
+    assert names == ['N18E088', 'N18E089', 'N19E088', 'N20E086', 'N21E086']
+
+
+def test_given_a_zone_that_zone_is_chosen_among_its_neighbours(qtbot, root):
+    import shutil
+    shutil.copytree(root / 'pizarrales', root / 'alpha')
+    dlg = OpenDialog(root / 'pizarrales', 3)
+    qtbot.addWidget(dlg)
+    assert [dlg.zone.itemText(i) for i in range(dlg.zone.count())] == ['alpha', 'pizarrales']
+    assert dlg.zone.currentText() == 'pizarrales'
+
+
+def test_a_root_holding_zones_is_a_root_though_it_holds_a_square_too(qtbot, root):
+    import shutil
+    one = root / 'pizarrales' / 'S24E126.osm.xz'               # a square, not EMPTY
+    shutil.copy(one, root / one.name)
+    dlg = OpenDialog(root, 3)
+    qtbot.addWidget(dlg)
+    assert dlg.root == root and dlg.zone.currentText() == 'pizarrales' and not dlg.hint.text()
