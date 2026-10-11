@@ -79,11 +79,11 @@ WATER_LABEL_PX = 60.0
 # same ramp they are drawn in - so a line in its own colour on ground of its
 # own height was all but invisible. Compared on gobras over Normal, Multiply,
 # Colour burn, Hard light, Difference and Divide, in the ramp's colours and a
-# fixed dark and light, at z12, z14 and z16: up to BLEND_ZOOM the lines are
-# dense, and dark ones multiplied onto the ground read without burying it;
-# from it they are few, and colour burn darkens each in its own hue, so they
-# read and still say their height by the legend
-BLEND_ZOOM = 14
+# fixed dark and light, at z12, z14 and z16, two read: dark lines multiplied
+# onto the ground, which read without burying it; and each level's colour
+# colour-burned into it, darker and of its hue, so it still says its height by
+# the legend. Which is the mapper's, from the surface panel
+STYLES = ('dark', 'height')
 DARK = QColor(32, 32, 32)
 # and how heavy: thinner where they are dense, heavier where they are few.
 # An index contour keeps its weight against the rest at every zoom
@@ -304,6 +304,7 @@ class ContourLayer(QGraphicsItem):
         self.ramp: Ramp = spectral()
         self.index_levels: set[float] = set()
         self.active: float | None = None          # the active elevation, drawn heavier
+        self.style = 'dark'                       # how the lines meet the ground: STYLES
         self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
         # the piece each way contributes, so an edit can replace one of them
         self._pieces: dict[tuple[SquareName, int], _Piece] = {}
@@ -996,6 +997,13 @@ class ContourLayer(QGraphicsItem):
         n = square.nodes[node_id]
         return m.lonlat_to_scene(n.lon, n.lat)
 
+    def set_style(self, style: str) -> None:
+        if style not in STYLES:
+            raise ValueError(style)
+        if style != self.style:
+            self.style = style
+            self.update()
+
     def set_active(self, ele: float | None):
         if ele != self.active:
             self.active = ele
@@ -1032,8 +1040,8 @@ class ContourLayer(QGraphicsItem):
         # said rather than inherited: a contour is a line, and the pass below
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        zoomed_out = zoom < BLEND_ZOOM
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if zoomed_out
+        dark = self.style == 'dark'
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if dark
                                    else QPainter.CompositionMode.CompositionMode_ColorBurn)
         for ele in sorted(self.paths):
             index = self.is_index(ele)
@@ -1045,7 +1053,7 @@ class ContourLayer(QGraphicsItem):
             visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
             if not visible:
                 continue
-            pen = QPen(DARK if zoomed_out else self.colour(ele), line_width(zoom, index))
+            pen = QPen(DARK if dark else self.colour(ele), line_width(zoom, index))
             pen.setCosmetic(True)
             painter.setPen(pen)
             for piece in visible:

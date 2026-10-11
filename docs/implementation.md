@@ -4588,22 +4588,26 @@ itself.
 Six blends were compared over gobras N20E086's 3" surface, the surface and
 the lines rendered apart and composited per pixel - Normal, Multiply, Colour
 burn, Hard light, Difference, Divide (which Qt does not have) - in the ramp's
-colours, a fixed dark and a fixed light, at z12, z14 and z16. The lines'
-density decides it, and it changes with the zoom:
+colours, a fixed dark and a fixed light, at z12, z14 and z16. Two read:
 
-- **Up to z13** (`BLEND_ZOOM`), dense: dark lines, `#202020`, multiplied onto
-  the ground - they read, and the shading still shows through. Dark drawn
-  plain buried the terrain at z12; the ramp's colours vanished.
-- **From z14**, few: each level in its own colour, colour-burned into the
-  ground - darker than the ground, of the level's hue, so the line reads and
-  the legend still says its height.
+- **Dark**: lines `#202020` multiplied onto the ground - they read, and the
+  shading shows through. Dark drawn plain buried the terrain at z12; the
+  ramp's colours vanished.
+- **Height colour**: each level in its own colour, colour-burned into the
+  ground - darker than the ground, of the level's hue, so the line reads
+  and the legend still says its height. Heavy where the lines pack tight.
+
+The first build switched between them by zoom, dark to z13 and height
+colour from z14. The mapper would rather choose: the surface panel's
+Contours is a pair of radio buttons, Dark the default, kept by the session,
+and `ContourLayer.set_style` puts it to the layer.
 
 `ContourLayer.paint` sets the mode for the levels' pass and puts
 `SourceOver` back after it: the active level, the spot heights, the labels
 and their halos are drawn plain over the lines, their colours their own -
 blended, Difference and Divide turned the labels pink. Water is drawn
-before, plain. A test reads the painter: each line's mode and pen at z12,
-z13, z14 and z16, and the active level's plain.
+before, plain. A test reads the painter: each line's mode, pen and width in
+each style at z12 and z16, and the active level's plain.
 
 **Width by zoom.** The lines were 1.0 px, an index contour 1.8, at every
 zoom. `line_width` makes it 0.7 px up to z12, where the lines pack tight

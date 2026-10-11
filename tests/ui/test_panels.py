@@ -54,3 +54,29 @@ def test_the_surface_panels_josm_button_is_shift_j(window):
     a.triggered.connect(lambda: fired.append(1))
     window.surface_panel.josm_btn.click()
     assert fired == [1]
+
+
+def test_the_contours_are_dark_unless_the_panel_says_height_colour(window):
+    p, layer = window.surface_panel, window.contours
+    assert p.contours_dark.isChecked() and layer.style == 'dark'
+    p.contours_height.click()
+    assert layer.style == 'height' and p.contour_style == 'height'
+    p.contours_dark.click()
+    assert layer.style == 'dark'
+
+
+def test_the_contour_style_is_kept_by_the_session(window):
+    from danu.ui import session
+    window.surface_panel.contours_height.click()
+    data = session.capture(window)
+    assert data['surface']['contours'] == 'height'
+    window.surface_panel.contours_dark.click()
+    session.restore(window, {**data, 'set': None})
+    assert window.contours.style == 'height' and window.surface_panel.contours_height.isChecked()
+
+
+def test_the_opacity_slider_sets_the_surfaces_opacity(window):
+    """It went dead once: the panel's connections were cut off by a method
+    put in the middle of its __init__."""
+    window.surface_panel.opacity.setValue(40)
+    assert window.surface.opacity() == pytest.approx(0.40)

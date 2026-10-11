@@ -899,24 +899,25 @@ def _line_pixel(view, img):
     return best
 
 
-@pytest.mark.parametrize('zoom', [13, 14])
-def test_the_lines_meet_the_ground_by_the_zoom(view, ws, zoom):
-    """Up to 13, dark and multiplied: over the view's grey, the dark itself
-    times the grey; from 14, the level's own colour burned into the grey -
-    darker than the colour drawn plain, and of its hue."""
-    from danu.ui.contours import BLEND_ZOOM, DARK
+@pytest.mark.parametrize('style', ['dark', 'height'])
+def test_the_lines_meet_the_ground_as_the_style_says(view, ws, style):
+    """Dark: multiplied, over the view's grey the dark itself times the grey.
+    Height colour: the level's own colour burned into the grey - darker than
+    the colour drawn plain, and of its hue."""
+    from danu.ui.contours import DARK
     layer = ContourLayer()
     layer.set_working_set(ws)
+    layer.set_style(style)
     view.scene().addItem(layer)
     sq = ws.squares[SquareName(125, -24)]
     way = next(w for w in sq.contours() if len(w.refs) > 20 and not layer.is_index(w.ele))
     lon, lat = sq.coords(way)[len(way.refs) // 2]
-    view.set_zoom(zoom)
+    view.set_zoom(14)
     view.center_on_lonlat(lon, lat)
     img = render(view)
     c = _line_pixel(view, img)
     grey = 235 / 255
-    if zoom < BLEND_ZOOM:
+    if style == 'dark':
         want = [round(255 * v * grey) for v in (DARK.redF(), DARK.greenF(), DARK.blueF())]
         assert max(abs(a - b) for a, b in zip((c.red(), c.green(), c.blue()), want, strict=True)) < 40, (c.name(), want)
     else:
@@ -926,13 +927,14 @@ def test_the_lines_meet_the_ground_by_the_zoom(view, ws, zoom):
         assert c.value() < s.value() or s.value() < 60, 'not burned'
 
 
-@pytest.mark.parametrize('zoom', [12, 13, 14, 16])
-def test_each_line_is_drawn_in_the_mode_and_colour_its_zoom_asks(view, ws, zoom, monkeypatch):
+@pytest.mark.parametrize('style', ['dark', 'height'])
+@pytest.mark.parametrize('zoom', [12, 16])
+def test_each_line_is_drawn_in_the_mode_and_colour_its_style_asks(view, ws, zoom, style, monkeypatch):
     """Read from the painter: the mode each line is drawn under and its pen,
-    and the mode put back before what goes over them."""
+    at whatever zoom, and the mode put back before what goes over them."""
     from PySide6.QtGui import QPainter
 
-    from danu.ui.contours import BLEND_ZOOM, DARK
+    from danu.ui.contours import DARK
     seen = []
     real_mode, real_path = QPainter.setCompositionMode, QPainter.drawPath
     monkeypatch.setattr(QPainter, 'setCompositionMode', lambda p, m: (seen.append(('mode', m)), real_mode(p, m))[1])
@@ -945,15 +947,16 @@ def test_each_line_is_drawn_in_the_mode_and_colour_its_zoom_asks(view, ws, zoom,
     sq = ws.squares[SquareName(125, -24)]
     way = next(w for w in sq.contours() if len(w.refs) > 20)
     layer.set_active(way.ele)                      # the level the view is on
+    layer.set_style(style)
     view.set_zoom(zoom)
     view.center_on_lonlat(*sq.coords(way)[len(way.refs) // 2])
     render(view)
     M = QPainter.CompositionMode
     lines = [e for e in seen if e[0] == 'line']
-    want_mode = M.CompositionMode_Multiply if zoom < BLEND_ZOOM else M.CompositionMode_ColorBurn
+    want_mode = M.CompositionMode_Multiply if style == 'dark' else M.CompositionMode_ColorBurn
     blended = [e for e in lines if e[2] == want_mode]
-    assert blended, "no line drawn in the zoom's mode"
-    if zoom < BLEND_ZOOM:
+    assert blended, "no line drawn in the style's mode"
+    if style == 'dark':
         assert {e[1] for e in blended} == {DARK.name()}
     else:
         assert DARK.name() not in {e[1] for e in blended} and len({e[1] for e in blended}) > 1, "not the levels' colours"
@@ -970,3 +973,8 @@ def test_contours_are_thinner_where_dense_and_heavier_where_few():
     assert [line_width(z, False) for z in (11, 12, 13, 15, 16, 19)] == [0.7, 0.7, 1.0, 1.0, 1.2, 1.2]
     assert (line_width(12.4, False), line_width(12.6, False)) == (0.7, 1.0), 'a zoom between, to the nearer'
     assert all(line_width(z, True) > line_width(z, False) * 1.7 for z in (12, 14, 16)), 'index not heavier'
+
+
+def test_a_style_it_does_not_know_is_refused():
+    with pytest.raises(ValueError):
+        ContourLayer().set_style('neon')

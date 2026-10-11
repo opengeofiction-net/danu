@@ -877,6 +877,7 @@ class MainWindow(QMainWindow):
         self.controls.magnify.toggled.connect(magnify.setChecked)
         self.controls.bind(e)
         self.surface_panel.josm_btn.clicked.connect(e['view.josm_surface'].trigger)
+        self.surface_panel.contoursStyled.connect(self.contours.set_style)
         self._tool_changed('select')
         self._edited()
 
