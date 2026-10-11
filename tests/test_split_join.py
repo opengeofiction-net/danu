@@ -191,3 +191,46 @@ def test_unglue_a_node_nobody_else_holds_says_so():
     sq = sq_()
     w = line(sq)
     assert 'no other way' in edits.unglue_node(sq, w.id, w.refs[1], edits.IdAllocator(sq))
+
+
+# --------------------------------------- what the map's buttons ask, H6b
+
+def board_():
+    """An open line, a ring, a line through one node twice, and a V sharing
+    a node with the line - every way a split or an unglue answers."""
+    sq = sq_()
+    open_ = line(sq)
+    way(sq, [(125.30, LAT + 0.01), (125.31, LAT + 0.01), (125.31, LAT + 0.02)], closed=True)
+    twice = way(sq, [(125.30, LAT - 0.01), (125.31, LAT - 0.01), (125.31, LAT - 0.02), (125.305, LAT - 0.02)])
+    twice.refs.append(twice.refs[1])
+    v = way(sq, [(125.305, LAT + 0.005), (125.31, LAT), (125.315, LAT + 0.005)], 125)
+    del sq.nodes[v.refs[1]]
+    v.refs[1] = open_.refs[1]
+    return sq
+
+
+def test_a_refusal_is_said_exactly_when_the_edit_refuses():
+    """The button greys by the same test the edit makes - every node of
+    every way, and a node of no way."""
+    sq = board_()
+    asked = 0
+    for wid, w in list(sq.ways.items()):
+        for nid in [*dict.fromkeys(w.refs), next(iter(set(sq.nodes) - set(w.refs)))]:
+            for refusal, edit in ((edits.split_refusal, edits.split_way), (edits.unglue_refusal, edits.unglue_node)):
+                why = refusal(sq, wid, nid)
+                cmd = edit(sq, wid, nid, edits.IdAllocator(sq))
+                assert (why is None) == (not isinstance(cmd, str)), (edit.__name__, wid, nid, why, cmd)
+                assert why is None or why == cmd
+                asked += why is None
+    assert asked >= 8, 'some of each answer'
+    assert edits.split_refusal(sq, -1, 1) == 'that way is no longer there'
+
+
+def test_a_ring_splits_at_its_first_node_and_a_node_off_the_way_is_not_unglued():
+    sq = board_()
+    ring = next(w for w in sq.ways.values() if w.closed)
+    assert edits.split_refusal(sq, ring.id, ring.refs[0]) is None
+    open_ = next(w for w in sq.ways.values() if w.ele == 100 and not w.closed and len(set(w.refs)) == len(w.refs))
+    v = next(w for w in sq.ways.values() if w.ele == 125)
+    off = v.refs[0]                                     # the V's, not the line's
+    assert edits.unglue_refusal(sq, open_.id, off) == 'that node is not on the way selected'

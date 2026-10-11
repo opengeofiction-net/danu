@@ -36,14 +36,39 @@ def test_the_zoom_buttons_stop_at_the_ends(window):
     assert not c.zoom_in.isEnabled() and c.zoom_out.isEnabled()
 
 
-def test_the_buttons_follow_the_window_as_it_is_resized(window):
+@pytest.mark.parametrize('size, columns', [((1200, 800), 1), ((900, 480), 2)])
+def test_the_buttons_follow_the_window_as_it_is_resized(window, size, columns):
+    """A window too short for them holds them in two columns, a group never
+    split between them."""
     from PySide6.QtWidgets import QApplication
     w = window
-    for size in ((1200, 800), (620, 480)):
-        w.resize(*size)
-        QApplication.processEvents()
-        vp = w.map.viewport().geometry()
-        assert vp.contains(w.controls.geometry()), (size, w.controls.geometry(), vp)
+    w.resize(*size)
+    QApplication.processEvents()
+    vp = w.map.viewport().geometry()
+    c = w.controls
+    assert vp.contains(c.geometry()), (size, c.geometry(), vp)
+    assert len({b.x() for g in c.column.groups for b in g}) == columns
+    assert all(len({b.x() for b in g}) == 1 for g in c.column.groups)
+    assert min(b.x() for g in c.column.groups for b in g) == 0, 'no empty column first'
+    assert all(c.rect().contains(b.geometry()) for g in c.column.groups for b in g)
+
+
+def test_a_map_shorter_than_a_group_still_starts_in_the_first_column(qtbot):
+    """Each group a column of its own, the first at the left - not an
+    empty column for a group taller than the map."""
+    from danu.ui.mapcontrols import MapControls
+    from danu.ui.mapview import MapView
+    view = MapView()
+    view.resize(400, 70)
+    qtbot.addWidget(view)
+    view.show()
+    qtbot.waitExposed(view)
+    c = MapControls(view)
+    c.place()
+    xs = [{b.x() for b in g} for g in c.column.groups]
+    assert all(len(x) == 1 for x in xs) and min(min(x) for x in xs) == 0
+    assert len({min(x) for x in xs}) == len(c.column.groups)
+    assert all(c.rect().contains(b.geometry()) for g in c.column.groups for b in g)
 
 
 def test_the_buttons_do_not_take_the_keys_from_the_map(window):

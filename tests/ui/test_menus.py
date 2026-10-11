@@ -47,14 +47,14 @@ def test_the_surface_in_josm_is_under_surface(window):
 def test_every_panel_is_in_the_view_menu(window):
     view = menu(window, 'View').actions()
     docks = window.findChildren(QDockWidget)
-    assert len(docks) == 7 and all(d.toggleViewAction() in view for d in docks)
+    assert len(docks) == 6 and all(d.toggleViewAction() in view for d in docks)
 
 
 def test_a_closed_panel_is_opened_again_from_view(window):
-    window.panel.close()
-    assert not window.panel.isVisible()
-    window.panel.toggleViewAction().trigger()
-    assert window.panel.isVisible()
+    window.elevation_panel.close()
+    assert not window.elevation_panel.isVisible()
+    window.elevation_panel.toggleViewAction().trigger()
+    assert window.elevation_panel.isVisible()
 
 
 def test_no_panel_floats(window):
@@ -75,11 +75,11 @@ def test_a_layout_with_a_floating_panel_comes_back_docked(window):
 
 def test_reset_puts_the_panels_back(window):
     window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, window.surface_panel)
-    window.panel.close()
+    window.elevation_panel.close()
     window.profile_dock.show()
     window.view_actions['view.reset_panels'].trigger()
     assert window.dockWidgetArea(window.surface_panel) == Qt.DockWidgetArea.RightDockWidgetArea
-    assert window.panel.isVisible() and not window.profile_dock.isVisible()
+    assert window.elevation_panel.isVisible() and not window.profile_dock.isVisible()
 
 
 def test_a_session_layout_is_restored_docked(window, qtbot, tmp_path):

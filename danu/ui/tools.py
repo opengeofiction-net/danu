@@ -632,6 +632,26 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
+    def applies(self, name: str) -> bool:
+        """Whether the action ``name`` would do something to the selection -
+        delete, delete contour, split or unglue - for the map's buttons to be
+        greyed by (H6b). The keys and the menu stay live, to say why not."""
+        sel = self.selection
+        if sel is None:
+            return False
+        if name == 'edit.delete':
+            return True
+        if name == 'edit.delete_way':
+            return sel.relation is not None or sel.way is not None
+        if sel.relation is not None or sel.way is None or sel.node is None:
+            return False
+        if name == 'edit.split':
+            return (sel.way.ele is not None and (sel.square.name, sel.way.id) not in self.layer.water
+                    and edits.split_refusal(sel.square, sel.way.id, sel.node) is None)
+        if name == 'edit.unglue':
+            return edits.unglue_refusal(sel.square, sel.way.id, sel.node) is None
+        raise KeyError(name)
+
     def unglue(self):
         """U: the node selected left to its contour alone - every other
         contour holding it given a node of its own, drawn a few metres back

@@ -395,14 +395,9 @@ def _back(square: Square, frm: int, toward: int, metres: float):
     return a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t
 
 
-def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
-              gap_m: float = SPLIT_GAP_M) -> ReplaceWay | str:
-    """A way split at one of its nodes, the two new ends unglued and drawn
-    back ``gap_m`` along their own lines, so they come apart where a mapper
-    can see and take hold of them. An open way becomes two, the first
-    keeping its id; a closed one opens into one line from the node round to
-    it. The node itself goes, unless another way holds it. Why not, as a
-    string."""
+def split_refusal(square: Square, way_id: int, node_id: int) -> str | None:
+    """Why ``split_way`` would not split the way at the node, or None if it
+    would - asked of the selection too, to grey the map's button (H6b)."""
     way = square.ways.get(way_id)
     if way is None:
         return 'that way is no longer there'
@@ -412,15 +407,40 @@ def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
     closed = refs[0] == refs[-1] and len(refs) > 3
     if (refs[:-1] if closed else refs).count(node_id) > 1:
         return 'it passes through that node twice - cut out the loop first'
-    if closed:
+    if not closed and node_id in (refs[0], refs[-1]):
+        return 'that is an end already'
+    return None
+
+
+def unglue_refusal(square: Square, way_id: int, node_id: int) -> str | None:
+    """Why ``unglue_node`` would not unglue the node, or None if it would."""
+    way = square.ways.get(way_id)
+    if way is None or node_id not in way.refs:
+        return 'that node is not on the way selected'
+    if not any(wid != way_id and node_id in w.refs for wid, w in square.ways.items()):
+        return 'no other way holds that node'
+    return None
+
+
+def split_way(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
+              gap_m: float = SPLIT_GAP_M) -> ReplaceWay | str:
+    """A way split at one of its nodes, the two new ends unglued and drawn
+    back ``gap_m`` along their own lines, so they come apart where a mapper
+    can see and take hold of them. An open way becomes two, the first
+    keeping its id; a closed one opens into one line from the node round to
+    it. The node itself goes, unless another way holds it. Why not, as a
+    string."""
+    why = split_refusal(square, way_id, node_id)
+    if why is not None:
+        return why
+    refs = square.ways[way_id].refs
+    if refs[0] == refs[-1] and len(refs) > 3:
         k = refs.index(node_id)
         line = refs[k:-1] + refs[:k] + [node_id]           # from the node round to it
         n1, n2 = alloc.take(), alloc.take()
         new = {n1: _back(square, node_id, line[1], gap_m), n2: _back(square, node_id, line[-2], gap_m)}
         return ReplaceWay(way_id, [(way_id, [n1, *line[1:-1], n2])], new)
     k = refs.index(node_id)
-    if k in (0, len(refs) - 1):
-        return 'that is an end already'
     n1, n2 = alloc.take(), alloc.take()
     new = {n1: _back(square, node_id, refs[k - 1], gap_m), n2: _back(square, node_id, refs[k + 1], gap_m)}
     return ReplaceWay(way_id, [(way_id, [*refs[:k], n1]), (alloc.take(), [n2, *refs[k + 1:]])], new)
@@ -434,12 +454,11 @@ def unglue_node(square: Square, way_id: int, node_id: int, alloc: IdAllocator,
     come apart where they met, a third of the way there at most. A way that
     runs straight through the node is moved square to its line, away from the
     way that keeps it. Why not, as a string."""
-    way = square.ways.get(way_id)
-    if way is None or node_id not in way.refs:
-        return 'that node is not on the way selected'
+    why = unglue_refusal(square, way_id, node_id)
+    if why is not None:
+        return why
+    way = square.ways[way_id]
     others = sorted(ways_holding(square, node_id) - {way_id})
-    if not others:
-        return 'no other way holds that node'
     n = square.nodes[node_id]
     kx = 111320.0 * math.cos(math.radians(n.lat))
     k = (kx, 110540.0)

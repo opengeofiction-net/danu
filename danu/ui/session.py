@@ -39,8 +39,8 @@ def capture(win) -> dict:
         out['elevation'] = win.elevation.value
     out['window'] = {'geometry': bytes(win.saveGeometry().toBase64()).decode(),
                      'state': bytes(win.saveState().toBase64()).decode()}
-    active = win.panel.active
-    out['layer'] = {'name': active.layer.name if active else None, 'opacity': win.panel.slider.value()}
+    active = win.layer_chooser.active
+    out['layer'] = {'name': active.layer.name if active else None, 'opacity': win.layer_chooser.slider.value()}
     p = win.surface_panel
     out['surface'] = {'built': win._arcsec if win.surface.shaded is not None else None,
                       'mode': p.mode.currentText(), 'ramp': p.ramp.currentText(),
@@ -92,11 +92,11 @@ def restore(win, data: dict) -> bool:
     once it is read the view, the elevation and the surface. False if there
     was no set to open."""
     layer = data.get('layer') or {}
-    for i, item in enumerate(win.panel.items):
+    for i, item in enumerate(win.layer_chooser.items):
         if item.layer.name == layer.get('name'):
-            win.panel.radios[i].setChecked(True)
+            win.layer_chooser.radios[i].setChecked(True)
     if layer.get('opacity') is not None:
-        win.panel.slider.setValue(int(layer['opacity']))
+        win.layer_chooser.slider.setValue(int(layer['opacity']))
     s = data.get('surface') or {}
     p = win.surface_panel
     for box, key in ((p.mode, 'mode'), (p.ramp, 'ramp'), (p.scaling, 'scaling')):
