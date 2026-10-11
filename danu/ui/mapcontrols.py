@@ -67,7 +67,7 @@ def _icon(paint, colour: QColor, size: int = ICON, on: QColor | None = None) -> 
 def _arrow_round(p: QPainter, colour: QColor, mirror: bool = False):
     """An arrow turning back over itself - undo, or mirrored, redo."""
     if mirror:
-        p.translate(ICON, 0)
+        p.translate(p.device().width(), 0)
         p.scale(-1, 1)
     pen = QPen(colour, 1.6)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -248,8 +248,8 @@ def _magnifier(p: QPainter, colour: QColor):
 
 
 class _Column:
-    """The buttons in their groups, as they are made: ``addSpacing`` ends a
-    group. MapControls.place lays them out."""
+    """The buttons in their groups, as they are made. MapControls.place lays
+    them out, GAP between the groups."""
 
     def __init__(self):
         self.groups: list[list[QToolButton]] = [[]]
@@ -257,7 +257,7 @@ class _Column:
     def addWidget(self, b: QToolButton) -> None:
         self.groups[-1].append(b)
 
-    def addSpacing(self, _px: int) -> None:
+    def end_group(self) -> None:
         self.groups.append([])
 
 
@@ -297,7 +297,7 @@ class MapControls(QWidget):
             menu.addAction(held)
             self.layers.setMenu(menu)
             self.layers.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        column.addSpacing(8)
+        column.end_group()
         self.select = self._button('', self._tip('Select - pick a contour or a node',
                                                  'tool.select'), column,
                                    checkable=True, icon=_icon(_pointer, ink, on=lit))
@@ -315,12 +315,12 @@ class MapControls(QWidget):
         self.modes.addButton(self.spot)
         self.modes.addButton(self.measure)
         self.select.setChecked(True)
-        column.addSpacing(8)
+        column.end_group()
         # the edits, by the window's actions - see bind - and greyed by the
         # history and the selection
         self.undo = self._button('', self._tip('Undo', 'edit.undo'), column, icon=_icon(_undo, ink))
         self.redo = self._button('', self._tip('Redo', 'edit.redo'), column, icon=_icon(_redo, ink))
-        column.addSpacing(8)
+        column.end_group()
         self.delete = self._button('', self._tip('Delete what is selected', 'edit.delete'), column,
                                    icon=_icon(_delete, ink))
         self.split = self._button('', self._tip('Split the contour at the node selected', 'edit.split'),
@@ -329,12 +329,12 @@ class MapControls(QWidget):
                                                  'edit.unglue'), column, icon=_icon(_unglue, ink))
         self.edits = {'edit.undo': self.undo, 'edit.redo': self.redo, 'edit.delete': self.delete,
                       'edit.split': self.split, 'edit.unglue': self.unglue}
-        column.addSpacing(8)
+        column.end_group()
         # not a tool: the loupe is over whichever tool is in use
         self.magnify = self._button('', self._tip('Magnify - a loupe at the cursor; shift and the wheel '
                                                   'for more or less', 'view.magnify'), column,
                                     checkable=True, icon=_icon(_magnifier, ink, on=lit))
-        column.addSpacing(8)
+        column.end_group()
         self.water = self._button(
             '', self._tip('Import water from Overpass for the working set',
                           'edit.import_water'),

@@ -164,3 +164,8 @@ def test_a_coastline_is_not_split(board):
 
 def test_with_nothing_done_undo_and_redo_are_greyed(window):
     assert not window.controls.undo.isEnabled() and not window.controls.redo.isEnabled()
+
+
+def test_an_action_applies_does_not_know_is_an_error(window):
+    with pytest.raises(KeyError):
+        window.editor.applies('edit.nothing')

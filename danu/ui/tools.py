@@ -636,6 +636,8 @@ class EditController(QObject):
         """Whether the action ``name`` would do something to the selection -
         delete, delete contour, split or unglue - for the map's buttons to be
         greyed by (H6b). The keys and the menu stay live, to say why not."""
+        if name not in ('edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue'):
+            raise KeyError(name)
         sel = self.selection
         if sel is None:
             return False
@@ -648,9 +650,7 @@ class EditController(QObject):
         if name == 'edit.split':
             return (sel.way.ele is not None and (sel.square.name, sel.way.id) not in self.layer.water
                     and edits.split_refusal(sel.square, sel.way.id, sel.node) is None)
-        if name == 'edit.unglue':
-            return edits.unglue_refusal(sel.square, sel.way.id, sel.node) is None
-        raise KeyError(name)
+        return edits.unglue_refusal(sel.square, sel.way.id, sel.node) is None
 
     def unglue(self):
         """U: the node selected left to its contour alone - every other
