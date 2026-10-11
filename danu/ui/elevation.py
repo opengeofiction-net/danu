@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from ..core import ladder as L
 from ..core.square import Square, WorkingSet
 from .settings import Settings
+from .widgets import info, unit
 
 PICK_PX = 8.0                    # how close the cursor must be to pick a contour up
 
@@ -133,22 +134,22 @@ class ElevationPanel(QDockWidget):
         self.value = QDoubleSpinBox()
         self.value.setRange(-500.0, 9000.0)
         self.value.setDecimals(1)
-        self.value.setSuffix(' m')
         self.value.setKeyboardTracking(False)
-        self.small = QDoubleSpinBox(); self.small.setRange(0.1, 1000.0); self.small.setDecimals(1); self.small.setSuffix(' m')
-        self.big = QDoubleSpinBox(); self.big.setRange(0.1, 5000.0); self.big.setDecimals(1); self.big.setSuffix(' m')
+        self.small = QDoubleSpinBox(); self.small.setRange(0.1, 1000.0); self.small.setDecimals(1)
+        self.big = QDoubleSpinBox(); self.big.setRange(0.1, 5000.0); self.big.setDecimals(1)
         self.small.setValue(control.model.small); self.big.setValue(control.model.big)
-        form.addRow('Active', self.value)
-        form.addRow('Small step', self.small)
-        form.addRow('Big step', self.big)
+        form.addRow('Active', unit(self.value))
+        form.addRow('Small step', unit(self.small))
+        form.addRow('Big step', unit(self.big))
         column.addLayout(form)
+        reading = QHBoxLayout()
         self.reading = QLabel('')
         self.reading.setWordWrap(True)
-        column.addWidget(self.reading)
-        self.keys = QLabel('')
-        self.keys.setWordWrap(True)
-        self.keys.setStyleSheet('color: gray')
-        column.addWidget(self.keys)
+        reading.addWidget(self.reading, 1)
+        # the keys, out of the panel until asked for (H6c)
+        self.keys = info('')
+        reading.addWidget(self.keys, 0, Qt.AlignmentFlag.AlignTop)
+        column.addLayout(reading)
         column.addStretch(1)
         row.addLayout(column, 1)
         self.setWidget(body)
@@ -165,13 +166,13 @@ class ElevationPanel(QDockWidget):
 
     def show_keys(self, settings: Settings):
         k = settings.key
-        self.keys.setText(f"{k('elevation.big_up')} / {k('elevation.big_down')} big step, "
-                          f"{k('elevation.small_up')} / {k('elevation.small_down')} small, "
-                          f"{k('elevation.nudge_up')} / {k('elevation.nudge_down')} a metre, "
-                          f"{k('elevation.pick_up')} picks up the contour under the cursor, "
-                          f"{k('elevation.sea_level')} sea level. "
-                          "The wheel zooms; ctrl-wheel steps, ctrl-shift-wheel by the big step. "
-                          "The right button drags the map.")
+        self.keys.setToolTip(f"{k('elevation.big_up')} / {k('elevation.big_down')} big step\n"
+                             f"{k('elevation.small_up')} / {k('elevation.small_down')} small step\n"
+                             f"{k('elevation.nudge_up')} / {k('elevation.nudge_down')} a metre\n"
+                             f"{k('elevation.pick_up')} picks up the contour under the cursor\n"
+                             f"{k('elevation.sea_level')} sea level\n"
+                             "Ctrl and the wheel step it, ctrl, shift and the wheel by the big step\n"
+                             "The wheel zooms; the right button drags the map")
 
     # ------------------------------------------------------- from model
     def _ladder_changed(self, ladder: L.Ladder):

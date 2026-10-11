@@ -256,3 +256,99 @@ def test_l_at_the_level_a_lake_already_has_is_no_step(w):
     w.editor.set_level()
     assert len(w.editor.history._done) == depth, 'the same level again went on the history'
     assert 'already' in w.statusBar().currentMessage()
+
+
+# ------------------------------------------------------------ copying, H6c
+
+def copied():
+    from PySide6.QtGui import QGuiApplication
+    return QGuiApplication.clipboard().text()
+
+
+def test_the_name_is_copied(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100])
+    p = w.selection_panel
+    assert p.copy_name.isEnabled() and p.copy_name.menu() is None
+    p.copy_name.click()
+    assert copied() == 'Bosco'
+
+
+def test_no_name_nothing_to_copy(w):
+    sq, way = contour(w)
+    w.editor.selection = Selection(sq, way)
+    assert not w.selection_panel.copy_name.isEnabled()
+
+
+def test_an_upstream_way_is_copied_as_w_and_as_its_page(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100])
+    p = w.selection_panel
+    assert p.copy_id.isEnabled()
+    menu = [a.text() for a in p.copy_id.menu().actions()]
+    assert menu == ['w100', 'https://opengeofiction.net/way/100']
+    p.copy_id.menu().actions()[1].trigger()
+    assert copied() == 'https://opengeofiction.net/way/100'
+
+
+def test_a_ring_of_a_lake_copies_the_lake(w):
+    """The relation ahead of the way: the lake is what a mapper means."""
+    sq = w.working_set.squares[NORTH]
+    for sel in (Selection(sq, sq.ways[200]), Selection(sq, None, relation=sq.relations[300])):
+        w.editor.selection = sel
+        assert w.selection_panel.info.osm == ('relation', 300)
+    assert [a.text() for a in w.selection_panel.copy_id.menu().actions()][0] == 'r300'
+
+
+def test_a_point_on_a_river_copies_the_node(w):
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[100], 2)
+    assert w.selection_panel.info.osm == ('node', 2)
+
+
+def test_a_spot_height_copies_its_node(w):
+    sq = w.working_set.squares[NORTH]
+    sq.nodes[7] = Node(id=7, lon=125.6, lat=-22.6, tags={'ele': '300'})
+    w.editor.selection = Selection(sq, None, 7)
+    assert w.selection_panel.info.osm == ('node', 7)
+
+
+def test_a_local_contour_has_no_id_to_copy(w):
+    sq, way = contour(w)
+    w.editor.selection = Selection(sq, way)
+    assert way.id < 0 and w.selection_panel.info.osm is None
+    assert not w.selection_panel.copy_id.isEnabled()
+
+
+def test_a_contour_upstream_copies_the_way_not_its_node(w):
+    sq, way = contour(w)
+    sq.ways[4242] = Way(id=4242, refs=list(way.refs), tags=dict(way.tags))
+    w.editor.selection = Selection(sq, sq.ways[4242], way.refs[1])
+    assert w.selection_panel.info.osm == ('way', 4242)
+
+
+def test_the_server_is_the_inis(w, tmp_path):
+    from danu.ui.selection_panel import osm_ids
+    from danu.ui.settings import Settings
+    s = Settings(tmp_path / 'other.ini')
+    assert s.server_url == 'https://opengeofiction.net'
+    s.q.setValue('ogf/server', 'https://test.example/')
+    assert osm_ids(('way', 5), s.server_url) == ['w5', 'https://test.example/way/5']
+
+
+def test_the_elevation_has_its_unit_beside_it_not_in_it(w):
+    p = w.selection_panel
+    assert p.ele.parentWidget().unit.text() == '(m)'
+    assert p.pull_back.suffix() == '' and p.pull_back.parentWidget().unit.text() == '(m)'
+
+
+def test_only_a_water_relation_holding_the_way_comes_first(w):
+    """A route through a river is not the river; and a node of the
+    relation's that has the way's number is not the way."""
+    sq = w.working_set.squares[NORTH]
+    sq.relations[600] = Relation(id=600, tags={'type': 'route', 'route': 'canoe'},
+                                 members=[Member('way', 100)])
+    sq.relations[700] = Relation(id=700, tags={'natural': 'water', 'water': 'river'},
+                                 members=[Member('node', 100)])
+    w.editor.selection = Selection(sq, sq.ways[100])
+    assert w.selection_panel.info.osm == ('way', 100)

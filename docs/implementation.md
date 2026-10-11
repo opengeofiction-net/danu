@@ -4354,3 +4354,36 @@ met, each to a node of its own, for unglue.
 taller than the viewport. They are laid out by hand now, a group at a time,
 a group that would run off the bottom starting a column beside it.
 
+## H6c, the panels
+
+`danu/ui/widgets.py` holds what the three panels share:
+- `unit` puts a small "(m)" at a field's right, in place of the " m" suffix
+  inside it. The suffix was in the way of a mapper selecting the value to
+  type over it, and no other field carried one.
+- `info` is an "i" whose tooltip holds an explanation.
+- `CopyButton` puts one text on the clipboard, or offers a menu of several.
+  Its greyed icon is drawn rather than left to Qt, whose greying left the
+  dark icon as dark as an enabled one.
+
+**Elevation.** The keys were a paragraph of grey prose under the ladder line.
+They are the tooltip of an "i" beside it, a key a line. Active, Small step
+and Big step carry their unit beside them.
+
+**Selected.** The elevation and a flatten's draw-back carry their unit beside
+them. The name has a copy button, greyed when there is none. So does Where,
+for the id: `describe` sets `Info.osm` to the object upstream:
+- a lake or river area chosen whole, or a way that is a ring of a water
+  relation, gives the relation - the lake is what a mapper means;
+- a spot height, or a point on a river, gives the node;
+- a contour, or a node of one, gives the way.
+
+A negative id was never upstream, so there is nothing to copy. The id is
+copied as `w633126`, or as its page on the server - `ogf/server` in the
+INI, `https://opengeofiction.net` until H6e's preferences say otherwise.
+
+**Surface.** The three overlays are Unknown ground, Single-level ground and
+Envelope, with the old wording and the requirement each is (R20, R21) in
+their tooltips. Single-level ground is indented under Unknown ground and
+greyed while it is off, as the View menu's has been since H6a. Show in JOSM
+under them clicks the Shift+J action.
+

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGraphicsItem,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSlider,
@@ -968,11 +969,20 @@ class SurfacePanel(QDockWidget):
         self.centre = QDoubleSpinBox(); self.centre.setRange(-12000, 12000); self.centre.setValue(100)
         self.width = QDoubleSpinBox(); self.width.setRange(1, 24000); self.width.setValue(50)
         self.opacity = QSlider(Qt.Orientation.Horizontal); self.opacity.setRange(0, 100); self.opacity.setValue(85)
-        self.show_unreached = QCheckBox('Ground the contours do not describe')
+        # short names, the explanation in the tooltip (H6c)
+        self.show_unreached = QCheckBox('Unknown ground')
+        self.show_unreached.setToolTip('Ground the contours do not describe - '
+                                       'the build found no answer there (R20)')
         self.show_unreached.setChecked(True)
-        self.show_one_level = QCheckBox('…and cells seeing one level (mostly beside contours)')
+        self.show_one_level = QCheckBox('Single-level ground')
+        self.show_one_level.setToolTip('With it, the cells that see one level only - '
+                                       'mostly beside contours')
         self.show_one_level.setChecked(False)
-        self.show_envelope = QCheckBox('Envelope of the drawn ground')
+        # a part of the unknown, so nothing without it
+        self.show_unreached.toggled.connect(self.show_one_level.setEnabled)
+        self.show_envelope = QCheckBox('Envelope')
+        self.show_envelope.setToolTip('The outline of the ground the contours describe: '
+                                      'the fill does not reach beyond it (R21)')
         self.show_envelope.setChecked(True)
         self.reading = QLabel('')
         self.reading.setWordWrap(True)
@@ -985,10 +995,19 @@ class SurfacePanel(QDockWidget):
         form.addRow('Pinch centre / width', self._pair(self.centre, self.width))
         form.addRow('Opacity', self.opacity)
         form.addRow(self.show_unreached)
-        form.addRow(self.show_one_level)
+        indented = QWidget()
+        row = QHBoxLayout(indented)
+        row.setContentsMargins(20, 0, 0, 0)
+        row.addWidget(self.show_one_level)
+        form.addRow(indented)
         form.addRow(self.reading)
         form.addRow(self.show_envelope)
         form.addRow(self.status)
+        # the surface in JOSM (H5), from the panel as well as Shift+J
+        self.josm_btn = QPushButton('Show in JOSM')
+        self.josm_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.josm_btn.setToolTip('The surface served to JOSM, and added there as a layer')
+        form.addRow(self.josm_btn)
         self.setWidget(body)
         if self.unreached is not None:
             self.show_unreached.toggled.connect(self.unreached.setVisible)

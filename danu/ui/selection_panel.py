@@ -22,7 +22,7 @@ find Q typed into the field.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -47,6 +47,7 @@ from ..core.ladder import format_ele
 from ..core.square import parse_ele
 from ..water.overpass import flows
 from .contours import water_tags
+from .widgets import CopyButton, unit
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class Info:
     why_not: str = ''            # why the elevation cannot be edited, when it cannot
     where: str = ''
     tags: str = ''               # the rest of the tags, read-only
+    osm: tuple[str, int] | None = None   # the object upstream, to copy its id: none if local
 
 NOTHING = Info('Nothing selected', why_not='select something to see it here')
 
@@ -76,9 +78,48 @@ def _others(tags: dict) -> str:
     return '\n'.join(rest)
 
 
+def _upstream(kind: str, i: int | None) -> tuple[str, int] | None:
+    return (kind, i) if i is not None and i > 0 else None
+
+
+def _water_relation(sq, way_id: int):
+    """The water relation a way is a ring of, if one is - a lake's id is the
+    relation's, not its ring's."""
+    for rel in sq.relations.values():
+        if water_tags(rel.tags) and any(m.type == 'way' and m.ref == way_id for m in rel.members):
+            return rel
+    return None
+
+
+def osm_ids(osm: tuple[str, int] | None, server: str) -> list[str]:
+    """The forms an id is copied in: ``w633126``, and its page on the server."""
+    if osm is None:
+        return []
+    kind, i = osm
+    return [f'{kind[0]}{i}', f'{server}/{kind}/{i}']
+
+
 def describe(sel, layer) -> Info:
-    """The selection, as the panel shows it. No widgets - so every case is a
-    test of a function rather than of a form."""
+    """The selection, as the panel shows it - with ``osm`` the object whose id
+    is copied: the relation for a ring of one, ahead of the way."""
+    info = _describe(sel, layer)
+    if sel is None or info is NOTHING:
+        return info
+    if sel.relation is not None:
+        osm = _upstream('relation', sel.relation.id)
+    elif sel.spot:
+        osm = _upstream('node', sel.node)
+    elif info.kind.startswith('point on'):
+        osm = _upstream('node', sel.node)
+    else:
+        rel = _water_relation(sel.square, sel.way.id)
+        osm = _upstream('relation', rel.id) if rel is not None else _upstream('way', sel.way.id)
+    return replace(info, osm=osm)
+
+
+def _describe(sel, layer) -> Info:
+    """The rest of it. No widgets - so every case is a test of a function
+    rather than of a form."""
     if sel is None:
         return NOTHING
     sq = sel.square
@@ -279,6 +320,16 @@ def _mark(kind: str) -> QIcon:
     return QIcon(pix)
 
 
+def _with(label: QLabel, button: QWidget) -> QWidget:
+    """A label, and a button at its right."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(label, 1)
+    row.addWidget(button, 0, Qt.AlignmentFlag.AlignTop)
+    return box
+
+
 class SelectionPanel(QDockWidget):
     def __init__(self, editor, parent=None):
         super().__init__('Selected', parent)
@@ -301,11 +352,15 @@ class SelectionPanel(QDockWidget):
         self.tags = QLabel()
         self.tags.setWordWrap(True)
         self.tags.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.name.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.copy_name = CopyButton('Copy the name')
+        self.copy_id = CopyButton('Copy its id upstream - as w123, or its page on the server')
+        self.server = getattr(getattr(parent, 'settings', None), 'server_url', 'https://opengeofiction.net')
         form.addRow('What', self.kind)
-        form.addRow('Name', self.name)
-        form.addRow('Elevation (m)', self.ele)
+        form.addRow('Name', _with(self.name, self.copy_name))
+        form.addRow('Elevation', unit(self.ele))
         form.addRow('', self.why)
-        form.addRow('Where', self.where)
+        form.addRow('Where', _with(self.where, self.copy_id))
         form.addRow('Tags', self.tags)
         # grading, for water - G6b: the action, findable without its key, and
         # the proposal it makes, shown before it lands
@@ -347,7 +402,6 @@ class SelectionPanel(QDockWidget):
         self.pull_back = QSpinBox()
         self.pull_back.setRange(0, 2000)
         self.pull_back.setSingleStep(25)
-        self.pull_back.setSuffix(' m')
         self.pull_back.setToolTip('How far a contour crossing the shore at another level is '
                                   'drawn back from the water')
         self.pull_back.valueChanged.connect(self._pull_back_changed)
@@ -356,7 +410,7 @@ class SelectionPanel(QDockWidget):
         row.setContentsMargins(0, 0, 0, 0)
         self.pull_back_label = QLabel('Draw back from the shore')
         row.addWidget(self.pull_back_label)
-        row.addWidget(self.pull_back)
+        row.addWidget(unit(self.pull_back))
         box.addWidget(self.summary)
         box.addWidget(self.pull_back_row)
         box.addWidget(self.issues)
@@ -382,6 +436,8 @@ class SelectionPanel(QDockWidget):
         self.ele.setToolTip(info.why_not or 'Enter to set it; empty and Enter to clear a '
                             "water level. Escape puts it back.")
         self.where.setText(info.where or '—')
+        self.copy_name.set_texts([info.name] if info.name else [])
+        self.copy_id.set_texts(osm_ids(info.osm, self.server))
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
         water = sel is not None and (

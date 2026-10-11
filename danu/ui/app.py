@@ -800,6 +800,7 @@ class MainWindow(QMainWindow):
         magnify.toggled.connect(self.loupe.set_on)          # from V, the menu and the button alike
         self.controls.magnify.toggled.connect(magnify.setChecked)
         self.controls.bind(e)
+        self.surface_panel.josm_btn.clicked.connect(e['view.josm_surface'].trigger)
         self._tool_changed('select')
         self._edited()
 
