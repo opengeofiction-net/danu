@@ -1,30 +1,30 @@
-"""The layer panel: which tile layer is under the map, and how opaque.
+"""The layers: which tile layer is under the map, and how opaque - the
+popup of a button on the map since H6a's review, which found a whole panel
+too much for it.
 
 One layer at a time - the review found two backdrops at once is never what a
 mapper wants, and one opacity is what they reach for - so the rows are radio
 buttons and there is a single slider. Presentation only: it turns the
 TileLayer items' visibility and opacity; nothing here knows what a tile is.
 
-The panel is the only thing that changes a layer's visibility or opacity after
-start-up, and it must stay so: a radio row cannot show 'none' or 'two', so
-anything else writing them would leave the panel wrong with no way back.
+The chooser is the only thing that changes a layer's visibility or opacity
+after start-up, and it must stay so: a radio row cannot show 'none' or 'two',
+so anything else writing them would leave it wrong with no way back.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QDockWidget, QGridLayout, QLabel, QRadioButton, QSlider, QWidget
+from PySide6.QtWidgets import QButtonGroup, QGridLayout, QLabel, QRadioButton, QSlider, QWidget
 
 from .tiles import TileLayer
 
 
-class LayersPanel(QDockWidget):
+class LayersChooser(QWidget):
     def __init__(self, items: list[TileLayer], parent=None):
-        super().__init__('Layers', parent)
-        self.setObjectName('layers')
+        super().__init__(parent)
         self.items = items
-        body = QWidget()
-        grid = QGridLayout(body)
+        grid = QGridLayout(self)
         grid.setColumnStretch(1, 1)
         self.group = QButtonGroup(self)
         self.radios: list[QRadioButton] = []
@@ -42,8 +42,7 @@ class LayersPanel(QDockWidget):
         grid.addWidget(QLabel('Opacity'), row, 0)
         grid.addWidget(self.slider, row, 1)
         grid.addWidget(self.pct, row, 2)
-        grid.setRowStretch(row + 1, 1)
-        self.setWidget(body)
+        self.slider.setMinimumWidth(140)
         self.group.idToggled.connect(self._toggled)
         self.slider.valueChanged.connect(self._slid)
         if active is not None:

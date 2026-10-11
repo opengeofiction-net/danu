@@ -74,7 +74,12 @@ def test_centred_on_the_cursor_and_gone_when_it_leaves_the_map(w):
 
 def test_it_takes_no_click_from_the_map(w):
     w.edit_actions['view.magnify'].trigger()
-    at = w.map.viewport().rect().center()
+    # below the map's buttons: on Windows the docks leave the test window's
+    # map so narrow that its centre is under them
+    vp = w.map.viewport().rect()
+    under = w.map.viewport().mapFrom(w.map, w.controls.geometry().bottomLeft()).y()
+    assert under < vp.bottom() - 20
+    at = QPoint(vp.center().x(), (under + vp.bottom()) // 2)
     moved(w, at)
     assert w.loupe.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     assert w.map.childAt(w.map.viewport().geometry().topLeft() + at) is w.map.viewport()

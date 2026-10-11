@@ -46,7 +46,7 @@ from .contours import ContourLayer
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .gone_dock import GoneDock
 from .josm import JosmRemote
-from .layers_panel import LayersPanel
+from .layers import LayersChooser
 from .legend import Legend
 from .loader import WorkingSetLoader
 from .loupe import Loupe
@@ -157,8 +157,8 @@ class MainWindow(QMainWindow):
             item.setZValue(i)
             self.map.scene().addItem(item)
             self.tile_items.append(item)
-        self.panel = LayersPanel(self.tile_items, self)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.panel)
+        # the layers, chosen from a button on the map (H6b) - see MapControls
+        self.layer_chooser = LayersChooser(self.tile_items)
         self.surface = SurfaceLayer()
         # composing a whole raster goes to a worker from here on: it is 21.7 s
         # at 1 arcsecond and a window manager offers to kill an application
@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         self._difference_job = None
         self._difference_for = None             # the build it is being worked out for
         self.surface_panel.styleChanged.connect(lambda _style: self._difference_wanted())
-        self.controls = MapControls(self.map, self.editor, self.settings)
+        self.controls = MapControls(self.map, self.editor, self.settings, layers=self.layer_chooser)
         self.controls.importWater.connect(self.import_water)
         self.controls.importHeights.connect(self.import_heights)
         # magnify (H3d): the map again at the cursor, a few times over
@@ -379,8 +379,8 @@ class MainWindow(QMainWindow):
         self._session_timer.timeout.connect(self.write_session)
         if self.session_path is not None:
             for sig in (self._view_settle.timeout, self.surface_panel.styleChanged, self.editor.toolChanged,
-                        self.loader.finished, self.elevation.changed, self.panel.group.idToggled,
-                        self.panel.slider.valueChanged, self.edit_actions['view.magnify'].toggled):
+                        self.loader.finished, self.elevation.changed, self.layer_chooser.group.idToggled,
+                        self.layer_chooser.slider.valueChanged, self.edit_actions['view.magnify'].toggled):
                 sig.connect(lambda *_: self._session_timer.start())
         self.map.zoomChanged.connect(lambda _: self._view_settle.start())
         self.map.horizontalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
@@ -799,6 +799,7 @@ class MainWindow(QMainWindow):
         magnify.toggled.connect(self.controls.magnify.setChecked)
         magnify.toggled.connect(self.loupe.set_on)          # from V, the menu and the button alike
         self.controls.magnify.toggled.connect(magnify.setChecked)
+        self.controls.bind(e)
         self._tool_changed('select')
         self._edited()
 
@@ -841,7 +842,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ panels
     def docks(self) -> list[QDockWidget]:
         """The panels, in the order the View menu lists them."""
-        return [self.panel, self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,
+        return [self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,
                 self.profile_dock, self.selection_panel]
 
     def _docked_only(self) -> None:

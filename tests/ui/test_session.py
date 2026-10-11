@@ -40,8 +40,8 @@ def left(make, zone, qtbot):
     w.map.set_zoom(11)
     w.map.center_on_lonlat(126.4, -23.6)
     w.surface_panel.mode.setCurrentText('slope')
-    w.panel.radios[1].setChecked(True)
-    w.panel.slider.setValue(60)
+    w.layer_chooser.radios[1].setChecked(True)
+    w.layer_chooser.slider.setValue(60)
     w.edit_actions['tool.measure'].trigger()
     w.edit_actions['view.magnify'].trigger()
     w.elevation.set(35)
@@ -74,7 +74,7 @@ def test_reopened_as_it_was_left(left, make, qtbot):
     lon, lat = w.map.center_lonlat()
     assert abs(lon - want_lonlat[0]) < 1e-3 and abs(lat - want_lonlat[1]) < 1e-3
     assert w.surface_panel.mode.currentText() == 'slope'
-    assert w.panel.active is w.panel.items[1] and w.panel.slider.value() == 60
+    assert w.layer_chooser.active is w.layer_chooser.items[1] and w.layer_chooser.slider.value() == 60
     assert w.editor.tool == 'measure' and w.loupe.on and w.controls.magnify.isChecked()
     assert w.elevation.value == 35
     assert w.checks_dock.isVisibleTo(w) and not w.profile_dock.isVisibleTo(w)

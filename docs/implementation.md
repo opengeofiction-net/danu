@@ -4318,3 +4318,39 @@ Surface, Elevation and Selected had no menu entry. View has all seven.
 **Reset panels** is the window's `saveState` taken once the panels are
 built, before a session is restored over it.
 
+## H6b, the map's buttons
+
+**The layers** were a panel of three radio buttons and a slider. They are a
+button on the map now, under zoom, its popup a `QMenu` holding the same
+widget (`LayersChooser`, in `danu/ui/layers.py`) through a `QWidgetAction` -
+a click on a radio or a drag of the slider keeps it open. It is still one
+layer at a time. A session saved before this step names a `layers` dock that
+no longer exists, and Qt's `restoreState` passes over it.
+
+**The tool in use.** The buttons had Qt's own checked look, a shade darker,
+which the review could not tell from the rest. A stylesheet on the column
+draws every button flat on the palette's button colour and fills a checked
+one with the highlight; each checkable button's icon has a second pixmap,
+drawn in the highlight's text colour, for its on state. Both come from the
+palette, so a dark desktop gets the same contrast.
+
+**Undo, redo, delete, split and unglue** are buttons, each clicking the
+window's action, so the usage log has it by name as it has the key. Undo and
+redo are greyed by the history. Delete, split and unglue are greyed by
+`EditController.applies`, which asks the selection what the edit would:
+`edits.split_refusal` and `edits.unglue_refusal` are the tests `split_way`
+and `unglue_node` begin with, factored out so the button and the edit cannot
+disagree - a test puts every node of every way of a board to both. Only the
+buttons grey: P with nothing to split still says what to choose. The unglue
+test looks through the square's ways for another holding the node, 0.7 ms on
+Artana's 3,345.
+
+New icons, drawn as the others are: arrows turning back for undo and redo, a
+bin for delete, scissors for split - a line broken at a node was drawn
+first, and read as a crosshair - and two contours drawn back from where they
+met, each to a node of its own, for unglue.
+
+**Fifteen buttons** do not fit down a short map: at 900 by 480 the column was
+taller than the viewport. They are laid out by hand now, a group at a time,
+a group that would run off the bottom starting a column beside it.
+
