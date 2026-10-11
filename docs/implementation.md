@@ -4360,7 +4360,8 @@ a group that would run off the bottom starting a column beside it.
 - `unit` puts a small "m" at a field's right, in place of the " m" suffix
   inside it. The suffix was in the way of a mapper selecting the value to
   type over it, and no other field carried one.
-- `info` is an "i" whose tooltip holds an explanation.
+- `info` is an "i" whose tooltip holds an explanation, drawn flat in the
+  text colour as the map's icons are - the style's blue disc stood out.
 
 **Elevation.** The keys were a paragraph of grey prose under the ladder line.
 They are the tooltip of an "i" beside it, a key a line. Active, Small step

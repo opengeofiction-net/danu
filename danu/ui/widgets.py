@@ -9,9 +9,9 @@ and the fields elsewhere carry none. It is a small "m" to the right now.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QGuiApplication, QPalette
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QStyle, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 
 def unit(field: QWidget, text: str = 'm') -> QWidget:
@@ -33,13 +33,29 @@ def unit(field: QWidget, text: str = 'm') -> QWidget:
 
 def info(text: str) -> QLabel:
     """An "i" whose tooltip is ``text`` - an explanation kept out of the
-    panel until it is asked for."""
+    panel until it is asked for. Drawn flat in the text colour, as the map's
+    icons are: the style's own information icon is a blue disc, and stood
+    out from everything round it."""
     label = QLabel()
-    size = label.style().pixelMetric(QStyle.PixelMetric.PM_SmallIconSize)
-    icon = label.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
-    label.setPixmap(icon.pixmap(QSize(size, size)))
+    label.setPixmap(_info_pixmap(label.palette().color(QPalette.ColorRole.WindowText)))
     label.setToolTip(text)
     return label
+
+
+def _info_pixmap(colour: QColor, size: int = 16) -> QPixmap:
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setPen(QPen(colour, 1.2))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QPointF(8, 8), 6.6, 6.6)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(colour)
+    p.drawEllipse(QPointF(8, 4.9), 1.0, 1.0)
+    p.drawRect(QRectF(7.2, 6.8, 1.6, 5.2))
+    p.end()
+    return pm
 
 
 def copy(text: str) -> None:

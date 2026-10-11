@@ -5,6 +5,7 @@ in short words with their explanation in the tooltips."""
 import pytest
 
 pytest.importorskip('PySide6')
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QLabel
 
 
@@ -19,6 +20,12 @@ def test_the_keys_are_behind_an_i_not_written_out(window):
     p = window.elevation_panel
     tip = p.keys.toolTip()
     assert not p.keys.pixmap().isNull() and not p.keys.text()
+    # flat, in the text colour: no blue disc of the style's own
+    img = p.keys.pixmap().toImage()
+    ink = p.keys.palette().color(QPalette.ColorRole.WindowText).rgb()
+    drawn = {img.pixelColor(x, y).rgb() for x in range(img.width()) for y in range(img.height())
+             if img.pixelColor(x, y).alpha() == 255}
+    assert drawn == {ink}
     for name in ('elevation.big_up', 'elevation.small_down', 'elevation.pick_up', 'elevation.sea_level'):
         assert window.settings.key(name) in tip
     prose = [lb.text() for lb in p.findChildren(QLabel) if lb.isVisible() and len(lb.text()) > 60]
