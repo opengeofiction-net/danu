@@ -73,3 +73,25 @@ def test_describe_warns_only_for_ground_claimed_by_somebody_else():
     assert T.describe([one], '', admin=True)[0] == 'One (AR001), owned by Luciano', 'no user, no admin'
     line, warn = T.describe([T.Territory(9), one], 'wangi')
     assert line.startswith('not yours to draw: unknown territory (relation 9); One') and warn
+
+
+def test_a_relation_with_no_record_and_an_outline_are_not_under_a_square():
+    """A timezone has rings and no ogf:id, so no record (304988 over
+    Gobrassanya); an outline is split into the sub-territories under it."""
+    geometry = T.parse_geometry(json.dumps({
+        '10': [[0, 0], [0, 10], [10, 10], [10, 0]],          # the territory
+        '11': [[-5, -5], [-5, 15], [15, 15], [15, -5]],      # a timezone over it
+        '12': [[0, 0], [0, 10], [10, 10], [10, 0]],          # an outline over it
+    }))
+    attrs = {10: T.Territory(10, 'UL05a', 'Gobrassanya', 'owned', 'wangi'),
+             12: T.Territory(12, 'UL05', 'Collab:Somewhere', 'outline', 'admin')}
+    idx = T.TerritoryIndex(geometry, attrs)
+    assert [t.rel for t in idx.under((2, 2, 3, 3))] == [10]
+    assert idx.under((12, 12, 13, 13)) == [], 'the timezone alone: no territory'
+    assert T.describe(idx.under((2, 2, 3, 3)), 'wangi') == ('Gobrassanya (UL05a), owned by wangi', False)
+
+
+def test_before_the_records_are_read_every_polygon_is_unknown():
+    idx = T.TerritoryIndex(T.parse_geometry(json.dumps({'11': [[-5, -5], [-5, 15], [15, 15], [15, -5]]})), {})
+    (t,) = idx.under((2, 2, 3, 3))
+    assert t.describe() == 'unknown territory (relation 11)'

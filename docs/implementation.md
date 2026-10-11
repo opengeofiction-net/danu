@@ -4498,3 +4498,24 @@ The tests stand a thread in for the server's three ends, as
 openstreetmap-website answers them, and play the browser with a GET to the
 listener on a free port.
 
+## H6f again: what is a territory
+
+Signing in showed what a typed name had hidden: over gobras the status line
+said "unknown territory (relation 304988)". `territory.json` holds more than
+territories - 266 of its 1,103 relations carry a timezone, and 11 of those
+are timezones alone, with no `ogf:id` and so no wiki record. 304988 is GOBRAS
+PEN, +05:00, over all of Gobrassanya.
+
+`TerritoryIndex.counts` says what is named under a square: a relation with a
+record, whose status is not `outline`. An outline - AR047, Collab:Astrasian
+Confederacy, owner admin - is split into the admin level 3 and 4
+sub-territories it holds, which have the status and owner that matter
+(AR047-03, Sainte-Agnès, open to all). None of the published files carry
+`admin_level`, and outline says the same thing. Before the records are read
+every polygon counts, said as unknown, as before.
+
+Over the world, the 22,719 one-degree squares with a polygon under them all
+still name a territory: none was under only a timezone or only an outline.
+Gobras now reads "Gobrassanya (UL05a), collaborative"; its square to the
+west adds "Alora (UL05c), owned by indyroads".
+

@@ -67,7 +67,10 @@ the tools for everything else.
 - **R7** The territory and owner under the working set are shown, from the
   wiki's territory administration JSON joined to the daily published
   `territory.json` polygons on the relation id. Advisory: opening a square
-  somebody else owns warns and proceeds. Whose it is is asked of the name the
+  somebody else owns warns and proceeds. A relation with no record - a
+  timezone, which has rings and no `ogf:id` - is not a territory, nor is an
+  `outline`, split into the admin level 3 and 4 sub-territories it holds.
+  Whose it is is asked of the name the
   mapper signed in to OGF with, exactly; an administrator is warned as anyone
   is, and told they are one.
 
