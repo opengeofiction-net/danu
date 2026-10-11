@@ -964,8 +964,11 @@ def test_each_line_is_drawn_in_the_mode_and_colour_its_style_asks(view, ws, zoom
     assert {round(e[3], 2) for e in blended} <= {line_width(zoom, False), line_width(zoom, True)}
     assert any(e[3] == pytest.approx(line_width(zoom, False)) for e in blended), 'no ordinary contour at its width'
     # the active level, heavier, drawn plain over the rest
-    active = [e for e in lines if e[3] == pytest.approx(3.2)]
+    from danu.ui.contours import ACTIVE, ACTIVE_WIDTH
+    active = [e for e in lines if e[3] == pytest.approx(ACTIVE_WIDTH)]
     assert active and all(e[2] == M.CompositionMode_SourceOver for e in active)
+    assert {e[1] for e in active} == {ACTIVE.name()} == {'#000000'}, 'the active level not black'
+    assert ACTIVE_WIDTH > 1.5 * line_width(zoom, True), 'not plainly heavier than an index contour'
 
 
 def test_contours_are_thinner_where_dense_and_heavier_where_few():

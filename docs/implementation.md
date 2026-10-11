@@ -4613,6 +4613,8 @@ each style at z12 and z16, and the active level's plain.
 zoom. `line_width` makes it 0.7 px up to z12, where the lines pack tight
 and dark at 1.0 left steep ground solid black; 1.0 to z15; 1.2 from z16,
 where they are few. An index contour stays 1.8 times the rest. A zoom
-between two - the loupe's - goes to the nearer. The active level is 3.2 px
-at every zoom, as before.
+between two - the loupe's - goes to the nearer.
+
+**The active level** was its own colour darkened, 3.2 px: a blue line on blue
+ground, lost. It is black, 4 px, drawn plain over the rest in either style.
 

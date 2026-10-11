@@ -89,6 +89,9 @@ DARK = QColor(32, 32, 32)
 # An index contour keeps its weight against the rest at every zoom
 WIDTHS = ((12, 0.7), (15, 1.0), (99, 1.2))         # up to this zoom, an ordinary contour's px
 INDEX_WEIGHT = 1.8
+# the active level, over them all whatever the style
+ACTIVE = QColor(0, 0, 0)
+ACTIVE_WIDTH = 4.0
 
 
 def line_width(zoom: float, index: bool) -> float:
@@ -1065,10 +1068,11 @@ class ContourLayer(QGraphicsItem):
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         if self.active is not None and self.active in self.paths and zoom >= ZOOM_INDEX:
             # the level being drawn at, over everything: the mapper needs to
-            # see where it already runs
+            # see where it already runs. Black and heavy - in its own colour
+            # it was lost, a blue line on blue ground
             active = [piece for piece in self.paths[self.active] if piece.rect.intersects(rect)]
             if active:
-                pen = QPen(self.colour(self.active).darker(120), 3.2)
+                pen = QPen(ACTIVE, ACTIVE_WIDTH)
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 for piece in active:
