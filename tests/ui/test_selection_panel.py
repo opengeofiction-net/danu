@@ -361,3 +361,22 @@ def test_only_a_water_relation_holding_the_way_comes_first(w):
     w.editor.selection = Selection(sq, sq.ways[100])
     assert w.selection_panel.info.osm == ('way', 100)
 
+
+
+def test_choosing_does_not_move_the_map(w):
+    """The panel is as wide from the start as a lake's buttons make it."""
+    from PySide6.QtWidgets import QApplication
+    sq = w.working_set.squares[NORTH]
+    QApplication.processEvents()
+    widths = set()
+    for sel in (None, Selection(sq, None, relation=sq.relations[300]), Selection(sq, sq.ways[100]),
+                Selection(sq, sq.ways[100], 2), contour(w) and Selection(*contour(w)), None):
+        w.editor.selection = sel
+        QApplication.processEvents()
+        widths.add(w.map.viewport().width())
+        p = w.selection_panel
+        room = p.widget().viewport().width()
+        for b in (p.grade_btn, p.network_btn, p.flatten_btn):
+            if b.isVisible():
+                assert b.mapTo(p.widget().widget(), b.rect().topRight()).x() < room, 'a button cut off'
+    assert len(widths) == 1, widths

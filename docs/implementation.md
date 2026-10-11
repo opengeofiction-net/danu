@@ -4381,6 +4381,15 @@ A negative id was never upstream, so there is nothing to copy. The id is
 copied as `w633126`, or as its page on the server - `ogf/server` in the
 INI, `https://opengeofiction.net` until H6e's preferences say otherwise.
 
+**The Selected panel's width** is fixed by what it may show, not by what it
+does. Choosing a lake showed its grade and flatten buttons, wider than the
+rest, and the left column widened; a river's reason and buttons made the
+panel taller than the column had room for, and the window paid in width.
+Either way the map beside it jumped by 40 to 70 px - which CI found as a
+lake's level label leaving the place a test read it. The panel is as wide
+from the start as its widest selection, and scrolls a selection taller than
+the room.
+
 **Surface.** The three overlays are Unknown ground, Single-level ground and
 Envelope, with the old wording and the requirement each is (R20, R21) in
 their tooltips. Single-level ground is indented under Unknown ground and

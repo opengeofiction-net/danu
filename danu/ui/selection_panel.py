@@ -29,12 +29,14 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, 
 from PySide6.QtWidgets import (
     QDockWidget,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QToolTip,
@@ -415,7 +417,20 @@ class SelectionPanel(QDockWidget):
         box.addWidget(self.profile)
         box.addLayout(buttons)
         form.addRow(self.proposal_box)
-        self.setWidget(body)
+        # one width whatever is chosen. A lake's buttons widened the dock as
+        # it was chosen, and a river's reason and buttons made it taller than
+        # the column had room for, which the window paid for in width: the
+        # map beside it jumped. Its minimum is the widest selection's, and a
+        # selection taller than the room scrolls. Measured before refresh
+        # hides the parts this selection does not use
+        body.setMinimumWidth(body.minimumSizeHint().width())
+        scroll = QScrollArea()
+        scroll.setWidget(body)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(body.minimumWidth() + scroll.verticalScrollBar().sizeHint().width())
+        self.setWidget(scroll)
         editor.proposalChanged.connect(self.refresh_proposal)
         self.info = NOTHING
         self.ele.returnPressed.connect(self._commit)
