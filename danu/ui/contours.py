@@ -85,6 +85,16 @@ WATER_LABEL_PX = 60.0
 # read and still say their height by the legend
 BLEND_ZOOM = 14
 DARK = QColor(32, 32, 32)
+# and how heavy: thinner where they are dense, heavier where they are few.
+# An index contour keeps its weight against the rest at every zoom
+WIDTHS = ((12, 0.7), (15, 1.0), (99, 1.2))         # up to this zoom, an ordinary contour's px
+INDEX_WEIGHT = 1.8
+
+
+def line_width(zoom: float, index: bool) -> float:
+    """A contour's width in screen pixels at a zoom."""
+    w = next(px for upto, px in WIDTHS if zoom <= upto + 0.5)
+    return round(w * (INDEX_WEIGHT if index else 1.0), 2)
 INDEX_EVERY_N = 5
 MIN_LABEL_PX = 80.0
 FONT_PT = 9
@@ -1035,7 +1045,7 @@ class ContourLayer(QGraphicsItem):
             visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
             if not visible:
                 continue
-            pen = QPen(DARK if zoomed_out else self.colour(ele), 1.8 if index else 1.0)
+            pen = QPen(DARK if zoomed_out else self.colour(ele), line_width(zoom, index))
             pen.setCosmetic(True)
             painter.setPen(pen)
             for piece in visible:
