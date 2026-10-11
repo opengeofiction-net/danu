@@ -156,13 +156,37 @@ class Settings:
 
     @property
     def user(self) -> str:
-        """The mapper's OGF username, for 'is this mine to draw?'. Empty
-        means unknown, and then ownership is shown but never called wrong."""
+        """The mapper's OGF username, for 'is this mine to draw?' - the
+        server's, from signing in (H6f). Empty means unknown, and then
+        ownership is shown but never called wrong."""
         return str(self.q.value('user/name', '') or '')
 
     @user.setter
     def user(self, name: str):
         self.q.setValue('user/name', name.strip())
+
+    @property
+    def roles(self) -> list[str]:
+        """The user's roles on the server, as signing in found them."""
+        return [r for r in str(self.q.value('user/roles', '') or '').split(',') if r]
+
+    @roles.setter
+    def roles(self, roles: list[str]):
+        self.q.setValue('user/roles', ','.join(roles))
+
+    @property
+    def admin(self) -> bool:
+        """An OGF administrator - said beside the territory warning."""
+        return 'administrator' in self.roles
+
+    @property
+    def token(self) -> str:
+        """The OAuth 2 token signing in to OGF gave (H6f), or empty."""
+        return str(self.q.value('ogf/token', '') or '')
+
+    @token.setter
+    def token(self, value: str):
+        self.q.setValue('ogf/token', value)
 
     @property
     def bare_min_hectares(self) -> float:

@@ -159,16 +159,21 @@ class TerritoryIndex:
         return [self.territory(rel) for rel, _ in sorted(found.items(), key=lambda kv: (kv[1], kv[0]))]
 
 
-def describe(found: list[Territory], user: str = '') -> tuple[str, bool]:
+def describe(found: list[Territory], user: str = '', admin: bool = False) -> tuple[str, bool]:
     """One line for the status bar, and whether it is a warning: the ground
     is claimed by somebody who is not the user. No user set, no warning -
-    the line still says whose it is."""
+    the line still says whose it is. An administrator is warned as anyone
+    is - so as to know - and told they are one."""
     if not found:
         return 'no territory here', False
     line = '; '.join(t.describe() for t in found)
-    # an owner field can name several, 'Alessa;Leowezy'
+    if admin and user:
+        line += ' (administrator)'
+    # an owner field can name several, 'Alessa;Leowezy'. Exact: OGF's
+    # usernames are case- and punctuation-sensitive, and the admin data holds
+    # the server's - wangi, not the wiki's Wangi (H6f)
     others = [t for t in found if t.known and t.status in CLAIMED and t.owner
-              and user.lower() not in [o.strip().lower() for o in t.owner.split(';')]]
+              and user not in [o.strip() for o in t.owner.split(';')]]
     if user and others:
         return f'not yours to draw: {line}', True
     return line, False

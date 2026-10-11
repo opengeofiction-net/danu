@@ -62,10 +62,14 @@ def test_describe_warns_only_for_ground_claimed_by_somebody_else():
     one, two, three = idx.territory(1), idx.territory(2), idx.territory(3)
     assert T.describe([], 'wangi') == ('no territory here', False)
     assert T.describe([one], '') == ('One (AR001), owned by Luciano', False)          # no user: told, not warned
-    assert T.describe([one], 'luciano') == ('One (AR001), owned by Luciano', False)   # case does not matter
+    assert T.describe([one], 'Luciano') == ('One (AR001), owned by Luciano', False)
+    assert T.describe([one], 'luciano')[1] is True                                    # OGF's names are exact (H6f)
     assert T.describe([one], 'wangi') == ('not yours to draw: One (AR001), owned by Luciano', True)
     assert T.describe([two], 'wangi') == ('Two (AR002), collaborative', False)         # collaborative is not a claim
-    assert T.describe([three], 'leowezy')[1] is False                                  # one of several owners
+    assert T.describe([three], 'Leowezy')[1] is False                                  # one of several owners
     assert T.describe([three], 'wangi')[1] is True
+    assert T.describe([one], 'wangi', admin=True) == ('not yours to draw: One (AR001), owned by Luciano (administrator)', True)
+    assert T.describe([one], 'Luciano', admin=True) == ('One (AR001), owned by Luciano (administrator)', False)
+    assert T.describe([one], '', admin=True)[0] == 'One (AR001), owned by Luciano', 'no user, no admin'
     line, warn = T.describe([T.Territory(9), one], 'wangi')
     assert line.startswith('not yours to draw: unknown territory (relation 9); One') and warn
