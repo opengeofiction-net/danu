@@ -4519,3 +4519,45 @@ still name a territory: none was under only a timezone or only an outline.
 Gobras now reads "Gobrassanya (UL05a), collaborative"; its square to the
 west adds "Alora (UL05c), owned by indyroads".
 
+## H6g, importing squares
+
+Danu read squares from a directory laid out as the server's
+`dem/osm-squares` is, and left keeping one in step to the mapper.
+`danu/core/mirror.py` mirrors a zone; `danu/ui/mirror.py` is File ›
+Import… over it.
+
+The server's directories are nginx autoindex pages: a link, a date to the
+minute and a size in bytes. `zones` reads the subdirectories, `files` the
+`.osm.xz` squares - EMPTY.osm.xz among them, which is mirrored like the rest.
+
+**Two phases**, so the one question is asked on the UI thread:
+
+1. `fetch`, on a worker: the zone's index, and each square the copy here
+   does not match fetched beside it as `.part-<hex>`. Nothing in place is
+   touched, a fetch that fails takes its parts with it, and parts a killed
+   mirror left are cleared first.
+2. `settle`, on the UI thread with the answer: the parts put in place by
+   `os.replace`, and the manifest written.
+
+**Changed here** is the manifest, `.danu-mirror.json` in the zone: each
+square's SHA-256 as mirrored, and the server's size and date then. A square
+that hashes as the manifest says, with the server's size and date unchanged,
+is current and not fetched - a second import of gobras is 0.6 s, the first
+38 s for its 4 MB. One that hashes so but is newer there is replaced without
+asking. One that does not, or that the manifest does not know, was changed
+here, and the server's copy is fetched to compare: the same bytes are no
+question; different, it is asked about in a dialog of boxes, each unticked,
+and kept unless ticked. A square the server no longer has is left, and said.
+
+**The open set.** With unsaved edits, its squares are held back whatever
+the server has - neither asked about nor replaced - and the status line says
+so. Without, any replaced is read again: the set opened anew, and the
+summary said once more when it has.
+
+The parts are opened as any file is, not by `mkstemp`, whose files are their
+owner's alone: the first real mirror put squares in place at 0600.
+
+Open square starts at the import root, once it exists, until another root has
+been opened from. The root is a preference (General), and so is the mirror's
+address (Servers).
+
