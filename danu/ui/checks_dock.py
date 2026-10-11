@@ -240,7 +240,7 @@ class ChecksDock(QDockWidget):
             top.setToolTip(0, f'{g.describe()}\nchoose it to select the contour and see where it crosses')
             for other, times in sorted(g.partners.items(), key=lambda kv: (-kv[1], kv[0][2])):
                 sq, wid, ele = other
-                child = QTreeWidgetItem([f'crosses the {ele:g} m contour, way {wid} in {sq}'
+                child = QTreeWidgetItem([f'crosses {ele:g} m contour, way {wid} in {sq}'
                                          + (f' - {times} times' if times > 1 else '')])
                 child.setData(0, _ROW, (g.contour, [c for c in g.crossings if other in (c.a, c.b)]))
                 top.addChild(child)

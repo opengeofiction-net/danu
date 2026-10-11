@@ -4419,6 +4419,10 @@ the check's list sent: `chosen`, `loopChosen`, `touchChosen`, `spotChosen`, or
 `findingChosen` for the files', rings' and surface's findings. Cut out loop
 is enabled only while a loop is the row chosen.
 
+A row flags a place, it is not a sentence: "the" and "it" are gone from the
+rows - "150 m ring, way 4878968 - 18 ha, nothing inside", "Nate Peak 149 m -
+below 150 m ring round it". The tooltips, which explain, keep theirs.
+
 The surface's checks keep their state on their nodes: "(no build)" until a
 build has said them, "(building…)" while one is running, and "stale" beside
 the count once edits have been made since; the tooltip says when the build

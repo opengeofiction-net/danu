@@ -69,11 +69,11 @@ class Contradiction:
     def describe(self) -> str:
         what = f'{self.name} {self.ele:g} m' if self.name else f'{self.ele:g} m spot height'
         if self.open:
-            return f'{what} - in no ring, the contours nearest it {self.lo:g} to {self.hi:g} m'
+            return f'{what} - in no ring, nearest contours {self.lo:g} to {self.hi:g} m'
         if self.kind == 'below':
             where = 'above' if self.hollow else 'below'
-            return f'{what} - {where} the {self.level:g} m ring round it'
-        return f'{what} - past the {self.bound:g} m, which is not drawn round it'
+            return f'{what} - {where} {self.level:g} m ring round it'
+        return f'{what} - past {self.bound:g} m, not drawn round it'
 
     def explain(self) -> str:
         if self.open:

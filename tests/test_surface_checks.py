@@ -60,7 +60,7 @@ def test_unreached_ground_is_a_row_a_square_with_its_share():
     classes[:, :600] = OUTSIDE                                       # half the square undrawn
     classes[:120, 600:] = UNREACHED                                  # a tenth of the drawn half
     (f,) = surface.unreached(snap(), classes, GT)
-    assert f.square == A and f.kind == 'unreached' and '10.0% of the drawn area' in f.describe()
+    assert f.square == A and f.kind == 'unreached' and '10.0% of drawn area' in f.describe()
     assert surface.unreached(snap(), np.full((1200, 1200), ANSWERED, np.uint8), GT) == []
 
 

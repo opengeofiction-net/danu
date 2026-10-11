@@ -52,7 +52,7 @@ def test_a_lake_with_a_contour_at_another_level_inside_it_is_listed():
     line(sq, [(125.45, -22.5), (125.55, -22.5)], 125)                 # through it
     line(sq, [(125.45, -22.51), (125.55, -22.51)], 150)
     (f,) = kinds(w, 'lake')
-    assert f.way == lake.id and f.describe() == 'lake "Kinser" - 2 contour levels inside it, 125 to 150 m'
+    assert f.way == lake.id and f.describe() == 'lake "Kinser" - 2 contour levels inside, 125 to 150 m'
 
 
 def test_one_at_its_own_level_or_snapped_to_its_shore_or_on_an_island_is_not():
@@ -72,7 +72,7 @@ def test_one_at_its_own_level_or_snapped_to_its_shore_or_on_an_island_is_not():
     assert kinds(w, 'lake') == []
     line(sq, [(125.16, -22.2), (125.165, -22.2)], 175)                # in the water, between the rings
     (f,) = kinds(w, 'lake')
-    assert f.relation == -5 and 'the 175 m' in f.describe()
+    assert f.relation == -5 and '175 m' in f.describe()
 
 
 def test_flowing_water_spans_contours_and_is_not_a_body():
@@ -92,7 +92,7 @@ def test_a_ring_under_the_threshold_is_not_reported():
     assert f.way == knoll.id and '0 ha' in f.describe()
     big = ring(sq, 125.2, -22.2, 0.002, {'ele': '220'})                 # 412 m by 442 m, 18.2 ha
     (f,) = kinds(w, 'bare')
-    assert f.way == big.id and f.describe() == f'the 220 m ring, way {big.id} - 18 ha, nothing inside it'
+    assert f.way == big.id and f.describe() == f'220 m ring, way {big.id} - 18 ha, nothing inside'
 
 
 def test_a_ring_with_nothing_inside_is_reported_and_one_holding_anything_is_not():
@@ -106,7 +106,7 @@ def test_a_ring_with_nothing_inside_is_reported_and_one_holding_anything_is_not(
     crossed = ring(sq, 125.1, -22.8, 0.01, {'ele': '200'})
     line(sq, [(125.05, -22.8), (125.15, -22.8)], 225)                           # one across, no vertex in
     (f,) = kinds(w, 'bare')
-    assert f.way == top.id and f.describe().endswith('ha, nothing inside it')
+    assert f.way == top.id and f.describe().endswith('ha, nothing inside')
     assert {held.id, outer.id, ended.id, crossed.id}.isdisjoint({x.way for x in kinds(w, 'bare')})
 
 

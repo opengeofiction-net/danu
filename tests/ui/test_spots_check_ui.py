@@ -45,7 +45,7 @@ def peak(window, qtbot):
 
 def test_the_panel_lists_it_and_choosing_it_selects_it(peak):
     w, sq, nid = peak
-    assert rows(w.checks_dock) == ['Nate Peak 149 m - below the 150 m ring round it']
+    assert rows(w.checks_dock) == ['Nate Peak 149 m - below 150 m ring round it']
     dock = w.checks_dock
     dock.tree.setCurrentItem(next(it for it in dock.rows('spots') if it.data(0, 256).square == NORTH))
     sel = w.editor.selection
@@ -81,5 +81,5 @@ def test_one_in_no_ring_is_counted_apart_in_the_tooltip(window, qtbot):
     w.editor.do(sq, edits.AddNode(nid, (125.5, -22.5), {'ele': '69', 'name': 'Suprrina Hill'}))
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.spot_index is not None, timeout=5000)
-    assert 'Suprrina Hill 69 m - in no ring, the contours nearest it 5 to 7 m' in rows(w.checks_dock)
+    assert 'Suprrina Hill 69 m - in no ring, nearest contours 5 to 7 m' in rows(w.checks_dock)
     assert '1 in no ring and far off the contours nearest it' in w.checks_dock.node('spots').toolTip(0)
