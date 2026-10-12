@@ -4984,3 +4984,19 @@ reading is of the array drawn.
 scaling are the 3" surface's, so the 1" ground is coloured as the ground
 around it; the surface checks run on the 3" working set; the difference is
 the 3" build's against the published DEM.
+
+## I3d, the choice gone
+
+The working set is built at 3", and there is no choice of resolution: the
+surface panel's combo is gone, and its Rebuild asks for a rebuild and nothing
+more. The ground in view is at 1" from z15 in, which is what the 1" build was
+for.
+
+The command line's `--surface` still builds at another resolution, for
+comparing - a whole 1" build against what the editor shows - and the rebuilds
+after it, Ctrl+R and the idle one, keep to it rather than changing the
+surface's resolution under the mapper. A surface built at 1 has no 1" view
+over it, since it is one.
+
+The session records that a surface was built and not its resolution, and
+builds again at 3; a file from before this, naming 1, reopens at 3 too.

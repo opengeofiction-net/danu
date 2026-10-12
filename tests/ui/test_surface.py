@@ -138,9 +138,9 @@ def test_the_panel_enables_what_the_choice_needs_and_drives_the_layer(qtbot):
     panel.opacity.setValue(40)
     assert abs(layer.opacity() - 0.4) < 1e-9
     fired = []
-    panel.rebuild.connect(fired.append)
+    panel.rebuild.connect(lambda: fired.append(True))
     panel.button.click()
-    assert fired == [3.0]                                          # the default resolution
+    assert fired == [True]                                         # a rebuild, of no resolution of its own
 
 
 def test_the_builder_reports_a_set_with_nothing_to_build_and_recovers(qtbot, tmp_path):
