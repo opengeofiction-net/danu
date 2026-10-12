@@ -59,7 +59,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import NODATA, drawn_mask, isofill_lib, sea_mask
+from . import NODATA, isofill_lib
 from .local import Box
 from .params import Params
 from .preview import Band, Contours, clamp_patch
@@ -159,6 +159,9 @@ class Fine:
         self.contours = contours
         self.surface, self.dem = surface, dem
         self.params = params
+        # here and not at the top: drawn_mask and sea_mask are GDAL's, and the
+        # editor's driver imports this module on a machine that may have none
+        from . import sea_mask
         self.seeds = sea_mask.coast_seeds(gpkg, fine.gt) if gpkg is not None else None
         self._envelopes: dict[tuple[int, int], tuple[int, int, int, int] | None] = {}
         # the tiles kept, ('first' or 'dem', key) -> (value, cells), least
@@ -172,6 +175,7 @@ class Fine:
     def _envelope(self, square) -> tuple[int, int, int, int] | None:
         """One degree square's envelope as cells of the fine grid - x0, x1, y0,
         y1, one past the end - from its contours burned at 1 arcsecond."""
+        from . import drawn_mask
         lat, lon, x0, x1, y0, y1 = square
         if (lat, lon) not in self._envelopes:
             a = self.contours.burn(self.fine.gt, Box(x0, y0, x1 - 1, y1 - 1), NODATA, spots=False)
@@ -182,6 +186,7 @@ class Fine:
 
     def mask(self, box: Box) -> np.ndarray:
         """The drawn area over ``box``."""
+        from . import drawn_mask
         out = np.zeros(box.shape, np.uint8)
         for square in drawn_mask.squares(self.fine.gt, self.fine.cols, self.fine.rows):
             _, _, x0, x1, y0, y1 = square
@@ -200,6 +205,7 @@ class Fine:
         """The sea over ``box``, or None where the working set has no coastline."""
         if self.seeds is None:
             return None
+        from . import sea_mask
         rows, cols = box.shape
         return sea_mask.sea_window(*self.seeds, box.x0, box.y0, cols, rows, self.fine.shape)
 
