@@ -172,3 +172,20 @@ def test_the_drawn_area_of_a_window_is_the_wholes():
     for box in (Box(1900, 950, 2099, 1049), Box(2200, 1050, 2399, 1149), Box(2050, 1020, 2149, 1079),
                 Box(2299, 1099, 2299, 1099), Box(2300, 1100, 2310, 1110)):
         assert np.array_equal(f.mask(box), whole[box.slice]), box
+
+
+def test_grids_whose_centres_do_not_line_up_are_refused():
+    """``up`` reads a coarse cell by a fine index over the ratio, which is
+    right only if the two grids' first centres are the same point."""
+    from danu.surface import fine
+    from danu.surface.params import load
+    from danu.surface.preview import ArrayBand
+
+    band = ArrayBand(np.zeros((3, 4), np.float32))
+    f = fine.Grid(GT, 7, 10)
+    shifted = fine.Grid((125 + 1.5 / 3600, 3 / 3600, 0.0, -23 + 1.5 / 3600, 0.0, -3 / 3600), 3, 4)
+    with pytest.raises(ValueError, match='apart'):
+        fine.Fine(f, shifted, None, band, band, load().with_arcsec(1))
+    north = fine.Grid((125 - 1.5 / 3600, 3 / 3600, 0.0, -23 - 1.5 / 3600, 0.0, -3 / 3600), 3, 4)
+    with pytest.raises(ValueError, match='apart'):
+        fine.Fine(f, north, None, band, band, load().with_arcsec(1))

@@ -118,6 +118,12 @@ class Fine:
         ratio = coarse.gt[1] / fine.gt[1]
         if abs(ratio - round(ratio)) > 1e-9:
             raise ValueError(f'a {coarse.gt[1]} grid over a {fine.gt[1]} one is not a whole ratio')
+        # and their first centres the same point, which is what ``up`` reads
+        # the coarse cells by: off by one, it would read every one wrong
+        for i, d in ((0, 1), (3, 5)):
+            off = (coarse.gt[i] + coarse.gt[d] / 2) - (fine.gt[i] + fine.gt[d] / 2)
+            if abs(off) > abs(fine.gt[d]) * 1e-6:
+                raise ValueError(f'the grids\' first centres are {off / fine.gt[d]:g} fine cells apart')
         self.fine, self.coarse = fine, coarse
         self.ratio = round(ratio)
         self.contours = contours

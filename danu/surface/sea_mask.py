@@ -140,6 +140,7 @@ def coast_seeds(src_path, gt):
     if layer.GetFeatureCount() == 0:
         return None
     water, land = seed_points(layer, gt)
+    layer = src = None
     return (np.array(water, dtype=np.int64).reshape(-1, 2),
             np.array(land, dtype=np.int64).reshape(-1, 2))
 
@@ -149,10 +150,12 @@ def sea_window(water, land, x0, y0, cols, rows, whole):
     on a raster ``whole`` (rows, cols) in size - from ``coast_seeds``.
 
     The same answer as the whole raster's, because the mask is local: a cell
-    is water only within MAX_CELLS of a water seed, and is decided by which
-    seed is nearer, so every seed that can decide it lies within MAX_CELLS of
-    it. The distances are taken over the window grown by that much and one
-    more, and read back for the window alone."""
+    is water only with a water seed within MAX_CELLS, and then only if no land
+    seed is nearer still - so every seed that can make it water, or stop it
+    being, lies within MAX_CELLS of it. A seed beyond the window's reach can
+    only be one that would not have been the nearer. The distances are taken
+    over the window grown by that much and two more, and read back for the
+    window alone."""
     pad = MAX_CELLS + 2
     H, W = whole
     ex0, ey0 = max(0, x0 - pad), max(0, y0 - pad)
