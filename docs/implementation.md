@@ -4711,8 +4711,8 @@ A tolerance under a centimetre never stops, at single precision.
 650 constraints in its radius and walks 13,800 steps of line of sight to them,
 to see 65. The answer uses only the nearest visible cell of each level, so a
 cell of a level already seen nearer cannot change it; skipping those leaves 280
-walked and 3,900 steps. Visiting only the cells that carry a value, by a next-
-in-row table, is the rest. Both give the same first pass to the bit on every
+walked and 3,900 steps. Visiting only the cells that carry a value, by a
+next-in-row table, is the rest. Both give the same first pass to the bit on every
 set: whole runs from 58.1 to 20.9 s on N20E086 at 1", 7.8 to 2.3 s on ellarca
 at 3". Threads stop paying at about four on the machine measured, an i7-1360P
 with four performance cores.
