@@ -241,6 +241,13 @@ class MainWindow(QMainWindow):
         self.preview.classesStale.connect(self.unreached.set_stale)
         self.preview.skipped.connect(self._preview_skipped)
         self.preview.freshGround.connect(self._preview_on_fresh_ground)
+        # the view at 1 arcsecond, at z15 and closer (I3b); solved on a worker
+        # for the same reason the preview is
+        from .fine import FineDriver
+        self.fine = FineDriver(self)
+        self.fine.set_runner(QThreadPool.globalInstance().start)
+        self.fine.arrived.connect(self._fine_arrived)
+        self.fine.unavailable.connect(lambda why: self.statusBar().showMessage(why))
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         # the surface's checks (H2) ride on a build, while the panel is open
@@ -705,6 +712,9 @@ class MainWindow(QMainWindow):
         if not self.preview.cleanup():
             self.statusBar().showMessage('a preview was still running')
         self.preview.forget()
+        if not self.fine.cleanup():
+            self.statusBar().showMessage('a 1" view was still being solved')
+        self.fine.forget()
         # before the signal object it emits into goes with the window
         if not self.surface.cleanup():
             self.statusBar().showMessage('a recolour was still running')
@@ -1345,7 +1355,9 @@ class MainWindow(QMainWindow):
         """The surface's rows and columns on screen, to the panel - which
         recolours only if the scaling reads them. ``scene_rect`` is worked out
         from the DEM's own shape and geotransform, so mapping it onto the
-        grid's rows and columns is exact."""
+        grid's rows and columns is exact. And the view, to the 1 arcsecond
+        driver, which solves it at z15 and closer."""
+        self.fine.view(self._view_bounds(), self.map.zoom)
         shaded = self.surface.shaded
         if shaded is None:
             return
@@ -1361,6 +1373,13 @@ class MainWindow(QMainWindow):
         if window[1] <= window[0] or window[3] <= window[2]:
             window = None                                 # the surface is off screen
         self.surface_panel.set_view_window(window)
+
+    def _fine_arrived(self, tiles, seconds: float) -> None:
+        """Tiles of the view solved at 1 arcsecond. Nothing draws them until
+        I3c; the usage log has how long they took, which is the phase's
+        measure - a z15 screen within 2 s of the view settling."""
+        if self.usage is not None:
+            self.usage.write('fine', tiles=len(tiles), seconds=round(seconds, 3))
 
     def _view_bounds(self) -> tuple[float, float, float, float]:
         """The map's viewport as (west, south, east, north)."""
@@ -1856,8 +1875,11 @@ class MainWindow(QMainWindow):
         # builds back. What the preview owes each edit it re-burns from
         # `contours`, which has every edit in it either way.
         self.preview.follow(built.shaded)
-        self.preview.adopt(built, built.params or
-                           self._loaded_params(fallback=self._arcsec))
+        params = built.params or self._loaded_params(fallback=self._arcsec)
+        self.preview.adopt(built, params)
+        # and the 1" view held on it; the settle timer started above asks for
+        # the view again once this has run
+        self.fine.adopt(built, self.preview.contours, params)
         if stale:
             self.statusBar().showMessage(
                 f'surface built in {seconds:.0f} s, already out of date - rebuilding')
