@@ -1442,3 +1442,22 @@ def test_a_spot_height_that_did_not_move_is_not_boxed_twice(monkeypatch):
     d.edited(spot_square(100, 100), (), {7})
     assert len(d._pending) == 1, 'a spot height still has to be boxed when it is re-applied'
     assert d._pending[0].x0 <= 100 <= d._pending[0].x1
+
+
+def test_a_preview_says_which_boxes_of_the_grid_it_solved_again(qtbot, monkeypatch):
+    """I4: the 1 arcsecond view drops the tiles an edit reached, which is
+    what these boxes are - every one solved, and said once the preview is
+    done, after the 3 arcsecond surface they are held on is patched."""
+    d = driver_over(monkeypatch)
+    order = []
+    d.reached.connect(lambda boxes: order.append(('reached', list(boxes))))
+    d.patched.connect(lambda *_: order.append(('patched',)))
+    d.edited(a_square(0.10, 0.5, wid=1), {1})
+    d.edited(a_square(0.80, 0.5, wid=2), {2})
+    d._run()
+    assert [e[0] for e in order] == ['reached', 'patched']
+    assert order[0][1] == d.solved, 'not the boxes solved'
+    # and nothing is said for a preview with nothing solved
+    order.clear()
+    d._finish()
+    assert order == [('patched',)]

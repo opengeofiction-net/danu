@@ -365,3 +365,27 @@ def test_a_rect_starting_just_outside_the_tiles_is_not_read_from_them(layer):
     assert layer.surface_for(QRectF(left - cell / 3, top + cell, cell, cell)) is None, 'west of them'
     assert layer.surface_for(QRectF(left + cell, top - cell / 3, cell, cell)) is None, 'north of them'
     assert layer.surface_for(QRectF(left + cell / 3, top + cell, cell, cell)) is not None
+
+
+def test_an_edit_drops_only_what_it_reaches_and_solves_the_view_again(driver):
+    """I4: the tiles a preview's boxes reach go, through Fine.drop; the
+    layer is told; the view is solved again; and a solve in flight - of the
+    contours before the edit - is dropped."""
+    dropped, told = [], []
+    driver.fine.drop = lambda box: dropped.append(box)
+    driver.cleared.connect(lambda: told.append(True))
+    driver.view((0.1, -0.2, 0.3, -0.1), 15)
+    assert len(driver.held) == 1
+    driver.reached([Box(1, 2, 3, 4), Box(5, 6, 7, 8)])
+    assert dropped == [Box(1, 2, 3, 4), Box(5, 6, 7, 8)] and told
+    assert len(driver.held) == 2, 'the view is not solved again'
+    run(driver)                          # the solve from before the edit lands
+    assert driver.fine.taken == []
+    run(driver)
+    assert driver.fine.taken == [Box(100, 100, 300, 200)]
+
+
+def test_an_edit_with_no_1_arcsecond_view_is_nothing_to_it():
+    d = FineDriver()
+    d.reached([Box(1, 2, 3, 4)])          # nothing adopted: nothing to drop, nothing raised
+    assert d.fine is None

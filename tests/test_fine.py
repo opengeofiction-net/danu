@@ -309,3 +309,32 @@ def test_a_small_view_is_solved_as_the_smallest_view_around_it():
     # and one already as large is left as it is
     big = Box(10, 10, 10 + S, 10 + S + 40)
     assert fine.at_least(big, S, (3601, 3601)) == big
+
+
+def test_an_edit_drops_the_first_pass_it_reaches_and_the_dem_a_radius_further():
+    """Fine.drop: the 3 arcsecond box an edit was solved again over, as the
+    1 arcsecond cells it covers; the first pass of every tile in it, and the
+    DEM of every tile within a radius more. Nothing else."""
+    from danu.surface import fine
+    from danu.surface.local import Box
+
+    f = drawn()
+    T, R = fine.TILE, f.params.fill_cells
+    for view in (Box(300, 300, 549, 449), Box(1300, 1300, 1549, 1449)):
+        p = f.plan(view)
+        f.take(p, solved_as(p, 1))
+    firsts = {k for kind, k in f._kept if kind == 'first'}
+    dems = {k for kind, k in f._kept if kind == 'dem'}
+    coarse = Box(140, 130, 150, 136)                 # in the first view's ground
+    box = f.fine_box(coarse)
+    assert box == Box(140 * 3 - 1, 130 * 3 - 1, 150 * 3 + 1, 136 * 3 + 1)
+    dropped = f.drop(coarse)
+    reach = box.grown(R, f.fine.shape)
+    gone_first = {k for k in firsts if ('first', k) not in f._kept}
+    gone_dem = {k for k in dems if ('dem', k) not in f._kept}
+    assert gone_first == firsts & set(f.tiles(box)) and gone_first
+    assert gone_dem == dems & set(f.tiles(reach)) and set(dropped) == gone_dem
+    assert gone_dem > (dems & set(f.tiles(box))), 'the DEM went no further than the first pass'
+    assert all(('dem', k) in f._kept for k in f.tiles(Box(1300, 1300, 1549, 1449))), \
+        'a view nowhere near the edit lost tiles'
+    assert f.tiles(Box(0, 0, T - 1, T - 1)) == [(0, 0)]

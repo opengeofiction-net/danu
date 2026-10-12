@@ -140,6 +140,7 @@ class PreviewDriver(QObject):
     """Turns edits into patched surface, and silence into an exact rebuild."""
 
     patched = Signal(object, float)     # the display rects written, and how long it took
+    reached = Signal(object)            # the boxes of the build's grid it solved again (I4)
     classesStale = Signal(object)       # where R20's overlay stopped describing the surface
     skipped = Signal(int)               # edits in a gesture too broken up to preview
     freshGround = Signal(object)        # an edit the preview cannot show at all
@@ -170,6 +171,7 @@ class PreviewDriver(QObject):
         self._removing = False
         self._solving_wide = False  # what the preview in flight was started with
         self._written: list = []    # where its patches reached the display
+        self._goods: list = []      # and the boxes of the build's grid it solved
         self._started = 0.0
         self._prepared_ms = 0.0
         self._solve_signals = _SolveSignals()
@@ -208,7 +210,7 @@ class PreviewDriver(QObject):
         # a solve in flight keeps running - numpy cannot be stopped mid-array -
         # but its serial goes, so its answer is dropped rather than spliced
         # into a Kept that is no longer there
-        self._solving, self._queue, self._written = 0, [], []
+        self._solving, self._queue, self._written, self._goods = 0, [], [], []
         self._removing = self._solving_wide = False
         self._kept, self._shaded, self._params = None, None, None
         self._pending.clear()
@@ -498,7 +500,7 @@ class PreviewDriver(QObject):
         """
         self._gesture.stop()
         self._pending.clear()
-        self._queue, self._written, self._solving = [], [], 0
+        self._queue, self._written, self._goods, self._solving = [], [], [], 0
         self._removing = self._solving_wide = False
         self._kept = None
         # off, said once, and quiet after that. The exact rebuild on idle still
@@ -580,6 +582,7 @@ class PreviewDriver(QObject):
             return
         self._started = time.perf_counter()
         self._written = []
+        self._goods = []
         self._queue = list(boxes)
         # `_solving_wide` is taken once, above, and not read again per piece.
         # An edit can arrive while this preview is still solving and set
@@ -650,6 +653,7 @@ class PreviewDriver(QObject):
         # its rim at what is on screen and not at a surface two edits old
         self._kept.surface.write(good, patch)
         rect = self._repaint(good)
+        self._goods.append(good)
         _trace('preview piece', box=f'{good.shape[0]}x{good.shape[1]}',
                prepare_ms=f'{self._prepared_ms:.0f}',
                repaint_ms=f'{(time.perf_counter() - solved) * 1000:.0f}',
@@ -662,6 +666,7 @@ class PreviewDriver(QObject):
     def _finish(self):
         written = self._written
         self._written = []
+        goods, self._goods = self._goods, []
         if written:
             # R20's overlay is the first pass's classes, and a preview reruns
             # the first pass without bringing them back: shade_window returns
@@ -670,6 +675,8 @@ class PreviewDriver(QObject):
             # drawn reaches - and saying nothing would leave red over ground
             # the mapper has just described.
             self.classesStale.emit(written)
+        if goods:
+            self.reached.emit(goods)
         self.patched.emit(written, time.perf_counter() - self._started)
         if self._pending:
             # edits arrived while that one was solving and were left pending

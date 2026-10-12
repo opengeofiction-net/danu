@@ -295,6 +295,36 @@ class Fine:
         return [(k, v[0][2]) for (kind, k), v in self._kept.items()
                 if kind == 'dem' and v[0][2] is not None]
 
+    def fine_box(self, box: Box) -> Box:
+        """A box of the 3 arcsecond grid as the 1 arcsecond cells it covers:
+        a coarse cell's centre is a fine cell's, and it reaches a fine cell
+        either side."""
+        k = self.ratio
+        h = k // 2
+        return Box(max(box.x0 * k - h, 0), max(box.y0 * k - h, 0),
+                   min(box.x1 * k + h, self.fine.cols - 1), min(box.y1 * k + h, self.fine.rows - 1))
+
+    def drop(self, coarse: Box) -> list[tuple[int, int]]:
+        """An edit re-solved ``coarse`` on the 3 arcsecond surface - the
+        preview's box, the edit grown by its cover - so what the 1 arcsecond
+        tiles made of it is out of date: the first pass of every tile in it,
+        which reaches a radius and the box is that far round the edit at
+        least, and the DEM of every tile within a radius more, which the
+        second pass carries further. Everything else is kept (I4). Returns
+        the DEM tiles dropped."""
+        box = self.fine_box(coarse)
+        dem_box = box.grown(self.params.fill_cells, self.fine.shape)
+        dropped = []
+        for kind, area in (('first', box), ('dem', dem_box)):
+            for k in self.tiles(area):
+                got = self._kept.pop((kind, k), None)
+                if got is not None:
+                    self._held -= got[1]
+                    if kind == 'dem':
+                        dropped.append(k)
+        self.revision += 1
+        return dropped
+
     def clear(self) -> None:
         """Every tile gone - what an edit does until I4 makes it local."""
         self._kept.clear()

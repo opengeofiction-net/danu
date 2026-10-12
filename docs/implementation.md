@@ -5000,3 +5000,32 @@ over it, since it is one.
 
 The session records that a surface was built and not its resolution, and
 builds again at 3; a file from before this, naming 1, reopens at 3 too.
+
+## I4, edits at both resolutions
+
+An edit is solved on the 3" surface by the preview, as it was, and the 1"
+tiles it reaches go; the rest are kept. The preview says which boxes of its
+grid it solved again - each edit grown by its cover - once it has patched the
+3" surface, and `Fine.drop` takes them as 1" cells: the first pass of every
+tile in them, since the first pass reaches a radius and the box is at least
+that far round the edit, and the DEM of every tile within a radius more. The
+view is solved again if it lost a tile, its first pass searched only where it
+went and its rim held on the surface the preview has just patched; tiles
+reached but out of view stay gone until a view needs them. A gesture the
+preview skipped, or an edit on ground it cannot show, still drops every tile.
+
+**Measured** against a whole 1" build after each edit, every tile kept
+compared and the views around the edit solved again:
+
+| | edits | tiles kept, worst | views solved again, fill / DEM |
+|---|---|---|---|
+| gobras City | 6 deletions, 6 drags of three nodes by 220 m; the ground moved 14 to 175 m | 4 mm, at any reach | 2 mm / 1.000 m |
+| golden square | the one of sixteen deletions that moved the ground, 149 m | 1.6 cm at no reach and at half a radius, 1 mm at one | 1 mm / 1.000 m |
+
+The DEM's metre is the clamp's, as in I3a. So the DEM goes a radius beyond
+the patch: on gobras nothing needed it, and on the golden square it is the
+difference between a centimetre and a millimetre.
+
+Solving the view again after an edit took 0.2 to 1.8 s on gobras City, against
+2.8 to 22 s to solve the same views from nothing - the first pass kept by
+tile is what an edit does not have to pay for again.

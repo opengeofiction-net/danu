@@ -62,7 +62,8 @@ def both(tmp_path_factory):
         ds = gdal.Open(str(path))            # held: the band dies with it
         return ds.GetRasterBand(1).ReadAsArray()
 
-    return {'view': view, 'fresh': fresh, 'dem': read(r1.dem).astype(np.float64),
+    return {'view': view, 'fresh': fresh, 'r3': r3, 'zone': zone, 'params': fine_params,
+            'dem': read(r1.dem).astype(np.float64),
             'surface': read(r1.surface).astype(np.float64),
             'mask': read(r1.drawn_mask), 'constraints': read(r1.constraints)}
 
@@ -278,3 +279,96 @@ def test_a_solves_shading_is_cut_into_pieces_that_tile_it(both):
         cs = [c for _, c in cells]
         assert len(cells) == (max(rs) - min(rs) + 1) * (max(cs) - min(cs) + 1), 'a gap between pieces'
         f.take(p, solved, got)
+
+
+
+def test_an_edit_drops_the_tiles_it_reaches_and_keeps_the_rest(both, tmp_path):
+    """I4: a contour deleted, the 3 arcsecond preview patched as the editor
+    patches it, and the 1 arcsecond tiles it reached dropped. Every tile kept
+    is still the whole 1 arcsecond build's answer after the deletion, and the
+    views solved again are within a metre of it.
+
+    The contour is way -75409002, at 149 m, which no other contour
+    duplicates: of sixteen taken from this square, it was the one whose
+    deletion moved the ground at all, by 149 m. Measured on gobras City over
+    six deletions and six drags, tiles kept are within 4 mm, at any reach;
+    this square needed one radius beyond the patch - 1.6 cm at none."""
+    import collections
+    import shutil
+    from pathlib import Path
+
+    import numpy as np
+
+    from danu.core import edits
+    from danu.core.square import read_square, write_square
+    from danu.surface import build, fine, local, preview
+
+    r3, coarse_params = both['r3'], lock_params()
+    square = read_square(both['zone'] / SQUARE.name)
+    victim = square.ways[-75409002]
+    assert victim.ele == 149.0
+    pts = [(square.nodes[r].lon, square.nodes[r].lat) for r in victim.refs]
+    history = edits.SetUndoStack()
+    history.do(square, edits.DeleteWay(victim.id))
+    after = tmp_path / 'after'
+    after.mkdir()
+    write_square(square, after / 'S24E125.osm.xz')
+    r1a = build.build_dem(after, tmp_path / 'wa', both['params'])
+
+    def read(path):
+        ds = gdal.Open(str(path))
+        return ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
+    fill_after, dem_after = read(r1a.surface), read(r1a.dem)
+
+    def own(path):
+        dst = tmp_path / 'own' / Path(path).name
+        dst.parent.mkdir(exist_ok=True)
+        shutil.copyfile(path, dst)
+        return dst
+    layer = preview.Contours(r3.contours_gpkg)
+    ds = gdal.Open(str(r3.dem))
+    gt = ds.GetGeoTransform()
+    ds = None
+    kept = preview.Kept(constraints=preview.Band.open(r3.constraints, np.float32),
+                        mask=preview.Band.open(r3.drawn_mask), water=None,
+                        surface=preview.Band.open(own(r3.surface), np.float32, update=True),
+                        geotransform=gt, nodata=-9999, contours=layer,
+                        dem=preview.Band.open(own(r3.dem), np.float32, update=True))
+    g1 = build.Grid(r3.grid.west, r3.grid.east, r3.grid.south, r3.grid.north, 1.0)
+    f = fine.Fine(fine.Grid.of(g1), fine.Grid.of(r3.grid), layer, kept.surface, kept.dem,
+                  both['params'], gpkg=r3.contours_gpkg)
+
+    box = local.Box.around([int((lat - gt[3]) / gt[5]) for _, lat in pts],
+                           [int((lon - gt[0]) / gt[1]) for lon, _ in pts])
+    centre = f.fine_box(box)
+    rows, cols = f.fine.shape
+    views = []
+    for dy in (-450, -150, 150, 450):
+        for dx in (-500, 0, 500):
+            y = min(max((centre.y0 + centre.y1) // 2 + dy, 75), rows - 76)
+            x = min(max((centre.x0 + centre.x1) // 2 + dx, 125), cols - 126)
+            views.append(local.Box(x - 125, y - 75, x + 124, y + 74))
+    for v in views:
+        f.view(v)
+    before = collections.OrderedDict(f._kept)
+
+    # the edit, as the editor makes it
+    assert layer.remove(victim.id)
+    patch, good = preview.patch(kept, box, coarse_params, removing=True)
+    kept.surface.write(good, patch)
+    win = good.grown(coarse_params.smooth_cells + 4, kept.shape)
+    kept.dem.write(win, preview.clamp_patch(kept.surface.read(win), layer.burn(gt, win, -9999),
+                                            kept.dem.read(win)))
+
+    def worst_kept():
+        return max(float(np.abs(v[0][1] - fill_after[f.tile(k).slice]).max())
+                   for (kind, k), v in f._kept.items() if kind == 'dem')
+    assert worst_kept() > 1.0, 'kept whole, some tile is out of date - or this edit tests nothing'
+    dropped = f.drop(good)
+    assert dropped and len(dropped) < len([1 for kind, _ in before if kind == 'dem']), \
+        'it dropped nothing, or everything'
+    assert worst_kept() < 0.01, f'a tile kept is {worst_kept():.3f} m from the build after the edit'
+    for v in views:
+        dem, surface = f.view(v)
+        assert float(np.abs(surface - fill_after[v.slice]).max()) < 0.01
+        assert float(np.abs(dem - dem_after[v.slice]).max()) <= 1.0
