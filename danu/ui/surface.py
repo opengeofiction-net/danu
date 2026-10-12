@@ -506,6 +506,8 @@ class SurfaceLayer(QGraphicsItem):
         # leaves `_pending` set with nothing coming, where `_drawn` stays
         # truthfully the older surface.
         self._drawn: shade.Shaded | None = None
+        # the 1 arcsecond layer over this one, which sets itself here (I3c)
+        self.fine = None
         self._compose_signals = _ComposeSignals()
         self._compose_signals.done.connect(self._composed)
         self._job = None
@@ -883,12 +885,27 @@ class SurfaceLayer(QGraphicsItem):
         rectangle composed later is coloured by to match."""
         return self._stretch
 
-    def cells(self) -> tuple[QRectF, int, int] | None:
+    def finest(self, rect: QRectF):
+        """The surface to read under ``rect``: the 1 arcsecond ground where it
+        is showing and solved over the whole of ``rect``, else the 3
+        arcsecond one - what is drawn there, so a reading agrees with the
+        map (I3d)."""
+        fine = self.fine.surface_for(rect) if self.fine is not None else None
+        return fine if fine is not None else self.shaded
+
+    def cells(self, rect: QRectF | None = None) -> tuple[QRectF, int, int] | None:
         """What is drawn, as a grid: its rect in the scene, and its columns
         and rows - the pixmap's, a pixel a cell - for the loupe's cell lines
-        (H3d)."""
+        (H3d). Given ``rect``, the 1 arcsecond grid where that is what is drawn
+        over it."""
         if self._pixmap is None:
             return None
+        if rect is not None:
+            got = self.finest(rect)
+            if got is not None and got is not self.shaded:
+                left, top, right, bottom = got.scene_rect
+                rows, cols = got.dem.shape
+                return QRectF(left, top, right - left, bottom - top), cols, rows
         return self._rect, self._pixmap.width(), self._pixmap.height()
 
     def set_preview(self, previewing: bool):

@@ -179,7 +179,7 @@ class MeasureTool(QObject):
             return ''
         a = A.along(pts)
         text = f'measuring: {metres(a.length)}'
-        shaded = self._exact()
+        shaded = self._exact([pts[0], pts[-1]])
         if shaded is not None:
             g = A.sample(shaded.dem, shaded.scene_rect, np.array([pts[0], pts[-1]]))
             if not np.isnan(g).any():
@@ -189,16 +189,25 @@ class MeasureTool(QObject):
                     text += f' ({100 * rise / a.length:+.1f}%)'
         return text
 
-    def _exact(self):
+    def _exact(self, points=()):
+        """The exact surface to read along ``points``: none while a preview
+        stands; the 1 arcsecond ground where it is drawn under every one of
+        them, else the 3 arcsecond (I3d)."""
         shaded = self.surface.shaded
-        return None if shaded is None or self.surface.previewing else shaded
+        if shaded is None or self.surface.previewing:
+            return None
+        pts = list(points)
+        if not pts:
+            return shaded
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        return self.surface.finest(QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)))
 
     def measure(self) -> None:
         """What lies along the line, from the exact surface - again when the
         surface or the squares change under a line already ended."""
         if not self.done:
             return
-        shaded = self._exact()
+        shaded = self._exact(self.points)
         if self.surface.shaded is None:
             self.why_not = 'no surface built - Ctrl+R builds one'
         elif shaded is None:

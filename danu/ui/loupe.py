@@ -138,7 +138,7 @@ class Loupe(QWidget):
 
     def _grid(self, p: QPainter, source: QRectF):
         """The surface's cells, where one is GRID_PX or more across each way."""
-        cells = self.surface.cells() if self.surface is not None and self.surface.isVisible() else None
+        cells = self.surface.cells(source) if self.surface is not None and self.surface.isVisible() else None
         if cells is None:
             return
         rect, cols, rows = cells

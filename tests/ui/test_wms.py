@@ -281,3 +281,86 @@ def test_the_difference_as_the_map_shows_it(w):
     w.surface_panel.mode.setCurrentText('difference')
     img, want = per_cell(w, 120, 130, 110, 120)
     assert (img == want).all() and img[0, 9, 3] == 255 and img[0, 0, 3] == 0
+
+
+
+# ------------------------------------------------------ the 1 arcsecond view
+
+def fine_piece(lon, lat, value, n=40, metres=31.0):
+    """A tile's shading on the one Mercator grid, n cells square, its corner
+    at the cell holding (lon, lat)."""
+    from danu.surface import shade
+    x, y = merc(lon, lat)
+    c0 = math.floor((x + shade.HALF) / metres)
+    r0 = math.floor((shade.HALF - y) / metres)
+    return shade.Shaded(dem=np.full((n, n), value, np.float32), shade=np.full((n, n), 200, np.uint8),
+                        geotransform=(c0 * metres - shade.HALF, metres, 0.0, shade.HALF - r0 * metres, 0.0, -metres),
+                        metres=metres)
+
+
+def test_josm_is_given_the_1_arcsecond_ground_where_danu_has_it(w):
+    """Served where Danu has it, and the 3 arcsecond elsewhere: a tile fine
+    enough to show it gets it over the piece and the surface beside it."""
+    piece = fine_piece(126.5, -23.7, 45.0)
+    x0, y0 = merc(126.49, -23.71)
+    x1, y1 = merc(126.51, -23.69)
+    plain = wms.render(*snap(w), (x0, y0, x1, y1), 64, 64)
+    over = wms.render(*snap(w), (x0, y0, x1, y1), 64, 64, fine=(piece,))
+    changed = (plain != over).any(axis=2)
+    assert changed.any(), 'the 1 arcsecond tile was not drawn'
+    assert not changed.all(), 'it was drawn beyond its own cells'
+    # the piece's own corner is at the middle of the request, its cells to
+    # the south-east of it: changed there and not to the north-west
+    assert changed[48, 48] and not changed[16, 16]
+
+
+def test_a_tile_too_coarse_to_show_it_is_the_3_arcsecond_alone(w):
+    piece = fine_piece(126.2, -23.2, 45.0, n=2500)             # most of a degree
+    x0, y0 = merc(126.0, -24.3)
+    x1, y1 = merc(127.0, -23.0)
+    assert (wms.render(*snap(w), (x0, y0, x1, y1), 8, 8) ==
+            wms.render(*snap(w), (x0, y0, x1, y1), 8, 8, fine=(piece,))).all()
+
+
+def test_the_difference_mode_serves_no_1_arcsecond(w):
+    from dataclasses import replace
+    piece = fine_piece(126.5, -23.7, 45.0)
+    style = replace(w.surface.style, mode='difference')
+    x0, y0 = merc(126.49, -23.71)
+    x1, y1 = merc(126.51, -23.69)
+    shaded = w.surface.shaded
+    assert (wms.render(shaded, style, None, (x0, y0, x1, y1), 32, 32) ==
+            wms.render(shaded, style, None, (x0, y0, x1, y1), 32, 32, fine=(piece,))).all()
+
+
+def test_new_1_arcsecond_tiles_are_a_new_etag(w):
+    a = wms.SurfaceServer.etag((w.surface.revision, 1), w.surface.style, w.surface.stretch)
+    b = wms.SurfaceServer.etag((w.surface.revision, 2), w.surface.style, w.surface.stretch)
+    assert a != b
+
+
+
+def test_only_cells_a_1_arcsecond_tile_covers_are_drawn_from_it(w):
+    """Two tiles offset, so the box they span has a corner neither covers:
+    that corner is the 3 arcsecond surface's."""
+    a = fine_piece(126.5, -23.7, 45.0, n=40)
+    b = fine_piece(126.5 + 40 * 31.0 / (R * math.pi / 180), -23.7 + 0.005, 60.0, n=40)
+    x0, y0 = merc(126.49, -23.71)
+    x1, y1 = merc(126.53, -23.67)
+    plain = wms.render(*snap(w), (x0, y0, x1, y1), 64, 64)
+    over = wms.render(*snap(w), (x0, y0, x1, y1), 64, 64, fine=(a, b))
+    gx = lambda px: x0 + (px + 0.5) * (x1 - x0) / 64            # noqa: E731
+    gy = lambda py: y1 - (py + 0.5) * (y1 - y0) / 64            # noqa: E731
+    # a pixel south of b and east of a: inside the two tiles' box, in neither
+    ag, bg = a.geotransform, b.geotransform
+    for py in range(64):
+        for px in range(64):
+            x, y = gx(px), gy(py)
+            in_box = min(ag[0], bg[0]) <= x < max(ag[0] + 40 * 31, bg[0] + 40 * 31) and \
+                min(ag[3] - 40 * 31, bg[3] - 40 * 31) < y <= max(ag[3], bg[3])
+            in_a = ag[0] <= x < ag[0] + 40 * 31 and ag[3] - 40 * 31 < y <= ag[3]
+            in_b = bg[0] <= x < bg[0] + 40 * 31 and bg[3] - 40 * 31 < y <= bg[3]
+            if in_box and not in_a and not in_b:
+                assert (over[py, px] == plain[py, px]).all(), (px, py)
+                return
+    raise AssertionError('no pixel fell in the uncovered corner; the test is not testing it')

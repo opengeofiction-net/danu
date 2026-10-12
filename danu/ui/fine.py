@@ -240,6 +240,8 @@ class FineLayer(QGraphicsItem):
         super().__init__(surface)
         self.surface, self.driver = surface, driver
         self._picture = None            # (what it was made of, QPixmap, scene rect)
+        self.published = (0, ())        # (revision, pieces) - see _publish
+        surface.fine = self
         self.setVisible(False)
 
     def set_zoom(self, zoom: int) -> None:
@@ -247,11 +249,43 @@ class FineLayer(QGraphicsItem):
 
     def arrived(self, keys, _seconds: float = 0.0) -> None:
         self._picture = None
+        self._publish()
         self.update()
 
     def forget(self) -> None:
         self._picture = None
+        self._publish()
         self.update()
+
+    def _publish(self) -> None:
+        """Every tile's shading kept, as a tuple a thread can read whole -
+        the WMS answers on its own, and the store it comes from is changed on
+        this one. Replaced, never changed in place."""
+        f = self.driver.fine
+        self.published = (f.revision, tuple(p for _, p in f.pieces_kept())) if f is not None else (0, ())
+
+    def surface_for(self, rect: QRectF):
+        """The 1 arcsecond ground under ``rect`` - a ``shade.Shaded`` on the
+        Mercator grid - if this layer is showing and every cell of ``rect``
+        is solved; else None, and the reader takes the 3 arcsecond surface.
+        Never part of one and part of the other: a line measured half on
+        each would read two grids as one."""
+        f = self.driver.fine
+        if f is None or not self.isVisible() or self.surface.style.mode == 'difference':
+            return None
+        got = [f.piece(k) for k in self.tiles_in(rect)]
+        if not got or any(p is None for p in got):
+            return None
+        whole, covered = fine.mosaic(got)
+        left, top, right, bottom = whole.scene_rect
+        rows, cols = whole.dem.shape
+        c0 = int((rect.left() - left) / (right - left) * cols)
+        c1 = int((rect.right() - left) / (right - left) * cols)
+        r0 = int((rect.top() - top) / (bottom - top) * rows)
+        r1 = int((rect.bottom() - top) / (bottom - top) * rows)
+        if c0 < 0 or r0 < 0 or c1 >= cols or r1 >= rows or not covered[r0:r1 + 1, c0:c1 + 1].all():
+            return None
+        return whole
 
     def boundingRect(self) -> QRectF:
         return self.surface.boundingRect()
@@ -282,26 +316,7 @@ class FineLayer(QGraphicsItem):
         made_of = (style_key, f.revision, tuple(k for k, _ in got))
         if self._picture is not None and self._picture[0] == made_of:
             return self._picture[1:]
-        metres = got[0][1].metres
-        # whole cells of the one grid every piece is on, counted from the
-        # Mercator origin
-        at = [(round((p.geotransform[0] + shade.HALF) / metres),
-               round((shade.HALF - p.geotransform[3]) / metres), p) for _, p in got]
-        c0 = min(c for c, _, _ in at)
-        r0 = min(r for _, r, _ in at)
-        c1 = max(c + p.dem.shape[1] for c, _, p in at)
-        r1 = max(r + p.dem.shape[0] for _, r, p in at)
-        dem = np.zeros((r1 - r0, c1 - c0), np.float32)
-        hill = np.zeros((r1 - r0, c1 - c0), np.uint8)
-        covered = np.zeros((r1 - r0, c1 - c0), bool)
-        for c, r, p in at:
-            rows, cols = p.dem.shape
-            dem[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.dem
-            hill[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.shade
-            covered[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = True
-        whole = shade.Shaded(dem=dem, shade=hill, metres=metres,
-                             geotransform=(c0 * metres - shade.HALF, metres, 0.0,
-                                           shade.HALF - r0 * metres, 0.0, -metres))
+        whole, covered = fine.mosaic(p for _, p in got)
         # composed as one, as the surface is: a slope taken a tile at a time
         # would be one-sided at every tile's edge
         st = self.surface.style

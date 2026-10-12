@@ -61,9 +61,16 @@ def _pixel_xy(bbox, width, height, srs: str):
     return u, v
 
 
-def render(shaded, style, stretch, bbox, width: int, height: int, srs: str = 'EPSG:3857') -> np.ndarray:
+def render(shaded, style, stretch, bbox, width: int, height: int, srs: str = 'EPSG:3857',
+           fine=()) -> np.ndarray:
     """RGBA uint8 (height, width, 4) for a GetMap: the surface under the
-    pixels, coloured as the layer colours it; clear where there is none."""
+    pixels, coloured as the layer colours it; clear where there is none.
+
+    ``fine`` is the 1 arcsecond view's tiles kept, their shading: drawn over
+    the 3 arcsecond surface wherever a pixel is finer than its cells, so JOSM
+    is given the ground Danu has at 1 where Danu has it (I3d) - and not where a
+    pixel spans many 3 arcsecond cells, which the 1 would only be averaged
+    back into."""
     from .surface import RAMPS
     out = np.zeros((height, width, 4), np.uint8)
     if shaded is None:
@@ -101,7 +108,39 @@ def render(shaded, style, stretch, bbox, width: int, height: int, srs: str = 'EP
     wc = np.clip((c - b0) // k, 0, rgba.shape[1] - 1)
     inside = rin[:, None] & cin[None, :]
     out[inside] = rgba[wr[:, None], wc[None, :]][inside]
+    if fine and style.mode != 'difference' and k == 1:
+        _over(out, fine, style, stretch, xs, ys)
     return out
+
+
+def _over(out, pieces, style, stretch, xs, ys) -> None:
+    """The 1 arcsecond tiles under the pixels, over what is in ``out``."""
+    from ..surface import fine as surface_fine
+    from .surface import RAMPS
+    x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
+    near = []
+    for p in pieces:
+        g = p.geotransform
+        rows, cols = p.dem.shape
+        if g[0] <= x1 and g[0] + cols * g[1] >= x0 and g[3] >= y0 and g[3] + rows * g[5] <= y1:
+            near.append(p)
+    got = surface_fine.mosaic(near)
+    if got is None:
+        return
+    whole, covered = got
+    gt = whole.geotransform
+    rows, cols = whole.dem.shape
+    c = np.floor((xs - gt[0]) / gt[1]).astype(np.int64)
+    r = np.floor((ys - gt[3]) / gt[5]).astype(np.int64)
+    cin, rin = (c >= 0) & (c < cols), (r >= 0) & (r < rows)
+    if not cin.any() or not rin.any():
+        return
+    ramp = None if style.mode == 'hillshade' else RAMPS[style.ramp]()
+    rgba = shade.compose(whole, ramp, style.scaling, style.mode, style.shade_strength,
+                         stretch=stretch if ramp is not None else None)
+    cc, rr = np.clip(c, 0, cols - 1), np.clip(r, 0, rows - 1)
+    take = rin[:, None] & cin[None, :] & covered[rr[:, None], cc[None, :]]
+    out[take] = rgba[rr[:, None], cc[None, :]][take]
 
 
 def png(rgba: np.ndarray) -> bytes:
@@ -171,7 +210,8 @@ def getmap_url(base: str) -> str:
 
 class SurfaceServer:
     """The WMS, over whatever ``snapshot()`` answers - (shaded, style,
-    stretch, revision) as the layer has them."""
+    stretch, revision) as the layer has them, and the 1 arcsecond tiles'
+    shading as a fifth where there is a 1 arcsecond view."""
 
     def __init__(self, snapshot, port: int = PORT):
         self.snapshot = snapshot
@@ -213,7 +253,9 @@ class SurfaceServer:
         if u.path.rstrip('/') != '/wms':
             return 404, {'Content-Type': 'text/plain'}, b'not here: /wms\n'
         q = {k.upper(): v[-1] for k, v in parse_qs(u.query, keep_blank_values=True).items()}
-        shaded, style, stretch, revision = self.snapshot()
+        snap = self.snapshot()
+        shaded, style, stretch, revision = snap[:4]
+        fine = snap[4] if len(snap) > 4 else ()
         req = q.get('REQUEST', '').lower()
         if req == 'getcapabilities':
             return 200, {'Content-Type': 'application/vnd.ogc.wms_xml'}, capabilities(self.base, shaded).encode()
@@ -237,7 +279,7 @@ class SurfaceServer:
         headers = {'ETag': etag, 'Cache-Control': 'no-cache'}
         if etag_asked == etag:
             return 304, headers, b''
-        rgba = render(shaded, style, stretch, bbox, width, height, srs)
+        rgba = render(shaded, style, stretch, bbox, width, height, srs, fine)
         return 200, {**headers, 'Content-Type': 'image/png'}, png(rgba)
 
     @staticmethod
