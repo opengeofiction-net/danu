@@ -80,20 +80,25 @@ def test_reopened_as_it_was_left(left, make, qtbot):
     assert w.checks_dock.isVisibleTo(w) and not w.profile_dock.isVisibleTo(w)
 
 
-def test_a_surface_built_is_built_again_at_its_resolution(make, zone, qtbot, monkeypatch):
+def test_a_surface_built_is_built_again_at_3_arcseconds(make, zone, qtbot, monkeypatch):
+    """Whether one was built, and nothing about its resolution: every surface
+    the editor builds is at 3 (I3d), and a file from before then, naming 1,
+    reopens at 3 too rather than at a resolution there is no longer a choice
+    of."""
     w = make()
     w.show()
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         assert w.open_working_set(zone, SquareName(125, -24))
     data = session.capture(w)
-    assert data['surface']['built'] is None, 'nothing built, nothing to build'
-    data['surface']['built'] = 3.0
-    asked = []
-    w2 = make()
-    monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None: asked.append(arcsec))
-    with qtbot.waitSignal(w2.loader.finished, timeout=15000):
-        assert session.restore(w2, data)
-    assert asked == [3.0]
+    assert data['surface']['built'] is False, 'nothing built, nothing to build'
+    for built in (True, 1.0):
+        data['surface']['built'] = built
+        asked = []
+        w2 = make()
+        monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None, asked=asked: asked.append(arcsec))
+        with qtbot.waitSignal(w2.loader.finished, timeout=15000):
+            assert session.restore(w2, data)
+        assert asked == [3.0], (built, asked)
 
 
 def test_a_session_in_a_zone_that_is_gone_opens_nothing_and_says_so(make, tmp_path):

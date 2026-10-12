@@ -48,7 +48,11 @@ from ..surface.ramp import Ramp, spectral, traditional
 from .trace import grid as _grid
 from .trace import trace as _trace
 
-RESOLUTIONS = ((3.0, '3″ - a minute a set, the .hgt archive\'s'), (1.0, '1″ - the published DEM\'s, slow'))
+# what the working set is built at. There is no choice of it any more (R43,
+# I3d): at z15 and closer the ground in view is at 1 arcsecond, solved over the
+# view and held on this. The command line's --surface still builds at
+# another, for comparing, and the rebuilds after it keep to that
+ARCSEC = 3.0
 MODES = ('shaded relief', 'hillshade', 'relief', 'slope', 'difference')
 RAMPS = {'spectral': spectral, 'traditional': traditional}
 
@@ -939,10 +943,10 @@ class SurfaceLayer(QGraphicsItem):
 # ------------------------------------------------------------------- panel
 
 class SurfacePanel(QDockWidget):
-    """Rebuild, resolution, mode, ramp, scaling and opacity. It edits the
-    layer's Style and asks the window to rebuild; it computes nothing."""
+    """Rebuild, mode, ramp, scaling and opacity. It edits the layer's Style
+    and asks the window to rebuild; it computes nothing."""
 
-    rebuild = Signal(float)              # arcsec
+    rebuild = Signal()
     contoursStyled = Signal(str)         # 'dark' or 'height': how the contour lines meet the ground
     styleChanged = Signal(object)        # the Style, after every change
 
@@ -954,22 +958,8 @@ class SurfacePanel(QDockWidget):
         body = QWidget()
         form = QFormLayout(body)
 
-        self.resolution = QComboBox()
-        for arcsec, label in RESOLUTIONS:
-            self.resolution.addItem(label, arcsec)
-        # Choosing a resolution builds at it. It used to only arm the Rebuild
-        # button, so the panel named one resolution while the surface was at
-        # another and an edit redrew at the old one - which reads as the
-        # control not working, because that is what it looks like.
-        #
-        # Connected after the items are in, so populating the combo does not
-        # ask for a build before there is a working set; and show_resolution
-        # blocks signals, so a build moving the combo to say what it is doing
-        # cannot ask for another.
-        self.resolution.currentIndexChanged.connect(self._resolution_chosen)
         self.button = QPushButton('Rebuild surface')
-        self.button.clicked.connect(lambda: self.rebuild.emit(float(self.resolution.currentData())))
-        form.addRow('Resolution', self.resolution)
+        self.button.clicked.connect(self.rebuild.emit)
         form.addRow(self.button)
 
         self.mode = QComboBox()
@@ -1105,27 +1095,6 @@ class SurfacePanel(QDockWidget):
         self.scaling.setEnabled(coloured and self.ramp.currentText() != 'traditional')
         self.layer.set_style(self.current_style())
         self.styleChanged.emit(self.layer.style)
-
-    def _resolution_chosen(self, _index: int):
-        data = self.resolution.currentData()
-        if data is not None:
-            self.rebuild.emit(float(data))
-
-    def show_resolution(self, arcsec: float) -> bool:
-        """Put the combo on the resolution being built.
-
-        The panel is where a reader looks to see what the surface is; a build
-        started from anywhere else - the command line's --surface, or a
-        rebuild that names its own - has to move it, or the panel says one
-        thing while the build does another. Signals stay blocked because this
-        is reporting a build, not asking for one."""
-        for i in range(self.resolution.count()):
-            if abs(float(self.resolution.itemData(i)) - arcsec) < 1e-9:
-                was = self.resolution.blockSignals(True)
-                self.resolution.setCurrentIndex(i)
-                self.resolution.blockSignals(was)
-                return True
-        return False
 
     def building(self, text: str):
         self.button.setEnabled(False)

@@ -6,8 +6,9 @@ open, the layer under the map, the surface panel's choices and whether a
 surface was built, the tool, the loupe and the active elevation. Written as
 the map comes to rest and as any of those is chosen, as well as on closing,
 so a Danu killed reopens where it was too; read when Danu starts with no
-square named. A surface that was built is built again at its resolution - a
-surface is never kept, only how to make it.
+square named. A surface that was built is built again - a surface is never
+kept, only that there was one. At 3 arcseconds, as every surface the editor
+builds is (I3d); a file from before then, naming 1, reopens at 3 too.
 
 What a square holds is not here: that is the squares' and, unsaved, the
 autosave's, which the set reopening offers back.
@@ -23,6 +24,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray
 
 from ..core.square import SquareName
+from .surface import ARCSEC
 
 VERSION = 1
 FILE = 'session.json'
@@ -42,7 +44,7 @@ def capture(win) -> dict:
     active = win.layer_chooser.active
     out['layer'] = {'name': active.layer.name if active else None, 'opacity': win.layer_chooser.slider.value()}
     p = win.surface_panel
-    out['surface'] = {'built': win._arcsec if win.surface.shaded is not None else None,
+    out['surface'] = {'built': win.surface.shaded is not None,
                       'mode': p.mode.currentText(), 'ramp': p.ramp.currentText(),
                       'scaling': p.scaling.currentText(),
                       'lo': p.lo.value(), 'hi': p.hi.value(), 'centre': p.centre.value(), 'width': p.width.value(),
@@ -137,7 +139,7 @@ def restore(win, data: dict) -> bool:
         if data.get('elevation') is not None:
             win.elevation.set(float(data['elevation']))
         if s.get('built'):
-            win.rebuild_surface(float(s['built']))
+            win.rebuild_surface(ARCSEC)
     # after the window's own handler, which fits the view to the centre square
     win.loader.finished.connect(landed)
     if not win.open_working_set(zone, centre, size):

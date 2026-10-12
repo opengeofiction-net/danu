@@ -61,7 +61,7 @@ from .published import PublishedDem
 from .selection_panel import SelectionPanel
 from .settings import REBUILD_KEY, Settings
 from .squares import SquaresItem
-from .surface import SurfaceBuilder, SurfaceLayer, SurfacePanel
+from .surface import ARCSEC, SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
@@ -937,7 +937,7 @@ class MainWindow(QMainWindow):
         surface = self.menuBar().addMenu('&Surface')
         self.rebuild_action = QAction('&Rebuild surface', self)
         self.rebuild_action.setShortcut(QKeySequence(REBUILD_KEY))
-        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(float(self.surface_panel.resolution.currentData())))
+        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface())
         surface.addAction(self.rebuild_action)
         self.pinch_action = QAction('&Pinch ramp on active elevation', self)
         self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
@@ -1166,7 +1166,12 @@ class MainWindow(QMainWindow):
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:
         """Build the working set's DEM on a worker - the same stages the
-        server runs - and shade it. Slow and exact; the panel says how long."""
+        server runs - and shade it. Slow and exact; the panel says how long.
+
+        At 3 arcseconds, or at whatever the surface on screen was built at -
+        which is 3 unless the command line's --surface asked for another, and
+        then the rebuilds after it keep to that. ``arcsec`` overrides both:
+        the command line passes its own, and nothing else passes one."""
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
@@ -1175,20 +1180,13 @@ class MainWindow(QMainWindow):
         except (KeyError, OSError) as e:
             self._surface_failed(str(e))
             return False
-        if arcsec is not None:
-            p = p.with_arcsec(arcsec)
+        p = p.with_arcsec(arcsec if arcsec is not None else (self._arcsec or ARCSEC))
         # before the request, not after: request() starts the build there and
         # then when nothing is running, and the build's own started signal
         # reads this. Setting it afterwards had the status line report the
         # previous build's resolution, which on the first build of a session
         # is the 0 it was initialised to - "building at 0″".
         self._arcsec = p.arcsec
-        if not self.surface_panel.show_resolution(p.arcsec):
-            # --surface 0.5 builds at 0.5 and the combo has no such entry, so
-            # it would go on naming one the build is not using - the very
-            # disagreement show_resolution exists to end
-            self.statusBar().showMessage(
-                f'building at {p.arcsec:g}″, which the resolution list does not offer')
         queued = self.builder.busy
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
         if queued:
@@ -1844,9 +1842,10 @@ class MainWindow(QMainWindow):
             # asked for starts - the surprise c478fa8 exists to prevent,
             # through a different door.
             return
-        # the resolution this surface is at, not whatever the combo says: they
-        # are the same now that a build moves the combo, and an idle rebuild is
-        # the wrong moment to discover they are not
+        # the resolution this surface is at, said rather than left to the
+        # default: it is 3 arcseconds unless the command line asked for
+        # another, and settling a --surface 1 surface at 3 would change its
+        # resolution under the mapper
         self.rebuild_surface(self._arcsec)
 
     def _surface_built(self, built, stale=False, seconds=0.0):
@@ -1931,7 +1930,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('square', nargs='?', help='the square, e.g. N20E087')
     ap.add_argument('--size', type=int, default=3, help='working set side, odd (default 3)')
     ap.add_argument('--surface', type=float, metavar='ARCSEC', nargs='?', const=3.0,
-                    help='build and show the surface once the square is open, at this resolution (default 3)')
+                    help='build and show the surface once the square is open, at this resolution '
+                         '(default 3, which is what the editor builds at; another is for comparing, '
+                         'and the rebuilds after it keep to it)')
     args = ap.parse_args(argv[1:])
     if bool(args.zone_dir) != bool(args.square):
         ap.error('give both a zone directory and a square, or neither')
