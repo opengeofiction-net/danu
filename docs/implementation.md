@@ -5029,3 +5029,32 @@ difference between a centimetre and a millimetre.
 Solving the view again after an edit took 0.2 to 1.8 s on gobras City, against
 2.8 to 22 s to solve the same views from nothing - the first pass kept by
 tile is what an edit does not have to pay for again.
+
+## I5, the rebuild after an edit
+
+The plan said rebuilding of its own accord had been turned off. It had not:
+ten seconds after the drawing stops the preview asks for the exact rebuild,
+and has since F5b. At 1 arcsecond it was off in effect, a whole build of the
+set taking longer than the pause, so that every one was overtaken by the next
+edit. At 3 arcseconds it is the seconds it is.
+
+What it cost the 1" view was every tile: `FineDriver.adopt` dropped them all
+on every build, so after each idle rebuild the 3" surface showed under the
+view for a second or two and the first pass was searched again from nothing.
+A build of the same grid and the same drawn area - which the idle rebuild
+after an edit is - now keeps them, and `Fine.rehold` holds them on its bands
+and the preview's new contour layer. They are still its answer: the first
+pass depends on the contours alone, and the tiles an edit reached went when it
+was previewed (I4); the DEM was held on a preview's surface within a
+millimetre of the exact one. The drawn area is taken from the contours again,
+and the sea, and if the sea moved every tile goes. A build of other ground -
+another grid, a drawn area an edit moved, a working set opened - drops them
+as before. In the window on gobras, a z15 view's 25 tiles came through a
+rebuild kept, with nothing solved again and the picture drawn at once.
+
+`Fine.clear`, which an edit on ground the preview cannot show still calls,
+now takes the drawn area again too: such an edit can move it.
+
+The status line said a build ran "the same stages the server runs", which read
+as the same surface. It says what is built and at what, and that the view is
+at 1" from z15.

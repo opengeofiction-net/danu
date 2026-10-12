@@ -1213,8 +1213,13 @@ class MainWindow(QMainWindow):
             self._surface_pending = True             # the panel says this build will answer
             self._checks_due.start()
         self.surface_panel.building(f'building at {self._arcsec:g}″…')
+        # the server builds at 1 arcsecond; the editor at 3, with the view at
+        # 1 from z15 (R43). It said "the same stages the server runs", which
+        # read as the same surface, and was no longer what was happening
         self.statusBar().showMessage(
-            f'building the surface at {self._arcsec:g}″ - the same stages the server runs')
+            f'building the surface at {self._arcsec:g}″ by the server\'s stages - '
+            + ('at z15 and closer the view is solved at 1″' if self._arcsec == ARCSEC
+               else 'the whole set at this resolution, for comparing'))
 
     # --------------------------------------------------------------- water
     def import_water(self) -> bool:

@@ -162,8 +162,10 @@ class Fine:
         self.params = params
         # here and not at the top: drawn_mask and sea_mask are GDAL's, and the
         # editor's driver imports this module on a machine that may have none
-        from . import sea_mask
-        self.seeds = sea_mask.coast_seeds(gpkg, fine.gt) if gpkg is not None else None
+        self.seeds = None
+        if gpkg is not None:
+            from . import sea_mask
+            self.seeds = sea_mask.coast_seeds(gpkg, fine.gt)
         self._envelopes: dict[tuple[int, int], tuple[int, int, int, int] | None] = {}
         # the tiles kept, ('first' or 'dem', key) -> (value, cells), least
         # recently used first
@@ -326,10 +328,33 @@ class Fine:
         return dropped
 
     def clear(self) -> None:
-        """Every tile gone - what an edit does until I4 makes it local."""
+        """Every tile gone - what an edit the preview could not show does,
+        and the drawn area with them: such an edit can have moved it."""
         self._kept.clear()
         self._held = 0
+        self._envelopes.clear()
         self.revision += 1
+
+    def rehold(self, contours: Contours, surface: Band, dem: Band, gpkg=None) -> bool:
+        """Hold the tiles on a new build of the same grid and drawn area -
+        an idle rebuild's - rather than solve them again (I5). They are still
+        its answer: the first pass depends on the contours alone, and the
+        tiles an edit reached went when it was previewed; the DEM was held on
+        a preview's surface within a millimetre of the exact one. The drawn
+        area is taken from the contours again, and the sea; if the sea moved,
+        every tile goes. Returns whether the tiles were kept."""
+        self.contours, self.surface, self.dem = contours, surface, dem
+        self._envelopes.clear()
+        seeds = None
+        if gpkg is not None:
+            from . import sea_mask
+            seeds = sea_mask.coast_seeds(gpkg, self.fine.gt)
+        same = (seeds is None) == (self.seeds is None) and (
+            seeds is None or all(np.array_equal(a, b) for a, b in zip(seeds, self.seeds, strict=True)))
+        self.seeds = seeds
+        if not same:
+            self.clear()
+        return same
 
     def known(self, view: Box) -> bool:
         """Whether every tile of ``view`` is solved."""
