@@ -110,6 +110,9 @@ class FineDriver(QObject):
         self.fine = None
         self._want = None
         self._plan = None
+        # 0, which no job is ever given: _serial only counts up, so the answer
+        # of a solve in flight matches neither this nor any solve started
+        # after it, and _solved drops it
         self._solving = 0
 
     def _say(self, why: str) -> None:
