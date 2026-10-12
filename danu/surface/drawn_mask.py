@@ -51,21 +51,11 @@ from osgeo import gdal
 gdal.UseExceptions()
 
 
-def envelopes(src_path, out_path):
-    """Write the per-square envelopes of the constraints in a raster as
-    GeoJSON; returns how many. Raises ValueError when there are none - the
-    command line turns that into its exit."""
-    ds = gdal.Open(src_path)
-    gt = ds.GetGeoTransform()
-    band = ds.GetRasterBand(1)
-    nodata = band.GetNoDataValue()
-    W, H = ds.RasterXSize, ds.RasterYSize
-
-    # the degree squares the raster covers
+def squares(gt, W, H):
+    """The degree squares a raster on ``gt`` of W by H covers, as
+    (lat, lon, x0, x1, y0, y1): each square's cells, clipped to the raster."""
     lon0 = int(np.floor(gt[0])); lon1 = int(np.ceil(gt[0] + W * gt[1]))
     lat1 = int(np.ceil(gt[3])); lat0 = int(np.floor(gt[3] + H * gt[5]))
-
-    feats = []
     for lat in range(lat0, lat1):
         for lon in range(lon0, lon1):
             x0 = int(round((lon - gt[0]) / gt[1]))
@@ -76,22 +66,45 @@ def envelopes(src_path, out_path):
             y0, y1 = max(y0, 0), min(y1, H)
             if x1 <= x0 or y1 <= y0:
                 continue
-            a = band.ReadAsArray(x0, y0, x1 - x0, y1 - y0)
-            m = a != nodata
-            if not m.any():
-                continue
-            rows = np.flatnonzero(m.any(axis=1))
-            cols = np.flatnonzero(m.any(axis=0))
-            # outer edges of the extreme cells, so every contour cell is inside
-            west = gt[0] + (x0 + cols[0]) * gt[1]
-            east = gt[0] + (x0 + cols[-1] + 1) * gt[1]
-            north = gt[3] + (y0 + rows[0]) * gt[5]
-            south = gt[3] + (y0 + rows[-1] + 1) * gt[5]
-            coords = [(west, south), (east, south), (east, north),
-                      (west, north), (west, south)]
-            feats.append('{"type":"Feature","properties":{},"geometry":'
-                         '{"type":"Polygon","coordinates":[[%s]]}}'
-                         % ','.join('[%.9f,%.9f]' % c for c in coords))
+            yield lat, lon, x0, x1, y0, y1
+
+
+def envelope(a, nodata):
+    """The envelope of the constraints in one square's cells, as the first and
+    one-past-last row and column holding one; None when there are none. Outer
+    edges of the extreme cells, so every contour cell is inside."""
+    m = a != nodata
+    if not m.any():
+        return None
+    rows = np.flatnonzero(m.any(axis=1))
+    cols = np.flatnonzero(m.any(axis=0))
+    return int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
+
+
+def envelopes(src_path, out_path):
+    """Write the per-square envelopes of the constraints in a raster as
+    GeoJSON; returns how many. Raises ValueError when there are none - the
+    command line turns that into its exit."""
+    ds = gdal.Open(src_path)
+    gt = ds.GetGeoTransform()
+    band = ds.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+
+    feats = []
+    for _, _, x0, x1, y0, y1 in squares(gt, ds.RasterXSize, ds.RasterYSize):
+        env = envelope(band.ReadAsArray(x0, y0, x1 - x0, y1 - y0), nodata)
+        if env is None:
+            continue
+        r0, r1, c0, c1 = env
+        west = gt[0] + (x0 + c0) * gt[1]
+        east = gt[0] + (x0 + c1) * gt[1]
+        north = gt[3] + (y0 + r0) * gt[5]
+        south = gt[3] + (y0 + r1) * gt[5]
+        coords = [(west, south), (east, south), (east, north),
+                  (west, north), (west, south)]
+        feats.append('{"type":"Feature","properties":{},"geometry":'
+                     '{"type":"Polygon","coordinates":[[%s]]}}'
+                     % ','.join('[%.9f,%.9f]' % c for c in coords))
 
     if not feats:
         raise ValueError('no constraints in %s' % src_path)

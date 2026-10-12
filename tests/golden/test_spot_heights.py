@@ -601,3 +601,22 @@ def test_a_square_carrying_a_relation_builds_the_same_surface(tmp_path):
         f'{int((after != before).sum())} constraint cells moved because the square '
         f'grew a relation')
     assert np.count_nonzero(before != build.NODATA) > 1000, 'the fixture burned nothing'
+
+
+def test_the_drawn_areas_burn_leaves_the_spot_heights_out(tmp_path):
+    """R21 again, for the 1 arcsecond view, which takes each square's envelope
+    from the contours burned a square at a time: a spot height outside the
+    rings is burned with the constraints and not with the envelope's."""
+
+    from danu.surface import NODATA
+    from danu.surface.local import Box
+    from danu.surface.preview import Contours
+
+    _, _, gt, result = built(a_hill(spot=(LON + 0.4, LAT, 90)), tmp_path)
+    contours = Contours(result.contours_gpkg)
+    box = Box(0, 0, 1200, 1200)
+    x, y = int((LON + 0.4 - gt[0]) / gt[1]), int((LAT - gt[3]) / gt[5])
+    assert contours.burn(gt, box, NODATA)[y, x] == 90
+    alone = contours.burn(gt, box, NODATA, spots=False)
+    assert alone[y, x] == NODATA
+    assert (alone != NODATA).any()
