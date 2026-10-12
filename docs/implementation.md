@@ -4675,3 +4675,67 @@ and outlines named as territories, which they are not; the contours' blend
 and width became the mapper's to choose; and a click near a stream and its
 river area means the stream.
 
+
+## What phase 7 starts from
+
+A measurement of both passes, before any of it was built, on 2026-10-12. The
+sets: gobras, tidied - its 3x3 and all eight squares at 3 arcseconds,
+N20E086 and N20E087 at 1; and ellarca, not - eleven squares at 3, a 2x2 at 1.
+The second pass is measured against an exact solve, a sparse direct one over
+each region of free cells; its regions are independent, each depending only on
+the cells around it.
+
+**The second pass is not converged.** One coarse-to-fine pass of the pyramid,
+24 sweeps a level, and no more:
+
+| set | free cells | worst, as built | worst, solved to 1 cm |
+|---|---|---|---|
+| gobras, eight squares at 3" | 279,035 | 3.9 m | 0.02 m |
+| gobras N20E086 at 1" | 1,471,608 | 12.2 m | 0.51 m |
+| ellarca at 3" | 2,400,865 | 329 m | 0.13 m |
+| ellarca 2x2 at 1" | 16,092,235 | 325 m | 1.04 m |
+
+On gobras the error is at the drawn area's edge and never a pit: no region
+anywhere goes outside the range of the ground around it by 2 m. On ellarca
+twelve regions do by more than 5 m at 3", one a 54 m dent inside a closed 2350
+m ring, plain in the hillshade. Its worst sit in the strips between the coast
+and the drawn area's edge: its coast is a 0 contour, not `natural=coastline`
+- five coastline ways in eleven squares - so no sea mask is made, and a strip
+whose whole edge is 0 is filled to 100-329 m. That is in `dem.tif`. More
+sweeps at the coarse levels change nothing; more at the finest do, and
+over-relaxed (1.95) they converge in 90-260 sweeps where plain ones take
+thousands. Swept a tile at a time, only where still moving, it adds 0.1-0.4 s.
+A tolerance under a centimetre never stops, at single precision.
+
+**The first pass is the time.** At 1" a cell has some 650 constraints in its
+radius and walks 13,800 steps of line of sight to them, to see 65. The answer
+uses only the nearest visible cell of each level, so a cell of a level already
+seen nearer cannot change it; skipping those leaves 280 walked and 3,900 steps.
+Visiting only the cells that carry a value, by a next-in-row table, is the
+rest. Both give the same first pass to the bit on every set: whole runs from
+58.1 to 20.9 s on N20E086 at 1", 7.8 to 2.3 s on ellarca at 3". Threads stop
+paying at about four on the machine measured, an i7-1360P with four
+performance cores.
+
+**A view on its own.** The second pass's regions close, so a view grown until
+none crosses its edge is exact - and useless: on N20E086 every view grew to
+about 2,500 cells a side, and on ellarca's 2x2 to the whole of it. Held at the
+3" surface instead, the 1" view and a 32-cell margin are solved alone:
+
+| view at 1" | first pass | second | worst against the whole 1" solve |
+|---|---|---|---|
+| 500x300, nine places on ellarca | 0.01-0.6 s | 0.0-0.5 s | 0.1 m |
+| 1000x600, nine places on ellarca | 0.01-2.0 s | 0.0-1.4 s | 0.1 m |
+| 500x300 and 1000x600 on gobras | 0.1-4.0 s | 0.03-0.4 s | 3.4 m |
+
+That with the box's void taken from the 3" solve. Decided in the box, unreached
+ground reaching its edge is held at 0, though in the whole it is enclosed, and
+six of ellarca's nine views were 94-472 m out. At lat 20 a screen at z15 is
+about 250x150 cells at 1"; the second pass there is the exact solve's, which
+the tiled sweeps match or beat.
+
+**Out of core.** `isofill` forced to band the second pass on ellarca at 3",
+with `--max-mem` 150 and 60: 565,000 cells more than 25 m from the same raster
+solved whole, the worst 1,933 m, all over rather than at the joins. The coarse
+grid took 96,500 cells of enclosed unreached ground for void, and held them at
+0.

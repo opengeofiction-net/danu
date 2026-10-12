@@ -116,6 +116,9 @@ the tools for everything else.
 - **R19** While drawing, the surface updates locally and immediately. It is
   rebuilt exactly on demand, and of its own accord when the preview cannot
   stand in for it. The two states are distinguishable at a glance.
+- **R43** The working set's surface is at 3 arcseconds. At z15 and closer the
+  ground in view is at 1 arcsecond, solved over the view and held at its edge
+  on the 3 arcsecond surface.
 - **R20** Where the first pass found no answer - `OUT_OF_REACH`, `NO_ELEV`,
   `ONE_LEVEL` - the editor says so, as an overlay. This is the single most
   useful thing it can tell a mapper: *here is ground your contours do not
@@ -1072,51 +1075,77 @@ clicks, as JOSM does.
 
 ### Phase 7
 
-**Phase 7 - the surface while editing.** Three things about building a
-surface with a mapper waiting on it, held together because they are the same
-subject and separately because none of them blocks anything.
+**Phase 7 - the surface while editing.** A surface built with a mapper waiting
+on it: correct, quick, and at the resolution the view needs. It is partly work
+in `isofill`, each step there a release Danu then takes, and it starts from a
+measurement of both passes - see *What phase 7 starts from* in
+`implementation.md`.
 
-**When a rebuild happens.** R19 says the surface is rebuilt exactly on idle,
-and phase 4 made that work: fresh ground triggers a rebuild and the timer
-covers the rest. What using it has shown is that automatic is the wrong default
-for a long editing session. A mapper drawing for an hour does not want a
-seventy-second build starting every time they pause to think, and a build that
-starts on its own is a build they did not choose the moment for. On demand is
-the better shape there - the preview is exact enough to draw against, and the
-mapper says when to settle it. What that leaves open is the detection the other
-half of phase 4's item 4 was for: something still has to notice when the
-preview has stopped being trustworthy and say so, rather than quietly showing
-ground that is out of date.
+**The second pass is not converged.** It is one coarse-to-fine pass of the
+pyramid, 24 sweeps a level, and stops there. On tidied ground that costs a few
+metres and never a false pit; on ellarca, against an exact solve, it is 54 m
+of dent inside a closed 2350 m ring, and 100 to 329 m of ground standing in the
+sea, in the strips between a coast drawn as a 0 contour and the drawn area's
+edge. Both reach `dem.tif`. Some of what `isofill`'s README calls stray
+elevation near a shore is this.
 
-**The first build's head start.** Opening a working set and building at 1
-arcsecond draws nothing for a minute and a half, because a first build has no
-previous surface to leave on screen. Solving the ground the view covers between
-the cheap stages and the fill puts it up in about three and a half seconds - a
-window costs the window, and the fill is 92.5% of the build. Written and
-measured, and parked here rather than merged: it belongs with the rebuild
-question above, since what it is really doing is deciding what to show while a
-build a mapper did not ask for is running.
+**Where the time goes is the first pass.** The second is under a second on any
+working set; the first is 59 s for one square at 1 arcsecond. Most of that is
+lines of sight walked to contours that turn out hidden, and to cells of a
+contour already seen nearer, which cannot change the answer.
 
-**The out-of-core second pass.** `isofill`'s banded pass 2 is an approximation,
-and the error is a streak on every band join: measured on the gobras 3x3 at 1
-arcsecond, every one of the 964 cells wrong by more than 100 m sits within
-thirty rows of a join, and the worst is a trench a hundred metres below the
-contours enclosing it. A mapper would read it as terrain. The cause is that
-each band's margin rows are pinned to the coarse answer, so a free interior
-meets a boundary carrying 1-in-4 detail; widening the margin moves that
-boundary rather than removing it, and has been tried. The candidate is a
-reconciliation across each join once the bands are written. See `isofill`'s
-README.
+**A view at 1 arcsecond can be solved on its own.** The first pass of a box is
+exact given a radius beyond it. The second is held at the box's edge, and the
+3 arcsecond surface of the whole working set is a good enough edge to hold it
+at: a view solved that way, the void taken from the 3 arcsecond solve rather
+than from the box, is within 0.1 m of the whole 1 arcsecond solve on ellarca
+and 3.4 m on gobras. That replaces the choice of resolution with the zoom.
 
-Nothing Danu does today depends on that last one: the committed surface is
-built whole, and the preview's local second pass is a different path that F3
-measured separately. It becomes real when a zone will not fit - a question of
-raster size, not of anything the editor chooses.
+In six steps:
 
-Ends when a long editing session never waits for a build it did not ask for,
-never draws a surface it cannot vouch for without saying so, and a raster
-forced out of core matches the same raster solved whole to the interval rather
-than to hundreds of metres.
+**I1, the first pass faster, exactly.** No line of sight walked to a level
+already seen nearer, and only the cells which carry a value visited. The same
+answer to the bit; 2.8 to 3.5 times faster over a whole run. `isofill` 0.10.1.
+
+**I2, the second pass solved.** Over-relaxed sweeps at the finest level after
+the pyramid, until no cell moves by more than a centimetre, sweeping only the
+tiles still moving. Within a metre of an exact solve on every set measured,
+for a few tenths of a second. `isofill` 0.11.0, and the figures the spec
+quotes for the local solve measured again against it.
+
+**I3, the resolution follows the zoom.** The working set's surface is at 3
+arcseconds. At z15 and closer the ground in view is at 1 arcsecond, solved
+over the view and a margin, held at its edge on the 3 arcsecond surface, and
+kept by tile as the view moves. The resolution choice goes. This is the first
+build's head start, generalised: what is on screen is solved first.
+
+**I4, edits at both resolutions.** An edit is solved locally on the 3
+arcsecond surface and on the 1 arcsecond tiles it reaches; tiles beyond its
+reach are kept, and tiles it reaches but are not in view are dropped.
+
+**I5, when a rebuild happens.** Rebuilding of its own accord was turned off
+because a build of the whole set at 1 arcsecond kept a mapper waiting. With the
+whole set at 3 arcseconds and the view at 1, it does not, and it becomes the
+default again. The preview still says when it cannot be vouched for.
+
+**I6, the out-of-core second pass.** `isofill`'s banded pass 2 is an
+approximation, and two faults are measured. On the gobras 3x3 at 1 arcsecond
+every cell wrong by more than 100 m sits within thirty rows of a band join,
+each band's margin pinned to the coarse answer. On ellarca at 3 arcseconds,
+forced out of core, the faults are everywhere rather than at the joins - 96,500
+cells of enclosed unreached ground taken for void, because void is decided on
+the coarse grid, and every patch around them solved against the wrong edge.
+Void decided as connected regions across the bands, and the bands solved as
+I2 solves the whole, are the candidate. Nothing Danu does depends on it: it is
+real only when a zone will not fit.
+
+Ends when the second pass is within a metre of an exact solve on gobras and
+ellarca, with no cell outside the range of the ground around it; when at z15
+the 1 arcsecond surface of a screen of gobras is up within 2 s of the view
+settling, within a metre of the whole 1 arcsecond solve; when an edit's
+surface at both resolutions is within a metre of a whole rebuild, with
+rebuilding of its own accord on; and when a raster forced out of core matches
+the same raster solved whole to the interval rather than to hundreds of metres.
 
 ### Phase 8
 
