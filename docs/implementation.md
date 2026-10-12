@@ -4796,8 +4796,7 @@ about halve the whole-raster cost, and is there if it is needed.
 ## I3a, a view at 1 arcsecond
 
 `danu/surface/fine.py`: the ground in a view solved at 1", from the 3" build
-and the contours alone. Nothing in the editor calls it yet; I3b gives it tiles
-and a worker, I3c draws it.
+and the contours alone. I3b gives it tiles and a worker, I3c draws it.
 
 The agreed shape of I3, before any of it was built: the surface checks stay on
 the 3" working set; the WMS into JOSM serves 1" where it is cached and 3"
@@ -4864,3 +4863,54 @@ about 1.9 s at that speed; the median view is half. Inside the 2 s, narrowly,
 at the worst place in gobras. I3b caches the first pass by tile, which is
 exact - it depends on no rim - so a view that moves pays for the ground it
 uncovers.
+
+## I3b, the view's tiles
+
+`danu/ui/fine.py`, the driver, and the keeping in `danu/surface/fine.py`. Once
+the map comes to rest at z15 or closer, the view's tiles not yet solved are
+solved on a worker and kept; below z15 nothing is solved and what is kept stays
+for coming back. One solve at a time, the next for wherever the view is by
+then. Nothing draws the tiles yet - I3c - and the usage log has how long each
+view took.
+
+**What is kept.** Tiles of 64 cells on the 1" grid, two kinds: the first pass,
+which depends on the contours alone and so is exact wherever it was searched
+whole, and the DEM with its fill. Both under one budget, 24 M cells, least
+recently used first out. Every tile goes with a new build.
+
+**What is solved.** The whole view, snapped to tiles, whenever any tile of it
+is missing - not the missing tiles alone - and never less than 256 cells each
+way. A pan leaves a strip of new tiles, and a strip on a rim of its own is not
+the shape I3a measured: walked across the golden square a few dozen cells a
+step, strips at 64-cell tiles came out 140 m from the whole build. Solved as a
+view, the walk is within 2 mm. The second pass over a view is a few hundredths
+of a second, and the first pass - the cost - is searched only where no tile
+already holds it, which a test holds to the whole raster's first pass to the
+bit.
+
+The 256 is for the views a screen gives closer in, a few dozen cells at z17
+and eight by four at z20. Solved as themselves they are the narrow shape
+again: views 64 cells wide near the golden square's western edge were out by
+up to 90 m with the smallest at 128 or 160 cells, in 8 and 4 places of 44, and
+in none at 192, 256, 384 or 512. 192 is too near the edge of failing to
+trust. A rule taking a solve to the raster's edge when its margin came near
+it was tried on the way and measured to make no difference once views have a
+floor, so it is not there.
+
+**The measure.** The gobras 3x3 built at 3" in the window, a 1600 by 1000
+window with the docks hidden - a z15 view of 247 by 139 cells - timed from the
+view settling to its tiles arriving. The machine's yardstick, the whole gobras
+City first pass at 1", read 14.6 to 15.2 s through it, against 13 s cool:
+
+| place | z15 view | panned half a screen |
+|---|---|---|
+| gobras City, densest | 1.72 s | 0.93 s |
+| gobras City, middle | 0.83 s | 0.24 s |
+| gobras City, north-west | 0.18 s | 0.37 s |
+| Artana, Havreg, Hope Island | 0.07 - 0.09 s | 0.03 s |
+
+Back at a view already solved, at any zoom from 15 in, nothing is solved. The
+tile size was measured on the densest view before the floor: 1.88 s at 128
+cells, 1.46 at 64, 1.30 at 32 with nearly three times as many tiles to keep.
+The floor costs that view a quarter of a second, since a z15 screen is 139
+cells tall.

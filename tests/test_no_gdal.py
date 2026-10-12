@@ -30,6 +30,26 @@ def test_profile_imports_without_gdal(monkeypatch):
         importlib.import_module(mod)
 
 
+def test_the_1_arcsecond_view_imports_without_gdal(monkeypatch):
+    """The editor's driver for it is imported by the window, and the ui job
+    has no GDAL: with drawn_mask and sea_mask imported at the top of
+    danu.surface.fine, every ui test failed to collect."""
+    import importlib
+    import sys
+
+    real = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name.split('.')[0] == 'osgeo':
+            raise ModuleNotFoundError(f"No module named '{name}'")
+        return real(name, *args, **kwargs)
+
+    for mod in [m for m in sys.modules if m == 'osgeo' or m.startswith(('osgeo.', 'danu.surface'))]:
+        monkeypatch.delitem(sys.modules, mod)
+    monkeypatch.setattr(builtins, '__import__', blocked)
+    importlib.import_module('danu.surface.fine')
+
+
 def test_the_pure_modules_import_no_raster_ui_or_network_library():
     """Checked on the import statements, not the prose: a docstring is allowed
     to say why pyosmium is not used here, and a test that forbids the word

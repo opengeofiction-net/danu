@@ -195,6 +195,12 @@ class PreviewDriver(QObject):
     def ready(self) -> bool:
         return self._kept is not None
 
+    @property
+    def contours(self):
+        """The contour layer the editor keeps in step, or None - the 1
+        arcsecond view burns from the same one."""
+        return self._kept.contours if self._kept is not None else None
+
     def forget(self):
         """Drop the rasters - a new working set, or a build that gave none."""
         _trace('preview forget', kept_gen=self._kept_gen, shaded_gen=self._shaded_gen,

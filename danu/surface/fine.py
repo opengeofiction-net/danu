@@ -54,17 +54,38 @@ than read off a whole 1 arcsecond raster nobody has built:
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
 
-from . import NODATA, drawn_mask, isofill_lib, sea_mask
+from . import NODATA, isofill_lib
 from .local import Box
 from .params import Params
 from .preview import Band, Contours, clamp_patch
 
 # how far the solve reaches beyond the view, in radii; see above
 MARGIN = 2.5
+
+# the side of a tile, in cells: what is kept, and what a view is answered in.
+# A z15 screen is about 250 by 140 cells at the latitudes drawn so far, and a
+# view is answered in whole tiles, so the tile is overhead: on the densest
+# z15 view of gobras City, 1.88 s from the view settling at 128 and 1.46 s at
+# 64, with the machine's yardstick the same, and 1.30 s at 32
+TILE = 64
+
+# the smallest view solved, in cells each way: a smaller one is solved as this
+# much ground around it. Zoomed in, a screen is a few dozen cells - 60 by 35 at
+# z17, 8 by 4 at z20 - and solved as itself it would be the shape the margin
+# fails on. Views 64 cells wide near the golden square's western edge were up
+# to 90 m out in 4 of 44 places at 160, and in none at 192 - too near failing
+# to trust - nor at 256, 384 or 512
+SMALLEST = 256
+
+# how many cells of tiles are kept, first passes and DEMs together - a DEM tile
+# counts twice, holding its fill as well. 24 M cells is about 290 MB, and a
+# whole 3x3 working set at 1 arcsecond is 78 M
+BUDGET = 24_000_000
 
 
 @dataclass(frozen=True)
@@ -93,17 +114,26 @@ class Grid:
 
 @dataclass
 class Prepared:
-    """What the solve for one view reads, as arrays - the seam between the
-    thread that owns the contour layer and the one that solves."""
+    """What one solve reads, as arrays - the seam between the thread that owns
+    the contour layer and the one that solves."""
 
-    view: Box
-    good: Box               # the view grown by the margin: what is solved
-    grown: Box              # and by the radius again: what the first pass reads
-    constraints: np.ndarray  # over grown
-    mask: np.ndarray         # over grown
-    water: np.ndarray | None  # over grown
-    rim: np.ndarray          # over good, the 3 arcsecond surface brought up
-    sea: np.ndarray          # over good, where the 3 arcsecond DEM is zero
+    view: Box                 # the cells answered
+    good: Box                 # the view grown by the margin: what the second pass solves
+    outer: Box                # and by the radius again: what the first pass may read
+    constraints: np.ndarray   # over outer
+    mask: np.ndarray          # over outer
+    first: np.ndarray         # over good: the first pass, where it is already known
+    todo: np.ndarray          # over good: where it is not, and is to be searched
+    water: np.ndarray | None  # over good
+    rim: np.ndarray           # over good, the 3 arcsecond surface brought up
+    sea: np.ndarray           # over good, where the 3 arcsecond DEM is zero
+
+
+@dataclass
+class Solved:
+    dem: np.ndarray           # over the view
+    surface: np.ndarray       # over the view: the fill before the clamp
+    first: np.ndarray         # over good: the first pass, complete
 
 
 class Fine:
@@ -129,14 +159,23 @@ class Fine:
         self.contours = contours
         self.surface, self.dem = surface, dem
         self.params = params
+        # here and not at the top: drawn_mask and sea_mask are GDAL's, and the
+        # editor's driver imports this module on a machine that may have none
+        from . import sea_mask
         self.seeds = sea_mask.coast_seeds(gpkg, fine.gt) if gpkg is not None else None
         self._envelopes: dict[tuple[int, int], tuple[int, int, int, int] | None] = {}
+        # the tiles kept, ('first' or 'dem', key) -> (value, cells), least
+        # recently used first
+        self._kept: OrderedDict = OrderedDict()
+        self._held = 0
+        self.budget = BUDGET
 
     # ------------------------------------------------------------- inputs
 
     def _envelope(self, square) -> tuple[int, int, int, int] | None:
         """One degree square's envelope as cells of the fine grid - x0, x1, y0,
         y1, one past the end - from its contours burned at 1 arcsecond."""
+        from . import drawn_mask
         lat, lon, x0, x1, y0, y1 = square
         if (lat, lon) not in self._envelopes:
             a = self.contours.burn(self.fine.gt, Box(x0, y0, x1 - 1, y1 - 1), NODATA, spots=False)
@@ -147,6 +186,7 @@ class Fine:
 
     def mask(self, box: Box) -> np.ndarray:
         """The drawn area over ``box``."""
+        from . import drawn_mask
         out = np.zeros(box.shape, np.uint8)
         for square in drawn_mask.squares(self.fine.gt, self.fine.cols, self.fine.rows):
             _, _, x0, x1, y0, y1 = square
@@ -165,6 +205,7 @@ class Fine:
         """The sea over ``box``, or None where the working set has no coastline."""
         if self.seeds is None:
             return None
+        from . import sea_mask
         rows, cols = box.shape
         return sea_mask.sea_window(*self.seeds, box.x0, box.y0, cols, rows, self.fine.shape)
 
@@ -193,42 +234,192 @@ class Fine:
     def margin(self) -> int:
         return round(MARGIN * self.params.fill_cells)
 
+    # -------------------------------------------------------------- tiles
+
+    def tile(self, key: tuple[int, int]) -> Box:
+        """Tile ``key``, (row, column) of tiles, as cells - clipped at the
+        grid's south and east edges."""
+        ty, tx = key
+        return Box(tx * TILE, ty * TILE, min((tx + 1) * TILE, self.fine.cols) - 1,
+                   min((ty + 1) * TILE, self.fine.rows) - 1)
+
+    def tiles(self, box: Box) -> list[tuple[int, int]]:
+        """Every tile ``box`` touches."""
+        return [(ty, tx) for ty in range(box.y0 // TILE, box.y1 // TILE + 1)
+                for tx in range(box.x0 // TILE, box.x1 // TILE + 1)]
+
+    def cells(self, west: float, south: float, east: float, north: float) -> Box | None:
+        """A lon/lat box as the cells it covers, clipped to the grid; None
+        when it misses it."""
+        gt = self.fine.gt
+        x0, x1 = int((west - gt[0]) // gt[1]), int((east - gt[0]) // gt[1])
+        y0, y1 = int((north - gt[3]) // gt[5]), int((south - gt[3]) // gt[5])
+        x0, y0 = max(x0, 0), max(y0, 0)
+        x1, y1 = min(x1, self.fine.cols - 1), min(y1, self.fine.rows - 1)
+        if x1 < x0 or y1 < y0:
+            return None
+        return Box(x0, y0, x1, y1)
+
+    def _get(self, kind: str, key):
+        """A kept tile, now the most recently used; None if not kept."""
+        got = self._kept.get((kind, key))
+        if got is None:
+            return None
+        self._kept.move_to_end((kind, key))
+        return got[0]
+
+    def _put(self, kind: str, key, value, cells: int) -> None:
+        """Keep a tile, letting the least recently used go past the budget."""
+        old = self._kept.pop((kind, key), None)
+        if old is not None:
+            self._held -= old[1]
+        self._kept[kind, key] = (value, cells)
+        self._held += cells
+        while self._held > self.budget and len(self._kept) > 1:
+            _, (_, c) = self._kept.popitem(last=False)
+            self._held -= c
+
+    def known(self, view: Box) -> bool:
+        """Whether every tile of ``view`` is solved."""
+        return all(('dem', k) in self._kept for k in self.tiles(view))
+
+    def read(self, view: Box) -> tuple[np.ndarray, np.ndarray] | None:
+        """The DEM and fill over ``view`` from the tiles, or None if a tile of
+        it is not solved."""
+        if not self.known(view):
+            return None
+        dem = np.empty(view.shape, np.float32)
+        surface = np.empty(view.shape, np.float32)
+        for k in self.tiles(view):
+            d, f = self._get('dem', k)
+            t = self.tile(k)
+            a = Box(max(t.x0, view.x0), max(t.y0, view.y0), min(t.x1, view.x1), min(t.y1, view.y1))
+            src = (slice(a.y0 - t.y0, a.y1 - t.y0 + 1), slice(a.x0 - t.x0, a.x1 - t.x0 + 1))
+            dst = (slice(a.y0 - view.y0, a.y1 - view.y0 + 1), slice(a.x0 - view.x0, a.x1 - view.x0 + 1))
+            dem[dst], surface[dst] = d[src], f[src]
+        return dem, surface
+
+    def plan(self, view: Box) -> Prepared | None:
+        """The solve that would answer the tiles of ``view``, or None when
+        they are all solved already. Touches the contour layer, so it belongs
+        to the thread that edits it; ``solve`` is the rest.
+
+        The whole view, in whole tiles, whenever any of it is missing - not
+        the missing tiles alone - and never less than SMALLEST each way. A pan
+        leaves a strip of new tiles, and a strip solved on a rim of its own is
+        the shape the margin was never measured for: every cell of it is near
+        the rim on three sides, and walked across the golden square at 64-cell
+        tiles that came out 140 m from the whole build where solving the view
+        did not move by a centimetre. Solving the view costs a second pass
+        over it, a few hundredths of a second; the first pass, which is the
+        cost, comes from the tiles already searched wherever it can - it
+        depends on the contours alone, so a tile searched for one view is the
+        answer for every view after it - and only the new ground is searched."""
+        if all(('dem', k) in self._kept for k in self.tiles(view)):
+            return None
+        boxes = [self.tile(k) for k in self.tiles(at_least(view, SMALLEST, self.fine.shape))]
+        answer = Box(min(b.x0 for b in boxes), min(b.y0 for b in boxes),
+                     max(b.x1 for b in boxes), max(b.y1 for b in boxes))
+        return self.prepared(answer)
+
     def prepared(self, view: Box) -> Prepared:
-        """Everything the solve for ``view`` reads. Touches the contour layer,
-        so it belongs to the thread that edits it; ``solved`` is the rest."""
+        """Everything the solve for ``view`` reads."""
         shape = self.fine.shape
         good = view.grown(self.margin(), shape)
-        grown = good.grown(self.params.fill_cells, shape)
-        cons = self.contours.burn(self.fine.gt, grown, NODATA).astype(np.float32)
-        return Prepared(view, good, grown, cons, self.mask(grown), self.water(grown),
-                        self.up(self.surface, good), self.up(self.dem, good, nearest=True) == 0)
+        outer = good.grown(self.params.fill_cells, shape)
+        cons = self.contours.burn(self.fine.gt, outer, NODATA).astype(np.float32)
+        first = np.zeros(good.shape, np.float32)
+        todo = np.ones(good.shape, bool)
+        for k in self.tiles(good):
+            a = self._get('first', k)
+            if a is None:
+                continue
+            t = self.tile(k)
+            c = Box(max(t.x0, good.x0), max(t.y0, good.y0), min(t.x1, good.x1), min(t.y1, good.y1))
+            dst = (slice(c.y0 - good.y0, c.y1 - good.y0 + 1), slice(c.x0 - good.x0, c.x1 - good.x0 + 1))
+            first[dst] = a[c.y0 - t.y0:c.y1 - t.y0 + 1, c.x0 - t.x0:c.x1 - t.x0 + 1]
+            todo[dst] = False
+        return Prepared(view, good, outer, cons, self.mask(outer), first, todo,
+                        self.water(good), self.up(self.surface, good),
+                        self.up(self.dem, good, nearest=True) == 0)
 
-    # -------------------------------------------------------------- solve
-
-    def solved(self, p: Prepared, lib=None) -> tuple[np.ndarray, np.ndarray]:
-        """The view's DEM and its fill before the clamp, both over ``p.view``."""
-        return solve(p, self.fine.shape, self.params, lib)
+    def take(self, p: Prepared, solved: Solved) -> list[tuple[int, int]]:
+        """Keep what a solve found: the DEM of every tile of its view, and the
+        first pass of every tile it searched whole. Returns the DEM's tiles."""
+        good = p.good
+        for k in self.tiles(good):
+            t = self.tile(k)
+            if ('first', k) in self._kept or not (t.x0 >= good.x0 and t.y0 >= good.y0
+                                         and t.x1 <= good.x1 and t.y1 <= good.y1):
+                continue
+            a = solved.first[t.y0 - good.y0:t.y1 - good.y0 + 1, t.x0 - good.x0:t.x1 - good.x0 + 1]
+            self._put('first', k, a.copy(), t.cells)
+        keys = self.tiles(p.view)
+        v = p.view
+        for k in keys:
+            t = self.tile(k)
+            src = (slice(t.y0 - v.y0, t.y1 - v.y0 + 1), slice(t.x0 - v.x0, t.x1 - v.x0 + 1))
+            self._put('dem', k, (solved.dem[src].copy(), solved.surface[src].copy()), 2 * t.cells)
+        return keys
 
     def view(self, view: Box, lib=None) -> tuple[np.ndarray, np.ndarray]:
-        return self.solved(self.prepared(view), lib)
+        """The DEM and fill over ``view``, solving what is not yet solved -
+        in one go, on this thread."""
+        p = self.plan(view)
+        if p is not None:
+            self.take(p, solve(p, self.fine.shape, self.params, lib))
+        return self.read(view)
 
 
-def solve(p: Prepared, shape: tuple[int, int], params: Params,
-          lib=None) -> tuple[np.ndarray, np.ndarray]:
-    """``Fine.solved``, apart from the object, so a worker needs only arrays."""
+def at_least(box: Box, side: int, shape: tuple[int, int]) -> Box:
+    """``box`` grown about its middle to ``side`` cells each way where it is
+    smaller, and kept inside the raster."""
+    rows, cols = shape
+
+    def span(a, b, n):
+        if b - a + 1 >= min(side, n):
+            return a, b
+        a = max(0, (a + b) // 2 - side // 2)
+        b = min(n - 1, a + side - 1)
+        return max(0, b - side + 1), b
+    x0, x1 = span(box.x0, box.x1, cols)
+    y0, y1 = span(box.y0, box.y1, rows)
+    return Box(x0, y0, x1, y1)
+
+
+def solve(p: Prepared, shape: tuple[int, int], params: Params, lib=None) -> Solved:
+    """The solve, apart from the object, so a worker needs only arrays."""
     lib = lib or isofill_lib.Isofill.load()
-    good, grown = p.good, p.grown
-    inner = (slice(good.y0 - grown.y0, good.y1 - grown.y0 + 1),
-             slice(good.x0 - grown.x0, good.x1 - grown.x0 + 1))
-    # the first pass answers the solved box only; the radius beyond it is
-    # outside the mask, so it is read for its contours and not searched from
-    search = np.zeros_like(p.mask)
-    search[inner] = p.mask[inner]
-    first, _ = lib.run(p.constraints, params, mask=search, water=p.water,
-                       nodata=NODATA, pass2=False)
-    first = np.ascontiguousarray(first[inner])
+    good, outer = p.good, p.outer
+    inner = (slice(good.y0 - outer.y0, good.y1 - outer.y0 + 1),
+             slice(good.x0 - outer.x0, good.x1 - outer.x0 + 1))
+    first = p.first.copy()
+    if p.todo.any():
+        # searched only where it is not already known. The box read is that
+        # ground grown by the radius, so every cell searched sees every
+        # contour the whole raster's search would; the rest of it is outside
+        # the mask, read for its contours and not searched from
+        ys, xs = np.nonzero(p.todo)
+        searched = Box(good.x0 + int(xs.min()), good.y0 + int(ys.min()),
+                       good.x0 + int(xs.max()), good.y0 + int(ys.max()))
+        read = searched.grown(params.fill_cells, shape)
+        at = (slice(read.y0 - outer.y0, read.y1 - outer.y0 + 1),
+              slice(read.x0 - outer.x0, read.x1 - outer.x0 + 1))
+        todo = np.zeros(outer.shape, bool)
+        todo[inner] = p.todo
+        search = np.where(todo[at], p.mask[at], 0).astype(np.uint8)
+        found, _ = lib.run(np.ascontiguousarray(p.constraints[at]), params, mask=search,
+                           nodata=NODATA, pass2=False)
+        # read covers good wherever there is todo, but not necessarily all of
+        # it: put the found values back where todo is, through the overlap
+        oy0, oy1 = max(good.y0, read.y0), min(good.y1, read.y1)
+        ox0, ox1 = max(good.x0, read.x0), min(good.x1, read.x1)
+        dst = (slice(oy0 - good.y0, oy1 - good.y0 + 1), slice(ox0 - good.x0, ox1 - good.x0 + 1))
+        src = (slice(oy0 - read.y0, oy1 - read.y0 + 1), slice(ox0 - read.x0, ox1 - read.x0 + 1))
+        first[dst] = np.where(p.todo[dst], found[src], first[dst])
+    complete = first.copy()
     mask = np.ascontiguousarray(p.mask[inner])
-    water = np.ascontiguousarray(p.water[inner]) if p.water is not None else None
+    water = p.water
     # the rim at the coarse surface, on the sides with ground beyond them -
     # local.resolve_window's rule, for its reason
     rows, cols = shape
@@ -255,4 +446,4 @@ def solve(p: Prepared, shape: tuple[int, int], params: Params,
     dem = clamp_patch(surface, cons, np.where(sea, 0, 1))
     view = (slice(p.view.y0 - good.y0, p.view.y1 - good.y0 + 1),
             slice(p.view.x0 - good.x0, p.view.x1 - good.x0 + 1))
-    return dem[view], surface[view]
+    return Solved(dem[view], surface[view], complete)

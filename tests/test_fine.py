@@ -147,8 +147,9 @@ def drawn():
 
     res = 1 / 3600
     g = fine.Grid((125 - res / 2, res, 0.0, -23 + res / 2, 0.0, -res), 3601, 3601)
+    c = fine.Grid((125 - 1.5 * res, 3 * res, 0.0, -23 + 1.5 * res, 0.0, -3 * res), 1201, 1201)
     band = ArrayBand(np.zeros((1201, 1201), np.float32))
-    return fine.Fine(g, g, Drawn(), band, band, load().with_arcsec(1))
+    return fine.Fine(g, c, Drawn(), band, band, load().with_arcsec(1))
 
 
 def test_the_drawn_area_is_the_contours_envelope_and_not_the_spot_heights():
@@ -189,3 +190,122 @@ def test_grids_whose_centres_do_not_line_up_are_refused():
     north = fine.Grid((125 - 1.5 / 3600, 3 / 3600, 0.0, -23 - 1.5 / 3600, 0.0, -3 / 3600), 3, 4)
     with pytest.raises(ValueError, match='apart'):
         fine.Fine(f, north, None, band, band, load().with_arcsec(1))
+
+
+def solved_as(p, value):
+    """A Solved for ``p`` holding ``value`` everywhere, standing in for isofill."""
+    from danu.surface import fine
+
+    return fine.Solved(np.full(p.view.shape, value, np.float32), np.full(p.view.shape, value, np.float32),
+                       np.full(p.good.shape, value, np.float32))
+
+
+def test_a_view_is_answered_in_whole_tiles_searching_only_new_ground():
+    from danu.surface import fine
+    from danu.surface.local import Box
+
+    f = drawn()
+    view = Box(300, 300, 549, 449)                 # a z15 screen, across tile edges
+    p = f.plan(view)
+    T = fine.TILE
+    solved = fine.at_least(view, fine.SMALLEST, f.fine.shape)   # 150 rows is under the smallest
+    assert (p.view.x0, p.view.y0, p.view.x1 + 1, p.view.y1 + 1) == (
+        solved.x0 // T * T, solved.y0 // T * T, (solved.x1 // T + 1) * T, (solved.y1 // T + 1) * T)
+    assert p.todo.all(), 'nothing is kept yet'
+    f.take(p, solved_as(p, 7))
+    assert f.known(view) and f.plan(view) is None
+    dem, surface = f.read(view)
+    assert (dem == 7).all() and (surface == 7).all()
+    # moved east by a tile and a bit: a column of tiles is new, and the view
+    # is solved again whole - a strip on a rim of its own is not a shape the
+    # margin holds for
+    moved = Box(300 + T + 10, 300, 549 + T + 10, 449)
+    p = f.plan(moved)
+    assert (p.view.x0, p.view.x1 + 1) == (moved.x0 // T * T, (moved.x1 // T + 1) * T)
+    # but the first pass it starts from is kept for every tile the last solve
+    # searched whole, so only the rest is searched again
+    assert not p.todo.all() and p.todo.any()
+    assert (p.first[~p.todo] == 7).all()
+
+
+def test_only_tiles_searched_whole_are_kept():
+    """A tile the solve searched only part of - cut by the margin's edge - is
+    not a first pass anyone can reuse."""
+    from danu.surface.local import Box
+
+    f = drawn()
+    p = f.plan(Box(300, 300, 549, 449))
+    f.take(p, solved_as(p, 1))
+    good = p.good
+    for (kind, k) in f._kept:
+        if kind == 'first':
+            t = f.tile(k)
+            assert good.x0 <= t.x0 and t.x1 <= good.x1 and good.y0 <= t.y0 and t.y1 <= good.y1
+
+
+def test_the_tiles_kept_stay_inside_the_budget_and_the_oldest_go_first():
+    from danu.surface.local import Box
+
+    f = drawn()
+    first = Box(300, 300, 549, 449)
+    p = f.plan(first)
+    f.take(p, solved_as(p, 1))
+    assert f.known(first)
+    f.budget = 2 * f._held                   # room for about two views like it
+    for i in range(1, 8):
+        far = Box(300 + 400 * i, 1000 + 300 * i, 549 + 400 * i, 1149 + 300 * i)
+        q = f.plan(far)
+        if q is not None:
+            f.take(q, solved_as(q, 2))
+        f.read(far)
+        assert f._held <= f.budget
+    assert not f.known(first), 'the first view, never read again, has gone'
+    assert f.known(far), 'and the last is kept'
+
+
+def test_a_view_read_again_is_kept_over_one_not_looked_at():
+    """Least recently used, not first in: the view a mapper keeps coming
+    back to stays while the ones passed through go."""
+    from danu.surface.local import Box
+
+    f = drawn()
+    home = Box(300, 300, 549, 449)
+    p = f.plan(home)
+    f.take(p, solved_as(p, 1))
+    f.budget = 2 * f._held
+    for i in range(1, 8):
+        far = Box(300 + 400 * i, 1000 + 300 * i, 549 + 400 * i, 1149 + 300 * i)
+        q = f.plan(far)
+        f.take(q, solved_as(q, 2))
+        assert f.read(home) is not None, f'home went at view {i}'
+
+
+def test_the_tiles_at_the_grids_south_and_east_edges_are_cut_to_it():
+    from danu.surface import fine
+    from danu.surface.local import Box
+
+    f = drawn()
+    rows, cols = f.fine.shape
+    T = fine.TILE
+    last = f.tile(((rows - 1) // T, (cols - 1) // T))
+    assert (last.y1, last.x1) == (rows - 1, cols - 1)
+    corner = Box(cols - 250, rows - 150, cols - 1, rows - 1)
+    p = f.plan(corner)
+    assert (p.view.y1, p.view.x1) == (rows - 1, cols - 1)
+    f.take(p, solved_as(p, 3))
+    dem, _ = f.read(corner)
+    assert dem.shape == corner.shape and (dem == 3).all()
+
+
+def test_a_small_view_is_solved_as_the_smallest_view_around_it():
+    from danu.surface import fine
+    from danu.surface.local import Box
+
+    S = fine.SMALLEST
+    assert fine.at_least(Box(1000, 1000, 1007, 1003), S, (3601, 3601)) == Box(
+        1003 - S // 2, 1001 - S // 2, 1003 - S // 2 + S - 1, 1001 - S // 2 + S - 1)
+    # at the raster's edge it is pushed inside rather than cut
+    assert fine.at_least(Box(0, 3597, 7, 3600), S, (3601, 3601)) == Box(0, 3601 - S, S - 1, 3600)
+    # and one already as large is left as it is
+    big = Box(10, 10, 10 + S, 10 + S + 40)
+    assert fine.at_least(big, S, (3601, 3601)) == big
