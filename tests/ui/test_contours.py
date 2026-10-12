@@ -1012,8 +1012,17 @@ def test_height_with_no_surface_under_it_is_its_own_colour(view, ws):
     view.center_on_lonlat(lon, lat)
     c = _line_pixel(view, render(view))
     s = layer.colour(way.ele)
-    assert max(abs(c.red() - s.red()), abs(c.green() - s.green()), abs(c.blue() - s.blue())) < 40, \
-        (c.name(), s.name())
+    grey = 235 / 255
+    burned = [round(255 * (1 - min(1, (1 - grey) / max(v, 1e-6)))) for v in (s.redF(), s.greenF(), s.blueF())]
+    got = (c.red(), c.green(), c.blue())
+
+    def far(a, b):
+        return max(abs(x - y) for x, y in zip(a, b, strict=True))
+    # seen, and as its own colour rather than as the burn of it - measured
+    # against which it is nearer, since antialiasing differs between
+    # platforms by more than a fixed tolerance allows (Windows: 41)
+    assert far(got, (235, 235, 235)) > 40, ('not seen against the background', c.name())
+    assert far(got, (s.red(), s.green(), s.blue())) < far(got, burned), (c.name(), s.name(), burned)
 
 
 def test_height_burns_only_where_a_surface_is_drawn():

@@ -1122,9 +1122,9 @@ class ContourLayer(QGraphicsItem):
         g = self.ground
         if g is None or g.shaded is None or not g.isVisible() or g.opacity() <= 0:
             return None
-        return g.boundingRect()
+        return g.sceneBoundingRect()
 
-    def blends(self, dark: bool, rect: QRectF) -> list:
+    def blends(self, dark: bool, rect: QRectF) -> list[tuple[QPainter.CompositionMode, QPainterPath | None]]:
         """How the lines go onto what is under them, as (composition mode,
         clip path or None for all of ``rect``).
 
