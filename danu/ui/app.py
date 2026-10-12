@@ -1170,8 +1170,8 @@ class MainWindow(QMainWindow):
 
         At 3 arcseconds, or at whatever the surface on screen was built at -
         which is 3 unless the command line's --surface asked for another, and
-        then the rebuilds after it keep to that. ``arcsec`` is that command
-        line's."""
+        then the rebuilds after it keep to that. ``arcsec`` overrides both:
+        the command line passes its own, and nothing else passes one."""
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
@@ -1842,8 +1842,10 @@ class MainWindow(QMainWindow):
             # asked for starts - the surprise c478fa8 exists to prevent,
             # through a different door.
             return
-        # the resolution this surface is at, which is 3 arcseconds unless the
-        # command line asked for another
+        # the resolution this surface is at, said rather than left to the
+        # default: it is 3 arcseconds unless the command line asked for
+        # another, and settling a --surface 1 surface at 3 would change its
+        # resolution under the mapper
         self.rebuild_surface(self._arcsec)
 
     def _surface_built(self, built, stale=False, seconds=0.0):
