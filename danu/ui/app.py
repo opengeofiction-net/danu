@@ -262,10 +262,12 @@ class MainWindow(QMainWindow):
         self.map.zoomChanged.connect(lambda _: self.measure.surface_changed())
         self.map.zoomChanged.connect(self.fine_layer.set_zoom)
         self.fine_layer.set_zoom(self.map.zoom)
-        # an edit leaves the tiles describing ground that has changed: once the
-        # preview has the 3 arcsecond surface right, they are solved again -
-        # and where it could not preview, they go anyway rather than stay wrong
-        for sig in (self.preview.patched, self.preview.skipped, self.preview.freshGround):
+        # an edit leaves the tiles it reaches describing ground that has
+        # changed: once the preview has the 3 arcsecond surface right, those
+        # go and the view is solved again (I4) - and where it could not
+        # preview, every tile goes rather than any staying wrong
+        self.preview.reached.connect(self.fine.reached)
+        for sig in (self.preview.skipped, self.preview.freshGround):
             sig.connect(lambda *_: self.fine.edited())
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)

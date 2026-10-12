@@ -196,6 +196,23 @@ class FineDriver(QObject):
         self._since = time.perf_counter()
         self._next()
 
+    def reached(self, boxes) -> None:
+        """The preview solved ``boxes`` of the 3 arcsecond grid again: an
+        edit, grown by its cover. The 1 arcsecond tiles it reaches go, the
+        rest are kept, and the view is solved again where it lost any - its
+        first pass searched only where that went, its rim held on the 3
+        arcsecond surface the preview has just patched (I4). A solve in flight
+        was of the old contours, and its answer is dropped."""
+        if self.fine is None:
+            return
+        for box in boxes:
+            self.fine.drop(box)
+        self.cleared.emit()
+        self._solving = 0
+        self._plan = None
+        self._since = time.perf_counter()
+        self._next()
+
     # ----------------------------------------------------------- threads
 
     def set_runner(self, runner) -> None:
