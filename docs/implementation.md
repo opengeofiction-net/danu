@@ -4792,3 +4792,75 @@ flat basins converge slowly. A preview's box at 3" is a sixth of what it was,
 and at 1" a third more. A tolerance of a centimetre rather than 3 mm would
 about halve the whole-raster cost, and is there if it is needed.
 
+
+## I3a, a view at 1 arcsecond
+
+`danu/surface/fine.py`: the ground in a view solved at 1", from the 3" build
+and the contours alone. Nothing in the editor calls it yet; I3b gives it tiles
+and a worker, I3c draws it.
+
+The agreed shape of I3, before any of it was built: the surface checks stay on
+the 3" working set; the WMS into JOSM serves 1" where it is cached and 3"
+elsewhere; below z15 only the 3" surface shows, the 1" kept for coming back; no
+whole 1" build in the editor, `--surface 1` staying on the command line; ground
+outside the working set stays the published DEM.
+
+**What it reads.** Every input is computed for the window rather than read off
+a whole 1" raster:
+
+- the constraints, burned at 1" from the preview's contour layer, which takes
+  any geotransform;
+- the drawn area, by `drawn_mask`'s rule - now `squares` and `envelope`, shared
+  with the build - from each degree square's contours burned at 1", once a
+  square;
+- the sea, by `sea_mask`'s rule over the window grown by its reach, 122 cells:
+  a cell is water only within 120 cells of a water seed and is decided by the
+  nearer seed, so nothing further can decide it;
+- the rim, the 3" fill brought up bilinearly. The two grids share their west
+  and north degree lines, so a 1" centre is a 3" index over three, exactly;
+- the clamp's sea, read off the 3" DEM, since which low ground is sea is
+  decided over the whole raster.
+
+On the golden square the burn and the drawn area come out as the whole 1"
+build's, cell for cell.
+
+**How far it reaches.** Measured against an exact whole 1" solve - 28 views of
+gobras City and 50 of ellarca's 2x2, at a z15 screen (250 by 150 cells) and a
+z14 one (500 by 300):
+
+| margin beyond the view | gobras City | ellarca |
+|---|---|---|
+| none | 2.10 m | 2.71 m |
+| one radius | 2.11 m | 0.05 m |
+| a radius and a half | 0.02 m | 0.04 m |
+
+Taking the void from the 3" solve, which the scratch work had needed, changed
+none of these by a centimetre: holding the rim already stops a box flooding
+void from its own edge.
+
+The golden square disagreed. Fifty z15 views centred on its drawn ground - it
+is 1% drawn, so evenly placed views compare nothing - were out by up to 138 m
+at a radius and a half, in ten views. Every one was near the edge of the drawn
+area, in ground the first pass left to the second, and the 3" fill there is
+itself 111 m from the 1": a contour burned at 3" is three times as wide, closes
+gaps the 1" burn leaves open, and seals a patch the finer grid drains to zero.
+The rim brings the coarse topology in with it. Two radii left four views out;
+two and a half, none, the worst 2 mm. That is the margin.
+
+**The clamp.** Read off the 3" DEM alone, the sea decision took a cell at the
+edge of the drawn area from 726 m to zero. It now offers the coarse decision
+only what the clamp itself would offer - ground the fill left under half a
+metre, not burned - so a decision the two grids take differently costs the
+metre between sea and the lowest land. The fifty views are within 1.000 m on
+the DEM, and that metre is all it is.
+
+**What it costs.** The first pass over the view grown by two and a half radii;
+the second is a few hundredths of a second. The radius beyond that, read for
+its contours, is outside the mask the first pass searches, which takes a third
+off it with the same answer. On the densest z15 view of gobras City, 22.5% of
+it contour, it is 3.5 s, best of three, on a machine whose first pass over the
+whole square took 37 to 40 s that hour against 21 s when I1 measured it - so
+about 1.9 s at that speed; the median view is half. Inside the 2 s, narrowly,
+at the worst place in gobras. I3b caches the first pass by tile, which is
+exact - it depends on no rim - so a view that moves pays for the ground it
+uncovers.

@@ -264,13 +264,15 @@ class Contours:
         self.layer.CreateFeature(f)
         self._fid[key] = fid
 
-    def burn(self, gt: tuple, box: Box, nodata: float) -> np.ndarray:
+    def burn(self, gt: tuple, box: Box, nodata: float, spots: bool = True) -> np.ndarray:
         """The constraints for ``box`` alone, burned as the build burns them:
         all touched, last writer wins, in FID order, and the spot heights after
         the contours so a spot height standing on one wins its cell.
 
         All touched, as ``rasterise()`` does - a thin line otherwise leaves
-        diagonal gaps, and the fill's sight test threads them."""
+        diagonal gaps, and the fill's sight test threads them. ``spots`` False
+        burns the contours alone, which is what the drawn area's envelope is
+        taken from."""
         from osgeo import gdal
         rows, cols = box.shape
         x0, y1, x1, y0 = box_extent(gt, box)
@@ -281,7 +283,7 @@ class Contours:
         band.Fill(nodata)
         west, south = min(x0, x1), min(y0, y1)
         east, north = max(x0, x1), max(y0, y1)
-        for layer in (self.layer, self.spots):
+        for layer in (self.layer, self.spots if spots else None):
             if layer is None:
                 continue
             layer.SetSpatialFilterRect(west, south, east, north)

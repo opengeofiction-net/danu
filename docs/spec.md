@@ -1107,11 +1107,10 @@ In six steps:
 already seen nearer, and only the cells which carry a value visited. The same
 answer to the bit; 2.8 to 3.5 times faster over a whole run. `isofill` 0.10.1.
 
-**I2, the second pass solved.** Over-relaxed sweeps at the finest level after
-the pyramid, until no cell moves by more than a centimetre, sweeping only the
-tiles still moving. Within a metre of an exact solve on every set measured,
-for a few tenths of a second. `isofill` 0.11.0, and the figures the spec
-quotes for the local solve measured again against it.
+**I2, the second pass solved.** Multigrid cycles after the pyramid, until no
+cell moves by 3 mm, over only the tiles with ground to solve. Within a few
+millimetres of an exact solve on every set measured. `isofill` 0.11.0, and the
+figures the spec quotes for the local solve measured again against it.
 
 **I3, the resolution follows the zoom.** The working set's surface is at 3
 arcseconds. At z15 and closer the ground in view is at 1 arcsecond, solved

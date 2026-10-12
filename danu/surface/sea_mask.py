@@ -130,6 +130,53 @@ def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
     ds = src = None
 
 
+def coast_seeds(src_path, gt):
+    """Every coastline seed on a grid, as (water, land) arrays of (col, row).
+    None when there is no coastline. Those off the raster are kept, and
+    ``sea_window`` drops them with everything else outside its reach."""
+    src = ogr.Open(str(src_path))
+    layer = src.GetLayer(0)
+    layer.SetAttributeFilter("natural = 'coastline'")
+    if layer.GetFeatureCount() == 0:
+        return None
+    water, land = seed_points(layer, gt)
+    return (np.array(water, dtype=np.int64).reshape(-1, 2),
+            np.array(land, dtype=np.int64).reshape(-1, 2))
+
+
+def sea_window(water, land, x0, y0, cols, rows, whole):
+    """``sea_mask`` for one window of the raster - cols by rows from (x0, y0)
+    on a raster ``whole`` (rows, cols) in size - from ``coast_seeds``.
+
+    The same answer as the whole raster's, because the mask is local: a cell
+    is water only within MAX_CELLS of a water seed, and is decided by which
+    seed is nearer, so every seed that can decide it lies within MAX_CELLS of
+    it. The distances are taken over the window grown by that much and one
+    more, and read back for the window alone."""
+    pad = MAX_CELLS + 2
+    H, W = whole
+    ex0, ey0 = max(0, x0 - pad), max(0, y0 - pad)
+    ex1, ey1 = min(W, x0 + cols + pad), min(H, y0 + rows + pad)
+    ew, eh = ex1 - ex0, ey1 - ey0
+    mem = gdal.GetDriverByName('MEM')
+
+    def distance(points):
+        seeds = mem.Create('', ew, eh, 1, gdal.GDT_Byte)
+        a = np.zeros((eh, ew), np.uint8)
+        p = points[(points[:, 0] >= ex0) & (points[:, 0] < ex1)
+                   & (points[:, 1] >= ey0) & (points[:, 1] < ey1)]
+        a[p[:, 1] - ey0, p[:, 0] - ex0] = 1
+        seeds.GetRasterBand(1).WriteArray(a)
+        dist = mem.Create('', ew, eh, 1, gdal.GDT_Float32)
+        gdal.ComputeProximity(seeds.GetRasterBand(1), dist.GetRasterBand(1),
+                              ['VALUES=1', 'DISTUNITS=PIXEL',
+                               f'MAXDIST={MAX_CELLS + 1}', 'NODATA=30000'])
+        return dist.GetRasterBand(1).ReadAsArray(x0 - ex0, y0 - ey0, cols, rows)
+
+    dw, dl = distance(water), distance(land)
+    return ((dw < dl) & (dw <= MAX_CELLS)).astype(np.uint8)
+
+
 def sea_mask(src_path, ref_path, out_path, log=None):
     """A water mask from the coastline's direction, on the reference raster's
     grid. Returns False, writing nothing, when the contours carry no
