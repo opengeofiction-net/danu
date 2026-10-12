@@ -302,6 +302,7 @@ class MainWindow(QMainWindow):
         self.squares = SquaresItem()
         self.map.scene().addItem(self.squares)
         self.contours = ContourLayer()
+        self.contours.ground = self.surface       # what 'height' burns its colours into
         self.map.scene().addItem(self.contours)
         self.working_set: WorkingSet | None = None
         self.zone_dir: Path | None = None

@@ -318,6 +318,9 @@ class ContourLayer(QGraphicsItem):
         self.index_levels: set[float] = set()
         self.active: float | None = None          # the active elevation, drawn heavier
         self.style = 'dark'                       # how the lines meet the ground: STYLES
+        # the surface's layer, which the window sets: what 'height' burns its
+        # colours into, where there is one drawn
+        self.ground = None
         self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
         # the piece each way contributes, so an edit can replace one of them
         self._pieces: dict[tuple[SquareName, int], _Piece] = {}
@@ -1069,8 +1072,7 @@ class ContourLayer(QGraphicsItem):
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
         dark = self.style == 'dark'
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply if dark
-                                   else QPainter.CompositionMode.CompositionMode_ColorBurn)
+        levels = []
         for ele in sorted(self.paths):
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
@@ -1083,11 +1085,19 @@ class ContourLayer(QGraphicsItem):
                 continue
             pen = QPen(DARK if dark else self.colour(ele), line_width(zoom, index))
             pen.setCosmetic(True)
-            painter.setPen(pen)
-            for piece in visible:
-                painter.drawPath(piece.path)
+            levels.append((pen, visible))
             self.drawn_ways += len(visible)
             self.drawn_levels += 1
+        for mode, clip in self.blends(dark, rect):
+            painter.save()
+            painter.setCompositionMode(mode)
+            if clip is not None:
+                painter.setClipPath(clip)
+            for pen, visible in levels:
+                painter.setPen(pen)
+                for piece in visible:
+                    painter.drawPath(piece.path)
+            painter.restore()
         # what goes over the lines is drawn as it is: the active level, the
         # spot heights and the labels keep their own colours
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
@@ -1105,6 +1115,40 @@ class ContourLayer(QGraphicsItem):
         self._paint_spots(painter, rect, scale, zoom)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
+
+    def under(self) -> QRectF | None:
+        """Where a surface is drawn under the contours, or None: none built,
+        or hidden, or faded to nothing."""
+        g = self.ground
+        if g is None or g.shaded is None or not g.isVisible() or g.opacity() <= 0:
+            return None
+        return g.boundingRect()
+
+    def blends(self, dark: bool, rect: QRectF) -> list:
+        """How the lines go onto what is under them, as (composition mode,
+        clip path or None for all of ``rect``).
+
+        Dark is multiplied in everywhere. Height is colour-burned into the
+        surface - darker and of its hue - and that is right only where there
+        is a surface to burn into: over the map's near-white background or
+        the published tiles, a burn of near-white is near-white, and before a
+        surface was built height drew no lines that could be seen at all. So
+        it is burned where the surface is drawn and laid on as itself
+        everywhere else."""
+        if dark:
+            return [(QPainter.CompositionMode.CompositionMode_Multiply, None)]
+        under = self.under()
+        plain = QPainter.CompositionMode.CompositionMode_SourceOver
+        burn = QPainter.CompositionMode.CompositionMode_ColorBurn
+        if under is None or not under.intersects(rect):
+            return [(plain, None)]
+        inside = QPainterPath()
+        inside.addRect(under)
+        if under.contains(rect):
+            return [(burn, None)]
+        outside = QPainterPath()
+        outside.addRect(rect)
+        return [(burn, inside), (plain, outside.subtracted(inside))]
 
     def _paint_water(self, painter: QPainter, rect: QRectF, scale: float = 1.0,
                      zoom: float = 0.0):
