@@ -290,6 +290,11 @@ class Fine:
         got = self._kept.get(('dem', key))
         return got[0][2] if got is not None else None
 
+    def pieces_kept(self) -> list:
+        """Every tile's shading kept, as (key, piece)."""
+        return [(k, v[0][2]) for (kind, k), v in self._kept.items()
+                if kind == 'dem' and v[0][2] is not None]
+
     def clear(self) -> None:
         """Every tile gone - what an edit does until I4 makes it local."""
         self._kept.clear()
@@ -519,3 +524,33 @@ def pieces(p: Prepared, solved: Solved, gt: tuple, projection: str,
                 metres=metres)
     return out
 
+
+
+def mosaic(pieces) -> 'tuple | None':
+    """Tiles' shading pasted onto the one grid they are all on: a
+    ``shade.Shaded`` over the box they span, and which of its cells a piece
+    covers. None for no pieces. What the layer draws and what the readings
+    read are the one array."""
+    from . import shade
+    pieces = list(pieces)
+    if not pieces:
+        return None
+    metres = pieces[0].metres
+    # whole cells of the one grid, counted from the Mercator origin
+    at = [(round((p.geotransform[0] + shade.HALF) / metres),
+           round((shade.HALF - p.geotransform[3]) / metres), p) for p in pieces]
+    c0 = min(c for c, _, _ in at)
+    r0 = min(r for _, r, _ in at)
+    c1 = max(c + p.dem.shape[1] for c, _, p in at)
+    r1 = max(r + p.dem.shape[0] for _, r, p in at)
+    dem = np.zeros((r1 - r0, c1 - c0), np.float32)
+    hill = np.zeros((r1 - r0, c1 - c0), np.uint8)
+    covered = np.zeros((r1 - r0, c1 - c0), bool)
+    for c, r, p in at:
+        rows, cols = p.dem.shape
+        dem[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.dem
+        hill[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.shade
+        covered[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = True
+    return shade.Shaded(dem=dem, shade=hill, metres=metres,
+                        geotransform=(c0 * metres - shade.HALF, metres, 0.0,
+                                      shade.HALF - r0 * metres, 0.0, -metres)), covered

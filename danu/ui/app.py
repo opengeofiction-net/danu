@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QByteArray, QStandardPaths, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -253,6 +253,13 @@ class MainWindow(QMainWindow):
         self.fine_layer = FineLayer(self.surface, self.fine)
         self.fine.arrived.connect(self.fine_layer.arrived)
         self.fine.cleared.connect(self.fine_layer.forget)
+        # and what is read off the ground follows what is drawn (I3d): the
+        # reading under a still cursor, and a line measured before the tiles
+        # came, read again when they come or go
+        for sig in (self.fine.arrived, self.fine.cleared):
+            sig.connect(self._cursor_reading_again)
+            sig.connect(lambda *_: self.measure.surface_changed())
+        self.map.zoomChanged.connect(lambda _: self.measure.surface_changed())
         self.map.zoomChanged.connect(self.fine_layer.set_zoom)
         self.fine_layer.set_zoom(self.map.zoom)
         # an edit leaves the tiles describing ground that has changed: once the
@@ -442,10 +449,11 @@ class MainWindow(QMainWindow):
         when that is what is shown - from the arrays the layer draws, so a
         preview's patch reads as it looks. Nothing off the surface or with
         none built."""
-        shaded = self.surface.shaded
-        if shaded is None:
+        if self.surface.shaded is None:
             return ''
         x, y = m.lonlat_to_scene(lon, lat)
+        # the 1 arcsecond ground where that is what is drawn here (I3d)
+        shaded = self.surface.finest(QRectF(x, y, 0, 0))
         left, top, right, bottom = shaded.scene_rect
         rows, cols = shaded.dem.shape
         # the cell the profile reads too (H3b), by the one function
@@ -1353,9 +1361,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('build a surface first - then JOSM can be given it')
             return None
         if self.wms is None:
-            surface = self.surface
+            surface, fine = self.surface, self.fine_layer
+            # the 1 arcsecond tiles too, as the one tuple the layer publishes,
+            # and their revision in what an ETag is of (I3d)
             self.wms = wms.SurfaceServer(lambda: (surface.shaded, surface.style, surface.stretch,
-                                                  surface.revision), self.settings.wms_port)
+                                                  (surface.revision, fine.published[0]),
+                                                  fine.published[1]), self.settings.wms_port)
         url = wms.getmap_url(self.wms.base)
         what = f'the surface, served at {self.wms.base}'
         if self.wms.port != self.settings.wms_port and self.settings.wms_port:

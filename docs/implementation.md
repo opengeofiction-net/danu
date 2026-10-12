@@ -4955,3 +4955,32 @@ tile and the view is solved again once the preview has patched the 3"
 surface, which the new solve's rim is held on. A solve in flight was of the
 old contours and its answer is dropped, so ground from before an edit is
 never drawn at 1".
+
+## I3d, what is read
+
+What Danu reads off the ground follows what it draws. `SurfaceLayer.finest`
+answers the 1" ground under a rectangle where the 1" view is showing - z15 and
+closer, not in the difference mode - and every cell of the rectangle is
+solved, and the 3" surface otherwise. Never part of one and part of the other:
+a line measured half on each would read two grids as one. The tiles in view
+are pasted by `fine.mosaic`, the one function the drawing uses too, so a
+reading is of the array drawn.
+
+- **The status line** reads the cell under the cursor through it, height or
+  slope, and again when tiles come or go under a cursor that has not moved.
+- **Measure and the profile** read along a line through it, over the line's
+  box, a 1" cell apart where that is the ground read; a line measured before
+  its tiles came is measured again when they do, and when the zoom changes
+  what is drawn.
+- **The loupe's cell lines** are the 1" cells where that is what is drawn
+  under it.
+- **The WMS** gives JOSM the 1" tiles kept wherever a requested pixel is finer
+  than a 3" cell - whatever Danu itself is zoomed to, as was agreed - and the
+  3" surface elsewhere and in the difference mode. It answers on a thread of
+  its own, so the layer publishes the tiles as one tuple, replaced whole when
+  tiles come or go; their revision is in the ETag, so JOSM asks again.
+
+**Not changed**, as agreed: the colour stretch, the legend and the view
+scaling are the 3" surface's, so the 1" ground is coloured as the ground
+around it; the surface checks run on the 3" working set; the difference is
+the 3" build's against the published DEM.

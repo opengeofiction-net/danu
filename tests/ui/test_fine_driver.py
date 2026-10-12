@@ -170,10 +170,13 @@ class TiledFine:
         return Box(0, 0, 10, 10)
 
     def tiles(self, box):
-        return list(self.pieces)
+        return list(self.pieces) + list(getattr(self, 'unsolved', ()))
 
     def piece(self, k):
         return self.pieces.get(k)
+
+    def pieces_kept(self):
+        return list(self.pieces.items())
 
 
 @pytest.fixture
@@ -258,3 +261,107 @@ def test_a_new_set_of_tiles_is_a_new_picture_though_the_keys_are_the_same(layer)
     layer.driver.fine.pieces[(0, 0)] = Piece(layer.origin[0], layer.origin[1], 5, 4, 60.0)
     layer.driver.fine.revision += 1
     assert layer.picture(QRectF(0, 0, 1, 1))[0] is not first
+
+
+
+# ------------------------------------------------------- what is read (I3d)
+
+def scene_of(piece, fx=0.5, fy=0.5):
+    from PySide6.QtCore import QRectF
+    left, top, right, bottom = piece.scene_rect
+    x, y = left + fx * (right - left), top + fy * (bottom - top)
+    return QRectF(x, y, 0, 0)
+
+
+def test_the_ground_read_is_the_1_arcsecond_where_it_is_drawn(layer):
+    from dataclasses import replace
+
+    from PySide6.QtCore import QRectF
+
+    a, b = layer.driver.fine.pieces[(0, 0)], layer.driver.fine.pieces[(0, 1)]
+    layer.set_zoom(15)
+    got = layer.surface_for(scene_of(a))
+    assert got is not None and got.dem.shape == (5, 7)
+    # a rect over both tiles is read from both
+    both = scene_of(a, 0.2).united(scene_of(b, 0.8))
+    assert layer.surface_for(both) is not None
+    # not where any of it is unsolved: never part one grid and part the other
+    left, top, right, bottom = a.scene_rect
+    assert layer.surface_for(QRectF(left, top, right - left, (bottom - top) * 1.5)) is None
+    # nor when the layer is not showing, nor in the difference mode
+    layer.set_zoom(14)
+    assert layer.surface_for(scene_of(a)) is None
+    layer.set_zoom(15)
+    layer.surface.style = replace(layer.surface.style, mode='difference')
+    assert layer.surface_for(scene_of(a)) is None
+
+
+def test_the_surface_layer_reads_its_finest_and_falls_back_to_its_own(layer):
+    from danu.surface import shade
+
+    coarse = shade.Shaded(dem=np.ones((3, 3), np.float32), shade=np.zeros((3, 3), np.uint8),
+                          geotransform=(0.0, 1000.0, 0.0, 0.0, 0.0, -1000.0), metres=1000.0)
+    layer.surface.shaded = coarse
+    a = layer.driver.fine.pieces[(0, 0)]
+    layer.set_zoom(15)
+    assert layer.surface.finest(scene_of(a)) is not coarse
+    layer.set_zoom(14)
+    assert layer.surface.finest(scene_of(a)) is coarse
+
+
+def test_the_loupes_grid_is_the_1_arcsecond_where_that_is_drawn(layer):
+    from PySide6.QtGui import QPixmap
+
+    layer.surface._pixmap = QPixmap(3, 3)
+    a = layer.driver.fine.pieces[(0, 0)]
+    layer.set_zoom(15)
+    rect, cols, rows = layer.surface.cells(scene_of(a))
+    assert (cols, rows) == (7, 5)
+    layer.set_zoom(14)
+    assert layer.surface.cells(scene_of(a))[1:] == (3, 3)
+
+
+def test_what_the_wms_is_given_is_replaced_whole_when_tiles_come_and_go(layer):
+    layer.driver.fine.revision = 4
+    layer.arrived([(0, 0)])
+    revision, pieces = layer.published
+    assert revision == 4 and len(pieces) == 2
+    before = layer.published
+    layer.driver.fine.pieces.clear()
+    layer.driver.fine.revision = 5
+    layer.forget()
+    assert layer.published == (5, ()) and before[1], 'a tuple a thread holds is never emptied in place'
+
+
+
+def test_a_reading_over_ground_partly_unsolved_is_the_3_arcsecond(layer):
+    """Two ways a rect can be part solved: a tile of it with nothing kept,
+    and cells of the pasted tiles' box no tile covers."""
+    a = layer.driver.fine.pieces[(0, 0)]
+    layer.set_zoom(15)
+    assert layer.surface_for(scene_of(a)) is not None
+    layer.driver.fine.unsolved = [(5, 5)]
+    assert layer.surface_for(scene_of(a)) is None, 'a tile in it is not solved'
+    layer.driver.fine.unsolved = []
+    # a third tile below the first only: the pasted box now has a corner
+    # below the second that nothing covers
+    layer.driver.fine.pieces[(1, 0)] = Piece(layer.origin[0], layer.origin[1] + 5, 3, 4, 50.0)
+    b = layer.driver.fine.pieces[(0, 1)]
+    left, top, right, bottom = b.scene_rect
+    from PySide6.QtCore import QRectF
+    below_b = QRectF(left + (right - left) / 2, bottom + (bottom - top) / 5, 0, 0)
+    assert layer.surface_for(below_b) is None, 'no tile covers it'
+    assert layer.surface_for(scene_of(layer.driver.fine.pieces[(1, 0)])) is not None
+
+
+
+def test_a_rect_starting_just_outside_the_tiles_is_not_read_from_them(layer):
+    from PySide6.QtCore import QRectF
+
+    a = layer.driver.fine.pieces[(0, 0)]
+    layer.set_zoom(15)
+    left, top, right, bottom = a.scene_rect
+    cell = (right - left) / 4
+    assert layer.surface_for(QRectF(left - cell / 3, top + cell, cell, cell)) is None, 'west of them'
+    assert layer.surface_for(QRectF(left + cell, top - cell / 3, cell, cell)) is None, 'north of them'
+    assert layer.surface_for(QRectF(left + cell / 3, top + cell, cell, cell)) is not None

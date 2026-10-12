@@ -355,3 +355,48 @@ def test_the_contours_are_in_the_texts_colour_light_or_dark(w, dark):
     y = bottom - (bottom - top) * (e - lo) / (hi - lo)
     px = img.pixelColor(round(plot._x(d)), round(y))
     assert abs(px.red() - ink.red()) < 60 and abs(px.blue() - ink.blue()) < 60, (px.name(), ink.name())
+
+
+# ---------------------------------------------- the 1 arcsecond view (I3d)
+
+class OneTile:
+    """A 1 arcsecond view holding one tile's shading, of 999 m."""
+
+    def __init__(self, lon, lat):
+        from tests.ui.test_wms import fine_piece
+        self.p = fine_piece(lon, lat, 999.0, n=200)
+        self.revision = 1
+
+    def cells(self, *_):
+        from danu.surface.local import Box
+        return Box(0, 0, 0, 0)
+
+    def tiles(self, _):
+        return [(0, 0)]
+
+    def piece(self, k):
+        return self.p
+
+    def pieces_kept(self):
+        return [((0, 0), self.p)]
+
+
+def test_the_status_line_and_a_measured_line_read_the_1_arcsecond_where_it_is_drawn(w):
+    """What is read is what is drawn: over a 1 arcsecond tile at z15 the
+    reading and the line are its ground; zoomed out to where the tile is not
+    shown, the 3 arcsecond surface's."""
+    w.fine.fine = OneTile(126.5, -23.7)
+    w.map.set_zoom(15)
+    w.map.center_on_lonlat(126.505, -23.705)
+    w._cursor(126.505, -23.705)
+    assert 'ground 999 m' in w._status.text()
+    a, b = m.lonlat_to_scene(126.502, -23.702), m.lonlat_to_scene(126.508, -23.708)
+    w.measure.points = [a, b]
+    w.measure.done = True
+    w.measure.measure()
+    assert np.allclose(w.measure.result.ground, 999.0)
+    w.map.set_zoom(14)
+    w._cursor(126.505, -23.705)
+    assert 'ground 999 m' not in w._status.text()
+    w.measure.measure()
+    assert not np.isclose(w.measure.result.ground, 999.0).any()
