@@ -899,14 +899,29 @@ def _line_pixel(view, img):
     return best
 
 
+def a_ground(rect=None):
+    """A surface layer drawn under everything - or under ``rect`` - which is
+    what 'height' burns into."""
+    from PySide6.QtCore import QRectF
+
+    from danu.ui.surface import SurfaceLayer
+    g = SurfaceLayer()
+    g.shaded = object()
+    g._rect = rect if rect is not None else QRectF(-m.WORLD, -m.WORLD, 3 * m.WORLD, 3 * m.WORLD)
+    return g
+
+
 @pytest.mark.parametrize('style', ['dark', 'height'])
 def test_the_lines_meet_the_ground_as_the_style_says(view, ws, style):
     """Dark: multiplied, over the view's grey the dark itself times the grey.
-    Height colour: the level's own colour burned into the grey - darker than
-    the colour drawn plain, and of its hue."""
+    Height colour, over a surface: the level's own colour burned into it -
+    darker than the colour drawn plain, and of its hue. (The grey stands in
+    for the surface here; burned, it is what the test can work the answer
+    out from.)"""
     from danu.ui.contours import DARK
     layer = ContourLayer()
     layer.set_working_set(ws)
+    layer.ground = a_ground()
     layer.set_style(style)
     view.scene().addItem(layer)
     sq = ws.squares[SquareName(125, -24)]
@@ -943,6 +958,7 @@ def test_each_line_is_drawn_in_the_mode_and_colour_its_style_asks(view, ws, zoom
                                                                real_path(p, path))[1])
     layer = ContourLayer()
     layer.set_working_set(ws)
+    layer.ground = a_ground()
     view.scene().addItem(layer)
     sq = ws.squares[SquareName(125, -24)]
     way = next(w for w in sq.contours() if len(w.refs) > 20)
@@ -978,6 +994,78 @@ def test_contours_are_thinner_where_dense_and_heavier_where_few():
     assert all(line_width(z, True) > line_width(z, False) * 1.7 for z in (12, 14, 16)), 'index not heavier'
 
 
+def test_height_with_no_surface_under_it_is_its_own_colour(view, ws):
+    """Burned into the map's near-white, a colour is near-white again: before
+    a surface was built, height drew nothing that could be seen. With nothing
+    to burn into, a line is its level's colour laid on as it is."""
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    layer.set_style('height')
+    view.scene().addItem(layer)
+    sq = ws.squares[SquareName(125, -24)]
+    # a level of a definite colour: the ramp's palest are as pale as the
+    # background, which is the ramp's and not this
+    way = next(w for w in sq.contours() if len(w.refs) > 20 and not layer.is_index(w.ele)
+               and layer.colour(w.ele).value() < 200)
+    lon, lat = sq.coords(way)[len(way.refs) // 2]
+    view.set_zoom(14)
+    view.center_on_lonlat(lon, lat)
+    c = _line_pixel(view, render(view))
+    s = layer.colour(way.ele)
+    grey = 235 / 255
+    burned = [round(255 * (1 - min(1, (1 - grey) / max(v, 1e-6)))) for v in (s.redF(), s.greenF(), s.blueF())]
+    got = (c.red(), c.green(), c.blue())
+
+    def far(a, b):
+        return max(abs(x - y) for x, y in zip(a, b, strict=True))
+    # seen, and as its own colour rather than as the burn of it - measured
+    # against which it is nearer, since antialiasing differs between
+    # platforms by more than a fixed tolerance allows (Windows: 41)
+    assert far(got, (235, 235, 235)) > 40, ('not seen against the background', c.name())
+    assert far(got, (s.red(), s.green(), s.blue())) < far(got, burned), (c.name(), s.name(), burned)
+
+
+def test_height_burns_only_where_a_surface_is_drawn():
+    """Burned under the surface, laid on as itself beside it - and as itself
+    everywhere with none built, the surface hidden or faded to nothing."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainter
+    M = QPainter.CompositionMode
+    layer = ContourLayer()
+    view_rect = QRectF(0, 0, 100, 100)
+    assert layer.blends(True, view_rect) == [(M.CompositionMode_Multiply, None)], 'dark is dark'
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_SourceOver, None)], 'no surface'
+    layer.ground = a_ground()
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_ColorBurn, None)]
+    layer.ground.shaded = None                          # the window's own, before a build
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_SourceOver, None)], 'nothing built'
+    layer.ground = a_ground()
+    layer.ground.setOpacity(0.0)
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_SourceOver, None)], 'faded to nothing'
+    layer.ground.setOpacity(1.0)
+    layer.ground.setVisible(False)
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_SourceOver, None)], 'hidden'
+    layer.ground = a_ground(QRectF(0, 0, 50, 100))     # the west half of the view
+    (burn, inside), (plain, outside) = layer.blends(False, view_rect)
+    assert (burn, plain) == (M.CompositionMode_ColorBurn, M.CompositionMode_SourceOver)
+    assert inside.contains(QRectF(10, 10, 30, 80)) and not inside.intersects(QRectF(60, 10, 30, 80))
+    assert outside.contains(QRectF(60, 10, 30, 80)) and not outside.intersects(QRectF(10, 10, 30, 80))
+    layer.ground = a_ground(QRectF(200, 200, 50, 50))  # off to one side
+    assert layer.blends(False, view_rect) == [(M.CompositionMode_SourceOver, None)]
+
+
 def test_a_style_it_does_not_know_is_refused():
     with pytest.raises(ValueError):
         ContourLayer().set_style('neon')
+
+
+
+def test_the_windows_contours_burn_into_its_surface(window):
+    """What was seen: a window opened with no surface built, height chosen,
+    and no contours to be seen. The layer has to be told which surface it is
+    over, and is - and, with nothing built yet, draws as itself."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainter
+    assert window.contours.ground is window.surface
+    assert window.contours.blends(False, QRectF(0, 0, 1, 1)) == [
+        (QPainter.CompositionMode.CompositionMode_SourceOver, None)]
