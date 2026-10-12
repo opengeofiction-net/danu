@@ -245,3 +245,36 @@ def test_a_view_smaller_than_a_z15_screen_is_still_within_a_metre(both):
                 _, surface = f.view(v)
                 worst = max(worst, float(np.abs(surface - both['surface'][v.slice]).max()))
     assert worst < 0.01, f'the fill is {worst:.3f} m from the whole build'
+
+
+def test_a_solves_shading_is_cut_into_pieces_that_tile_it(both):
+    """Every Mercator cell of the view's shading goes to one tile and one
+    only, so pieces drawn side by side neither overlap nor leave a gap - and
+    pieces of every solve are on one grid, so two solves' meet on whole
+    cells."""
+    from danu.surface import fine, shade
+    from danu.surface.local import Box
+
+    f = both['fresh']()
+    wkt = ('GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
+           'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]')
+    for view in (Box(100, 2100, 349, 2249), Box(160, 2140, 409, 2289)):
+        p = f.plan(view)
+        solved = fine.solve(p, f.fine.shape, f.params)
+        got = fine.pieces(p, solved, f.fine.gt, wkt, f.params)
+        assert set(got) == set(f.tiles(p.view))
+        metres = shade.fine_metres(f.params)
+        cells = set()
+        for piece in got.values():
+            assert piece.metres == metres
+            c0 = round((piece.geotransform[0] + shade.HALF) / metres)
+            r0 = round((shade.HALF - piece.geotransform[3]) / metres)
+            assert abs(c0 * metres - shade.HALF - piece.geotransform[0]) < 1e-6, 'off the one grid'
+            rows, cols = piece.dem.shape
+            mine = {(r, c) for r in range(r0, r0 + rows) for c in range(c0, c0 + cols)}
+            assert not cells & mine, 'two pieces claim one cell'
+            cells |= mine
+        rs = [r for r, _ in cells]
+        cs = [c for _, c in cells]
+        assert len(cells) == (max(rs) - min(rs) + 1) * (max(cs) - min(cs) + 1), 'a gap between pieces'
+        f.take(p, solved, got)
