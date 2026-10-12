@@ -4739,3 +4739,17 @@ with `--max-mem` 150 and 60: 565,000 cells more than 25 m from the same raster
 solved whole, the worst 1,933 m, all over rather than at the joins. The coarse
 grid took 96,500 cells of enclosed unreached ground for void, and held them at
 0.
+
+## I1, the first pass faster
+
+`isofill` 0.10.1: no line of sight walked to a constraint at a level already
+seen nearer, nor to a new level farther than all sixty-four held, and only the
+cells which carry a value visited. The same first pass to the bit - its own
+test compares every cell against the walk it replaced, and the golden suite
+here is unchanged.
+
+The idle rebuild, `build_dem` over the gobras 3x3 with the library, after a
+warming run: at 3" 3.2 s to 2.9, the fill a small part of it there; at 1" 103 to
+107 s to 46 to 48. The spec's table said 5.6 and 114, measured through the
+editor in phase 4; the table has these now.
+
