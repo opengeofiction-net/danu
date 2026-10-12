@@ -352,3 +352,16 @@ def test_a_reading_over_ground_partly_unsolved_is_the_3_arcsecond(layer):
     below_b = QRectF(left + (right - left) / 2, bottom + (bottom - top) / 5, 0, 0)
     assert layer.surface_for(below_b) is None, 'no tile covers it'
     assert layer.surface_for(scene_of(layer.driver.fine.pieces[(1, 0)])) is not None
+
+
+
+def test_a_rect_starting_just_outside_the_tiles_is_not_read_from_them(layer):
+    from PySide6.QtCore import QRectF
+
+    a = layer.driver.fine.pieces[(0, 0)]
+    layer.set_zoom(15)
+    left, top, right, bottom = a.scene_rect
+    cell = (right - left) / 4
+    assert layer.surface_for(QRectF(left - cell / 3, top + cell, cell, cell)) is None, 'west of them'
+    assert layer.surface_for(QRectF(left + cell, top - cell / 3, cell, cell)) is None, 'north of them'
+    assert layer.surface_for(QRectF(left + cell / 3, top + cell, cell, cell)) is not None

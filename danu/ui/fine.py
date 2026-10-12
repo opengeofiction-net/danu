@@ -14,6 +14,7 @@ view is by then, not for every place it passed through.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -279,10 +280,13 @@ class FineLayer(QGraphicsItem):
         whole, covered = fine.mosaic(got)
         left, top, right, bottom = whole.scene_rect
         rows, cols = whole.dem.shape
-        c0 = int((rect.left() - left) / (right - left) * cols)
-        c1 = int((rect.right() - left) / (right - left) * cols)
-        r0 = int((rect.top() - top) / (bottom - top) * rows)
-        r1 = int((rect.bottom() - top) / (bottom - top) * rows)
+        # floor, not int: int rounds toward zero, and a rect starting just
+        # west or north of the tiles came out at cell 0 rather than -1 and
+        # was read from them
+        c0 = math.floor((rect.left() - left) / (right - left) * cols)
+        c1 = math.floor((rect.right() - left) / (right - left) * cols)
+        r0 = math.floor((rect.top() - top) / (bottom - top) * rows)
+        r1 = math.floor((rect.bottom() - top) / (bottom - top) * rows)
         if c0 < 0 or r0 < 0 or c1 >= cols or r1 >= rows or not covered[r0:r1 + 1, c0:c1 + 1].all():
             return None
         return whole
