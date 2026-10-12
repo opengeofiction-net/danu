@@ -252,6 +252,7 @@ class MainWindow(QMainWindow):
         # hides with it (I3c)
         self.fine_layer = FineLayer(self.surface, self.fine)
         self.fine.arrived.connect(self.fine_layer.arrived)
+        self.fine.cleared.connect(self.fine_layer.forget)
         self.map.zoomChanged.connect(self.fine_layer.set_zoom)
         self.fine_layer.set_zoom(self.map.zoom)
         # an edit leaves the tiles describing ground that has changed: once the

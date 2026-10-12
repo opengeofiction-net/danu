@@ -170,6 +170,9 @@ class Fine:
         self._kept: OrderedDict = OrderedDict()
         self._held = 0
         self.budget = BUDGET
+        # counted up whenever what is kept changes, for a caller to tell one
+        # set of tiles from the next without asking which
+        self.revision = 0
 
     # ------------------------------------------------------------- inputs
 
@@ -276,6 +279,7 @@ class Fine:
             self._held -= old[1]
         self._kept[kind, key] = (value, cells)
         self._held += cells
+        self.revision += 1
         while self._held > self.budget and len(self._kept) > 1:
             _, (_, c) = self._kept.popitem(last=False)
             self._held -= c
@@ -290,6 +294,7 @@ class Fine:
         """Every tile gone - what an edit does until I4 makes it local."""
         self._kept.clear()
         self._held = 0
+        self.revision += 1
 
     def known(self, view: Box) -> bool:
         """Whether every tile of ``view`` is solved."""
@@ -374,7 +379,7 @@ class Fine:
             src = (slice(t.y0 - v.y0, t.y1 - v.y0 + 1), slice(t.x0 - v.x0, t.x1 - v.x0 + 1))
             piece = shaded.get(k) if shaded else None
             self._put('dem', k, (solved.dem[src].copy(), solved.surface[src].copy(), piece),
-                      2 * t.cells + (piece.dem.size if piece is not None else 0))
+                      2 * t.cells + (piece.dem.size + piece.shade.size // 4 if piece is not None else 0))
         return keys
 
     def view(self, view: Box, lib=None) -> tuple[np.ndarray, np.ndarray]:

@@ -69,6 +69,7 @@ class FineDriver(QObject):
     """Solves the view at 1 arcsecond, a tile at a time, and keeps the tiles."""
 
     arrived = Signal(object, float)   # the tiles solved, and seconds since the view settled
+    cleared = Signal()                # every tile gone: nothing kept is to be drawn
     unavailable = Signal(str)         # why there is no 1 arcsecond view, once per reason
 
     def __init__(self, parent=None):
@@ -188,6 +189,7 @@ class FineDriver(QObject):
         if self.fine is None:
             return
         self.fine.clear()
+        self.cleared.emit()
         self._solving = 0
         self._plan = None
         self._since = time.perf_counter()
@@ -277,7 +279,7 @@ class FineLayer(QGraphicsItem):
         got = [(k, p) for k, p in got if p is not None]
         if not got:
             return None
-        made_of = (style_key, tuple((k, id(p)) for k, p in got))
+        made_of = (style_key, f.revision, tuple(k for k, _ in got))
         if self._picture is not None and self._picture[0] == made_of:
             return self._picture[1:]
         metres = got[0][1].metres

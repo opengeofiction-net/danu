@@ -164,6 +164,7 @@ class TiledFine:
 
     def __init__(self, pieces):
         self.pieces = pieces
+        self.revision = 0
 
     def cells(self, *bounds):
         return Box(0, 0, 10, 10)
@@ -237,10 +238,23 @@ def test_an_edit_drops_the_tiles_and_the_answer_in_flight(driver):
     driver.fine.clear = lambda: cleared.append(True)
     driver.view((0.1, -0.2, 0.3, -0.1), 15)
     assert len(driver.held) == 1
+    told = []
+    driver.cleared.connect(lambda: told.append(True))
     driver.edited()
-    assert cleared
+    assert cleared and told, 'the layer was not told to stop drawing what was kept'
     assert len(driver.held) == 2, 'the view is solved again'
     run(driver)                       # the old answer lands, and is dropped
     assert driver.fine.taken == []
     run(driver)
     assert driver.fine.taken == [Box(100, 100, 300, 200)]
+
+
+def test_a_new_set_of_tiles_is_a_new_picture_though_the_keys_are_the_same(layer):
+    """Tiles solved again after an edit come back under the same keys; the
+    picture is of what is kept now, not of what was kept under those keys."""
+    from PySide6.QtCore import QRectF
+
+    first = layer.picture(QRectF(0, 0, 1, 1))[0]
+    layer.driver.fine.pieces[(0, 0)] = Piece(layer.origin[0], layer.origin[1], 5, 4, 60.0)
+    layer.driver.fine.revision += 1
+    assert layer.picture(QRectF(0, 0, 1, 1))[0] is not first
