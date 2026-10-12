@@ -387,7 +387,7 @@ the radius, and it decides what the patch gets wrong. Both want two radii; see
 | when | patch covers | solved | pass 1 | pass 2 | cost |
 |---|---|---|---|---|---|
 | while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 63-73 ms |
-| on idle, 10 s | whole working set | all | exact | exact | 5.6 s at 3", 114 at 1" |
+| on idle, 10 s | whole working set | all | exact | exact | 2.9 s at 3", 47 at 1" |
 
 The budgets this table used to carry - 30 ms while dragging, 200 on release,
 two seconds to idle - were guesses made before any of it existed, and three of
