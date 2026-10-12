@@ -6,6 +6,7 @@ answer that lands after the build it was held on has gone. The solve itself is
 held to a whole 1 arcsecond build in tests/golden/test_fine_view.py.
 """
 
+import numpy as np
 import pytest
 
 pytest.importorskip('PySide6')
@@ -35,6 +36,7 @@ class FakeFine:
 
         class G:
             shape = (1000, 1000)
+            gt = (0.0, 0.001, 0.0, 0.0, 0.0, -0.001)
         self.fine = G()
 
     def cells(self, west, south, east, north):
@@ -44,7 +46,7 @@ class FakeFine:
         self.planned.append(view)
         return None if view in self.solved else Plan(view)
 
-    def take(self, p, solved):
+    def take(self, p, solved, shaded=None):
         self.taken.append(p.view)
         self.solved.add(p.view)
         return [('tile', p.view)]
@@ -137,3 +139,108 @@ def test_a_solve_that_fails_says_so(driver, monkeypatch):
     run(driver)
     assert said and 'no isofill' in said[0]
     assert driver.fine.taken == []
+
+
+# ------------------------------------------------------------- the layer
+
+class Piece:
+    """shade.Shaded's shape, without importing what it needs."""
+
+    def __init__(self, c0, r0, rows, cols, value, metres=31):
+        from danu.surface import shade
+        self.dem = np.full((rows, cols), value, np.float32)
+        self.shade = np.full((rows, cols), 200, np.uint8)
+        self.metres = metres
+        self.geotransform = (c0 * metres - shade.HALF, metres, 0.0, shade.HALF - r0 * metres, 0.0, -metres)
+
+    @property
+    def scene_rect(self):
+        from danu.surface import shade
+        return shade.Shaded(self.dem, self.shade, self.geotransform, self.metres).scene_rect
+
+
+class TiledFine:
+    """Two tiles side by side, and nothing else."""
+
+    def __init__(self, pieces):
+        self.pieces = pieces
+
+    def cells(self, *bounds):
+        return Box(0, 0, 10, 10)
+
+    def tiles(self, box):
+        return list(self.pieces)
+
+    def piece(self, k):
+        return self.pieces.get(k)
+
+
+@pytest.fixture
+def layer(qapp):
+    from danu.ui.fine import FineLayer
+    from danu.ui.surface import SurfaceLayer
+
+    surface = SurfaceLayer()
+    surface._stretch = (0.0, 100.0)
+    d = FineDriver()
+    origin = (1 << 20, 1 << 20)
+    d.fine = TiledFine({(0, 0): Piece(origin[0], origin[1], 5, 4, 10.0),
+                        (0, 1): Piece(origin[0] + 4, origin[1], 5, 3, 90.0)})
+    lay = FineLayer(surface, d)
+    lay.origin = origin
+    return lay
+
+
+def test_the_tiles_in_view_are_one_picture_with_each_on_its_own_cells(layer):
+    from PySide6.QtCore import QRectF
+
+    pix, at = layer.picture(QRectF(0, 0, 1, 1))
+    assert (pix.width(), pix.height()) == (7, 5)
+    img = pix.toImage()
+    left, right = img.pixelColor(1, 2), img.pixelColor(5, 2)
+    assert left != right, 'the two tiles came out one colour'
+    assert img.pixelColor(3, 0) == left and img.pixelColor(4, 0) == right
+
+
+def test_a_picture_is_kept_until_the_tiles_or_the_style_change(layer):
+    from dataclasses import replace
+
+    from PySide6.QtCore import QRectF
+
+    first = layer.picture(QRectF(0, 0, 1, 1))[0]
+    assert layer.picture(QRectF(0, 0, 1, 1))[0] is first
+    layer.surface.style = replace(layer.surface.style, mode='hillshade')
+    assert layer.picture(QRectF(0, 0, 1, 1))[0] is not first
+    again = layer.picture(QRectF(0, 0, 1, 1))[0]
+    layer.arrived([(0, 1)])
+    assert layer.picture(QRectF(0, 0, 1, 1))[0] is not again
+
+
+def test_a_cell_no_tile_covers_is_clear(layer):
+    from PySide6.QtCore import QRectF
+
+    layer.driver.fine.pieces[(1, 0)] = Piece(layer.origin[0], layer.origin[1] + 5, 2, 2, 50.0)
+    img = layer.picture(QRectF(0, 0, 1, 1))[0].toImage()
+    assert img.pixelColor(6, 6).alpha() == 0
+    assert img.pixelColor(1, 6).alpha() == 255
+
+
+def test_the_layer_shows_at_z15_and_closer(layer):
+    layer.set_zoom(14)
+    assert not layer.isVisible()
+    layer.set_zoom(15)
+    assert layer.isVisible()
+
+
+def test_an_edit_drops_the_tiles_and_the_answer_in_flight(driver):
+    cleared = []
+    driver.fine.clear = lambda: cleared.append(True)
+    driver.view((0.1, -0.2, 0.3, -0.1), 15)
+    assert len(driver.held) == 1
+    driver.edited()
+    assert cleared
+    assert len(driver.held) == 2, 'the view is solved again'
+    run(driver)                       # the old answer lands, and is dropped
+    assert driver.fine.taken == []
+    run(driver)
+    assert driver.fine.taken == [Box(100, 100, 300, 200)]

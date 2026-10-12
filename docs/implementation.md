@@ -4914,3 +4914,44 @@ tile size was measured on the densest view before the floor: 1.88 s at 128
 cells, 1.46 at 64, 1.30 at 32 with nearly three times as many tiles to keep.
 The floor costs that view a quarter of a second, since a z15 screen is 139
 cells tall.
+
+## I3c, the view drawn
+
+`FineLayer` in `danu/ui/fine.py` draws the 1" tiles over the 3" surface at z15
+and closer. It is a child of the surface's layer, so it fades and hides with
+it, and it is coloured as the surface is - the same `compose`, mode, ramp and
+colour stretch, the last whole recolour's - so the 1" ground is the 3" ground
+sharpened and not a different map. Nothing is drawn in the difference mode
+yet.
+
+**The shading.** Done on the worker, after the solve, for the whole view at
+once: `fine.pieces` runs `shade.shade_window` over the view and a halo of the
+DEM the solve found beyond it, then cuts the result into a piece a tile, each
+Mercator cell going to the tile its centre lies in. Every piece is on one
+Mercator grid, 31 m cells from the projection's origin, wherever the view was.
+It adds 0.02 to 0.04 s to a view: the densest z15 view of gobras City is up
+shaded in 1.74 s, with the yardstick at 13.8 to 15.1 s.
+
+**Seams.** Measured on the window's own renders, as the median step in grey
+between neighbouring columns and rows, the largest anywhere against the
+median:
+
+- drawn a tile at a time, every tile edge was a line, 2 to 4 grey levels
+  against a median of 0.33. A one-cell skirt of the neighbour's shading did
+  not help: Qt smooths a pixmap drawn from a source rectangle without reading
+  past it;
+- drawn as one picture - the tiles in view pasted into one array on their one
+  grid, composed once and drawn once - no tile edge stands out, the largest
+  step 1.0 to 1.7, which is the ground's own;
+- where a view is made of two solves' tiles, kept from two views either side
+  of it and not solved again, the join does not stand out either: 1.33 at
+  most.
+
+Composing the picture as one rather than a tile at a time also keeps the
+slope's gradient two-sided across tile edges, as the surface's is.
+
+**Edits.** Until I4 works out which tiles an edit reaches, an edit drops every
+tile and the view is solved again once the preview has patched the 3"
+surface, which the new solve's rim is held on. A solve in flight was of the
+old contours and its answer is dropped, so ground from before an edit is
+never drawn at 1".

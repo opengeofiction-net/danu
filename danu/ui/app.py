@@ -243,11 +243,22 @@ class MainWindow(QMainWindow):
         self.preview.freshGround.connect(self._preview_on_fresh_ground)
         # the view at 1 arcsecond, at z15 and closer (I3b); solved on a worker
         # for the same reason the preview is
-        from .fine import FineDriver
+        from .fine import FineDriver, FineLayer
         self.fine = FineDriver(self)
         self.fine.set_runner(QThreadPool.globalInstance().start)
         self.fine.arrived.connect(self._fine_arrived)
         self.fine.unavailable.connect(lambda why: self.statusBar().showMessage(why))
+        # drawn over the surface, as a child of its layer so it fades and
+        # hides with it (I3c)
+        self.fine_layer = FineLayer(self.surface, self.fine)
+        self.fine.arrived.connect(self.fine_layer.arrived)
+        self.map.zoomChanged.connect(self.fine_layer.set_zoom)
+        self.fine_layer.set_zoom(self.map.zoom)
+        # an edit leaves the tiles describing ground that has changed: once the
+        # preview has the 3 arcsecond surface right, they are solved again -
+        # and where it could not preview, they go anyway rather than stay wrong
+        for sig in (self.preview.patched, self.preview.skipped, self.preview.freshGround):
+            sig.connect(lambda *_: self.fine.edited())
         self.builder.started.connect(self._surface_starting)
         self.builder.finished.connect(self._surface_built)
         # the surface's checks (H2) ride on a build, while the panel is open
@@ -1375,8 +1386,8 @@ class MainWindow(QMainWindow):
         self.surface_panel.set_view_window(window)
 
     def _fine_arrived(self, tiles, seconds: float) -> None:
-        """Tiles of the view solved at 1 arcsecond. Nothing draws them until
-        I3c; the usage log has how long they took, which is the phase's
+        """Tiles of the view solved at 1 arcsecond, which the fine layer
+        draws. The usage log has how long they took, which is the phase's
         measure - a z15 screen within 2 s of the view settling."""
         if self.usage is not None:
             self.usage.write('fine', tiles=len(tiles), seconds=round(seconds, 3))
@@ -1880,6 +1891,7 @@ class MainWindow(QMainWindow):
         # and the 1" view held on it; the settle timer started above asks for
         # the view again once this has run
         self.fine.adopt(built, self.preview.contours, params)
+        self.fine_layer.forget()
         if stale:
             self.statusBar().showMessage(
                 f'surface built in {seconds:.0f} s, already out of date - rebuilding')

@@ -3,8 +3,7 @@
 The working set is built at 3 arcseconds. Once the map comes to rest at z15 or
 closer, the tiles of the view not yet solved at 1 are solved, on a worker, and
 kept; ``danu.surface.fine`` is the solve and the keeping, and this is the
-wiring. Nothing draws them yet - I3c does - so what this offers is a signal
-saying which tiles have arrived, and how long after the view settled.
+wiring, and ``FineLayer`` draws them over the 3 arcsecond surface.
 
 One solve at a time, as the preview has it: at 1 arcsecond the first pass is
 the cost, and two of them side by side compete for the same cores and neither
@@ -18,10 +17,15 @@ from __future__ import annotations
 import threading
 import time
 
-from PySide6.QtCore import QObject, QRunnable, Signal
+import numpy as np
+from PySide6.QtCore import QObject, QRectF, QRunnable, Signal
+from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtWidgets import QGraphicsItem
 
-from ..surface import fine
+from ..surface import fine, shade
 from ..surface.params import Params
+from . import mercator as m
+from .surface import RAMPS
 
 # the closest zoom at which the 3 arcsecond surface is all there is; at this
 # and closer the view is solved at 1. The phase's own number
@@ -29,26 +33,32 @@ MIN_ZOOM = 15
 
 
 class _Signals(QObject):
-    done = Signal(int, object, object)        # serial, Solved, error
+    done = Signal(int, object, object, object)   # serial, Solved, pieces, error
 
 
 class _Job(QRunnable):
-    """``fine.solve`` off the UI thread: arrays in, arrays out."""
+    """``fine.solve`` off the UI thread, and the shading of what it found:
+    arrays in, arrays out. ``projection`` None solves without shading."""
 
-    def __init__(self, serial, prepared, shape, params, signals):
+    def __init__(self, serial, prepared, shape, params, gt, projection, signals):
         super().__init__()
-        self.serial, self.args, self.signals = serial, (prepared, shape, params), signals
+        self.serial, self.signals = serial, signals
+        self.args = (prepared, shape, params)
+        self.gt, self.projection = gt, projection
         # set when run() returns, however it returns - see SurfaceLayer.cleanup
         self.done = threading.Event()
 
     def run(self):
-        solved = error = None
+        solved = shaded = error = None
         try:
             solved = fine.solve(*self.args)
+            if self.projection is not None:
+                p, _, params = self.args
+                shaded = fine.pieces(p, solved, self.gt, self.projection, params)
         except Exception as e:      # noqa: BLE001 - reported on the UI thread
             error = e
         try:
-            self.signals.done.emit(self.serial, solved, error)
+            self.signals.done.emit(self.serial, solved, shaded, error)
         except RuntimeError:
             pass                    # the window went first; see _Job._say in surface.py
         finally:
@@ -73,6 +83,7 @@ class FineDriver(QObject):
         self._solving = 0
         self._runner = None
         self._said = ''
+        self._projection: str | None = None   # the build's, for shading; None shades nothing
         self._signals = _Signals()
         self._signals.done.connect(self._solved)
 
@@ -101,6 +112,7 @@ class FineDriver(QObject):
         except Exception as e:      # noqa: BLE001 - the 1" view is a bonus, never a failed surface
             self._say(f'no 1" view: {type(e).__name__}: {e}')
             return
+        self._projection = r.projection
         self._said = ''
 
     def forget(self) -> None:
@@ -146,14 +158,15 @@ class FineDriver(QObject):
         self._plan = p
         self._serial += 1
         self._solving = self._serial
-        self._job = _Job(self._serial, p, self.fine.fine.shape, self.fine.params, self._signals)
+        self._job = _Job(self._serial, p, self.fine.fine.shape, self.fine.params,
+                         self.fine.fine.gt, self._projection, self._signals)
         self._job.setAutoDelete(False)       # Python owns it; see loader.py
         if self._runner is None:
             self._job.run()
         else:
             self._runner(self._job)
 
-    def _solved(self, serial, solved, error) -> None:
+    def _solved(self, serial, solved, shaded, error) -> None:
         if serial != self._solving:
             return                           # forgotten while it ran
         self._solving = 0
@@ -161,9 +174,24 @@ class FineDriver(QObject):
         if error is not None:
             self._say(f'no 1" view: {type(error).__name__}: {error}')
             return
-        keys = self.fine.take(p, solved)
+        keys = self.fine.take(p, solved, shaded)
         self.arrived.emit(keys, time.perf_counter() - self._since)
         self._next()                         # the view may have moved on meanwhile
+
+    def edited(self) -> None:
+        """The contours changed under the tiles. Until I4 works out which
+        tiles an edit reaches, every one goes and the view is solved again -
+        so what is drawn at 1 arcsecond is never ground from before the edit.
+        Called once the preview has patched the 3 arcsecond surface, which is
+        what the new solve's rim is held on. A solve in flight was of the old
+        contours, and its answer is dropped."""
+        if self.fine is None:
+            return
+        self.fine.clear()
+        self._solving = 0
+        self._plan = None
+        self._since = time.perf_counter()
+        self._next()
 
     # ----------------------------------------------------------- threads
 
@@ -185,3 +213,116 @@ class FineDriver(QObject):
         self._job = None
         self._solving = 0
         return True
+
+
+class FineLayer(QGraphicsItem):
+    """The 1 arcsecond tiles, drawn over the 3 arcsecond surface at z15 and
+    closer - R43.
+
+    A child of the surface's layer, so it takes the surface's opacity and
+    visibility with it, and is coloured exactly as the surface is: the same
+    ``shade.compose``, the same mode and ramp, and the same colour stretch -
+    the range the surface's last whole recolour worked out, not one from the
+    tile, which would come out a different colour from the ground around it.
+
+    Drawn as one picture, not a tile at a time. Every tile's shading is on
+    one Mercator grid, so the tiles in view are pasted into one array,
+    composed and drawn once: drawn apart and smoothed, each tile's edge was
+    blended with nothing - Qt does not read past the rectangle it is asked to
+    draw - and every tile edge showed as a line two or three grey levels deep
+    at z15. Composed again only when the tiles in view or the style change.
+    Nothing is drawn in the difference mode, which the tiles cannot give yet.
+    """
+
+    def __init__(self, surface, driver: FineDriver):
+        super().__init__(surface)
+        self.surface, self.driver = surface, driver
+        self._picture = None            # (what it was made of, QPixmap, scene rect)
+        self.setVisible(False)
+
+    def set_zoom(self, zoom: int) -> None:
+        self.setVisible(zoom >= MIN_ZOOM)
+
+    def arrived(self, keys, _seconds: float = 0.0) -> None:
+        self._picture = None
+        self.update()
+
+    def forget(self) -> None:
+        self._picture = None
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        return self.surface.boundingRect()
+
+    def _style_key(self):
+        st = self.surface.style
+        return st.mode, st.ramp, st.scaling, st.shade_strength, self.surface.stretch
+
+    def tiles_in(self, rect: QRectF) -> list:
+        """The tiles a scene rectangle covers, if there is a 1 arcsecond view."""
+        f = self.driver.fine
+        if f is None:
+            return []
+        west, north = m.scene_to_lonlat(rect.left(), rect.top())
+        east, south = m.scene_to_lonlat(rect.right(), rect.bottom())
+        box = f.cells(west, south, east, north)
+        return f.tiles(box) if box is not None else []
+
+    def picture(self, rect: QRectF):
+        """The tiles over ``rect`` as one pixmap and the scene rect it covers,
+        or None when none of them is solved."""
+        f = self.driver.fine
+        style_key = self._style_key()
+        got = [(k, f.piece(k)) for k in self.tiles_in(rect)]
+        got = [(k, p) for k, p in got if p is not None]
+        if not got:
+            return None
+        made_of = (style_key, tuple((k, id(p)) for k, p in got))
+        if self._picture is not None and self._picture[0] == made_of:
+            return self._picture[1:]
+        metres = got[0][1].metres
+        # whole cells of the one grid every piece is on, counted from the
+        # Mercator origin
+        at = [(round((p.geotransform[0] + shade.HALF) / metres),
+               round((shade.HALF - p.geotransform[3]) / metres), p) for _, p in got]
+        c0 = min(c for c, _, _ in at)
+        r0 = min(r for _, r, _ in at)
+        c1 = max(c + p.dem.shape[1] for c, _, p in at)
+        r1 = max(r + p.dem.shape[0] for _, r, p in at)
+        dem = np.zeros((r1 - r0, c1 - c0), np.float32)
+        hill = np.zeros((r1 - r0, c1 - c0), np.uint8)
+        covered = np.zeros((r1 - r0, c1 - c0), bool)
+        for c, r, p in at:
+            rows, cols = p.dem.shape
+            dem[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.dem
+            hill[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = p.shade
+            covered[r - r0:r - r0 + rows, c - c0:c - c0 + cols] = True
+        whole = shade.Shaded(dem=dem, shade=hill, metres=metres,
+                             geotransform=(c0 * metres - shade.HALF, metres, 0.0,
+                                           shade.HALF - r0 * metres, 0.0, -metres))
+        # composed as one, as the surface is: a slope taken a tile at a time
+        # would be one-sided at every tile's edge
+        st = self.surface.style
+        ramp = None if st.mode == 'hillshade' else RAMPS[st.ramp]()
+        rgba = shade.compose(whole, ramp, st.scaling, st.mode, st.shade_strength,
+                             stretch=self.surface.stretch)
+        # a cell no tile covers is clear, whatever the ramp makes of a zero
+        rgba[~covered] = 0
+        rgba = np.ascontiguousarray(rgba)
+        rows, cols = rgba.shape[:2]
+        img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
+        left, top, right, bottom = whole.scene_rect
+        self._picture = (made_of, QPixmap.fromImage(img), QRectF(left, top, right - left, bottom - top))
+        return self._picture[1:]
+
+    def paint(self, painter: QPainter, option, widget=None):
+        if self.driver.fine is None or self.surface.style.mode == 'difference' or \
+                self.surface.stretch is None and self.surface.style.mode not in ('hillshade', 'slope'):
+            return
+        from .mapview import visible_rect
+        got = self.picture(visible_rect(painter, option, self.boundingRect()))
+        if got is None:
+            return
+        pix, at = got
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.surface.smooth)
+        painter.drawPixmap(at, pix, QRectF(pix.rect()))

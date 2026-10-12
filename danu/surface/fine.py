@@ -134,6 +134,7 @@ class Solved:
     dem: np.ndarray           # over the view
     surface: np.ndarray       # over the view: the fill before the clamp
     first: np.ndarray         # over good: the first pass, complete
+    around: np.ndarray | None = None   # over good: the DEM, for shading the view with a halo
 
 
 class Fine:
@@ -279,6 +280,17 @@ class Fine:
             _, (_, c) = self._kept.popitem(last=False)
             self._held -= c
 
+    def piece(self, key):
+        """Tile ``key``'s shading on the Mercator grid, or None when it is not
+        solved or was solved without one."""
+        got = self._kept.get(('dem', key))
+        return got[0][2] if got is not None else None
+
+    def clear(self) -> None:
+        """Every tile gone - what an edit does until I4 makes it local."""
+        self._kept.clear()
+        self._held = 0
+
     def known(self, view: Box) -> bool:
         """Whether every tile of ``view`` is solved."""
         return all(('dem', k) in self._kept for k in self.tiles(view))
@@ -291,7 +303,7 @@ class Fine:
         dem = np.empty(view.shape, np.float32)
         surface = np.empty(view.shape, np.float32)
         for k in self.tiles(view):
-            d, f = self._get('dem', k)
+            d, f, _ = self._get('dem', k)
             t = self.tile(k)
             a = Box(max(t.x0, view.x0), max(t.y0, view.y0), min(t.x1, view.x1), min(t.y1, view.y1))
             src = (slice(a.y0 - t.y0, a.y1 - t.y0 + 1), slice(a.x0 - t.x0, a.x1 - t.x0 + 1))
@@ -343,9 +355,10 @@ class Fine:
                         self.water(good), self.up(self.surface, good),
                         self.up(self.dem, good, nearest=True) == 0)
 
-    def take(self, p: Prepared, solved: Solved) -> list[tuple[int, int]]:
-        """Keep what a solve found: the DEM of every tile of its view, and the
-        first pass of every tile it searched whole. Returns the DEM's tiles."""
+    def take(self, p: Prepared, solved: Solved, shaded: dict | None = None) -> list[tuple[int, int]]:
+        """Keep what a solve found: the DEM of every tile of its view, with
+        its piece of the shading if there is one, and the first pass of every
+        tile it searched whole. Returns the DEM's tiles."""
         good = p.good
         for k in self.tiles(good):
             t = self.tile(k)
@@ -359,7 +372,9 @@ class Fine:
         for k in keys:
             t = self.tile(k)
             src = (slice(t.y0 - v.y0, t.y1 - v.y0 + 1), slice(t.x0 - v.x0, t.x1 - v.x0 + 1))
-            self._put('dem', k, (solved.dem[src].copy(), solved.surface[src].copy()), 2 * t.cells)
+            piece = shaded.get(k) if shaded else None
+            self._put('dem', k, (solved.dem[src].copy(), solved.surface[src].copy(), piece),
+                      2 * t.cells + (piece.dem.size if piece is not None else 0))
         return keys
 
     def view(self, view: Box, lib=None) -> tuple[np.ndarray, np.ndarray]:
@@ -446,4 +461,56 @@ def solve(p: Prepared, shape: tuple[int, int], params: Params, lib=None) -> Solv
     dem = clamp_patch(surface, cons, np.where(sea, 0, 1))
     view = (slice(p.view.y0 - good.y0, p.view.y1 - good.y0 + 1),
             slice(p.view.x0 - good.x0, p.view.x1 - good.x0 + 1))
-    return Solved(dem[view], surface[view], complete)
+    return Solved(dem[view], surface[view], complete, dem)
+
+
+def pieces(p: Prepared, solved: Solved, gt: tuple, projection: str,
+           params: Params) -> dict:
+    """The view shaded, as Mercator pieces a tile each: ``shade.Shaded``
+    by tile key.
+
+    Shaded once for the whole view and cut up after, so there is no seam
+    between two tiles of one solve: the box filter, the hillshade and the warp
+    all read their neighbours, and a tile shaded alone would have its edges
+    computed against nothing. The view is grown by a halo first, from the DEM
+    the solve found beyond it, and the halo's own cells are never kept - as
+    the preview's patch is cropped. On one Mercator grid wherever the view is,
+    so pieces of two solves meet on whole cells.
+
+    A Mercator cell goes to the tile its centre lies in, so neighbouring
+    pieces neither overlap nor leave a gap."""
+    from . import shade
+    good, view = p.good, p.view
+    halo = params.smooth_cells + 4
+    win = Box(max(view.x0 - halo, good.x0), max(view.y0 - halo, good.y0),
+              min(view.x1 + halo, good.x1), min(view.y1 + halo, good.y1))
+    dem = solved.around[win.y0 - good.y0:win.y1 - good.y0 + 1, win.x0 - good.x0:win.x1 - good.x0 + 1]
+    sub = (gt[0] + win.x0 * gt[1], gt[1], 0.0, gt[3] + win.y0 * gt[5], 0.0, gt[5])
+    metres = shade.fine_metres(params)
+    grid = (-shade.HALF, metres, 0.0, shade.HALF, 0.0, -metres)
+    m_dem, m_shade, m_gt, _ = shade.shade_window(dem, sub, projection, params, align_to=grid)
+    rows, cols = m_dem.shape
+    # each Mercator cell's centre, as lon and lat
+    lon = np.degrees((m_gt[0] + (np.arange(cols) + 0.5) * m_gt[1]) / shade.R)
+    my = m_gt[3] + (np.arange(rows) + 0.5) * m_gt[5]
+    lat = np.degrees(2 * np.arctan(np.exp(my / shade.R)) - np.pi / 2)
+    out = {}
+    for ty in range(view.y0 // TILE, view.y1 // TILE + 1):
+        for tx in range(view.x0 // TILE, view.x1 // TILE + 1):
+            tile = Box(tx * TILE, ty * TILE, min(view.x1, (tx + 1) * TILE - 1),
+                       min(view.y1, (ty + 1) * TILE - 1))
+            # the tile's own edges, which are cell edges of the 1" grid
+            west, east = gt[0] + tile.x0 * gt[1], gt[0] + (tile.x1 + 1) * gt[1]
+            north, south = gt[3] + tile.y0 * gt[5], gt[3] + (tile.y1 + 1) * gt[5]
+            cs = np.flatnonzero((lon >= west) & (lon < east))
+            rs = np.flatnonzero((lat <= north) & (lat > south))
+            if not len(cs) or not len(rs):
+                continue
+            r0, r1, c0, c1 = rs[0], rs[-1] + 1, cs[0], cs[-1] + 1
+            out[ty, tx] = shade.Shaded(
+                dem=np.ascontiguousarray(m_dem[r0:r1, c0:c1]),
+                shade=np.ascontiguousarray(m_shade[r0:r1, c0:c1]),
+                geotransform=(m_gt[0] + c0 * m_gt[1], m_gt[1], 0.0, m_gt[3] + r0 * m_gt[5], 0.0, m_gt[5]),
+                metres=metres)
+    return out
+
