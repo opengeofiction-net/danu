@@ -220,8 +220,11 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
         f'the previewed patch is {float(err[good.slice].max()):.6f} m out'
     stale = err.copy()
     stale[good.slice] = 0
-    assert float(stale.max()) == 0.0, \
-        f'ground outside the patch is {float(stale.max()):.3f} m out of date'
+    # and outside it, a millimetre too: since isofill 0.11.0 the second pass
+    # runs to a tolerance with a line search over the whole raster, so an edit
+    # anywhere moves where it stops everywhere, by 0.00009 m here
+    assert float(stale.max()) < 0.001, \
+        f'ground outside the patch is {float(stale.max()):.6f} m out of date'
 
     # And the same edit without it, which is what the narrower cover costs.
     # Measured at 1 arcsecond over five deleted contours, four left nothing

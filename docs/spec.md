@@ -386,7 +386,7 @@ the radius, and it decides what the patch gets wrong. Both want two radii; see
 
 | when | patch covers | solved | pass 1 | pass 2 | cost |
 |---|---|---|---|---|---|
-| while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, ~0.27 m | 63-73 ms |
+| while drawing, coalesced over 30 ms | box + 2 radii | + 3 radii | exact within | local, within 1 mm | 63-73 ms |
 | on idle, 10 s | whole working set | all | exact | exact | 2.9 s at 3", 47 at 1" |
 
 The budgets this table used to carry - 30 ms while dragging, 200 on release,
@@ -1305,7 +1305,10 @@ Nothing about the design. What is left is what building it will answer:
    leaves the answer to the question the same. Local and global hillshades do
    not differ by a grey level. The seam does not show, and the coarser global
    preview the fallback plan called for is not needed. See *F3, the local
-   solve* in `implementation.md`.
+   solve* in `implementation.md`. Since `isofill` 0.11.0 solves the second
+   pass to convergence, twelve deleted contours on the gobras 3x3 preview
+   within 0.9 mm of a whole rebuild, where 0.10.1's worst was 4.78 m - see
+   *I2, the second pass solved*.
 3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library
    built for it. The phase 0 CI build is there to find out early rather than at
    the end.

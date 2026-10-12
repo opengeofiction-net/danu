@@ -170,10 +170,15 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     assert bare_stale > 1.0, 'the minimal box leaves nothing stale - this edit does not travel'
 
     # and the defaults, two radii of each, measured rather than chosen. On this
-    # edit they make the patch exact
+    # edit they made the patch exact while the second pass ran a fixed number
+    # of sweeps, the box and the whole raster doing the same arithmetic on the
+    # same ground. Since isofill 0.11.0 it runs to a tolerance, its line search
+    # taking one step for each level of the whole raster, so where the two stop
+    # differs by a fraction of a millimetre - 0.000153 m here. A millimetre, as
+    # the preview's test holds it to.
     wrong, stale = solve()
-    assert wrong == 0.0, f'the patch is {wrong:.6f} m out'
-    assert stale == 0.0, f'the ground outside the patch is {stale:.3f} m out of date'
+    assert wrong < 0.001, f'the patch is {wrong:.6f} m out'
+    assert stale < 0.001, f'the ground outside the patch is {stale:.6f} m out of date'
 
     # slack is what took it there. It is a small distance on this fixture -
     # sixty-one micrometres - because cover already holds the rim well away.
@@ -181,8 +186,8 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     # of eighteen edits goes from 3.278 m at no slack to 0.268 m at two and no
     # further; and what is left there is not the rim at all, but the second
     # pass answering a different domain - it diffuses across a region of
-    # unanswered ground that runs past any box worth solving, and it runs a
-    # fixed number of cycles rather than to convergence.
+    # unanswered ground that runs past any box worth solving, and until isofill
+    # 0.11.0 it ran a fixed number of sweeps rather than to convergence.
     assert solve(slack=0)[0] > wrong, 'slack made no difference, so it is not being tested here'
 
 

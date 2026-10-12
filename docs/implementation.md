@@ -4753,3 +4753,42 @@ warming run: at 3" 3.2 s to 2.9, the fill a small part of it there; at 1" 103 to
 107 s to 46 to 48. The spec's table said 5.6 and 114, measured through the
 editor in phase 4; the table has these now.
 
+## I2, the second pass solved
+
+`isofill` 0.11.0: multigrid cycles after the pyramid, until a cycle moves no
+cell by 3 mm or the cycles stall - see its changelog. Against an exact solve,
+3.1 to 12.2 m out on gobras before and 1 to 2 mm after; 329 m on ellarca at 3"
+before, 4 mm after.
+
+The golden reference was rebuilt with it: 9,791 of the square's 1,442,401 cells
+moved, by 3.931 m at most and 0.24 m lower on average, all in ground the first
+pass declines, and in hillshade the two are not told apart. `params.lock` says
+which isofill built it, and had said 0.5.0 since the reference was first made.
+
+Two tests asserted that a box solved locally is exactly the whole raster's
+answer, inside the patch and outside it. That held while the second pass ran a
+fixed number of sweeps, the box and the whole doing the same arithmetic on the
+same ground; to a tolerance, with a line search over the whole raster, where
+they stop differs by 0.00015 m and 0.00009 m. Both hold to a millimetre now, as
+the preview's other test already did.
+
+**The preview, measured again.** Twelve contours deleted one at a time on the
+gobras 3x3 at 3", three in each square that has any, each previewed by
+`local.resolve` at the shipped radii and compared with a whole rebuild:
+
+| | worst inside the patch | worst outside |
+|---|---|---|
+| 0.10.1 | 4.782 m | 0 |
+| 0.11.0 | 0.0009 m | 0.0002 m |
+
+The local solve was never the problem: the second pass stopping short was, a
+box and the whole raster stopping short in different places. F3's 0.268 m and
+the 0.777 m a later harness could not reconcile with it were both measuring
+that. The spec's table says within a millimetre now.
+
+What it costs is whole rasters, in the second pass: against 0.10.1, 1.5 times
+at 3" on gobras and 4 at 1", and about 17 on ellarca's 2x2 at 1", where wide
+flat basins converge slowly. A preview's box at 3" is a sixth of what it was,
+and at 1" a third more. A tolerance of a centimetre rather than 3 mm would
+about halve the whole-raster cost, and is there if it is needed.
+
