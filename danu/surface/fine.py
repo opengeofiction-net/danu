@@ -337,7 +337,9 @@ class Fine:
 
     def rehold(self, contours: Contours, surface: Band, dem: Band, gpkg=None) -> bool:
         """Hold the tiles on a new build of the same grid and drawn area -
-        an idle rebuild's - rather than solve them again (I5). They are still
+        an idle rebuild's - rather than solve them again (I5). That it is the
+        same grid and drawn area is the caller's to have checked, as
+        ``FineDriver.adopt`` does; this does not look. They are still
         its answer: the first pass depends on the contours alone, and the
         tiles an edit reached went when it was previewed; the DEM was held on
         a preview's surface within a millimetre of the exact one. The drawn
