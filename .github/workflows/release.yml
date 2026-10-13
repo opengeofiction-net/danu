@@ -264,14 +264,27 @@ jobs:
           "installed $($pkg.PackageFullName) at $($pkg.InstallLocation)"
           "PFN=$($pkg.PackageFamilyName)" >> $env:GITHUB_ENV
           "DANU_DIR=$($pkg.InstallLocation)" >> $env:GITHUB_ENV
+      # A package's files cannot be run by path from WindowsApps, even here:
+      # "ResourceUnavailable". Inside the package's context they can, which
+      # Invoke-CommandInDesktopPackage gives; it waits for nothing and shows
+      # nothing, so a batch file writes the output and the exit status
       - name: the golden square, built by the installed package
         run: |
-          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-          $env:GDAL_DATA = "$env:DANU_DIR\share\gdal"
-          $env:PROJ_DATA = "$env:DANU_DIR\share\proj"
-          & "$env:DANU_DIR\bin\python.exe" packaging\windows\smoke.py `
-            tests\golden\S24E125_Los_Pizarrales.osm.xz tests\golden\expected.tif "$env:RUNNER_TEMP\smoke"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $t = $env:RUNNER_TEMP; $w = $env:GITHUB_WORKSPACE
+          @(
+            "set PATH=%SystemRoot%\System32;%SystemRoot%"
+            "set GDAL_DATA=$env:DANU_DIR\share\gdal"
+            "set PROJ_DATA=$env:DANU_DIR\share\proj"
+            "`"$env:DANU_DIR\bin\python.exe`" `"$w\packaging\windows\smoke.py`" `"$w\tests\golden\S24E125_Los_Pizarrales.osm.xz`" `"$w\tests\golden\expected.tif`" `"$t\smoke`" > `"$t\smoke.txt`" 2>&1"
+            "echo %ERRORLEVEL% > `"$t\smoke.done`""
+          ) | Set-Content -Encoding ascii "$t\smoke.cmd"
+          Invoke-CommandInDesktopPackage -PackageFamilyName $env:PFN -AppId Danu -Command cmd.exe -Args "/c `"$t\smoke.cmd`""
+          $n = 0
+          while (-not (Test-Path "$t\smoke.done") -and $n -lt 300) { Start-Sleep 2; $n += 2 }
+          Get-Content "$t\smoke.txt" -ErrorAction SilentlyContinue
+          if (-not (Test-Path "$t\smoke.done")) { throw 'the smoke test did not finish in 300 s' }
+          $rc = [int] (Get-Content "$t\smoke.done").Trim()
+          if ($rc) { throw "the smoke test exited $rc" }
       - name: the danu alias starts the editor in the package
         run: |
           $env:QT_QPA_PLATFORM = 'offscreen'
