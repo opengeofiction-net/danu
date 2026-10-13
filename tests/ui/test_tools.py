@@ -42,6 +42,9 @@ def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
     w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
     w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos, button))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton))
+    import sys  # DIAGNOSTIC, to come out
+    print(f'CLICK-DIAG zoom {w.map.zoom} tool {w.editor.tool} drawing {w.editor.drawing and w.editor.drawing[1:]} '
+          f'msg {w.statusBar().currentMessage()!r}', file=sys.stderr)
 
 
 def double_click(w, lon, lat):
