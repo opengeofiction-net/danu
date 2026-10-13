@@ -226,7 +226,7 @@ jobs:
           set -eu
           export PATH="$PWD/extern/isofill:$PATH"
           export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
-          PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 ../venv/bin/python -m pytest tests/ui/test_tools.py -q -s -k snapping_shares 2>&1 | grep -E "PICK-DIAG|CLICK-DIAG|passed|failed" | head -40  # DIAGNOSTIC
+          for i in 1 2 3 4 5; do PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 ../venv/bin/python -m pytest tests/ui/test_tools.py -q 2>&1 | tail -1; done  # DIAGNOSTIC alone x5
           PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 ../venv/bin/python -m pytest tests/ui -q
 
   # The check which stops the editor and the build drifting apart. It needs

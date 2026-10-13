@@ -24,36 +24,16 @@ def mouse(w, kind, pos, button=Qt.MouseButton.LeftButton, buttons=None):
 
 
 def at(w, lon, lat) -> QPoint:
-    """Put the point in the middle of the viewport and return where it is.
-    Where it is, asked of the view, rather than the viewport's centre: Qt's
-    centerOn puts a point within a pixel or so of the centre, not on it, and
-    on MSYS2's Qt that was far enough for a click meant for a node to miss it
-    and cross the contour beside it instead."""
+    """Put the point at the viewport's centre and return that position."""
     w.map.center_on_lonlat(lon, lat)
-    got = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(lon, lat)))
-    import sys  # DIAGNOSTIC, to come out
-    c = w.map.viewport().rect().center()
-    print(f'AT-DIAG {lon:.4f} {lat:.4f} centre {c.x()},{c.y()} got {got.x()},{got.y()} vp {w.map.viewport().width()}x{w.map.viewport().height()}', file=sys.stderr)
-    return got
+    return w.map.viewport().rect().center()
 
 
 def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
     pos = at(w, lon, lat)
-    import sys  # DIAGNOSTIC, to come out
-    import numpy as _np
-    sp = w.map.mapToScene(pos)
-    lay = w.editor.layer
-    lay._ensure_arrays()
-    d = _np.hypot(*(lay._node_xy - (sp.x(), sp.y())).T) if len(lay._node_xy) else _np.array([_np.inf])
-    print(f'PICK-DIAG {lon:.4f},{lat:.4f} scene {sp.x():.2f},{sp.y():.2f} tol {w.editor._px(10.0):.3f} '
-          f'nearest {d.min():.3f} n {len(lay._node_xy)} hit {lay.pick_node(sp.x(), sp.y(), w.editor._px(10.0)) is not None}',
-          file=sys.stderr)
     w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
     w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos, button))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton))
-    import sys  # DIAGNOSTIC, to come out
-    print(f'CLICK-DIAG zoom {w.map.zoom} tool {w.editor.tool} drawing {w.editor.drawing and w.editor.drawing[1:]} '
-          f'msg {w.statusBar().currentMessage()!r}', file=sys.stderr)
 
 
 def double_click(w, lon, lat):
