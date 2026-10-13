@@ -14,6 +14,7 @@ view is by then, not for every place it passed through.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import threading
 import time
@@ -86,6 +87,7 @@ class FineDriver(QObject):
         self._runner = None
         self._said = ''
         self._projection: str | None = None   # the build's, for shading; None shades nothing
+        self._drawn = None                    # a digest of the build's drawn area
         self._signals = _Signals()
         self._signals.done.connect(self._solved)
 
@@ -94,9 +96,26 @@ class FineDriver(QObject):
     def adopt(self, built, contours, params: Params) -> None:
         """Take a build as the 3 arcsecond ground the view is held on, with
         ``contours`` - the preview's layer, so a view burns what the editor
-        has. Every tile kept so far goes: it was held on the last build."""
-        self.forget()
+        has.
+
+        A build of the same grid and the same drawn area - the idle rebuild
+        after an edit - keeps the tiles: they are still its answer (see
+        ``Fine.rehold``), and solving them again would put the 3 arcsecond
+        surface back under the view for a second or two after every rebuild,
+        and search the first pass again from nothing. Any other build drops
+        them all."""
         r = built.rasters
+        drawn = self._drawn_of(r)
+        if (self.fine is not None and r is not None and contours is not None and params.arcsec == 3
+                and drawn is not None and drawn == self._drawn
+                and tuple(r.geotransform) == self.fine.coarse.gt and r.dem.shape == self.fine.coarse.shape):
+            self._solving = 0               # a solve in flight was held on the build before
+            self._plan = None
+            self.fine.rehold(contours, r.surface, r.dem, gpkg=r.gpkg)
+            self._projection = r.projection
+            return
+        self.forget()
+        self._drawn = drawn
         if params.arcsec != 3:
             # built at 1 already, by the resolution choice I3d removes
             return
@@ -116,6 +135,18 @@ class FineDriver(QObject):
             return
         self._projection = r.projection
         self._said = ''
+
+    @staticmethod
+    def _drawn_of(rasters):
+        """The build's drawn area as a digest, or None when there is none to
+        read: two builds whose drawn areas differ hold their tiles on
+        different ground."""
+        if rasters is None:
+            return None
+        try:
+            return hashlib.sha1(np.ascontiguousarray(rasters.mask.read_all()).tobytes()).hexdigest()
+        except Exception:           # noqa: BLE001 - unreadable is a reason to start again, not to fail
+            return None
 
     def forget(self) -> None:
         """Drop the tiles and the build they were held on. A solve in flight

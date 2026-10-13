@@ -338,3 +338,51 @@ def test_an_edit_drops_the_first_pass_it_reaches_and_the_dem_a_radius_further():
     assert all(('dem', k) in f._kept for k in f.tiles(Box(1300, 1300, 1549, 1449))), \
         'a view nowhere near the edit lost tiles'
     assert f.tiles(Box(0, 0, T - 1, T - 1)) == [(0, 0)]
+
+
+def test_tiles_held_on_a_new_build_are_kept_and_the_drawn_area_taken_again():
+    from danu.surface.local import Box
+
+    f = drawn()
+    p = f.plan(Box(300, 300, 549, 449))
+    f.take(p, solved_as(p, 1))
+    f.mask(Box(0, 0, 100, 100))
+    assert f._envelopes
+    held = dict(f._kept)
+    new_layer = Drawn()
+    assert f.rehold(new_layer, f.surface, f.dem) is True
+    assert dict(f._kept) == held and f.contours is new_layer
+    assert not f._envelopes, 'the drawn area kept from the contours before'
+
+
+def test_clearing_the_tiles_takes_the_drawn_area_again_too():
+    """An edit the preview could not show - on fresh ground - clears every
+    tile, and can have moved the envelope the next solves mask by."""
+    from danu.surface.local import Box
+
+    f = drawn()
+    f.mask(Box(0, 0, 100, 100))
+    assert f._envelopes
+    f.clear()
+    assert not f._envelopes
+
+
+def test_tiles_held_on_a_new_build_go_if_the_sea_moved(monkeypatch):
+    """The window's sea is the coastline's, read again from the new build:
+    if it moved - a coastline edited - every tile's water may be wrong."""
+    from danu.surface import sea_mask
+    from danu.surface.local import Box
+
+    f = drawn()
+    water = np.array([[10, 10], [11, 10]])
+    land = np.array([[10, 12], [11, 12]])
+    f.seeds = (water, land)
+    p = f.plan(Box(300, 300, 549, 449))
+    f.take(p, solved_as(p, 1))
+    monkeypatch.setattr(sea_mask, 'coast_seeds', lambda gpkg, gt: (water.copy(), land.copy()))
+    assert f.rehold(Drawn(), f.surface, f.dem, gpkg='same.gpkg') and f._kept
+    moved = land.copy()
+    moved[0, 0] = 14
+    monkeypatch.setattr(sea_mask, 'coast_seeds', lambda gpkg, gt: (water, moved))
+    assert not f.rehold(Drawn(), f.surface, f.dem, gpkg='moved.gpkg')
+    assert not f._kept, 'tiles kept over a sea that moved'

@@ -389,3 +389,76 @@ def test_an_edit_with_no_1_arcsecond_view_is_nothing_to_it():
     d = FineDriver()
     d.reached([Box(1, 2, 3, 4)])          # nothing adopted: nothing to drop, nothing raised
     assert d.fine is None
+
+
+# ------------------------------------------------------------ rebuilds (I5)
+
+def a_build(mask=None, gt=(125.0 - 1.5 / 3600, 3 / 3600, 0.0, -23.0 + 1.5 / 3600, 0.0, -3 / 3600), rows=40, cols=50):
+    from danu.surface.preview import ArrayBand
+    zeros = np.zeros((rows, cols), np.float32)
+    mask = mask if mask is not None else np.ones((rows, cols), np.uint8)
+    rasters = type('R', (), dict(
+        constraints=ArrayBand(zeros.copy()), mask=ArrayBand(mask), water=None,
+        surface=ArrayBand(zeros.copy()), dem=ArrayBand(zeros.copy()),
+        geotransform=gt, projection=None, nodata=-9999.0, gpkg=None))()     # None: nothing shaded
+    return Built(shaded=None, rasters=rasters)
+
+
+def test_a_rebuild_of_the_same_ground_keeps_the_tiles_and_holds_them_on_it():
+    """The idle rebuild after an edit: same grid, same drawn area. The tiles
+    stay - the view does not drop back to 3 arcseconds for a second or two
+    after every rebuild, nor search its first pass again - and are held on the
+    new build's bands and the preview's new layer from now on."""
+    d = FineDriver()
+    first, second = a_build(), a_build()
+    d.adopt(first, contours=object(), params=PARAMS)
+    f = d.fine
+    f._kept[('dem', (0, 0))] = ((None, None, None), 1)
+    layer = object()
+    d.adopt(second, contours=layer, params=PARAMS)
+    assert d.fine is f and ('dem', (0, 0)) in f._kept
+    assert f.contours is layer and f.surface is second.rasters.surface and f.dem is second.rasters.dem
+
+
+@pytest.mark.parametrize('change', ['drawn area', 'grid', '1 arcsecond'])
+def test_a_rebuild_of_other_ground_starts_again(change):
+    d = FineDriver()
+    d.adopt(a_build(), contours=object(), params=PARAMS)
+    f = d.fine
+    f._kept[('dem', (0, 0))] = ((None, None, None), 1)
+    if change == 'drawn area':
+        mask = np.ones((40, 50), np.uint8)
+        mask[:5] = 0                             # an edit moved the envelope
+        d.adopt(a_build(mask=mask), contours=object(), params=PARAMS)
+    elif change == 'grid':
+        # the same size and the same drawn area, a degree east: only the grid
+        # tells them apart
+        d.adopt(a_build(gt=(126.0 - 1.5 / 3600, 3 / 3600, 0.0, -23.0 + 1.5 / 3600, 0.0, -3 / 3600)),
+                contours=object(), params=PARAMS)
+    else:
+        d.adopt(a_build(), contours=object(), params=PARAMS.with_arcsec(1))
+    assert d.fine is not f
+    assert d.fine is None or not d.fine._kept
+
+
+def test_a_solve_in_flight_across_a_rebuild_is_dropped(monkeypatch):
+    """Held on the build before; the view asks again and is solved on this one."""
+    monkeypatch.setattr(fine_ui.fine, 'solve', lambda p, shape, params: ('solved', p.view))
+    d = FineDriver()
+    held = []
+    d.set_runner(held.append)
+    d.adopt(a_build(), contours=object(), params=PARAMS)
+    taken = []
+    d.fine.plan = lambda view: type('P', (), dict(view=view))()
+    d.fine.take = lambda p, solved, shaded=None: taken.append(p.view) or [(0, 0)]
+    d.view((125.001, -23.01, 125.002, -23.005), 15)
+    assert len(held) == 1
+    d.adopt(a_build(), contours=object(), params=PARAMS)
+    # the view is solved again on this build at once, not after the old
+    # answer lands
+    d.view((125.001, -23.01, 125.002, -23.005), 15)
+    assert len(held) == 2, 'the view waited for a solve held on the build before'
+    held.pop(0).run()
+    assert taken == [], 'an answer held on the build before was taken'
+    held.pop(0).run()
+    assert len(taken) == 1

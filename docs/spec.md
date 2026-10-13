@@ -1122,10 +1122,12 @@ build's head start, generalised: what is on screen is solved first.
 arcsecond surface and on the 1 arcsecond tiles it reaches; tiles beyond its
 reach are kept, and tiles it reaches but are not in view are dropped.
 
-**I5, when a rebuild happens.** Rebuilding of its own accord was turned off
-because a build of the whole set at 1 arcsecond kept a mapper waiting. With the
-whole set at 3 arcseconds and the view at 1, it does not, and it becomes the
-default again. The preview still says when it cannot be vouched for.
+**I5, when a rebuild happens.** The rebuild of its own accord, once the
+drawing stops, was never switched off; at 1 arcsecond it was off in effect, a
+whole build of the set taking longer than the pause it waited for. With the
+whole set at 3 arcseconds and the view at 1 it is quick, and a rebuild of the
+same ground keeps the view's tiles rather than solving them again. The preview
+still says when it cannot be vouched for.
 
 **I6, the out-of-core second pass.** `isofill`'s banded pass 2 is an
 approximation, and two faults are measured. On the gobras 3x3 at 1 arcsecond
