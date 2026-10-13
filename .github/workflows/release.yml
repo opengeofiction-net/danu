@@ -20,6 +20,7 @@ on:
       - pyproject.toml
       - danu/__init__.py
       - extern/isofill
+      - packaging/windows/**
   workflow_dispatch:
 
 jobs:
@@ -111,9 +112,98 @@ jobs:
           name: deb
           path: out/*.deb
 
+  # J2: the tree Danu installs on Windows, from the MSYS2 UCRT64 stack the CI
+  # windows-stack job tests, packed by Inno Setup. See packaging/windows/.
+  windows:
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-libgfortran
+            mingw-w64-ucrt-x86_64-gdal
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gdal
+            mingw-w64-ucrt-x86_64-python-numpy
+            mingw-w64-ucrt-x86_64-pyside6
+            mingw-w64-ucrt-x86_64-ntldd
+      - name: the tree
+        run: bash packaging/windows/build-tree.sh "$(cygpath -u "$RUNNER_TEMP")/tree"
+      - name: the installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Qp `
+            "/DVersion=${{ needs.version.outputs.version }}" "/DTree=$env:RUNNER_TEMP\tree\Danu" `
+            "/DOut=$env:GITHUB_WORKSPACE\out" packaging\windows\danu.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*.exe
+
+  # The installer on a runner as a mapper's machine is: nothing of MSYS2 set
+  # up, and PATH cut to Windows' own, so the tree can find nothing of the
+  # runner's. Installed for the user, silently; the golden square built with
+  # the installed Python, GDAL and isofill and held to the reference; and
+  # Danu.exe started, offscreen, until its usage log says the window is up.
+  windows-run:
+    needs: [version, windows]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: setup
+      - name: install
+        run: |
+          $setup = (Get-ChildItem setup\*.exe).FullName
+          $p = Start-Process -Wait -PassThru $setup -ArgumentList `
+            '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',"/DIR=$env:RUNNER_TEMP\Danu"
+          if ($p.ExitCode) { exit $p.ExitCode }
+          "{0:N0} MB installed" -f ((Get-ChildItem -Recurse "$env:RUNNER_TEMP\Danu" | Measure-Object Length -Sum).Sum / 1MB)
+      - name: the golden square, built by the installed Danu
+        run: |
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $env:GDAL_DATA = "$env:RUNNER_TEMP\Danu\share\gdal"
+          $env:PROJ_DATA = "$env:RUNNER_TEMP\Danu\share\proj"
+          & "$env:RUNNER_TEMP\Danu\bin\python.exe" packaging\windows\smoke.py `
+            tests\golden\S24E125_Los_Pizarrales.osm.xz tests\golden\expected.tif "$env:RUNNER_TEMP\smoke"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Danu.exe starts the editor
+        run: |
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $usage = "$env:LOCALAPPDATA\danu\usage"
+          Start-Process "$env:RUNNER_TEMP\Danu\Danu.exe"
+          $t = 0
+          while (-not (Test-Path "$usage\*.jsonl") -and $t -lt 60) { Start-Sleep 2; $t += 2 }
+          $log = Get-ChildItem "$usage\*.jsonl" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $log) { Get-Process | Where-Object Name -like 'python*'; throw 'no usage log after 60 s' }
+          $start = Get-Content $log.FullName -TotalCount 1 | ConvertFrom-Json
+          "started: $($start.kind) danu $($start.danu) qt $($start.qt)"
+          if ($start.danu -ne '${{ needs.version.outputs.version }}') { throw "the window says danu $($start.danu)" }
+          Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process -Force
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, wheel, deb]
+    needs: [version, wheel, deb, windows, windows-run]
     runs-on: ubuntu-latest
     permissions:
       contents: write

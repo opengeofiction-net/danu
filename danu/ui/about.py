@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import platform
 import sys
+from pathlib import Path
 
 import PySide6
 from PySide6 import QtCore
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdit, QVBoxLayout
 
 from .. import __version__
@@ -84,6 +85,14 @@ def show(parent) -> AboutDialog:
     dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     dlg.open()
     return dlg
+
+
+def icon() -> QIcon:
+    """Danu's icon at every size it is drawn at - packaging/icon/make_icon.py."""
+    out = QIcon()
+    for png in sorted((Path(__file__).parent / 'icons').glob('danu-*.png')):
+        out.addFile(str(png))
+    return out
 
 
 def title(centre=None, dirty: bool = False) -> str:
