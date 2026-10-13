@@ -13,6 +13,7 @@ node positions, its members and the tags upstream is the authority for
 high it is**: `ele` set here survives, and so does any tag outside the
 upstream-owned set, since nothing else would have put it on an imported
 feature. Upstream's own `ele` fills in only where the mapper has set none.
+The version is upstream's, the one its geometry was taken from.
 
 This replaces G4b's floor, which overwrote a matched feature whole - so a
 second import silently threw away every elevation set since the first. It took
@@ -108,7 +109,7 @@ def reconcile(square: Square, nodes: dict[int, Node], ways: dict[int, Way],
             out.nodes[i] = up
         else:
             out.nodes[i] = Node(id=i, lat=up.lat, lon=up.lon,
-                                tags=merge_tags(here.tags, up.tags, owns))
+                                tags=merge_tags(here.tags, up.tags, owns), version=up.version)
 
     left_behind: set[int] = set()   # vertices the held version named, upstream's does not
     for i, up in ways.items():
@@ -121,7 +122,7 @@ def reconcile(square: Square, nodes: dict[int, Node], ways: dict[int, Way],
             out.ways[i] = up
         else:
             out.ways[i] = Way(id=i, refs=list(up.refs),
-                              tags=merge_tags(here.tags, up.tags, owns))
+                              tags=merge_tags(here.tags, up.tags, owns), version=up.version)
 
     for i, up in relations.items():
         here = held_rels.get(i)
@@ -129,7 +130,7 @@ def reconcile(square: Square, nodes: dict[int, Node], ways: dict[int, Way],
             out.relations[i] = up
         else:
             out.relations[i] = Relation(id=i, members=list(up.members),
-                                        tags=merge_tags(here.tags, up.tags, owns))
+                                        tags=merge_tags(here.tags, up.tags, owns), version=up.version)
 
     # the vertices left behind, less any still in use. A held node goes only
     # when every one of these holds, and each step below removes the nodes

@@ -631,7 +631,10 @@ class ReplaceWay(Command):
         for nid, (lon, lat) in self.new_nodes.items():
             square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
         for wid, refs in self.pieces:
-            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(self.original.tags))
+            # the piece under the way's own id is that way still, and keeps
+            # the main map's version an import gave it; a new one has none
+            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(self.original.tags),
+                                   version=self.original.version if wid == self.way_id else None)
         still_used = {r for w in square.ways.values() for r in w.refs}
         self.orphans = {r: square.nodes.pop(r) for r in dict.fromkeys(self.original.refs)
                         if r not in still_used and r in square.nodes}
@@ -1107,7 +1110,9 @@ class _ReplaceWays(Command):
     def apply(self, square: Square) -> None:
         del square.ways[self.way_id]
         for nid, refs, tags in self.pieces:
-            square.ways[nid] = Way(id=nid, refs=list(refs), tags=tags)
+            # the first piece keeps the way's id, and with it its version - see ReplaceWay
+            square.ways[nid] = Way(id=nid, refs=list(refs), tags=tags,
+                                   version=self.original.version if nid == self.way_id else None)
         self.members = {}
         for rid, rel in square.relations.items():
             if not any(m.type == 'way' and m.ref == self.way_id for m in rel.members):

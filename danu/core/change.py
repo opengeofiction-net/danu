@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
 from .edits import Command
-from .square import Member, Node, Relation, Square, Way, xml_degrees, xml_quote
+from .square import Member, Node, Relation, Square, Way, xml_degrees, xml_quote, xml_version, xml_version_attr
 
 KINDS = ('node', 'way', 'relation')
 
@@ -89,13 +89,13 @@ def change_of(square: Square, journal: dict[str, dict[int, bool]]) -> Change:
 # ----------------------------------------------------------------- text
 
 def _element(kind: str, obj) -> list[str]:
-    q, deg = xml_quote, xml_degrees
+    q, deg, ver = xml_quote, xml_degrees, xml_version_attr
     if kind == 'node':
-        head = f"    <node id='{obj.id}' lat='{deg(obj.lat)}' lon='{deg(obj.lon)}'"
+        head = f"    <node id='{obj.id}'{ver(obj)} lat='{deg(obj.lat)}' lon='{deg(obj.lon)}'"
         if not obj.tags:
             return [head + ' />']
         return [head + '>', *(f'      <tag k={q(k)} v={q(v)} />' for k, v in obj.tags.items()), '    </node>']
-    lines = [f"    <{kind} id='{obj.id}'>"]
+    lines = [f"    <{kind} id='{obj.id}'{ver(obj)}>"]
     if kind == 'way':
         lines += [f"      <nd ref='{r}' />" for r in obj.refs]
     else:
@@ -151,12 +151,15 @@ def read_change(text: str, tail: dict[str, list[int]] | None = None) -> Change:
                 out.delete[kind].append(i)
                 continue
             if kind == 'node':
-                obj = Node(id=i, lat=float(elem.get('lat')), lon=float(elem.get('lon')), tags=_tags(elem))
+                obj = Node(id=i, lat=float(elem.get('lat')), lon=float(elem.get('lon')), tags=_tags(elem),
+                           version=xml_version(elem))
             elif kind == 'way':
-                obj = Way(id=i, refs=[int(nd.get('ref')) for nd in elem.iter('nd')], tags=_tags(elem))
+                obj = Way(id=i, refs=[int(nd.get('ref')) for nd in elem.iter('nd')], tags=_tags(elem),
+                          version=xml_version(elem))
             else:
                 obj = Relation(id=i, members=[Member(m.get('type'), int(m.get('ref')), m.get('role') or '')
-                                              for m in elem.iter('member')], tags=_tags(elem))
+                                              for m in elem.iter('member')], tags=_tags(elem),
+                               version=xml_version(elem))
             getattr(out, action)[kind][i] = obj
     for kind in KINDS:
         out.tail[kind] = list((tail or {}).get(kind, []))
@@ -250,7 +253,7 @@ def _copy(kind: str, obj):
     """An element of its own, so a change applied twice - an undo and a redo
     - never shares a list or a dict with the square."""
     if kind == 'node':
-        return Node(id=obj.id, lat=obj.lat, lon=obj.lon, tags=dict(obj.tags))
+        return Node(id=obj.id, lat=obj.lat, lon=obj.lon, tags=dict(obj.tags), version=obj.version)
     if kind == 'way':
-        return Way(id=obj.id, refs=list(obj.refs), tags=dict(obj.tags))
-    return Relation(id=obj.id, members=list(obj.members), tags=dict(obj.tags))
+        return Way(id=obj.id, refs=list(obj.refs), tags=dict(obj.tags), version=obj.version)
+    return Relation(id=obj.id, members=list(obj.members), tags=dict(obj.tags), version=obj.version)
