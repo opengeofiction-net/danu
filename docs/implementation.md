@@ -5180,3 +5180,41 @@ packages with apt - and runs it from outside the source tree; and attaches
 them to a draft GitHub Release. A pull request touching what a release is
 made from runs the same, short of the release.
 
+## J2a, the Windows stack
+
+A CI job, `windows-stack`, puts together what the Windows packages will be
+made of, before anything is packed: MSYS2 UCRT64's Python 3.14.8, PySide6
+6.11.2, GDAL 3.13.3 with its bindings and numpy 2.5.4, and `isofill` built by
+the same gcc against the same GDAL. Help › About, asked there, has GDAL and the
+isofill 0.12.0 library loaded in the one process. On it the core suite and the
+golden tests pass, 659 and 5 skipped - the editor's surface on Windows the
+server's reference, cell for cell - and the UI suite, 792.
+
+The five skipped run the server's pipeline, which is bash on the server. On a
+Windows runner `bash` is WSL's, with no distribution to run, and the desktop
+never runs the pipeline; they still run on Linux. The test of the machine's
+memory read `/proc/meminfo` for its check; off Linux it now asks only that
+`machine_mb` answers.
+
+Three tests of the drawing tool - snapping onto a node, a crossing refused
+on the click, a stroke over a contour - failed on four runs in a row of this
+job and on none of the next ten: the same packages and runner image, the same
+clicks landing within a pixel of where they are meant to and the same node in
+reach of the snap, and never on Linux or on the pip PySide6 job. Not found;
+the job keeps running them, and the older Windows jobs stay until it has a
+record to replace them with.
+
+pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a Rust part,
+and Rust has no target for MSYS2's Python. pytest-qt is pure Python and comes
+from PyPI.
+
+**A bug Windows found.** `_way_counts`, the scan for long ways and `ele`
+tags, holds back the last few bytes of each full block for the next. A file
+whose size is a whole number of blocks ends on a full block; the read after
+it is empty, and the loop stopped there with the held-back bytes unread - the
+square's last `</way>` among them. The fixture is a byte longer on Windows,
+where `write_text` writes `\r\n`, and at a block of 7 that is a whole number.
+On the server the block is 1 MiB: a square of an exact number of MiB had its
+last way uncounted, a way too long for GDAL at the end of it unrefused. The
+empty read is scanned now, and the test reads at every block from 1 to 40.
+

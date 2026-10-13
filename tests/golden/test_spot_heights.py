@@ -292,9 +292,15 @@ def test_the_scan_counts_every_ele_outside_a_way_element(tmp_path):
         '</osm>')
     assert _way_counts(path) == (0, 0, 2, 1, 3)
     # and the same however the reads fall, since a token split across a block
-    # boundary is the way a scan like this goes wrong
-    for chunk in (7, 13, 64):
+    # boundary is the way a scan like this goes wrong - and a file that is a
+    # whole number of blocks, which ends on a full block and once lost what
+    # it held back. Every chunk from 1 to 40 meets that case for some length,
+    # and this file's lengths include one: Windows writes it a byte longer
+    size = path.stat().st_size
+    for chunk in range(1, 41):
         assert _way_counts(path, chunk=chunk) == (0, 0, 2, 1, 3), f'lost a token at chunk {chunk}'
+    assert any(size % c == 0 for c in range(2, 41)), 'no chunk divides the file'
+
 
 
 

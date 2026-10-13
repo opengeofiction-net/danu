@@ -160,6 +160,74 @@ jobs:
         shell: msys2 {0}
         run: bash packaging/ci/isofill-runs.sh
 
+  # J2a: the stack the Windows packages are made of, before anything is
+  # packed. Python, PySide6, GDAL's bindings and numpy from MSYS2's UCRT64,
+  # and isofill built by the same gcc against the same GDAL, so the process
+  # holds one GDAL. Then the suites run on it - the golden tests among them,
+  # which is the surface on Windows held to the server's - except
+  # test_golden_surface, which drives the server's bash pipeline and has no
+  # part in the desktop.
+  windows-stack:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      MSYS2_STACK: >-
+        make
+        mingw-w64-ucrt-x86_64-gcc
+        mingw-w64-ucrt-x86_64-libgfortran
+        mingw-w64-ucrt-x86_64-gdal
+        mingw-w64-ucrt-x86_64-python
+        mingw-w64-ucrt-x86_64-python-gdal
+        mingw-w64-ucrt-x86_64-python-numpy
+        mingw-w64-ucrt-x86_64-python-pip
+        mingw-w64-ucrt-x86_64-pyside6
+        mingw-w64-ucrt-x86_64-python-pytest
+        mingw-w64-ucrt-x86_64-python-hypothesis
+        mingw-w64-ucrt-x86_64-python-typing_extensions
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: ${{ env.MSYS2_STACK }}
+      # by name, as the isofill job does: pacman can skip one and exit 0
+      - name: the stack, and its versions
+        run: |
+          set -eu
+          pacman -Q $MSYS2_STACK
+          python -c "import sys, numpy, PySide6; from osgeo import gdal; print(sys.version, 'numpy', numpy.__version__, 'PySide6', PySide6.__version__, 'GDAL', gdal.__version__)"
+      - name: build isofill
+        working-directory: extern/isofill
+        run: make
+      # pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a
+      # Rust part, which has no wheel for this platform. pytest-qt is pure
+      # Python and MSYS2 has none, so it comes from PyPI, alone, into a venv
+      # that sees the stack - typing_extensions, its one dependency, MSYS2's
+      - name: test tools
+        run: |
+          set -eu
+          python -m venv --system-site-packages ../venv
+          ../venv/bin/python -m pip install -q --no-deps pytest-qt
+      - name: core and golden
+        run: |
+          set -eu
+          export PATH="$PWD/extern/isofill:$PATH"
+          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
+          PYTHONPATH=. ../venv/bin/python -m danu.ui.about
+          PYTHONPATH=. ../venv/bin/python -m pytest tests -q --ignore=tests/ui \
+            --ignore=tests/golden/test_golden_surface.py
+      - name: ui
+        run: |
+          set -eu
+          export PATH="$PWD/extern/isofill:$PATH"
+          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
+          PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 ../venv/bin/python -m pytest tests/ui -q
+
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
   # the fixture exists.
