@@ -402,3 +402,17 @@ def test_a_ring_redrawn_under_a_new_way_without_the_level_is_reported():
     sq.relations[7].members = [Member('way', new.id, 'outer')]
     (r,) = flatten.reshaped(before, w)
     assert 'without its level' in r.why
+
+
+def test_a_coastline_crossing_a_lagoon_at_sea_level_is_left_as_it_runs():
+    """A 0 m contour crossing a lake at 0 is clipped at the shore; a
+    coastline, which carries ele=0 as well, is never reshaped - its direction
+    is where the sea is."""
+    w, sq = ws()
+    lk = lake(sq, level='0')
+    plain = contour(sq, [(125.45, LAT), (125.59, LAT)], 0)
+    shore = way(sq, [(125.45, LAT + 0.01), (125.59, LAT + 0.01)], {'ele': '0', 'natural': 'coastline'})
+    refs = list(shore.refs)
+    run(w, sq, lk)
+    assert plain.id in sq.ways and len(contours(sq, 0)) == 2, 'the plain contour is clipped in two'
+    assert sq.ways[shore.id].refs == refs

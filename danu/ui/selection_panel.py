@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 
 from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
-from ..core.square import parse_ele
+from ..core.square import is_coastline, parse_ele
 from ..water.overpass import flows
 from .contours import water_tags
 from .widgets import copy, unit
@@ -175,6 +175,9 @@ def _describe(sel, layer) -> Info:
                     tags=_others(way.tags))
     # a contour, or a node of one, which is the contour
     node_note = f' · node {sel.node}' if sel.node is not None else ''
+    if is_coastline(way):
+        return Info(kind='coastline', name=way.tags.get('name', ''), ele=way.ele, editable=way.ele is not None,
+                    where=where + node_note, tags=_others(way.tags))
     return Info(kind='contour', name=way.tags.get('name', ''), ele=way.ele, editable=True,
                 where=where + node_note, tags=_others(way.tags))
 
@@ -372,6 +375,18 @@ class SelectionPanel(QDockWidget):
         self.network_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.network_btn.clicked.connect(editor.grade_network)
         form.addRow('', self.network_btn)
+        # a 0 m line made the coastline, or not, and a coastline turned round
+        self.coast_btn = QPushButton('Coastline')
+        self.coast_btn.setCheckable(True)
+        self.coast_btn.setToolTip('A 0 m line that is the coast: land on the left of the way it runs, '
+                                  'sea on the right')
+        self.coast_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.coast_btn.clicked.connect(editor.mark_coastline)
+        form.addRow('', self.coast_btn)
+        self.reverse_btn = QPushButton('Reverse the coastline (R)')
+        self.reverse_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.reverse_btn.clicked.connect(lambda: editor.reverse_coastline())
+        form.addRow('', self.reverse_btn)
         self.flatten_btn = QPushButton('Flatten the lake (F)')
         self.flatten_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.flatten_btn.clicked.connect(lambda: editor.flatten())
@@ -470,6 +485,11 @@ class SelectionPanel(QDockWidget):
                 (sel.relation is not None and water_tags(sel.relation.tags) and not flows(sel.relation.tags))
                 or (sel.relation is None and sel.way is not None and sel.way.closed
                     and sel.way.tags.get('natural') == 'water' and not flows(sel.way.tags))))
+        way = sel.way if sel is not None and sel.relation is None and not water else None
+        coast = way is not None and is_coastline(way)
+        self.coast_btn.setVisible(coast or (way is not None and way.ele == 0 and not sel.spot))
+        self.coast_btn.setChecked(coast)
+        self.reverse_btn.setVisible(coast)
         # a network is of lines: a river or a stream, not a lake
         self.network_btn.setVisible(
             sel is not None and sel.relation is None and sel.way is not None

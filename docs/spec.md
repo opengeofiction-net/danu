@@ -170,6 +170,17 @@ Numbered from R36 because the earlier numbers are cited from the code.
   are; a second import reconciles as R40 says, the height set in the square
   kept, and lists each the main map gives otherwise for the mapper to take.
 
+### Coastlines
+
+- **R44** The mapper makes a sea-level line a coastline, or a coastline a 0 m
+  contour again. A coastline keeps its `ele=0`.
+- **R45** A coastline's direction is shown on the canvas, the sea on its
+  right, and only Reverse changes it: no join, redraw or reshape turns or
+  re-splices one.
+- **R46** The main map's coastlines are imported from Overpass into the
+  squares at `ele=0`; a second import reconciles as R40 says, upstream owning
+  the line and its direction.
+
 ### Checks
 
 - **R29** Rivers which climb, per `demRiverCheck.py`, listed and clickable.

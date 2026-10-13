@@ -34,7 +34,7 @@ from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet
 from ..surface import along, shade
 from ..surface import difference as surface_difference
-from ..water import flatten, overpass, peaks
+from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
 from . import autosave as autosave_ui
 from . import config, josm, oauth, session, wms
@@ -66,7 +66,16 @@ from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
 from .usage import UsageLog
-from .water import WaterImporter, fetch_heights, height_commands, heights_held, heights_work
+from .water import (
+    WaterImporter,
+    coast_commands,
+    coast_work,
+    fetch_coast,
+    fetch_heights,
+    height_commands,
+    heights_held,
+    heights_work,
+)
 from .water import commands as water_commands
 
 APP_NAME = 'danu'
@@ -291,6 +300,14 @@ class MainWindow(QMainWindow):
         self.heights.finished.connect(self._heights_imported)
         self.heights.failed.connect(
             lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
+        # and its coastlines, on the same footing again
+        self.coast = WaterImporter(self, fetch=lambda bounds: fetch_coast(bounds, self.settings.overpass_url),
+                                   work=coast_work)
+        self.coast.started.connect(lambda ws: self.statusBar().showMessage(
+            'importing coastlines from Overpass…'))
+        self.coast.finished.connect(self._coast_imported)
+        self.coast.failed.connect(
+            lambda why: self.statusBar().showMessage(f'coastline import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
         self.gone_dock.takeHeights.connect(self._take_heights)
         # JOSM's remote control, for the water and peaks fixed on the main map
@@ -795,6 +812,8 @@ class MainWindow(QMainWindow):
                 ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
                 ('edit.import_water', '&Import', self.import_water),
                 ('edit.import_heights', '&Import', self.import_heights),
+                ('edit.import_coastline', '&Import', self.import_coastline),
+                ('edit.reverse_coastline', '&Reverse', ed.reverse_coastline),
                 ('edit.set_level', 'Set &level', ed.set_level),
                 ('edit.grade', '&Grade', ed.grade),
                 ('edit.grade_network', 'Grade river &network', ed.grade_network),
@@ -874,6 +893,9 @@ class MainWindow(QMainWindow):
                      'edit.burn', 'edit.burn_all'):
             water.addAction(e[name])
         edit.addMenu('Spot &height').addAction(e['edit.import_heights'])
+        coastline = edit.addMenu('&Coastline')
+        for name in ('edit.import_coastline', 'edit.reverse_coastline'):
+            coastline.addAction(e[name])
         edit.addAction(e['edit.cut_loop'])
 
         view = self.menuBar().addMenu('&View')
@@ -1246,6 +1268,44 @@ class MainWindow(QMainWindow):
         if queued:
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
+
+    def import_coastline(self) -> bool:
+        """The main map's coastlines, into the squares at ele=0 - asked for,
+        as water is, and reconciled the same way."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return False
+        queued = self.coast.busy
+        self.coast.request(self.working_set)
+        if queued:
+            self.statusBar().showMessage('already importing; the newer request wins')
+        return True
+
+    def _coast_imported(self, answer, working_set):
+        """One coastline import, one step on the history: upstream's way and
+        direction, the square's ele kept, and a held one upstream no longer
+        has reported and kept."""
+        if working_set is not self.working_set:
+            self.statusBar().showMessage(
+                'the working set changed while the coastlines were fetched - import again')
+            return
+        self.gone_from_upstream = coast.gone(working_set, answer.ways)
+        steps = coast_commands(answer.placed, working_set)
+        if steps:
+            self.editor.do_across(steps)
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[])
+        if self.gone_from_upstream:
+            self.gone_dock.show()
+            self.gone_dock.raise_()
+        n = sum(len(w.ways) for w in answer.placed.values())
+        kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+                if self.gone_from_upstream else '')
+        if not n:
+            self.statusBar().showMessage(f'no coastline in this working set{kept}')
+            return
+        where = ', '.join(f'{name} {len(answer.placed[name].ways)}' for name in sorted(answer.placed, key=str))
+        self.statusBar().showMessage(f'imported {n} coastline way{"s" * (n != 1)} at 0 m - {where}{kept}. '
+                                     'Ctrl+Z takes them all back')
 
     def _heights_imported(self, answer, working_set):
         """One spot-height import, one step on the history, reconciled as

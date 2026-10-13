@@ -380,3 +380,47 @@ def test_choosing_does_not_move_the_map(w):
             if b.isVisible():
                 assert b.mapTo(p.widget().widget(), b.rect().topRight()).x() < room, 'a button cut off'
     assert len(widths) == 1, widths
+
+
+# ---------------------------------------------------------------- coastlines
+
+def sea_level(w):
+    """A 0 m line in the fixture's square, drawn through the history."""
+    sq = w.working_set.squares[HERE]
+    alloc = w.editor.history.alloc(sq)
+    ids = [alloc.take() for _ in range(3)]
+    wid = alloc.take()
+    w.editor.do(sq, edits.AddWay(wid, ids, [(125.2 + 0.05 * i, -23.9) for i in range(3)], {'ele': '0'}))
+    return sq, sq.ways[wid]
+
+
+def test_a_sea_level_line_is_made_the_coastline_from_the_panel_and_turned_round(w):
+    p = w.selection_panel
+    sq, way = contour(w)
+    w.editor.selection = Selection(sq, way)
+    assert way.ele != 0 and p.coast_btn.isHidden(), 'offered on a line that is not at sea level'
+    sq, way = sea_level(w)
+    refs = list(way.refs)
+    w.editor.selection = Selection(sq, way)
+    assert not p.coast_btn.isHidden() and not p.coast_btn.isChecked() and p.reverse_btn.isHidden()
+    p.coast_btn.click()
+    assert way.tags == {'ele': '0', 'natural': 'coastline'}
+    assert p.kind.text() == 'coastline' and p.coast_btn.isChecked() and not p.reverse_btn.isHidden()
+    assert (HERE, way.id) in w.contours.coasts, 'its direction is not drawn'
+    p.reverse_btn.click()
+    assert sq.ways[way.id].refs == refs[::-1]
+    w.edit_actions['edit.reverse_coastline'].trigger()          # R, from the menu
+    assert sq.ways[way.id].refs == refs
+    p.coast_btn.click()                                           # and a plain 0 m contour again
+    assert way.tags == {'ele': '0'} and p.kind.text() == 'contour' and (HERE, way.id) not in w.contours.coasts
+    w.editor.undo()
+    assert way.tags['natural'] == 'coastline', 'one step each'
+
+
+def test_reverse_on_anything_but_a_coastline_says_why(w):
+    sq, way = sea_level(w)
+    w.editor.selection = Selection(sq, way)
+    refs = list(way.refs)
+    w.edit_actions['edit.reverse_coastline'].trigger()
+    assert way.refs == refs
+    assert 'only a coastline has a direction that matters' in w.statusBar().currentMessage()

@@ -32,7 +32,7 @@ from ..checks import loops
 from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
-from ..core.square import Relation, Square, Way, WorkingSet, parse_ele
+from ..core.square import Relation, Square, Way, WorkingSet, is_coastline, parse_ele
 from ..water import burn, contradict, flatten
 from ..water.overpass import flows
 from . import mercator as m
@@ -700,6 +700,37 @@ class EditController(QObject):
                           f'{edits.SPLIT_GAP_M:g} m back into its own line')
         self.overlay.update()
 
+    def mark_coastline(self, on: bool):
+        """The 0 m line selected made a coastline, or a plain contour again -
+        the selection panel's Coastline. Not every sea-level line is the
+        coast, so the mapper says which; the way keeps the direction it was
+        drawn in, which the canvas then shows and Reverse turns."""
+        sel = self.selection
+        if sel is None or sel.relation is not None or sel.way is None:
+            self.message.emit('choose a 0 m line to make it a coastline')
+            return
+        cmd = edits.mark_coastline(sel.square, sel.way.id, on)
+        if isinstance(cmd, str):
+            self.message.emit(f'not changed: {cmd}')
+            return
+        self.do(sel.square, cmd)
+        self.message.emit('a coastline now: land on the left of the way it runs, sea on the right - '
+                          'R reverses it' if on else 'a 0 m contour again, not a coastline')
+
+    def reverse_coastline(self):
+        """R: the coastline selected turned round, so the sea is on its other
+        side - the one edit that changes which way a coastline runs."""
+        sel = self.selection
+        if sel is None or sel.relation is not None or sel.way is None:
+            self.message.emit('choose a coastline, then R reverses it')
+            return
+        cmd = edits.reverse_coastline(sel.square, sel.way.id)
+        if isinstance(cmd, str):
+            self.message.emit(f'not reversed: {cmd}')
+            return
+        self.do(sel.square, cmd)
+        self.message.emit('coastline reversed: the sea is on the other side')
+
     def split(self):
         """P: the contour selected split at the node selected, its two new
         ends unglued and drawn back apart - or, closed, opened there into
@@ -1076,11 +1107,9 @@ class EditController(QObject):
         # the contour the line began on, as recorded when it began, rather than
         # whichever way happens to hold both ends: two contours at one
         # elevation can share a node, and the wrong one would be spliced.
-        # The elevation is also what keeps a coastline out of this. A way's
-        # direction means nothing anywhere else, but a coastline carries the
-        # land on its left and the sea on its right, so re-splicing or
-        # turning one would move the sea; a coastline has no ele and can
-        # never be a target
+        # A way's direction means nothing anywhere else, but a coastline
+        # carries the land on its left and the sea on its right, so it is
+        # never re-spliced or turned: _way_at never names one as the origin
         origin_square, origin_id = self.redraw_origin
         target = origin_square.ways.get(origin_id)
         began = temp.refs[0] if at_end else temp.refs[-1]
@@ -1151,8 +1180,12 @@ class EditController(QObject):
         return best
 
     def _way_at(self, square: Square, node: int, ele: float) -> Way | None:
-        """The contour at this elevation holding a node, if there is one."""
-        return next((w for w in square.ways.values() if w.ele == ele and node in w.refs), None)
+        """The contour at this elevation holding a node, if there is one - and
+        never a coastline, which is never redrawn: its direction is where the
+        sea is, and a coastline here carries ele=0 as well, so the elevation
+        alone does not keep it out."""
+        return next((w for w in square.ways.values() if w.ele == ele and node in w.refs and not is_coastline(w)),
+                    None)
 
     def _crossings_along(self, square: Square, way: Way, refs: list[int]) -> list:
         """What a run of a way's own refs crosses, now that it is in place."""

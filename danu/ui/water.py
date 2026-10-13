@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ..core.square import Square
-from ..water import overpass, peaks
+from ..water import coast, overpass, peaks
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,33 @@ def heights_work(payload: bytes, working_set, held: tuple) -> Answer:
     got = peaks.within(peaks.parse(payload), boxes, at)
     return Answer(peaks.place(got, working_set, at), frozenset(), frozenset(),
                   nodes=got.answered, skipped=tuple(got.skipped), beyond=len(got.beyond))
+
+
+def coast_work(payload: bytes, working_set, held: dict) -> Answer:
+    """A coastline answer, placed as water's is - each way whole into the
+    square holding its first node, or where the set already holds it."""
+    got = coast.coastlines(payload)
+    return Answer(overpass.place(got, working_set, held), frozenset(got.ways), frozenset())
+
+
+def fetch_coast(bounds, url: str = overpass.OVERPASS_URL) -> bytes:
+    return overpass.fetch(bounds, url=url, text=coast.query(bounds))
+
+
+def coast_commands(placed: dict, working_set) -> list[tuple[Square, object]]:
+    """A coastline import as its steps, a command a square, reconciling as
+    water's does - upstream owning that it is a coastline, where it runs and
+    which way."""
+    from ..core import edits
+    steps = []
+    for name in sorted(placed, key=str):
+        square = working_set.squares.get(name)
+        if square is not None:
+            got = placed[name]
+            steps.append((square, edits.ImportWater(
+                upstream_owns=coast.UPSTREAM_OWNS, new_nodes=dict(got.nodes), new_ways=dict(got.ways),
+                name=f'import coastline into {name}')))
+    return steps
 
 
 def fetch_heights(bounds, url: str = overpass.OVERPASS_URL) -> bytes:

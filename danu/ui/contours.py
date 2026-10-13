@@ -41,7 +41,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import geometry, profile
 from ..core.rings import is_closed, relation_rings
-from ..core.square import Relation, Square, SquareName, Way, WorkingSet, parse_ele, water_tags
+from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele, water_tags
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import visible_rect
@@ -92,6 +92,16 @@ INDEX_WEIGHT = 1.8
 # the active level, over them all whatever the style
 ACTIVE = QColor(0, 0, 0)
 ACTIVE_WIDTH = 4.0
+# A coastline's direction is data - land on the left, sea on the right - so
+# it is shown: a chevron the way it runs and a tick on the sea side, every
+# COAST_SPACING_PX along it whatever the zoom, so a coastline drawn backwards,
+# which floods the land, is seen without clicking each way
+COAST = QColor(0, 90, 200)
+COAST_SEA = QColor(0, 160, 240)
+COAST_HALO = QColor(255, 255, 255, 220)
+COAST_SPACING_PX = 90.0
+COAST_ARROW_PX = 9.0
+COAST_WIDTH = 2.4
 
 
 def line_width(zoom: float, index: bool) -> float:
@@ -245,7 +255,7 @@ class Label:
 @dataclass
 class WayGeom:
     """One way projected: the square it is in, the way, its elevation (None
-    for a coastline, which is here to snap to and not to draw) and its points
+    for a coastline drawn with none, whose line ``coasts`` draws) and its points
     in scene units. The layer keeps one per way so an edit re-projects the
     ways it touched and nothing else.
 
@@ -334,6 +344,10 @@ class ContourLayer(QGraphicsItem):
         # painted before it is given a set
         self.water: dict[tuple[SquareName, int], _Piece] = {}
         self.fills: dict[tuple[SquareName, int], _Piece] = {}    # lakes' fill lines, G7a
+        # the coastlines, whose direction is drawn over everything: their
+        # points, the length along them to each, and their rectangle
+        self.coasts: dict[tuple[SquareName, int], tuple] = {}
+        self.drawn_coast_marks = 0
         # how many water ways name each vertex, so a node carrying `ele` can
         # be told apart as a level on a river rather than a spot height. Here
         # and not only in set_working_set, for the reason `water` is
@@ -385,7 +399,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
-        self.fills = {}
+        self.fills, self.coasts = {}, {}
         self.water_fills, self._rel_members = {}, {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
@@ -418,13 +432,14 @@ class ContourLayer(QGraphicsItem):
                     self._geoms[(square.name, way.id)] = geom
             self._add_water_fills(square, members)
         for key, geom in self._geoms.items():
+            self._add_coast(key, geom)
             if geom.ele is not None:
                 self._add_way(key, geom)
             elif 'danu:fill' in geom.way.tags:
                 self._add_fill(key, geom)
             else:
                 # whatever is not a contour and was kept is water or a
-                # coastline; the coastline is here to snap to and not to draw,
+                # coastline; a coastline's line and direction are _add_coast's,
                 # and `_project` is what decided either of them was worth
                 # keeping at all
                 if geom.way.tags.get('natural') != 'coastline':
@@ -527,6 +542,7 @@ class ContourLayer(QGraphicsItem):
             key = (square.name, wid)
             self._drop_way(key)
             self.fills.pop(key, None)
+            self.coasts.pop(key, None)
             old = self._geoms.pop(key, None)
             if self.water.pop(key, None) is not None and old is not None:
                 for r in old.refs:
@@ -540,6 +556,7 @@ class ContourLayer(QGraphicsItem):
                     if way is not None else None)
             if geom is not None:
                 self._geoms[key] = geom
+                self._add_coast(key, geom)
                 if geom.ele is not None:
                     self._add_way(key, geom)
                 elif 'danu:fill' in geom.way.tags:
@@ -706,6 +723,23 @@ class ContourLayer(QGraphicsItem):
         for r in g.refs:
             k = (key[0], r)
             self._water_refs[k] = self._water_refs.get(k, 0) + 1
+
+    def _add_coast(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+        """A coastline's points and the length along it to each, for the
+        marks that show its direction, and its path: drawn in the coast's own
+        colour over whatever level it is the line of."""
+        if not is_coastline(g.way):
+            return
+        pts = np.asarray(g.pts, dtype=float)
+        along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        xs, ys = pts[:, 0], pts[:, 1]
+        rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
+                      float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
+        path = QPainterPath()
+        path.moveTo(*pts[0])
+        for x, y in pts[1:].tolist():
+            path.lineTo(x, y)
+        self.coasts[key] = (pts, along, rect, path)
 
     def _add_fill(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A lake's fill line (G7a): drawn faintly over its water, and in
@@ -1112,9 +1146,80 @@ class ContourLayer(QGraphicsItem):
                 painter.setPen(pen)
                 for piece in active:
                     painter.drawPath(piece.path)
+        self._paint_coasts(painter, rect, scale, zoom)
         self._paint_spots(painter, rect, scale, zoom)
         if zoom >= ZOOM_LABELS:
             self._paint_labels(painter, rect, scale, zoom)
+
+    def coast_marks(self, key, scale: float, rect: QRectF | None = None) -> list:
+        """Where a coastline's marks go at a scale: (x, y, dx, dy) per mark,
+        the unit vector the way it runs, every COAST_SPACING_PX along it from
+        half that in - those within ``rect``, if one is given. The sea is to
+        the right of (dx, dy), which on a scene whose y runs down is (-dy, dx)."""
+        pts, along, _, _ = self.coasts[key]
+        step = COAST_SPACING_PX / scale
+        if along[-1] <= 0:
+            return []
+        at = np.arange(step / 2, along[-1], step)
+        i = np.clip(np.searchsorted(along, at, side='right') - 1, 0, len(pts) - 2)
+        seg = pts[i + 1] - pts[i]
+        length = np.hypot(seg[:, 0], seg[:, 1])
+        ok = length > 0
+        f = np.where(ok, (at - along[i]) / np.where(ok, length, 1), 0)
+        xy = pts[i] + seg * f[:, None]
+        d = seg / np.where(ok, length, 1)[:, None]
+        if rect is not None:
+            ok &= ((xy[:, 0] >= rect.left()) & (xy[:, 0] <= rect.right())
+                   & (xy[:, 1] >= rect.top()) & (xy[:, 1] <= rect.bottom()))
+        return [(float(x), float(y), float(dx), float(dy)) for (x, y), (dx, dy) in zip(xy[ok], d[ok], strict=True)]
+
+    def _paint_coasts(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
+        """Each coastline in the coast's colour, a V pointing the way it runs
+        and a tick on its sea side - drawn at every zoom the contours
+        are, since one drawn backwards floods the land."""
+        self.drawn_coast_marks = 0
+        if not self.coasts:
+            return
+        a = COAST_ARROW_PX / scale
+        grown = rect.adjusted(-2 * a, -2 * a, 2 * a, 2 * a)
+        heads, ticks = QPainterPath(), QPainterPath()
+        lines = []
+        for key, (_, _, box, path) in self.coasts.items():
+            if not box.intersects(grown):
+                continue
+            lines.append(path)
+            for x, y, dx, dy in self.coast_marks(key, scale, grown):
+                nx, ny = -dy, dx                          # the sea side
+                # a V, open at the back: a filled triangle reads as pointing
+                # any of three ways, a V only the one
+                tx, ty = x + dx * a * 0.5, y + dy * a * 0.5
+                heads.moveTo(tx - dx * a + nx * a * 0.7, ty - dy * a + ny * a * 0.7)
+                heads.lineTo(tx, ty)
+                heads.lineTo(tx - dx * a - nx * a * 0.7, ty - dy * a - ny * a * 0.7)
+                ticks.moveTo(x + nx * a * 0.5, y + ny * a * 0.5)
+                ticks.lineTo(x + nx * a * 1.6, y + ny * a * 1.6)
+                self.drawn_coast_marks += 1
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        pen = QPen(COAST, COAST_WIDTH)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        for path in lines:
+            painter.drawPath(path)
+        pen = QPen(COAST_SEA, COAST_WIDTH)
+        pen.setCosmetic(True)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawPath(ticks)
+        # the V over a light halo, so it stands off the line it sits on
+        for colour, width in ((COAST_HALO, COAST_WIDTH + 2.4), (COAST, COAST_WIDTH)):
+            pen = QPen(colour, width)
+            pen.setCosmetic(True)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(pen)
+            painter.drawPath(heads)
+        painter.restore()
 
     def under(self) -> QRectF | None:
         """Where a surface is drawn under the contours, or None: none built,

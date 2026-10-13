@@ -174,6 +174,14 @@ def water_tags(tags: dict) -> bool:
     return tags.get('natural') == 'water' or 'waterway' in tags
 
 
+def is_coastline(way) -> bool:
+    """A ``natural=coastline``: the one way whose direction is data - the land
+    on its left, the sea on its right, which is where the build reads the sea
+    from. In these squares one carries ``ele=0`` as well, and is drawn and
+    burned as the 0 m contour it also is."""
+    return way.tags.get('natural') == 'coastline'
+
+
 def parse_ele(value: str | None) -> float | None:
     """A tag's elevation, or None where there is not one.
 
