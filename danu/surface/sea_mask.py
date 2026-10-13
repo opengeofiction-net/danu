@@ -36,7 +36,6 @@
 import multiprocessing
 import os
 import sys
-from itertools import pairwise
 
 import numpy as np
 from osgeo import gdal, ogr
@@ -69,17 +68,10 @@ def strips(rows, cols, itemsize=4, budget=256 << 20):
         yield y, min(height, rows - y)
 
 
-def seed_points(layer, gt):
-    """Points just off each side of every coastline segment.
-
-    Returns (water, land) as lists of (col, row).
-
-    Work in raster space throughout. Left of travel in map coordinates, where y
-    is north, is (-dy, dx). Rows increase southward, so mapping that to (col,
-    row) flips the y term and the left normal becomes (drow, -dcol) - not
-    (-drow, -dcol), which is the sign error that put both seeds on one side.
-    """
-    water, land = [], []
+def _segments(layer, gt) -> np.ndarray:
+    """Every coastline segment of the layer in raster space, as (n, 4) rows of
+    col0, row0, col1, row1 - none of no length."""
+    out = []
     layer.ResetReading()
     for feat in layer:
         geom = feat.GetGeometryRef()
@@ -88,20 +80,114 @@ def seed_points(layer, gt):
         parts = ([geom.GetGeometryRef(i) for i in range(geom.GetGeometryCount())]
                  if geom.GetGeometryCount() else [geom])
         for part in parts:
-            pts = [part.GetPoint_2D(i) for i in range(part.GetPointCount())]
-            for (x0, y0), (x1, y1) in pairwise(pts):
-                c0, r0 = (x0 - gt[0]) / gt[1], (y0 - gt[3]) / gt[5]
-                c1, r1 = (x1 - gt[0]) / gt[1], (y1 - gt[3]) / gt[5]
-                dcol, drow = c1 - c0, r1 - r0
-                length = np.hypot(dcol, drow)
-                if length == 0:
-                    continue
-                dcol, drow = dcol / length, drow / length
-                cx, cy = (c0 + c1) / 2, (r0 + r1) / 2
-                for nc, nr, out in ((drow, -dcol, land),      # left  = land
-                                    (-drow, dcol, water)):    # right = water
-                    out.append((int(cx + nc * SIDE_STEP),
-                                int(cy + nr * SIDE_STEP)))
+            pts = np.array([part.GetPoint_2D(i) for i in range(part.GetPointCount())], dtype=float)
+            if len(pts) < 2:
+                continue
+            c = (pts[:, 0] - gt[0]) / gt[1]
+            r = (pts[:, 1] - gt[3]) / gt[5]
+            out.append(np.stack([c[:-1], r[:-1], c[1:], r[1:]], axis=1))
+    s = np.concatenate(out) if out else np.zeros((0, 4))
+    return s[(s[:, 2] != s[:, 0]) | (s[:, 3] != s[:, 1])]
+
+
+# the side of the grid of buckets the crossing test files segments in, in
+# cells: a step is SIDE_STEP long, so it lies in at most four of them
+BUCKET = 8
+
+
+def _cells(boxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """For each (c0, r0, c1, r1) box, the buckets it touches: (owner, key)
+    pairs, one per bucket."""
+    lo = np.floor(np.minimum(boxes[:, :2], boxes[:, 2:]) / BUCKET).astype(np.int64)
+    hi = np.floor(np.maximum(boxes[:, :2], boxes[:, 2:]) / BUCKET).astype(np.int64)
+    nx, ny = hi[:, 0] - lo[:, 0] + 1, hi[:, 1] - lo[:, 1] + 1
+    n = nx * ny
+    owner = np.repeat(np.arange(len(boxes)), n)
+    k = np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)
+    bx = lo[owner, 0] + k % nx[owner]
+    by = lo[owner, 1] + k // nx[owner]
+    return owner, (by << 32) + bx
+
+
+def _odd_crossings(segs: np.ndarray, own: np.ndarray, probes: np.ndarray, chunk: int = 1 << 20) -> np.ndarray:
+    """Whether each probe - (c0, r0, c1, r1), from a point on segment
+    ``own`` to its seed - crosses the coastline an odd number of times, its
+    own segment aside: which is the seed's being on the other side of the
+    coastline from the segment it was stepped off.
+
+    Half-open, both ways: a point exactly on a line counts as on its
+    negative side, so a probe through a vertex crosses one of the two
+    segments meeting there and not both or neither, and a seed exactly on a
+    coastline is on one side of it."""
+    seg_owner, seg_key = _cells(segs)
+    order = np.argsort(seg_key, kind='stable')
+    seg_owner, seg_key = seg_owner[order], seg_key[order]
+    out = np.zeros(len(probes), dtype=bool)
+
+    def orient(ax, ay, bx, by, cx, cy):
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+    for start in range(0, len(probes), chunk):
+        pr = probes[start:start + chunk]
+        p_owner, p_key = _cells(pr)
+        a = np.searchsorted(seg_key, p_key, side='left')
+        b = np.searchsorted(seg_key, p_key, side='right')
+        n = b - a
+        pi = np.repeat(p_owner, n)
+        si = seg_owner[np.repeat(a, n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))]
+        keep = si != own[start + pi]
+        pi, si = pi[keep], si[keep]
+        # a segment met in two buckets of one probe is one segment
+        pair = np.unique((pi.astype(np.int64) << 32) + si)
+        pi, si = pair >> 32, pair & 0xFFFFFFFF
+        p, s = pr[pi], segs[si]
+        o1 = orient(p[:, 0], p[:, 1], p[:, 2], p[:, 3], s[:, 0], s[:, 1]) > 0
+        o2 = orient(p[:, 0], p[:, 1], p[:, 2], p[:, 3], s[:, 2], s[:, 3]) > 0
+        o3 = orient(s[:, 0], s[:, 1], s[:, 2], s[:, 3], p[:, 0], p[:, 1]) > 0
+        o4 = orient(s[:, 0], s[:, 1], s[:, 2], s[:, 3], p[:, 2], p[:, 3]) > 0
+        hit = (o1 != o2) & (o3 != o4)
+        out[start:start + len(pr)] = np.bincount(pi[hit], minlength=len(pr)) % 2 == 1
+    return out
+
+
+def seed_points(layer, gt, dropped: list | None = None):
+    """Points just off each side of every coastline segment.
+
+    Returns (water, land) as lists of (col, row).
+
+    Work in raster space throughout. Left of travel in map coordinates, where y
+    is north, is (-dy, dx). Rows increase southward, so mapping that to (col,
+    row) flips the y term and the left normal becomes (drow, -dcol) - not
+    (-drow, -dcol), which is the sign error that put both seeds on one side.
+
+    A seed the step to it carries across a coastline is dropped, water and
+    land alike. SIDE_STEP is 230 m at 3 arcseconds, and the main map's coast
+    has detail far finer: an islet a hundred metres off the shore put its
+    sea seeds on the mainland, nearer the ground behind it than the shore's
+    own land seeds, and they took a cone of it inland for the sea - gobras'
+    N20E086, where the bloom ran five kilometres. Detail finer than the step
+    gives no seeds where it is; the shore round it gives plenty. ``dropped``,
+    a list, is given how many went, (water, land).
+    """
+    segs = _segments(layer, gt)
+    if not len(segs):
+        if dropped is not None:
+            dropped[:] = [0, 0]
+        return [], []
+    d = segs[:, 2:] - segs[:, :2]
+    u = d / np.hypot(d[:, 0], d[:, 1])[:, None]
+    mid = (segs[:, :2] + segs[:, 2:]) / 2
+    left = np.stack([u[:, 1], -u[:, 0]], axis=1)          # land
+    own = np.arange(len(segs))
+    out = []
+    for normal in (-left, left):                          # water, then land
+        at = mid + normal * SIDE_STEP
+        across = _odd_crossings(segs, own, np.concatenate([mid, at], axis=1))
+        cells = np.trunc(at[~across]).astype(np.int64)    # int(), as it always was
+        out.append((list(map(tuple, cells.tolist())), int(across.sum())))
+    (water, w_gone), (land, l_gone) = out
+    if dropped is not None:
+        dropped[:] = [w_gone, l_gone]
     return water, land
 
 
@@ -197,8 +283,10 @@ def sea_mask(src_path, ref_path, out_path, log=None):
         return False
     say(f'  {layer.GetFeatureCount()} coastline ways')
 
-    water_pts, land_pts = seed_points(layer, gt)
-    say(f'  {len(water_pts)} seeds a side')
+    gone = []
+    water_pts, land_pts = seed_points(layer, gt, gone)
+    say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
+        'stepped across a coastline')
 
     tmp = {}
 
