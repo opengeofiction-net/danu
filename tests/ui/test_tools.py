@@ -39,6 +39,15 @@ def at(w, lon, lat) -> QPoint:
 
 def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
     pos = at(w, lon, lat)
+    import sys  # DIAGNOSTIC, to come out
+    import numpy as _np
+    sp = w.map.mapToScene(pos)
+    lay = w.editor.layer
+    lay._ensure_arrays()
+    d = _np.hypot(*(lay._node_xy - (sp.x(), sp.y())).T) if len(lay._node_xy) else _np.array([_np.inf])
+    print(f'PICK-DIAG {lon:.4f},{lat:.4f} scene {sp.x():.2f},{sp.y():.2f} tol {w.editor._px(10.0):.3f} '
+          f'nearest {d.min():.3f} n {len(lay._node_xy)} hit {lay.pick_node(sp.x(), sp.y(), w.editor._px(10.0)) is not None}',
+          file=sys.stderr)
     w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
     w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos, button))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton))
