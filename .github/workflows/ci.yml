@@ -183,6 +183,8 @@ jobs:
         mingw-w64-ucrt-x86_64-python-numpy
         mingw-w64-ucrt-x86_64-python-pip
         mingw-w64-ucrt-x86_64-pyside6
+        mingw-w64-ucrt-x86_64-python-pytest
+        mingw-w64-ucrt-x86_64-python-hypothesis
     steps:
       - uses: actions/checkout@v4
         with:
@@ -201,12 +203,15 @@ jobs:
       - name: build isofill
         working-directory: extern/isofill
         run: make
-      # the test tools only, over the stack: a venv that sees MSYS2's packages
+      # pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a
+      # Rust part, which has no wheel for this platform. pytest-qt is pure
+      # Python and MSYS2 has none, so it comes from PyPI, alone, into a venv
+      # that sees the stack
       - name: test tools
         run: |
           set -eu
           python -m venv --system-site-packages ../venv
-          ../venv/bin/python -m pip install -q pytest hypothesis pytest-qt
+          ../venv/bin/python -m pip install -q --no-deps pytest-qt
       - name: core and golden
         run: |
           set -eu
