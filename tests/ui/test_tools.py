@@ -24,9 +24,17 @@ def mouse(w, kind, pos, button=Qt.MouseButton.LeftButton, buttons=None):
 
 
 def at(w, lon, lat) -> QPoint:
-    """Put the point at the viewport's centre and return that position."""
+    """Put the point in the middle of the viewport and return where it is.
+    Where it is, asked of the view, rather than the viewport's centre: Qt's
+    centerOn puts a point within a pixel or so of the centre, not on it, and
+    on MSYS2's Qt that was far enough for a click meant for a node to miss it
+    and cross the contour beside it instead."""
     w.map.center_on_lonlat(lon, lat)
-    return w.map.viewport().rect().center()
+    got = w.map.mapFromScene(QPointF(*m.lonlat_to_scene(lon, lat)))
+    import sys  # DIAGNOSTIC, to come out
+    c = w.map.viewport().rect().center()
+    print(f'AT-DIAG {lon:.4f} {lat:.4f} centre {c.x()},{c.y()} got {got.x()},{got.y()} vp {w.map.viewport().width()}x{w.map.viewport().height()}', file=sys.stderr)
+    return got
 
 
 def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
