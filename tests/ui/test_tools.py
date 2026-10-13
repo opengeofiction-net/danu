@@ -34,6 +34,14 @@ def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
     w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
     w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos, button))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton))
+    # PROBE, captured: pytest shows it only for a failing test. For the
+    # drawing tests that fail on some windows-stack runs and not others
+    import sys
+    sp = w.map.mapToScene(pos)
+    hit = w.editor.layer.pick_node(sp.x(), sp.y(), w.editor._px(10.0))
+    print(f'PROBE click {lon:.4f},{lat:.4f} pos {pos.x()},{pos.y()} scene {sp.x():.1f},{sp.y():.1f} '
+          f'zoom {w.map.zoom} vp {w.map.viewport().width()}x{w.map.viewport().height()} hit {hit and hit[1:]} '
+          f'drawing {w.editor.drawing and w.editor.drawing[1:]} msg {w.statusBar().currentMessage()!r}', file=sys.stderr)
 
 
 def double_click(w, lon, lat):

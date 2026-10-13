@@ -195,7 +195,17 @@ jobs:
           $t = 0
           while (-not (Test-Path "$usage\*.jsonl") -and $t -lt 60) { Start-Sleep 2; $t += 2 }
           $log = Get-ChildItem "$usage\*.jsonl" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $log) { Get-Process | Where-Object Name -like 'python*'; throw 'no usage log after 60 s' }
+          if (-not $log) {
+            # pythonw says nothing; the same start with python.exe says why
+            $d = "$env:RUNNER_TEMP\Danu"
+            $env:PATH = "$d\bin;$env:PATH"
+            $env:GDAL_DATA = "$d\share\gdal"; $env:PROJ_DATA = "$d\share\proj"
+            $p = Start-Process -PassThru "$d\bin\python.exe" -ArgumentList '-X','faulthandler','-m','danu.ui' `
+              -RedirectStandardOutput "$env:RUNNER_TEMP\out.txt" -RedirectStandardError "$env:RUNNER_TEMP\err.txt"
+            if (-not $p.WaitForExit(30000)) { $p | Stop-Process -Force }
+            "exit $($p.ExitCode)"; Get-Content "$env:RUNNER_TEMP\out.txt", "$env:RUNNER_TEMP\err.txt"
+            throw 'no usage log after 60 s'
+          }
           $start = Get-Content $log.FullName -TotalCount 1 | ConvertFrom-Json
           "started: $($start.kind) danu $($start.danu) qt $($start.qt)"
           if ($start.danu -ne '${{ needs.version.outputs.version }}') { throw "the window says danu $($start.danu)" }
