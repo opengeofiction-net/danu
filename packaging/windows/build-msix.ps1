@@ -21,23 +21,27 @@ $here = $PSScriptRoot
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "version $Version is not x.y.z" }
 $v4 = "$Version.0"
 
-$layout = Join-Path ([System.IO.Path]::GetTempPath()) "danu-msix-$PID"
-if (Test-Path $layout) { throw "$layout exists" }
-New-Item -ItemType Directory $layout | Out-Null
-Copy-Item -Recurse "$Tree\*" $layout
-Copy-Item -Recurse "$here\msix\Assets" $layout
-(Get-Content -Raw "$here\msix\AppxManifest.xml.in") `
-    -replace '@NAME@', $Name -replace '@PUBLISHER@', $Publisher `
-    -replace '@PUBLISHER_DISPLAY@', $PublisherDisplay -replace '@VERSION@', $v4 |
-    Set-Content -Encoding utf8 "$layout\AppxManifest.xml"
-
 # the newest SDK's makeappx
 $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
     Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $makeappx) { throw 'no makeappx: the Windows SDK is not installed' }
-New-Item -ItemType Directory -Force $Out | Out-Null
-$msix = Join-Path (Resolve-Path $Out) "danu-$Version-windows.msix"
-& $makeappx.FullName pack /o /h SHA256 /d $layout /p $msix | Select-Object -Last 3
-if ($LASTEXITCODE) { throw "makeappx failed: $LASTEXITCODE" }
-Remove-Item -Recurse -Force $layout
+
+# a layout of its own, gone afterwards however the pack went
+$layout = Join-Path ([System.IO.Path]::GetTempPath()) "danu-msix-$([guid]::NewGuid())"
+New-Item -ItemType Directory $layout | Out-Null
+try {
+    Copy-Item -Recurse "$Tree\*" $layout
+    Copy-Item -Recurse "$here\msix\Assets" $layout
+    # literal replacements: a publisher may hold what -replace would read as a group
+    (Get-Content -Raw "$here\msix\AppxManifest.xml.in").Replace('@NAME@', $Name).
+        Replace('@PUBLISHER_DISPLAY@', $PublisherDisplay).Replace('@PUBLISHER@', $Publisher).
+        Replace('@VERSION@', $v4) | Set-Content -Encoding utf8 "$layout\AppxManifest.xml"
+    New-Item -ItemType Directory -Force $Out | Out-Null
+    $msix = Join-Path (Resolve-Path $Out) "danu-$Version-windows.msix"
+    $said = & $makeappx.FullName pack /o /h SHA256 /d $layout /p $msix 2>&1
+    if ($LASTEXITCODE) { $said; throw "makeappx failed: $LASTEXITCODE" }
+    $said | Select-Object -Last 2
+} finally {
+    Remove-Item -Recurse -Force $layout
+}
 Get-Item $msix | Select-Object Name, Length
