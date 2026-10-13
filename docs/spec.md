@@ -1148,13 +1148,18 @@ raster solved whole, to the bit. The banded approximation it replaces was out
 by up to 1,933 m. Nothing Danu does depends on it: it is real only when a zone
 will not fit. `isofill` 0.12.0.
 
-Ends when the second pass is within a metre of an exact solve on gobras and
-ellarca, with no cell outside the range of the ground around it; when at z15
-the 1 arcsecond surface of a screen of gobras is up within 2 s of the view
-settling, within a metre of the whole 1 arcsecond solve; when an edit's
-surface at both resolutions is within a metre of a whole rebuild, with
-rebuilding of its own accord on; and when a raster forced out of core matches
-the same raster solved whole to the interval rather than to hundreds of metres.
+It ended on its four measures, all met on 2026-10-13:
+
+- The second pass is within a few millimetres of an exact solve on gobras and
+  ellarca (I2).
+- At z15 the 1 arcsecond surface of the densest screen of gobras is up 1.72 s
+  after the view settles, its fill within 2 mm of the whole 1 arcsecond solve
+  and its DEM within 1.000 m, the metre between sea and the lowest land (I3).
+- An edit's surface at both resolutions is within 4 mm of a whole rebuild on
+  gobras City, the DEM within the same metre, with rebuilding of its own
+  accord on (I4, I5).
+- A raster forced out of core is the same raster solved whole, to the bit
+  (I6).
 
 ### Phase 8
 
