@@ -5058,3 +5058,29 @@ now takes the drawn area again too: such an edit can move it.
 The status line said a build ran "the same stages the server runs", which read
 as the same surface. It says what is built and at what, and that the view is
 at 1" from z15.
+
+## I6, the second pass out of core
+
+`isofill` 0.12.0. The plan's candidate was the bands kept and mended: void
+decided as connected regions across them, each band solved as I2 solves the
+whole. What landed is no bands at all in the second pass. The same solve runs
+over the same arrays, and those that will not fit in what is left of
+`--max-mem` are kept in files beside the output, unlinked as they are made and
+mapped into memory; every step of the solve reads rows in order or tiles of
+them, so the kernel pages a pass over each file. The first pass is banded as
+before, and was always exact.
+
+Against the same raster solved whole:
+
+| raster | banded, 0.11.0 | files, 0.12.0 | time: whole / banded / files |
+|---|---|---|---|
+| ellarca at 3", `--max-mem` 150 | 310,572 cells out by over 100 m, the worst 1,933 m | identical | 3.1 / 3.9 / 3.7 s |
+| gobras at 1", `--max-mem` 500, in a cgroup capped at 1.2 GB against 2.1 GB of arrays | 294 cells over 100 m, the worst 218 m | identical | 45 / 56 / 74 s |
+| zone-yuethon at 3" on util, `--max-mem` 512 | 18,402 cells over 1 m, the worst 145 m | identical | 9.9 / 13.4 / 13.8 s |
+
+The time is the banded path's where memory is not short, and a third more
+where it is. No zone takes the path on the server today, though narrowly: at the
+build's 1" the largest second pass, zone-yuethon's, is 18,104 MB of
+`max_mem_mb`'s 18,500. Danu calls the library, which solves in memory
+always, so the golden surface is unchanged and `params.lock` still names the
+0.11.0 that built it. `--pass2-margin` is accepted and ignored.

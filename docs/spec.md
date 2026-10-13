@@ -1141,16 +1141,12 @@ whole set at 3 arcseconds and the view at 1 it is quick, and a rebuild of the
 same ground keeps the view's tiles rather than solving them again. The preview
 still says when it cannot be vouched for.
 
-**I6, the out-of-core second pass.** `isofill`'s banded pass 2 is an
-approximation, and two faults are measured. On the gobras 3x3 at 1 arcsecond
-every cell wrong by more than 100 m sits within thirty rows of a band join,
-each band's margin pinned to the coarse answer. On ellarca at 3 arcseconds,
-forced out of core, the faults are everywhere rather than at the joins - 96,500
-cells of enclosed unreached ground taken for void, because void is decided on
-the coarse grid, and every patch around them solved against the wrong edge.
-Void decided as connected regions across the bands, and the bands solved as
-I2 solves the whole, are the candidate. Nothing Danu does depends on it: it is
-real only when a zone will not fit.
+**I6, the out-of-core second pass.** Above `--max-mem` the second pass is the
+same solve over the same arrays, those that will not fit kept in files beside
+the output and mapped into memory, and a raster forced out of core is the
+raster solved whole, to the bit. The banded approximation it replaces was out
+by up to 1,933 m. Nothing Danu does depends on it: it is real only when a zone
+will not fit. `isofill` 0.12.0.
 
 Ends when the second pass is within a metre of an exact solve on gobras and
 ellarca, with no cell outside the range of the ground around it; when at z15
