@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass, field
 
 from .reconcile import Reconciled, reconcile
-from .square import Member, Node, Relation, Square, Way
+from .square import Member, Node, Relation, Square, Way, is_coastline
 
 # a version the journal never saw: an id a command named only once it had
 # taken it out, without saying what it took - see Command.taken
@@ -530,6 +530,13 @@ def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -
             return 'only an end joins - that node is in the middle of its contour'
     if way.tags.get('ele') != other.tags.get('ele'):
         return f'the levels differ - {way.tags.get("ele")} m and {other.tags.get("ele")} m'
+    # a coastline's direction is where the sea is, so one joins another
+    # only head to tail, as both already run - never by turning either
+    if is_coastline(way) != is_coastline(other):
+        return 'a coastline joins only another coastline'
+    if is_coastline(way) and way_id != other_id and not (
+            (way.refs[-1] == end and other.refs[0] == onto) or (way.refs[0] == end and other.refs[-1] == onto)):
+        return 'the coastlines run against each other - reverse one first (Edit › Coastline › Reverse)'
     clash = sorted(k for k in set(way.tags) & set(other.tags) if way.tags[k] != other.tags[k])
     if clash:
         return f'their tags differ - {clash[0]}: {way.tags[clash[0]]} and {other.tags[clash[0]]}'
@@ -537,10 +544,19 @@ def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -
     if way_id == other_id:
         if len(mine) < 4:
             return 'too short to close'
+        if is_coastline(way) and way.refs[0] == end:
+            # the head dragged onto the tail: the ring runs from there the
+            # way the line ran, rather than turned to close the other way
+            return ReplaceWay(way_id, [(way_id, [way.refs[-1], *way.refs[1:]])], {})
         return ReplaceWay(way_id, [(way_id, [*mine[:-1], mine[0]])], {})
     theirs = list(other.refs) if other.refs[0] == onto else list(reversed(other.refs))
+    joined = [*mine[:-1], *theirs]
+    if is_coastline(way) and way.refs[0] == end:
+        # the dragged head onto the other's tail: the other runs first, as
+        # both already ran
+        joined = [*other.refs[:-1], *way.refs]
     # the tags of both, neither's lost: they agree where they share a key
-    steps = [ReplaceWay(way_id, [(way_id, [*mine[:-1], *theirs])], {}), DeleteWay(other_id)]
+    steps = [ReplaceWay(way_id, [(way_id, joined)], {}), DeleteWay(other_id)]
     if set(other.tags) - set(way.tags):
         steps.append(SetTags(way_id, dict(way.tags), {**other.tags, **way.tags}))
     return Compound(steps, name='join')
@@ -821,10 +837,10 @@ class RotateRing(Command):
 
     Contours only. A way's direction means nothing for these, but a
     ``natural=coastline`` carries the land on its left and the sea on its
-    right - ``danu.surface.build.water_mask`` reads the sea from it - so
-    turning one would move the shore. The editor keeps them out by asking a
-    redraw's target for the elevation being drawn at, which a coastline has
-    not got."""
+    right - ``danu.surface.build.water_mask`` reads the sea from it - and a
+    coastline is never turned or spliced. One here carries ``ele=0`` as well,
+    so the elevation alone does not keep it out: the redraw never takes a
+    coastline for its target (``tools.DrawTool._way_at``)."""
     way_id: int
     by: int
 
@@ -889,6 +905,61 @@ class ReplaceSection(Command):
         if not self.old:                         # asked before it has been applied
             return f'redraw a stretch as {len(self.refs) - 2} nodes'
         return f'redraw {len(self.old) - 2} nodes as {len(self.refs) - 2}'
+
+
+@dataclass
+class ReverseWay(Command):
+    """A way's nodes in the other order, and nothing else. For a coastline,
+    which is the one way whose direction is data: land on the left, sea on
+    the right, so turning it round puts the sea on the other side."""
+    way_id: int
+
+    def ways(self, square: Square) -> set[int]:
+        return {self.way_id}
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(), {self.way_id}, set()
+
+    def apply(self, square: Square) -> None:
+        square.ways[self.way_id].refs.reverse()
+
+    def undo(self, square: Square) -> None:
+        square.ways[self.way_id].refs.reverse()
+
+    def describe(self) -> str:
+        return 'reverse coastline'
+
+
+def reverse_coastline(square: Square, way_id: int) -> Command | str:
+    """The command that turns a coastline round, or why not, as a string."""
+    way = square.ways.get(way_id)
+    if way is None:
+        return 'that way is no longer there'
+    if not is_coastline(way):
+        return 'only a coastline has a direction that matters'
+    return ReverseWay(way_id)
+
+
+def mark_coastline(square: Square, way_id: int, on: bool) -> Command | str:
+    """The command that makes a sea-level line a coastline - ``natural=
+    coastline`` added, its ``ele=0`` kept - or makes one a plain 0 m contour
+    again; or why not, as a string. Not every 0 m line is the coast: the
+    mapper says which. The way keeps the direction it was drawn in, which is
+    now where the sea is, so the canvas shows it and Reverse turns it."""
+    way = square.ways.get(way_id)
+    if way is None:
+        return 'that way is no longer there'
+    if is_coastline(way) == on:
+        return 'it is a coastline already' if on else 'it is not a coastline'
+    if on:
+        if way.ele != 0:
+            return 'only a sea-level line - ele=0 - is a coastline'
+        if 'natural' in way.tags:
+            return f'it is natural={way.tags["natural"]} already'
+        if 'waterway' in way.tags or 'water' in way.tags:
+            return 'it is water'
+        return SetTags(way_id, dict(way.tags), {**way.tags, 'natural': 'coastline'})
+    return SetTags(way_id, dict(way.tags), {k: v for k, v in way.tags.items() if k != 'natural'})
 
 
 @dataclass

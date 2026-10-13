@@ -983,3 +983,22 @@ def test_a_forward_step_that_deletes_the_selection_clears_it(window):
 
     w.editor.undo()
     assert way.id in square.ways
+
+
+def test_a_line_drawn_from_a_coastline_back_to_it_never_redraws_it(w):
+    """The same stroke as a redraw, over a coastline - which carries ele=0
+    as a contour does, so the elevation alone does not keep it out. Its
+    direction is where the sea is, and it is never re-spliced."""
+    square = w.working_set.squares[TEN]
+    wid = contour(w, square, 0, [(126.2 + 0.1 * i, -23.45) for i in range(6)])
+    w.editor.do(square, edits.mark_coastline(square, wid, True))
+    ids = list(square.ways[wid].refs)
+    w.elevation.set(0)
+    w.editor.set_tool('draw')
+    click(w, square.nodes[ids[1]].lon, square.nodes[ids[1]].lat)
+    click(w, 126.35, -23.40)
+    click(w, 126.45, -23.40)
+    click(w, square.nodes[ids[4]].lon, square.nodes[ids[4]].lat)
+    key(w, Qt.Key.Key_Return)
+    assert square.ways[wid].refs == ids, 'the coastline was redrawn'
+    assert 'redrew' not in w.statusBar().currentMessage()
