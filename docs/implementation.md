@@ -5196,6 +5196,14 @@ never runs the pipeline; they still run on Linux. The test of the machine's
 memory read `/proc/meminfo` for its check; off Linux it now asks only that
 `machine_mb` answers.
 
+Three tests of the drawing tool - snapping onto a node, a crossing refused
+on the click, a stroke over a contour - failed on four runs in a row of this
+job and on none of the next ten: the same packages and runner image, the same
+clicks landing within a pixel of where they are meant to and the same node in
+reach of the snap, and never on Linux or on the pip PySide6 job. Not found;
+the job keeps running them, and the older Windows jobs stay until it has a
+record to replace them with.
+
 pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a Rust part,
 and Rust has no target for MSYS2's Python. pytest-qt is pure Python and comes
 from PyPI.
