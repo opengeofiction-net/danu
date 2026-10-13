@@ -25,9 +25,10 @@ static void set(const wchar_t *name, const wchar_t *under)
 
 static int fail(const wchar_t *what)
 {
+    DWORD err = GetLastError();     /* before anything below can set it */
     wchar_t msg[LONG_ENOUGH];
     swprintf(msg, LONG_ENOUGH, L"Danu could not start: %ls (error %lu).\n\nReinstalling it may help.",
-             what, GetLastError());
+             what, err);
     MessageBoxW(NULL, msg, L"Danu", MB_ICONERROR | MB_OK);
     return 1;
 }
@@ -47,19 +48,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR args, int show)
     if (!slash) return fail(L"its own path has no directory");
     *slash = 0;
 
-    /* the tree's bin first, so its DLLs are the ones found */
+    /* the tree's bin first, so its DLLs are the ones found; a PATH too long
+     * to have the tree put in front of it is replaced by the tree alone,
+     * which is all the editor needs */
     n = GetEnvironmentVariableW(L"PATH", path, LONG_ENOUGH);
-    swprintf(cmd, LONG_ENOUGH, L"%ls\\bin;%ls", root, n && n < LONG_ENOUGH ? path : L"");
+    if (n == 0 || n >= LONG_ENOUGH ||
+            swprintf(cmd, LONG_ENOUGH, L"%ls\\bin;%ls", root, path) < 0)
+        swprintf(cmd, LONG_ENOUGH, L"%ls\\bin", root);
     SetEnvironmentVariableW(L"PATH", cmd);
     set(L"GDAL_DATA", L"share\\gdal");
     set(L"PROJ_DATA", L"share\\proj");
-    set(L"PROJ_LIB", L"share\\proj");
     /* a PYTHONHOME or PYTHONPATH meant for another Python would be read */
     SetEnvironmentVariableW(L"PYTHONHOME", NULL);
     SetEnvironmentVariableW(L"PYTHONPATH", NULL);
 
     swprintf(exe, MAX_PATH * 2, L"%ls\\bin\\pythonw.exe", root);
-    swprintf(cmd, LONG_ENOUGH, L"\"%ls\" -m danu.ui %ls", exe, args ? args : L"");
+    if (swprintf(cmd, LONG_ENOUGH, L"\"%ls\" -m danu.ui %ls", exe, args ? args : L"") < 0) {
+        SetLastError(ERROR_FILENAME_EXCED_RANGE);
+        return fail(L"what it was asked to open is too long");
+    }
     si.cb = sizeof si;
     if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
         return fail(L"the bundled Python would not start");

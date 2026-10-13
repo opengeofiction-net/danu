@@ -14,16 +14,24 @@ import sys
 from pathlib import Path
 
 
+def check(ok: bool, what: str) -> None:
+    """An assert that python -O cannot take out: this exists to fail."""
+    if not ok:
+        raise SystemExit(f'smoke: {what}')
+
+
 def main() -> int:
+    check(len(sys.argv) == 4, 'usage: smoke.py SQUARE EXPECTED WORK')
     square, expected, work = (Path(a) for a in sys.argv[1:4])
+    check(not work.exists(), f'{work} exists; give a WORK that does not, so nothing in it is stale')
     import danu
     from danu.ui import about
     here = Path(sys.executable).resolve().parents[1]
-    assert Path(danu.__file__).resolve().is_relative_to(here), f'danu from {danu.__file__}, not the tree at {here}'
+    check(Path(danu.__file__).resolve().is_relative_to(here), f'danu from {danu.__file__}, not the tree at {here}')
     v = about.versions()
     print(about.text(v))
-    assert v['gdal'][0].isdigit(), v['gdal']
-    assert v['isofill'].startswith('0.'), v['isofill']
+    check(v['gdal'][0].isdigit(), f"gdal: {v['gdal']}")
+    check(v['isofill'].startswith('0.'), f"isofill: {v['isofill']}")
 
     import numpy as np
     from osgeo import gdal
@@ -35,14 +43,14 @@ def main() -> int:
     lines: list[str] = []
     result = build.build_dem(zone, work / 'build', params.load().with_arcsec(3.0), log=lines.append, library=True)
     print('\n'.join(lines))
-    assert result.dem is not None, 'no DEM'
-    assert any('as a library' in line for line in lines), 'isofill was not called as the library'
+    check(result.dem is not None, 'no DEM')
+    check(any('as a library' in line for line in lines), 'isofill was not called as the library')
     ref_ds, new_ds = gdal.Open(str(expected)), gdal.Open(str(result.dem))
     a = ref_ds.GetRasterBand(1).ReadAsArray()
     b = new_ds.GetRasterBand(1).ReadAsArray()
-    assert a.shape == b.shape, (a.shape, b.shape)
+    check(a.shape == b.shape, f'reference {a.shape}, built {b.shape}')
     differing = int((a != b).sum())
-    assert differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m'
+    check(differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m')
     print(f'the installed Danu built the golden square: all {a.size} cells the reference\'s')
     return 0
 

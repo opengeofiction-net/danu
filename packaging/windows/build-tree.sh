@@ -51,7 +51,7 @@ done
 # from /ucrt64 is nowhere: it said "could not find the Qt platform plugin" and
 # stopped. A qt.conf beside the executable - python.exe, for Qt - is read
 # first, and its paths are taken from where it is
-printf '[Paths]\nPrefix = ..\nPlugins = share/qt6/plugins\nTranslations = share/qt6/translations\n' > "$T/bin/qt.conf"
+printf '[Paths]\nPrefix = ..\nPlugins = share/qt6/plugins\n' > "$T/bin/qt.conf"
 
 # GDAL's and PROJ's data: the CRS database and the driver tables
 cp -r "$PREFIX/share/gdal" "$PREFIX/share/proj" "$T/share/"
@@ -90,6 +90,7 @@ done
 
 # compiled once, here, rather than on a mapper's first start from a directory
 # they may not be able to write
-"$T/bin/python.exe" -m compileall -q -j 0 "$T/lib/$PY" >/dev/null || true
+"$T/bin/python.exe" -m compileall -q -j 0 "$T/lib/$PY" >/dev/null ||
+	echo "  warning: some of the tree did not compile; it will be compiled on first use, where it can be" >&2
 
 echo "tree: $(du -sh "$T" | cut -f1) in $(find "$T" -type f | wc -l) files"

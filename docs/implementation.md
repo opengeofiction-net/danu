@@ -5197,12 +5197,8 @@ memory read `/proc/meminfo` for its check; off Linux it now asks only that
 `machine_mb` answers.
 
 Three tests of the drawing tool - snapping onto a node, a crossing refused
-on the click, a stroke over a contour - failed on four runs in a row of this
-job and on none of the next ten: the same packages and runner image, the same
-clicks landing within a pixel of where they are meant to and the same node in
-reach of the snap, and never on Linux or on the pip PySide6 job. Not found;
-the job keeps running them, and the older Windows jobs stay until it has a
-record to replace them with.
+on the click, a stroke over a contour - failed on some runs of this job and
+not others. J2b found why; see there.
 
 pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a Rust part,
 and Rust has no target for MSYS2's Python. pytest-qt is pure Python and comes
@@ -5217,4 +5213,47 @@ where `write_text` writes `\r\n`, and at a block of 7 that is a whole number.
 On the server the block is 1 MiB: a square of an exact number of MiB had its
 last way uncounted, a way too long for GDAL at the end of it unrefused. The
 empty read is scanned now, and the test reads at every block from 1 to 40.
+
+## J2b, the Windows installer
+
+`packaging/windows/`. `build-tree.sh`, in MSYS2's UCRT64 shell, makes the
+tree: Python and its standard library less what nothing uses, PySide6, GDAL's
+bindings and numpy, the Qt plugins a window loads, GDAL's and PROJ's data,
+`isofill` built against the same GDAL, Danu itself, and every DLL any of them
+links, found by `ntldd` - 208 of them, in one pass - rather than a copy of
+`/ucrt64/bin`. It is laid out as the prefix is, so Python finds its library
+without being told; Qt does not, once moved, and said it could not find its
+platform plugin until a `qt.conf` beside `python.exe` named them. 558 MB in
+4,798 files.
+
+`Danu.exe` is a launcher in C: it finds the tree it heads, puts the tree's
+`bin` first on `PATH`, points GDAL and PROJ at their data, clears any
+`PYTHONHOME` or `PYTHONPATH` meant for another Python, and starts the editor
+with the tree's `pythonw`. It carries the icon, which `packaging/icon` draws -
+an island and its contours - for the window too.
+
+`danu.iss` packs the tree with Inno Setup: per user, no administrator rights,
+into `%LOCALAPPDATA%\Programs\Danu`, with a Start menu entry and an
+uninstaller. 122 MB.
+
+The release workflow builds it, then installs it on a second runner as a
+mapper's machine is - nothing of MSYS2 set up, `PATH` cut to Windows' own -
+and there builds the golden square with the installed Python, GDAL and
+isofill library: all 1,442,401 cells the reference's. Then `Danu.exe` is
+started, offscreen, until the usage log's first line says danu 0.2.0 and Qt
+6.11.2. If it never does, the same start with `python.exe` is made and what it
+said is printed, since `pythonw` says nothing.
+
+**The drawing tests that failed on Windows were right.** The crossing check
+took a snapped node's position from `node_xy`, which projected with `math`,
+and the contour's segments from the layer's arrays, projected with numpy -
+which can differ in the last place, as `mercator` already noted. On MSYS2's
+Python they do: the snapped point sat a millionth of a unit off its own
+contour's line, and on views where the stroke met the line from the side the
+error leant towards, a stroke snapped onto a node was refused as crossing
+the contour. Which views those were moved with a pixel of where the view
+centred, which is why the same tests passed on one run and failed on the
+next. `node_xy` uses the array projection now, so the node and the end of its
+segment are one point to the bit; a test pushes the two projections apart on
+purpose and snaps anyway, and fails against the old `node_xy`.
 
