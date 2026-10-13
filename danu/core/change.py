@@ -48,6 +48,9 @@ class Change:
     create: dict[str, dict[int, object]] = field(default_factory=lambda: {k: {} for k in KINDS})
     modify: dict[str, dict[int, object]] = field(default_factory=lambda: {k: {} for k in KINDS})
     delete: dict[str, list[int]] = field(default_factory=lambda: {k: [] for k in KINDS})
+    # the version the file held each deleted id at, where it held one: an
+    # imported feature's, which JOSM asks of a positive id in a delete too
+    deleted_versions: dict[str, dict[int, int]] = field(default_factory=lambda: {k: {} for k in KINDS})
     tail: dict[str, list[int]] = field(default_factory=lambda: {k: [] for k in KINDS})
 
     @property
@@ -65,9 +68,11 @@ class Change:
             or 'nothing'
 
 
-def change_of(square: Square, journal: dict[str, dict[int, bool]]) -> Change:
+def change_of(square: Square, journal: dict[str, dict[int, bool]],
+              versions: dict[str, dict[int, object]] | None = None) -> Change:
     """The square's change against its file, from the journal of what its
-    edits touched and whether the file holds each."""
+    edits touched and whether the file holds each - and, for what was
+    deleted, the version the file holds it at (``SetUndoStack.versions``)."""
     out = Change()
     for kind in KINDS:
         holder, entries = _holder(square, kind), journal.get(kind, {})
@@ -83,6 +88,9 @@ def change_of(square: Square, journal: dict[str, dict[int, bool]]) -> Change:
                 (out.modify if held else out.create)[kind][i] = obj
             elif held:
                 out.delete[kind].append(i)
+                v = (versions or {}).get(kind, {}).get(i)
+                if isinstance(v, int):
+                    out.deleted_versions[kind][i] = v
     return out
 
 
@@ -124,7 +132,9 @@ def change_text(change: Change, generator: str = 'danu') -> str:
     if any(change.delete[k] for k in KINDS):
         lines.append('  <delete>')
         for kind in reversed(KINDS):
-            lines += [f"    <{kind} id='{i}' />" for i in change.delete[kind]]
+            got = change.deleted_versions[kind]
+            lines += [f"    <{kind} id='{i}'" + (f" version='{got[i]}'" if i in got else '') + ' />'
+                      for i in change.delete[kind]]
         lines.append('  </delete>')
     lines.append('</osmChange>')
     return '\n'.join(lines) + '\n'
@@ -149,6 +159,9 @@ def read_change(text: str, tail: dict[str, list[int]] | None = None) -> Change:
                 continue
             if action == 'delete':
                 out.delete[kind].append(i)
+                v = xml_version(elem)
+                if v is not None:
+                    out.deleted_versions[kind][i] = v
                 continue
             if kind == 'node':
                 obj = Node(id=i, lat=float(elem.get('lat')), lon=float(elem.get('lon')), tags=_tags(elem),

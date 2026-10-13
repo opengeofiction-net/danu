@@ -157,3 +157,50 @@ def test_the_autosaves_change_file_carries_the_version(tmp_path):
     again = read_square(path)
     ApplyChange(read_change(text, c.tail)).apply(again)
     assert versions(again) == versions(up)
+
+
+def test_a_deleted_imported_feature_goes_into_the_change_at_its_version(tmp_path):
+    """JOSM asks a delete of a positive id for its version too. A feature
+    deleted is gone from the square, so the version is the one the history
+    saw the first time an edit touched it - or, for what a command took out
+    only as it ran, the one the command says it took (Command.taken): the
+    vertices a deleted way leaves, the way a deleted node leaves too short,
+    and the stretch a redrawn section lets go."""
+    from xml.etree import ElementTree
+
+    def deleted(sq, hist):
+        c = change_of(sq, hist.journal(sq), hist.versions(sq))
+        root = ElementTree.fromstring(change_text(c))
+        block = root.find('delete')
+        got = {(e.tag, int(e.get('id'))): e.get('version') for e in (block if block is not None else [])}
+        back = read_change(change_text(c), c.tail)
+        assert back.deleted_versions == c.deleted_versions
+        return got
+
+    path = write_square(imported(), tmp_path / 'S24E125.osm')
+    sq, hist = read_square(path), edits.SetUndoStack()
+    hist.mark_clean(sq)
+    hist.do(sq, edits.DeleteRelation(401))
+    hist.do(sq, edits.DeleteWay(301))                  # and its vertices with it, named as it runs
+    assert deleted(sq, hist) == {('relation', 401): '9', ('way', 301): '4', ('node', 101): '2',
+                                 ('node', 102): '3', ('node', 103): '4'}
+
+    sq, hist = read_square(path), edits.SetUndoStack()
+    sq.ways[302] = Way(id=302, refs=[101, 8374513], version=5)     # as the file might hold it
+    hist.mark_clean(sq)
+    hist.do(sq, edits.DeleteNode(8374513))             # leaves 302 a single node, so it goes too
+    assert deleted(sq, hist) == {('node', 8374513): '7', ('way', 302): '5'}
+
+    sq, hist = read_square(path), edits.SetUndoStack()
+    hist.mark_clean(sq)
+    hist.do(sq, edits.ReplaceSection(301, 0, 2, [101, 103]))   # 102 let go
+    assert deleted(sq, hist) == {('node', 102): '3'}
+
+    sq, hist = read_square(path), edits.SetUndoStack()
+    hist.do(sq, edits.ReplaceWay(301, [(301, [101, 102])], {}))   # 103 let go
+    assert deleted(sq, hist) == {('node', 103): '4'}
+
+    sq, hist = read_square(path), edits.SetUndoStack()
+    rerouted = Way(id=301, refs=[101, 102, 8374513, 101], tags={'natural': 'water'}, version=5)
+    hist.do(sq, edits.ImportWater(upstream_owns=overpass.UPSTREAM_OWNS, new_ways={301: rerouted}))
+    assert deleted(sq, hist) == {('node', 103): '4'}, 'the vertex a re-route left behind'

@@ -3,8 +3,8 @@
 ``DANU_CHECK_JOURNAL=1`` holds every edit the suite makes to the autosave's
 promise (H4): after each step done, undone or redone, the change the
 history's journal gives, put onto the square as it was at its last save,
-is the square as it now is - every node, way and relation, and the order of
-each. Off by default, because it copies the square at every step; run the
+is the square as it now is - every node, way and relation, its version and
+the order of each; and each deletion carries the version the file held it at. Off by default, because it copies the square at every step; run the
 whole suite with it once a command is added or changed.
 """
 
@@ -17,16 +17,16 @@ if os.environ.get('DANU_CHECK_JOURNAL'):
     from danu.core.square import Node, Relation, Square, Way
 
     def _frozen(sq):
-        return (tuple((i, n.lat, n.lon, tuple(n.tags.items())) for i, n in sq.nodes.items()),
-                tuple((i, tuple(w.refs), tuple(w.tags.items())) for i, w in sq.ways.items()),
-                tuple((i, tuple(r.members), tuple(r.tags.items())) for i, r in sq.relations.items()))
+        return (tuple((i, n.lat, n.lon, tuple(n.tags.items()), n.version) for i, n in sq.nodes.items()),
+                tuple((i, tuple(w.refs), tuple(w.tags.items()), w.version) for i, w in sq.ways.items()),
+                tuple((i, tuple(r.members), tuple(r.tags.items()), r.version) for i, r in sq.relations.items()))
 
     def _thaw(name, frozen):
         nodes, ways, relations = frozen
         return Square(name=name,
-                      nodes={i: Node(i, lat, lon, dict(t)) for i, lat, lon, t in nodes},
-                      ways={i: Way(i, list(refs), dict(t)) for i, refs, t in ways},
-                      relations={i: Relation(i, list(m), dict(t)) for i, m, t in relations})
+                      nodes={i: Node(i, lat, lon, dict(t), v) for i, lat, lon, t, v in nodes},
+                      ways={i: Way(i, list(refs), dict(t), v) for i, refs, t, v in ways},
+                      relations={i: Relation(i, list(m), dict(t), v) for i, m, t, v in relations})
 
     _base: dict[int, tuple] = {}
     _untracked: set[int] = set()
@@ -42,8 +42,19 @@ if os.environ.get('DANU_CHECK_JOURNAL'):
             if id(sq) not in _base or _base[id(sq)][0]() is not sq:
                 continue
             put_back = _thaw(sq.name, _base[id(sq)][1])
-            c = _change.change_of(sq, history.journal(sq))
+            versions = history.versions(sq)
+            c = _change.change_of(sq, history.journal(sq), versions)
             again = _change.read_change(_change.change_text(c), c.tail)
+            for kind, held in zip(('node', 'way', 'relation'),
+                                  (put_back.nodes, put_back.ways, put_back.relations), strict=True):
+                for i in again.delete[kind]:
+                    if versions[kind].get(i) is _edits.UNSEEN:
+                        raise AssertionError(f'{sq.name}: {kind} {i} was deleted and its version never seen'
+                                             ' - the command that took it needs a taken()')
+                    if i in held and again.deleted_versions[kind].get(i) != held[i].version:
+                        raise AssertionError(f'{sq.name}: {kind} {i} deleted at version '
+                                             f'{again.deleted_versions[kind].get(i)}, the file has '
+                                             f'{held[i].version}')
             _change.ApplyChange(again).apply(put_back)
             want, got = _frozen(sq), _frozen(put_back)
             for kind, a, b in zip(('nodes', 'ways', 'relations'), want, got, strict=True):
