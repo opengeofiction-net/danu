@@ -30,6 +30,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt
 
+from . import about
 from . import mercator as m
 from .tools import PICK_PX, SNAP_PX  # what a press would snap to, as the tools find it
 
@@ -54,7 +55,7 @@ class UsageLog(QObject):
         self._f = open(self.path, 'a', encoding='utf-8', buffering=1)
         self._hover: dict | None = None               # the cursor's last place, written before the next input
         self._t0 = time.monotonic()
-        self.write('start', pid=os.getpid())
+        self.write('start', pid=os.getpid(), **about.basics())
         # held by name: the filter must not ask the view for anything, since
         # Qt still sends its viewport events as a window comes down and by
         # then the view can be gone - see danu.ui.legend
