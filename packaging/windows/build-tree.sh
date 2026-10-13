@@ -47,6 +47,12 @@ for d in platforms imageformats iconengines styles tls networkinformation; do
 	[ -d "$PREFIX/share/qt6/plugins/$d" ] && mkdir -p "$T/share/qt6/plugins" && \
 		cp -r "$PREFIX/share/qt6/plugins/$d" "$T/share/qt6/plugins/"
 done
+# Qt finds its plugins by the prefix it was built for, which in a tree moved
+# from /ucrt64 is nowhere: it said "could not find the Qt platform plugin" and
+# stopped. A qt.conf beside the executable - python.exe, for Qt - is read
+# first, and its paths are taken from where it is
+printf '[Paths]\nPrefix = ..\nPlugins = share/qt6/plugins\nTranslations = share/qt6/translations\n' > "$T/bin/qt.conf"
+
 # GDAL's and PROJ's data: the CRS database and the driver tables
 cp -r "$PREFIX/share/gdal" "$PREFIX/share/proj" "$T/share/"
 

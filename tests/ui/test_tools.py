@@ -34,14 +34,6 @@ def click(w, lon, lat, button=Qt.MouseButton.LeftButton):
     w.map.mouseMoveEvent(mouse(w, QEvent.Type.MouseMove, pos, Qt.MouseButton.NoButton, Qt.MouseButton.NoButton))
     w.map.mousePressEvent(mouse(w, QEvent.Type.MouseButtonPress, pos, button))
     w.map.mouseReleaseEvent(mouse(w, QEvent.Type.MouseButtonRelease, pos, button, Qt.MouseButton.NoButton))
-    # PROBE, captured: pytest shows it only for a failing test. For the
-    # drawing tests that fail on some windows-stack runs and not others
-    import sys
-    sp = w.map.mapToScene(pos)
-    hit = w.editor.layer.pick_node(sp.x(), sp.y(), w.editor._px(10.0))
-    print(f'PROBE click {lon:.4f},{lat:.4f} pos {pos.x()},{pos.y()} scene {sp.x():.1f},{sp.y():.1f} '
-          f'zoom {w.map.zoom} vp {w.map.viewport().width()}x{w.map.viewport().height()} hit {hit and hit[1:]} '
-          f'drawing {w.editor.drawing and w.editor.drawing[1:]} msg {w.statusBar().currentMessage()!r}', file=sys.stderr)
 
 
 def double_click(w, lon, lat):
@@ -139,6 +131,28 @@ def test_snapping_shares_the_node_and_backspace_takes_the_last_one_back(w):
     assert len(new.refs) == 2 and w.editor.drawing == (square, new.id, True)
     key(w, Qt.Key.Key_Backspace)
     assert new.id not in square.ways and w.editor.drawing is None
+
+
+def test_a_stroke_snapped_onto_a_node_is_not_refused_whatever_libm_says(w, monkeypatch):
+    """The scalar projection and the array one the layer is built with can
+    differ in the last place - on MSYS2's Python they do - and a snapped
+    node was read by the one while the contour it sits on was made by the
+    other: a millionth of a unit off its own line, and refused as crossing
+    it, on some views and not others. Pushed apart here on purpose, the
+    snap still shares the node, since the node is read as the layer has it."""
+    real = m.lonlat_to_scene
+    monkeypatch.setattr(m, 'lonlat_to_scene', lambda lon, lat: (real(lon, lat)[0] + 1e-6, real(lon, lat)[1] - 1e-6))
+    square = w.working_set.squares[TEN]
+    (twenty,) = ways_at(square, 20)
+    geom = w.contours._geoms[(square.name, twenty.id)]
+    assert w.contours.node_xy(square, twenty.refs[0]) == tuple(geom.pts[0]), 'a node is where its segments end'
+    a = square.nodes[twenty.refs[0]]
+    w.elevation.set(20)
+    w.editor.set_tool('draw')
+    click(w, 126.3, -23.75)
+    click(w, a.lon, a.lat)
+    (new,) = [x for x in ways_at(square, 20) if x is not twenty]
+    assert new.refs[-1] == twenty.refs[0], w.statusBar().currentMessage()
 
 
 def test_a_crossing_is_warned_live_and_refused_on_the_click(w):

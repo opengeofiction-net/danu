@@ -1059,8 +1059,16 @@ class ContourLayer(QGraphicsItem):
         return contours, water
 
     def node_xy(self, square: Square, node_id: int) -> tuple[float, float]:
+        """Where a node is in the scene, by the projection the layer's own
+        geometry is made with - the array one - so that a node read here and
+        the same node as the end of a segment in ``crossings`` are the same
+        point to the bit. ``lonlat_to_scene`` can differ from it in the last
+        place, and on MSYS2's Python it does: a stroke snapped onto a contour's
+        node then ended a millionth of a unit off that contour's line, and was
+        refused as crossing it."""
         n = square.nodes[node_id]
-        return m.lonlat_to_scene(n.lon, n.lat)
+        x, y = m.lonlat_to_scene_array([n.lon], [n.lat])[0]
+        return float(x), float(y)
 
     def set_style(self, style: str) -> None:
         if style not in STYLES:

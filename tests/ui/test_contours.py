@@ -193,8 +193,7 @@ def test_a_node_the_square_lost_does_not_shift_the_index_onto_its_neighbour(ws):
     layer._ensure_arrays()
     assert [ref for _, ref in layer._node_ref] == [1, 3, 4], 'no ref is dropped'
     for (square, ref), xy in zip(layer._node_ref, layer._node_xy, strict=True):
-        node = square.nodes[ref]
-        assert tuple(xy) == m.lonlat_to_scene(node.lon, node.lat), f'ref {ref} is at another node'
+        assert tuple(xy) == layer.node_xy(square, ref), f'ref {ref} is at another node'
 
 
 def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
