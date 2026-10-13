@@ -5084,3 +5084,30 @@ build's 1" the largest second pass, zone-yuethon's, is 18,104 MB of
 `max_mem_mb`'s 18,500. Danu calls the library, which solves in memory
 always, so the golden surface is unchanged and `params.lock` still names the
 0.11.0 that built it. `--pass2-margin` is accepted and ignored.
+
+## Phase 7 ends
+
+On its four measures, on 2026-10-13, each from its step's own measurement
+above:
+
+- **The second pass solved.** Within 1 to 2 mm of an exact solve on gobras
+  and 4 mm on ellarca at 3", where it had been 3.1 to 12.2 m and 329 m (I2).
+- **A z15 screen at 1" in 2 s.** The densest view of gobras City 1.72 s from
+  settling, a pan half a screen 0.93 s (I3b). Against the whole 1" solve the
+  fill is within 2 mm at the margin taken, and the DEM within 1.000 m: the
+  clamp's metre, where the 1" and 3" grids decide a cell's sea differently
+  and it goes from the lowest land to sea (I3a). The measure is a metre; that
+  is on it, not inside it.
+- **Edits at both resolutions.** Tiles kept through twelve edits on gobras
+  City within 4 mm of a whole 1" build, the views solved again within 2 mm on
+  the fill and the same metre on the DEM (I4); the rebuild of its own accord
+  was always on, and now keeps the view's tiles (I5).
+- **Out of core.** Identical to the whole solve on ellarca, gobras at 1" and
+  zone-yuethon (I6).
+
+Beyond the plan, from the mapper's use of it: elements keep the OGF version
+they were imported with, so JOSM loads what Danu writes (#164); coastlines are
+marked, shown with their direction, reversed and imported from the main map
+(#165, #166); and the sea mask drops a seed its step carries across a
+coastline, which took a cone of land behind two islets in N20E086 for sea
+(#167).
