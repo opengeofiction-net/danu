@@ -77,7 +77,7 @@ def test_the_query_asks_for_the_working_sets_bounds():
     assert 'way["waterway"];' not in q
     assert 'way["natural"="water"];' in q and 'relation["natural"="water"];' in q
     # the geometry has to come with it, or a square has a feature it cannot draw
-    assert '(._;>>;);' in q and 'out body;' in q
+    assert '(._;>>;);' in q and 'out meta;' in q
 
 
 def test_the_query_follows_relations_inside_relations():

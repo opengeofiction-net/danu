@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
 from ..core.ladder import format_ele
-from ..core.square import Node, SquareName, parse_ele
+from ..core.square import Node, SquareName, parse_ele, xml_version
 from .gone import Gone
 from .overpass import QUERY_TIMEOUT, IncompleteAnswer
 
@@ -73,7 +73,7 @@ def query(bounds) -> str:
     west, south, east, north = bounds
     kinds = '|'.join(KINDS)
     return (f'[out:xml][timeout:{QUERY_TIMEOUT}][bbox:{south},{west},{north},{east}];\n'
-            f'node["natural"~"^({kinds})$"]["ele"];\nout;')
+            f'node["natural"~"^({kinds})$"]["ele"];\nout meta;')     # meta for the version, as water's
 
 
 @dataclass
@@ -109,7 +109,7 @@ def parse(payload: bytes) -> Heights:
             continue
         kept = {k: tags[k] for k in UPSTREAM_OWNS if k in tags}
         kept['ele'] = format_ele(height)
-        out.nodes[i] = Node(id=i, lat=lat, lon=lon, tags=kept)
+        out.nodes[i] = Node(id=i, lat=lat, lon=lon, tags=kept, version=xml_version(elem))
     return out
 
 

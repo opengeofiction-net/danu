@@ -20,6 +20,10 @@ from dataclasses import dataclass, field
 from .reconcile import Reconciled, reconcile
 from .square import Member, Node, Relation, Square, Way
 
+# a version the journal never saw: an id a command named only once it had
+# taken it out, without saying what it took - see Command.taken
+UNSEEN = object()
+
 Coord = tuple[float, float]            # lon, lat
 
 
@@ -97,6 +101,16 @@ class Command:
         Empty by default, because most commands are about ways and the ones
         that are not say so."""
         return set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        """The nodes, ways and relations an apply took out of the square that
+        ``touched`` names only once it has run - the orphans a deletion takes
+        - by id, as they were. The journal reads their version from here:
+        gone from the square, it is the one place left that has them, and an
+        autosave's deletion of an imported feature carries it, as JOSM asks
+        of a positive id. Empty by default; ``DANU_CHECK_JOURNAL`` holds every
+        command the suite runs to it."""
+        return {}, {}, {}
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
         """Every node, way and relation this command creates, changes or
@@ -549,6 +563,9 @@ class DeleteNode(Command):
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
         return {self.node_id}, set(self.positions) | set(self.removed_ways), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return {}, dict(self.removed_ways), {}
     def spots(self, square: Square) -> set[int]:
         return {self.node_id}
 
@@ -590,6 +607,9 @@ class DeleteWay(Command):
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
         return set(self.orphans), {self.way_id}, set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.orphans), {}, {}
     def apply(self, square: Square) -> None:
         self.way = square.ways.pop(self.way_id)
         still_used = {r for w in square.ways.values() for r in w.refs}
@@ -626,12 +646,18 @@ class ReplaceWay(Command):
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
         return set(self.new_nodes) | set(self.orphans), self.ways(square), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.orphans), {}, {}
     def apply(self, square: Square) -> None:
         self.original = square.ways.pop(self.way_id)
         for nid, (lon, lat) in self.new_nodes.items():
             square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
         for wid, refs in self.pieces:
-            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(self.original.tags))
+            # the piece under the way's own id is that way still, and keeps
+            # the main map's version an import gave it; a new one has none
+            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(self.original.tags),
+                                   version=self.original.version if wid == self.way_id else None)
         still_used = {r for w in square.ways.values() for r in w.refs}
         self.orphans = {r: square.nodes.pop(r) for r in dict.fromkeys(self.original.refs)
                         if r not in still_used and r in square.nodes}
@@ -842,6 +868,9 @@ class ReplaceSection(Command):
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
         return set(self.orphans), {self.way_id}, set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.orphans), {}, {}
     def apply(self, square: Square) -> None:
         way = square.ways[self.way_id]
         self.old = way.refs[self.start:self.end + 1]
@@ -946,6 +975,11 @@ class ImportWater(Command):
         b = self.before
         return ({*self.new_nodes, *b.get('nodes', ())}, {*self.new_ways, *b.get('ways', ())},
                 {*self.new_relations, *b.get('relations', ())})
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        # what the snapshot holds of the vertices a re-route took out
+        b = self.before.get('nodes', {})
+        return {i: b[i] for i in (self.written.removed if self.written else ()) if b.get(i) is not None}, {}, {}
     def spots(self, square: Square) -> set[int]:
         """The nodes that carry an elevation, not every node imported.
 
@@ -1039,6 +1073,13 @@ class Compound(Command):
             for into, ids in zip(out, c.touched(square), strict=True):
                 into |= ids
         return out
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        out = ({}, {}, {})
+        for c in self.commands:
+            for into, got in zip(out, c.taken(square), strict=True):
+                into.update(got)
+        return out
     def spots(self, square: Square) -> set[int]:
         return set().union(*(c.spots(square) for c in self.commands)) if self.commands else set()
 
@@ -1107,7 +1148,9 @@ class _ReplaceWays(Command):
     def apply(self, square: Square) -> None:
         del square.ways[self.way_id]
         for nid, refs, tags in self.pieces:
-            square.ways[nid] = Way(id=nid, refs=list(refs), tags=tags)
+            # the first piece keeps the way's id, and with it its version - see ReplaceWay
+            square.ways[nid] = Way(id=nid, refs=list(refs), tags=tags,
+                                   version=self.original.version if nid == self.way_id else None)
         self.members = {}
         for rid, rel in square.relations.items():
             if not any(m.type == 'way' and m.ref == self.way_id for m in rel.members):
@@ -1214,7 +1257,9 @@ class SetUndoStack:
         self._alloc: IdAllocator | None = None
         # what each square's edits have touched since its last save, for the
         # autosave (H4): kind -> id -> [the step it was last touched at,
-        # whether the file held it]. The size of the edit, not of the square
+        # whether the file held it, and the version the file held it at -
+        # UNSEEN where the journal never saw it]. The size of the edit, not
+        # of the square
         self._journal: dict[int, dict[str, dict[int, list]]] = {}
         self._gen = 0
 
@@ -1336,7 +1381,7 @@ class SetUndoStack:
         self._clean[id(square)] = self.state(square) if state is ... else state
         gen = self._gen if generation is None else generation
         for entries in self._journal.get(id(square), {}).values():
-            for i in [i for i, (g, _) in entries.items() if g <= gen]:
+            for i in [i for i, (g, *_) in entries.items() if g <= gen]:
                 del entries[i]
 
     @property
@@ -1352,22 +1397,40 @@ class SetUndoStack:
         command names only once it has run - the orphans a deletion takes, a
         relation a split mends - is one it found there, so the file has it."""
         j = self._journal.setdefault(id(square), {'node': {}, 'way': {}, 'relation': {}})
-        for kind, holder, ids in zip(('node', 'way', 'relation'),
-                                     (square.nodes, square.ways, square.relations),
-                                     cmd.touched(square), strict=True):
+        taken = None
+        for k, (kind, holder, ids) in enumerate(zip(('node', 'way', 'relation'),
+                                                    (square.nodes, square.ways, square.relations),
+                                                    cmd.touched(square), strict=True)):
             entries = j[kind]
             for i in ids:
                 e = entries.get(i)
-                if e is None:
-                    entries[i] = [self._gen, (i in holder) if before else True]
-                else:
+                if e is not None:
                     e[0] = self._gen
+                    continue
+                # the version the file has it at, which the square still
+                # holds the first time an edit touches it - or, named only
+                # once the command has taken it out, the command does
+                if i in holder:
+                    was = holder[i].version
+                elif before:
+                    was = None                      # the file does not have it
+                else:
+                    taken = cmd.taken(square) if taken is None else taken
+                    was = taken[k][i].version if i in taken[k] else UNSEEN
+                entries[i] = [self._gen, (i in holder) if before else True, was]
 
     def journal(self, square: Square) -> dict[str, dict[int, bool]]:
         """What the square's edits have touched since it was saved: kind ->
         id -> whether its file holds that id."""
         j = self._journal.get(id(square), {})
         return {kind: {i: e[1] for i, e in j.get(kind, {}).items()} for kind in ('node', 'way', 'relation')}
+
+    def versions(self, square: Square) -> dict[str, dict[int, int | None]]:
+        """The version the file holds each touched id at: kind -> id ->
+        version, None for one with none, and UNSEEN for one the journal
+        never saw - which ``taken`` exists to make none."""
+        j = self._journal.get(id(square), {})
+        return {kind: {i: e[2] for i, e in j.get(kind, {}).items()} for kind in ('node', 'way', 'relation')}
 
 
 def snapshot(square: Square) -> tuple:

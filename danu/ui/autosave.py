@@ -77,7 +77,7 @@ class AutoSaver(QObject):
         history = self.window.editor.history
         try:
             for sq in ws.squares.values():
-                change = change_of(sq, history.journal(sq)) if history.dirty(sq) else None
+                change = change_of(sq, history.journal(sq), history.versions(sq)) if history.dirty(sq) else None
                 if change is None or change.empty:
                     self._forget(zone, sq.name)
                     continue

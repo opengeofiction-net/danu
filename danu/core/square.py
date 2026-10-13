@@ -105,6 +105,13 @@ class Node:
     lat: float
     lon: float
     tags: dict[str, str] = field(default_factory=dict)
+    # The main map's version of what an import brought (R40, R41), which a
+    # positive id carries and a new, negative one does not. JOSM refuses a
+    # 0.6 file holding a positive id without one - "Missing attribute
+    # 'version' on OSM primitive" - and it says which version of upstream the
+    # square's copy was taken from. Kept for a feature upstream has since
+    # deleted: it is still the version it was. On a way and a relation alike
+    version: int | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -133,6 +140,7 @@ class Relation:
     id: int
     members: list[Member] = field(default_factory=list)
     tags: dict[str, str] = field(default_factory=dict)
+    version: int | None = None             # as a node's
 
     @property
     def ele(self) -> float | None:
@@ -146,6 +154,7 @@ class Way:
     id: int
     refs: list[int]
     tags: dict[str, str] = field(default_factory=dict)
+    version: int | None = None             # as a node's
 
     @property
     def ele(self) -> float | None:
@@ -289,13 +298,15 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
                     id=int(elem.get('id')),
                     lat=float(elem.get('lat')),
                     lon=float(elem.get('lon')),
-                    tags=_tags(elem))
+                    tags=_tags(elem),
+                    version=xml_version(elem))
                 elem.clear()
             elif elem.tag == 'way':
                 square.ways[int(elem.get('id'))] = Way(
                     id=int(elem.get('id')),
                     refs=[int(nd.get('ref')) for nd in elem.iter('nd')],
-                    tags=_tags(elem))
+                    tags=_tags(elem),
+                    version=xml_version(elem))
                 elem.clear()
             elif elem.tag == 'relation':
                 square.relations[int(elem.get('id'))] = Relation(
@@ -303,7 +314,8 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
                     members=[Member(type=mem.get('type'), ref=int(mem.get('ref')),
                                     role=mem.get('role') or '')
                              for mem in elem.iter('member')],
-                    tags=_tags(elem))
+                    tags=_tags(elem),
+                    version=xml_version(elem))
                 elem.clear()
             #
             # clearing a child empties it but leaves it in the root's list, so
@@ -318,6 +330,13 @@ def read_square(path: str | os.PathLike, name: SquareName | None = None) -> Squa
 
 def _tags(elem) -> dict[str, str]:
     return {t.get('k'): t.get('v', '') for t in elem.iter('tag')}
+
+
+def xml_version(elem) -> int | None:
+    """An element's ``version``, or None where it has none - a new element,
+    or an answer asked for no metadata - or one that is not a number."""
+    v = elem.get('version')
+    return int(v) if v is not None and v.isdigit() else None
 
 
 def list_squares(zone_dir: str | os.PathLike, compressed_only: bool = False) -> dict[SquareName, Path]:
@@ -460,8 +479,8 @@ class WorkingSet:
 def write_square(square: Square, path: str | os.PathLike, generator: str = 'danu', preset: int = 6) -> Path:
     """Write a square as JOSM writes one: ``upload='never'`` and the other
     root attributes it was read with, every node and way ``action='modify'``,
-    ids as they are, coordinates as the shortest text that reads back to the
-    same float. ``.osm.xz`` compressed, ``.osm`` plain, by the suffix.
+    ids and versions as they are, coordinates as the shortest text that
+    reads back to the same float. ``.osm.xz`` compressed, ``.osm`` plain, by the suffix.
 
     Not byte for byte what JOSM would write - attribute order and precision
     are JOSM's own - but the same square: reading it back gives the same
@@ -484,6 +503,12 @@ def xml_quote(v) -> str:
     escaped."""
     import html
     return "'" + html.escape(str(v), quote=True).replace('&quot;', '"') + "'"
+
+
+def xml_version_attr(obj) -> str:
+    """The ``version`` attribute an element is written with, space first, or
+    nothing for one with none."""
+    return f" version='{obj.version}'" if obj.version is not None else ''
 
 
 def xml_degrees(v: float) -> str:
@@ -522,6 +547,7 @@ def square_text(square: Square, generator: str = 'danu') -> str:
             return format(Decimal(s), 'f')
         return s
 
+    ver = xml_version_attr
     attrs = dict(square.attrs)
     attrs.setdefault('version', '0.6')
     attrs['upload'] = 'never'                     # whatever it was read with, this is not for the live map
@@ -536,11 +562,11 @@ def square_text(square: Square, generator: str = 'danu') -> str:
     for nid in square.nodes:
         n = square.nodes[nid]
         if n.tags:
-            lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}'>")
+            lines.append(f"  <node id='{nid}'{ver(n)} action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}'>")
             lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in n.tags.items()]
             lines.append('  </node>')
         else:
-            lines.append(f"  <node id='{nid}' action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}' />")
+            lines.append(f"  <node id='{nid}'{ver(n)} action='modify' lat='{deg(n.lat)}' lon='{deg(n.lon)}' />")
     # Ways in the order they were read, and here it is correctness. Not sorted,
     # which is what this did on the belief that JOSM writes them sorted: JOSM
     # mostly does, and where it does not - one block of ids sitting among an
@@ -556,7 +582,7 @@ def square_text(square: Square, generator: str = 'danu') -> str:
     # on the server are ordered so that it would have.
     for wid in square.ways:
         w = square.ways[wid]
-        lines.append(f"  <way id='{wid}' action='modify'>")
+        lines.append(f"  <way id='{wid}'{ver(w)} action='modify'>")
         lines += [f"    <nd ref='{r}' />" for r in w.refs]
         lines += [f"    <tag k={q(k)} v={q(v)} />" for k, v in w.tags.items()]
         lines.append('  </way>')
@@ -572,7 +598,7 @@ def square_text(square: Square, generator: str = 'danu') -> str:
     # empty one is written as an absent attribute because that is what it is.
     for rid in square.relations:
         r = square.relations[rid]
-        lines.append(f"  <relation id='{rid}' action='modify'>")
+        lines.append(f"  <relation id='{rid}'{ver(r)} action='modify'>")
         for mem in r.members:
             role = f" role={q(mem.role)}" if mem.role else ''
             lines.append(f"    <member type={q(mem.type)} ref='{mem.ref}'{role} />")

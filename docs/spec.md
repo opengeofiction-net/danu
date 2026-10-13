@@ -147,9 +147,10 @@ the tools for everything else.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the
-  square already holds is matched by its OSM identity, takes its geometry from
-  upstream and keeps the elevation set on it here; a feature gone from upstream
-  is reported rather than deleted. An import is one undoable step.
+  square already holds is matched by its OSM identity, takes its geometry and
+  version from upstream and keeps the elevation set on it here; a feature gone
+  from upstream is reported rather than deleted, and keeps its version. An
+  import is one undoable step.
 - **R28** Water anchors inside the squares are first-class and editable. The
   separate `water/<zone>.osm` overlay is a legacy artefact to read, never a
   store to write: only `roantra` has one, 54 MB of it, against 32 zones, and

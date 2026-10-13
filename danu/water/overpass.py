@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
 from ..core import chains
-from ..core.square import Member, Node, Relation, Way
+from ..core.square import Member, Node, Relation, Way, xml_version
 
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
 
@@ -166,8 +166,10 @@ def query(bounds: tuple[float, float, float, float]) -> str:
     is not something a square can hold. ``place`` follows nested relations
     for the same reason.
 
-    ``out body`` rather than ``out geom``: the ids are the point, and a
-    member's ref is how a relation says what it is made of.
+    ``out meta`` rather than ``out geom``: the ids are the point, and a
+    member's ref is how a relation says what it is made of. Meta and not
+    ``out body`` for the version, which the square keeps beside the id - JOSM
+    will not open a positive id without one.
     """
     west, south, east, north = bounds
     kinds = '\n  '.join(f'way["waterway"="{kind}"];'
@@ -176,7 +178,7 @@ def query(bounds: tuple[float, float, float, float]) -> str:
             f'(\n  {kinds}\n'
             f'  way["natural"="water"];\n'
             f'  relation["natural"="water"];\n'
-            f');\n(._;>>;);\nout body;\n')
+            f');\n(._;>>;);\nout meta;\n')
 
 
 def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES,
@@ -236,19 +238,19 @@ def parse(payload: bytes) -> Water:
         if elem.tag == 'node':
             water.nodes[int(elem.get('id'))] = Node(
                 id=int(elem.get('id')), lat=float(elem.get('lat')),
-                lon=float(elem.get('lon')), tags=kept(tags))
+                lon=float(elem.get('lon')), tags=kept(tags), version=xml_version(elem))
         elif elem.tag == 'way':
             water.ways[int(elem.get('id'))] = Way(
                 id=int(elem.get('id')),
                 refs=[int(nd.get('ref')) for nd in elem.findall('nd')],
-                tags=kept(tags))
+                tags=kept(tags), version=xml_version(elem))
         elif elem.tag == 'relation':
             water.relations[int(elem.get('id'))] = Relation(
                 id=int(elem.get('id')),
                 members=[Member(type=m.get('type'), ref=int(m.get('ref')),
                                 role=m.get('role') or '')
                          for m in elem.findall('member')],
-                tags=kept(tags))
+                tags=kept(tags), version=xml_version(elem))
     return water
 
 
