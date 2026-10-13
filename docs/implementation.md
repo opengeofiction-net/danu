@@ -5147,3 +5147,14 @@ again. Azure Artifact Signing takes individuals only in the US and Canada; an
 OV certificate is roughly $220 to $440 a year; the SignPath Foundation signs
 open source builds for nothing, under its own name, once a release exists.
 
+**The Microsoft Store signs for nothing, but only MSIX.** Registration for an
+individual has been free since September 2025, and the Store re-signs an MSIX
+package after certification. An MSI or EXE submitted to it must already be
+signed with a certificate of one's own. A packaged desktop app runs with full
+trust - it may listen on and call localhost, which the WMS into JOSM and
+JOSM's remote control need - and reads and writes folders the user chooses as
+any program does; its writes to AppData are kept in a folder of the package's
+own. The Store wants a privacy policy URL from an app that signs in or uses
+the network, certifies every update, and names an individual account's holder
+as the publisher; some machines, LTSC and locked-down ones, have no Store.
+

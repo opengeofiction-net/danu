@@ -1175,8 +1175,11 @@ GDAL, as CI already builds it. Linux has two builds: an AppImage carrying its
 own stack, and a `.deb` beside `danu-server` on the distribution's own.
 
 **Released from a tag.** One version for the editor, from the tag; the
-installers are built and attached to a GitHub Release by CI. Danu says when a
-newer release is out. Unsigned to begin with, so Windows warns on a first run.
+installers are built and attached to a GitHub Release by CI. On Windows the
+Microsoft Store is the main way in: an MSIX package, which the Store signs and
+updates, so nothing warns on a first run. The installer on the release is
+unsigned, for machines without the Store. Outside the Store, Danu says when a
+newer release is out.
 
 In eight steps:
 
@@ -1184,10 +1187,13 @@ In eight steps:
 the About box, the usage log and any crash report. A `v` tag builds every
 artefact, runs each, and attaches them to a draft GitHub Release.
 
-**J2, the Windows installer.** The MSYS2 UCRT64 tree Danu needs, pruned, with
-`isofill` built in it and a launcher, packed by Inno Setup to install per user
-without administrator rights. CI installs it on a clean runner, starts it, and
-builds the golden square's surface with it.
+**J2, the Windows packages.** The MSYS2 UCRT64 tree Danu needs, pruned, with
+`isofill` built in it and a launcher, packed twice: as an MSIX for the Store,
+and by Inno Setup as an installer that needs no administrator rights. Under
+MSIX what Danu writes to AppData is kept in the package's own folder and goes
+with it on uninstall, so nothing tells a mapper to find a file there. CI
+installs each on a clean runner, starts it, and builds the golden square's
+surface with it.
 
 **J3, the AppImage.** Python, PySide6, GDAL and `isofill` in one file, built on
 the oldest base it is to run on. CI runs it as J2 runs the installer.
@@ -1209,14 +1215,18 @@ leaves the machine unasked.
 
 **J7, a newer release.** At most once a day, at start, Danu asks GitHub for the
 latest release and says in the status line when it is newer, with a link. It
-can be turned off.
+can be turned off, and installed from the Store it does not ask: the Store
+updates it.
 
-**J8, signing on Windows.** An application to the SignPath Foundation, which
-signs open source builds for nothing, once the first release is out; a cloud
-OV certificate if it is refused or OGF is wanted as the publisher.
+**J8, the Microsoft Store.** A developer account, the listing, a privacy
+policy page - Danu signs in and talks to the network - and the first
+certification. Each release after goes through certification too, a few days
+each. The installer on the GitHub release stays unsigned; the SignPath
+Foundation, which signs open source builds for nothing, is the way to sign it
+if its warning turns out to matter.
 
 Ends when a mapper with no Python, MSYS2 or GDAL installs it on Windows from the
-release, and on Linux from the AppImage and the `.deb`, signs in, imports a
+Store and from the release, and on Linux from the AppImage and the `.deb`, signs in, imports a
 zone, draws a contour and sees the surface under it; when a crash leaves a
 report and the issue it fills in; and when a newer release is said at start.
 macOS stays under R34: if it is free, not in this phase.
@@ -1303,7 +1313,7 @@ Recorded so the reasoning is not relitigated:
 | ownership | advisory, never blocking |
 | packaging | a `.deb` on system paths, and desktop installers, from one CI |
 | desktop builds | Windows from MSYS2 UCRT64, one GDAL in the process; Linux as an AppImage and a `.deb` |
-| releases | GitHub Releases from a tag, a check for a newer one at start, unsigned until J8 |
+| releases | GitHub Releases from a tag; on Windows the Microsoft Store as MSIX, signed and updated by it, and an unsigned installer on the release; a check for a newer one at start outside the Store |
 | crashes | a report on the machine, and a GitHub issue the mapper files from it |
 | testing | pytest, pytest-qt, hypothesis, and a golden-surface regression |
 | sequencing | move, then rename, then the API rebuild goes live |
