@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "danu"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Contour editor and elevation pipeline for OpenGeofiction"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -141,3 +141,6 @@ testpaths = ["tests"]
 # a test running past two minutes dumps every thread's stack - a hang on CI
 # then says where it is, rather than the job sitting until it is cancelled
 faulthandler_timeout = 120
+
+[tool.setuptools.dynamic]
+version = { attr = "danu.__version__" }

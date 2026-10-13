@@ -36,8 +36,8 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
+from . import about, config, josm, oauth, session, wms
 from . import autosave as autosave_ui
-from . import config, josm, oauth, session, wms
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
                  settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None,
                  data_dir: Path | None = None):
         super().__init__()
-        self.setWindowTitle('Danu')
+        self.setWindowTitle(about.title())
         self.layers = layers
         self.settings = settings if settings is not None else Settings()
         self.map = MapView(self)
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         undo.setText(f'&Undo {h.describe_undo()}' if h.can_undo else '&Undo')
         redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
         if self.working_set is not None:
-            self.setWindowTitle(f'Danu - {self.working_set.centre}' + (' *' if self.editor.dirty() else ''))
+            self.setWindowTitle(about.title(self.working_set.centre, self.editor.dirty()))
 
     # --------------------------------------------------------- territory
     def _territory_ready(self, index):
@@ -973,6 +973,13 @@ class MainWindow(QMainWindow):
         surface.addAction(e['view.josm_surface'])
         self.surface_actions = {'surface.pinch': self.pinch_action}
 
+        help_ = self.menuBar().addMenu('&Help')
+        self.about_action = QAction('&About Danu', self)
+        self.about_action.setMenuRole(QAction.MenuRole.AboutRole)
+        self._logged(self.about_action, 'help.about')
+        self.about_action.triggered.connect(lambda: about.show(self))
+        help_.addAction(self.about_action)
+
     # ------------------------------------------------------- preferences
     def keyed_actions(self) -> dict[str, QAction]:
         """Every action whose key the INI holds, by its name there."""
@@ -1148,7 +1155,7 @@ class MainWindow(QMainWindow):
             self.settings.size = size
             self._fill_recent()
         self._pending = None
-        self.setWindowTitle(f'Danu - {ws.centre}')
+        self.setWindowTitle(about.title(ws.centre))
         self._territory.setText('territory: looking…')
         self.territory.refresh()
         # a surface is of a set; a new set makes the old one wrong
@@ -2009,6 +2016,7 @@ def main(argv: list[str] | None = None) -> int:
     quieten_qt()          # before the first request; see danu.ui.messages
     app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(about.__version__)
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir())
     last = session.read(win.session_path) if not args.zone_dir else None

@@ -15,6 +15,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
+from danu import __version__
 from danu.core.square import SquareName
 from danu.ui import mercator as m
 from danu.ui import replay, usage
@@ -109,6 +110,7 @@ def test_each_click_is_written_with_what_it_could_snap_to(run):
     recs = logged(run)
     kinds = [r['kind'] for r in recs]
     assert kinds[0] == 'start' and 'open' in kinds
+    assert recs[0]['danu'] == __version__ and recs[0]['qt'] and recs[0]['platform']
     opened = next(r for r in recs if r['kind'] == 'open')
     assert opened['centre'] == 'S24E125' and str(sq.name) in opened['files']
     presses = [r for r in recs if r['kind'] == 'press']

@@ -5158,3 +5158,25 @@ own. The Store wants a privacy policy URL from an app that signs in or uses
 the network, certifies every update, and names an individual account's holder
 as the publisher; some machines, LTSC and locked-down ones, have no Store.
 
+## J1, a version and a release
+
+One version, in `danu/__init__.py`: `pyproject.toml` reads it from there,
+`debian/changelog` repeats it and a test holds the two equal, and a release is
+its tag. It is 0.2.0, where `danu-server` already was, rather than starting the
+editor again at 0.1.0 beside a package of the same source at 0.2.0.
+
+The window's title carries it, and Help › About gives it with what Danu runs
+on - Python, Qt, PySide6, the platform, GDAL and isofill, each library's
+absence said with why, and a button to copy the lot. The usage log's first
+line carries all but the two libraries, which are not loaded to write it.
+Asked of this machine, About said isofill was not available: the library in
+`~/.local/lib` was a 0.11.0 left from before I6, which the version check
+refuses, and nothing had said so until something asked.
+
+`.github/workflows/release.yml`: a `v` tag that names the source's version
+builds the wheel and `danu-server` with the `isofill` it depends on, on Debian
+13 as util runs it; installs each - the wheel in a clean virtualenv, the two
+packages with apt - and runs it from outside the source tree; and attaches
+them to a draft GitHub Release. A pull request touching what a release is
+made from runs the same, short of the release.
+

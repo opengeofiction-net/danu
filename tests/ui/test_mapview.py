@@ -7,6 +7,7 @@ pytest.importorskip('PySide6')
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
 
+from danu import __version__
 from danu.ui import config
 from danu.ui import mercator as m
 from danu.ui.app import MainWindow
@@ -143,7 +144,7 @@ def test_the_window_constructs_shows_and_reports_the_cursor(qtbot):
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)
-    assert w.windowTitle() == 'Danu'
+    assert w.windowTitle() == f'Danu {__version__}'
     assert 'z' in w._status.text()
     assert [l.name for l in w.layers] == ['ogf-carto', 'ttopo', 'cyclogf']
 

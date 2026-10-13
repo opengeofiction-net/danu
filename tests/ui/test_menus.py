@@ -1,4 +1,4 @@
-"""The menus and panels (H6a): five menus with the water work under Edit's
+"""The menus and panels (H6a): six menus with the water work under Edit's
 own sub-menu, a View menu that reopens every panel, and panels that dock and
 never float - under Wayland a floating panel cannot be moved again.
 """
@@ -21,9 +21,9 @@ def texts(m):
     return [a.text().replace('&', '') for a in m.actions() if not a.isSeparator()]
 
 
-def test_the_menus_are_file_edit_view_elevation_surface(window):
+def test_the_menus_are_file_edit_view_elevation_surface_help(window):
     assert [a.text().replace('&', '') for a in window.menuBar().actions()] == \
-        ['File', 'Edit', 'View', 'Elevation', 'Surface']
+        ['File', 'Edit', 'View', 'Elevation', 'Surface', 'Help']
 
 
 def test_the_water_work_has_a_menu_of_its_own(window):

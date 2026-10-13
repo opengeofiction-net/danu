@@ -43,6 +43,13 @@ server side and the editor are packaged separately - a `.deb` and desktop
 installers - from one codebase, so the preview cannot disagree with the build
 about what a contour means.
 
+## Releasing
+
+The version is `__version__` in `danu/__init__.py`, and `debian/changelog`
+says the same. Change both, merge, and push a tag `v` plus that version: CI
+builds and runs every artefact and attaches them to a draft release, which is
+published by hand once read.
+
 ## Reviewing before the pull request
 
 Every pull request is reviewed by DeepSeek through the workflow in

@@ -1,0 +1,132 @@
+name: Release
+
+# A release is a tag: v0.2.0 builds every artefact, runs each, and attaches
+# them to a draft GitHub Release, which a person reads and publishes. The tag
+# must name the version the source says - danu/__init__.py, which pyproject
+# reads and debian/changelog repeats - or nothing is built.
+#
+# A pull request that touches what the release is made from runs the same
+# builds and runs, and stops short of the release, so a broken release is
+# found before the tag rather than after it. The desktop builds join this as
+# J2 to J4 make them.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - debian/**
+      - pyproject.toml
+      - danu/__init__.py
+      - extern/isofill
+  workflow_dispatch:
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          set -eu
+          v=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('danu/__init__.py').read()).group(1))")
+          deb=$(head -1 debian/changelog | sed -E 's/^danu \(([^)-]+)-[0-9]+\).*/\1/')
+          echo "source $v, debian/changelog $deb"
+          [ "$v" = "$deb" ] || { echo "debian/changelog says $deb, danu/__init__.py $v"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            [ "${GITHUB_REF_NAME}" = "v$v" ] || { echo "tag ${GITHUB_REF_NAME} is not v$v"; exit 1; }
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  # The Python package, built and installed into a clean virtualenv, and asked
+  # its version from outside the source tree - where an import of the
+  # checkout would answer instead of the wheel.
+  wheel:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install build && python -m build
+      - name: run
+        working-directory: /
+        run: |
+          set -eu
+          python -m venv /tmp/w && /tmp/w/bin/pip install -q "$GITHUB_WORKSPACE"/dist/*.whl
+          got=$(/tmp/w/bin/python -c "import danu; print(danu.__version__)")
+          [ "$got" = "${{ needs.version.outputs.version }}" ] || { echo "the wheel says $got"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*
+
+  # danu-server as util installs it, built on Debian 13 - what util runs - with
+  # the isofill it depends on built beside it from the pinned submodule. Both
+  # installed with apt, which resolves the rest, and then run: the package
+  # imports from its installed path, finds the library and accepts its
+  # version, and the build script starts.
+  deb:
+    needs: version
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: |
+          apt-get install -y --no-install-recommends build-essential debhelper dh-python \
+            pybuild-plugin-pyproject python3-all python3-setuptools libgdal-dev
+      - name: build
+        run: |
+          set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p out
+          (cd extern/isofill && dpkg-buildpackage -us -uc -b)
+          dpkg-buildpackage -us -uc -b
+          # each beside its own source tree, as dpkg-buildpackage leaves them
+          mv ../danu-server_*.deb extern/isofill_*.deb out/
+          ls -l out
+      - name: run
+        run: |
+          set -eu
+          apt-get install -y ./out/isofill_*.deb ./out/danu-server_*.deb
+          cd /
+          python3 - <<'PY'
+          import danu
+          from danu.surface import isofill_lib
+          assert danu.__file__.startswith('/usr/lib/python3/dist-packages/'), danu.__file__
+          assert danu.__version__ == '${{ needs.version.outputs.version }}', danu.__version__
+          # load() refuses any isofill but the one isofill_lib speaks to
+          print('danu', danu.__version__, 'isofill', isofill_lib.Isofill.load().version)
+          PY
+          danu-build-zone 2>&1 | grep -q 'usage: danu-build-zone <zone>'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: out/*.deb
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, wheel, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
+      - name: draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ls -l art
+          gh release create "${GITHUB_REF_NAME}" art/* --repo "${GITHUB_REPOSITORY}" \
+            --draft --title "Danu ${{ needs.version.outputs.version }}" --generate-notes
