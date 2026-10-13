@@ -982,15 +982,16 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     largest being zone-yuethon at 18104 MB, and puts the peak near 19.6 GB:
     inside util's guaranteed 24 without leaning on the balloon, which the host
     can reclaim mid-run. Below it the big zones fall to the second pass's
-    out-of-core path, which is an approximation - at 15000, zone-axian took it
-    and came out with a different sea."""
+    out-of-core path. Up to isofill 0.11.0 that was an approximation - at
+    15000, zone-axian took it and came out with a different sea; since 0.12.0
+    it is the same answer, slower where memory is short."""
     cmd = [isofill, '--radius', str(params.fill_cells), '--barrier', str(params.barrier_cells),
            # Keyword and required, both deliberately. Defaulting it to the
            # file's number would let a caller quietly reintroduce the thing
            # this exists to stop, and defaulting it to 0 is no safer: isofill
            # takes the whole raster in core when whole_mb <= max_mem, so a
-           # budget of zero silently bands everything and approximates where it
-           # need not. There is no value that means "not decided".
+           # budget of zero silently bands everything and pages to disk where
+           # it need not. There is no value that means "not decided".
            '--max-mem', str(budget),
            '--mask', str(mask)]
     if water is not None:
