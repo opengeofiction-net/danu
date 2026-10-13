@@ -1069,3 +1069,49 @@ def test_the_windows_contours_burn_into_its_surface(window):
     assert window.contours.ground is window.surface
     assert window.contours.blends(False, QRectF(0, 0, 1, 1)) == [
         (QPainter.CompositionMode.CompositionMode_SourceOver, None)]
+
+
+def test_a_coastlines_marks_point_the_way_it_runs_with_the_sea_on_their_right(view, ws):
+    """West to east, the sea is to the south - +y on a scene whose y runs
+    down - and the marks are COAST_SPACING_PX apart on screen at any zoom.
+    Turned round, they turn with it. A coastline with no ele, which no level
+    draws, is drawn by the marks' pass too."""
+    from danu.core.square import Node, Way
+    from danu.ui.contours import COAST_SPACING_PX
+    sq = ws.squares[SquareName(126, -24)]
+    for i in range(5):
+        sq.nodes[-900 - i] = Node(id=-900 - i, lat=-23.5, lon=126.1 + 0.05 * i)
+    sq.ways[-990] = Way(id=-990, refs=[-900 - i for i in range(5)], tags={'natural': 'coastline', 'ele': '0'})
+    sq.ways[-991] = Way(id=-991, refs=[-900, -901], tags={'natural': 'coastline'})
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    key = (sq.name, -990)
+    assert key in layer.coasts and (sq.name, -991) in layer.coasts
+    for scale in (0.05, 0.5):
+        marks = layer.coast_marks(key, scale)
+        assert len(marks) > 2
+        assert all(dx == pytest.approx(1) and dy == pytest.approx(0, abs=1e-9) for _, _, dx, dy in marks)
+        gaps = {round((b[0] - a[0]) * scale, 6) for a, b in zip(marks, marks[1:], strict=False)}
+        assert gaps == {COAST_SPACING_PX}
+    sq.ways[-990].refs.reverse()
+    layer.refresh(sq, {-990})
+    assert all(dx == pytest.approx(-1) for _, _, dx, _ in layer.coast_marks(key, 0.5))
+    view.scene().addItem(layer)
+    view.set_zoom(14)
+    view.center_on_lonlat(126.2, -23.5)
+    img = render(view)
+    assert layer.drawn_coast_marks > 0
+    # the ticks on the sea side - north of the line now it runs east to
+    # west, and never south of it
+    from danu.ui.contours import COAST_SEA
+    line_y = view.mapFromScene(*m.lonlat_to_scene(126.2, -23.5)).y()
+
+    def sea_pixels(y0, y1):
+        return sum(1 for y in range(y0, y1) for x in range(img.width())
+                   if QColor(img.pixel(x, y)).getRgb()[:3] == COAST_SEA.getRgb()[:3])
+    assert sea_pixels(line_y - 20, line_y - 4) > 0 and sea_pixels(line_y + 3, line_y + 20) == 0
+    sq.ways[-990].tags.pop('natural')
+    sq.ways[-991].tags.pop('natural')
+    layer.refresh(sq, {-990, -991})
+    render(view)
+    assert key not in layer.coasts and layer.drawn_coast_marks == 0
