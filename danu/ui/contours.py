@@ -1174,8 +1174,8 @@ class ContourLayer(QGraphicsItem):
         return [(float(x), float(y), float(dx), float(dy)) for (x, y), (dx, dy) in zip(xy[ok], d[ok], strict=True)]
 
     def _paint_coasts(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
-        """Each coastline in the coast's colour, an arrowhead pointing the way
-        it runs and a tick on its sea side - drawn at every zoom the contours
+        """Each coastline in the coast's colour, a V pointing the way it runs
+        and a tick on its sea side - drawn at every zoom the contours
         are, since one drawn backwards floods the land."""
         self.drawn_coast_marks = 0
         if not self.coasts:
@@ -1190,11 +1190,12 @@ class ContourLayer(QGraphicsItem):
             lines.append(path)
             for x, y, dx, dy in self.coast_marks(key, scale, grown):
                 nx, ny = -dy, dx                          # the sea side
-                tx, ty = x + dx * a * 0.6, y + dy * a * 0.6
-                heads.moveTo(tx, ty)
-                heads.lineTo(tx - dx * a + nx * a * 0.55, ty - dy * a + ny * a * 0.55)
-                heads.lineTo(tx - dx * a - nx * a * 0.55, ty - dy * a - ny * a * 0.55)
-                heads.closeSubpath()
+                # a V, open at the back: a filled triangle reads as pointing
+                # any of three ways, a V only the one
+                tx, ty = x + dx * a * 0.5, y + dy * a * 0.5
+                heads.moveTo(tx - dx * a + nx * a * 0.7, ty - dy * a + ny * a * 0.7)
+                heads.lineTo(tx, ty)
+                heads.lineTo(tx - dx * a - nx * a * 0.7, ty - dy * a - ny * a * 0.7)
                 ticks.moveTo(x + nx * a * 0.5, y + ny * a * 0.5)
                 ticks.lineTo(x + nx * a * 1.6, y + ny * a * 1.6)
                 self.drawn_coast_marks += 1
@@ -1210,12 +1211,14 @@ class ContourLayer(QGraphicsItem):
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         painter.drawPath(ticks)
-        halo = QPen(COAST_HALO, 1.2)
-        halo.setCosmetic(True)
-        halo.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(halo)
-        painter.setBrush(COAST)
-        painter.drawPath(heads)
+        # the V over a light halo, so it stands off the line it sits on
+        for colour, width in ((COAST_HALO, COAST_WIDTH + 2.4), (COAST, COAST_WIDTH)):
+            pen = QPen(colour, width)
+            pen.setCosmetic(True)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(pen)
+            painter.drawPath(heads)
         painter.restore()
 
     def under(self) -> QRectF | None:
