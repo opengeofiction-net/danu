@@ -41,3 +41,8 @@ def test_the_versions_say_why_a_library_is_missing(monkeypatch):
     assert v['danu'] == __version__
     assert v['isofill'] == 'not available (no libisofill could be loaded:)'
     assert v['gdal']
+
+
+def test_the_icon_is_there_at_every_size_it_was_drawn_at():
+    sizes = {s.width() for s in about.icon().availableSizes()}
+    assert sizes == {16, 24, 32, 48, 64, 128, 256}

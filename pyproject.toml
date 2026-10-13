@@ -131,7 +131,7 @@ include = ["danu*"]
 
 # the shipped layer defaults ride inside the package
 [tool.setuptools.package-data]
-"danu.ui" = ["*.toml"]
+"danu.ui" = ["*.toml", "icons/*.png"]
 # the tiles' colour ramp, read by the editor and installed to /etc/danu for the build
 "danu.surface" = ["*.ramp", "*.ini"]
 "danu.params" = ["*.toml"]
