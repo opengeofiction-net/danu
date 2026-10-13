@@ -185,6 +185,7 @@ jobs:
         mingw-w64-ucrt-x86_64-pyside6
         mingw-w64-ucrt-x86_64-python-pytest
         mingw-w64-ucrt-x86_64-python-hypothesis
+        mingw-w64-ucrt-x86_64-python-typing_extensions
     steps:
       - uses: actions/checkout@v4
         with:
@@ -206,7 +207,7 @@ jobs:
       # pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a
       # Rust part, which has no wheel for this platform. pytest-qt is pure
       # Python and MSYS2 has none, so it comes from PyPI, alone, into a venv
-      # that sees the stack
+      # that sees the stack - typing_extensions, its one dependency, MSYS2's
       - name: test tools
         run: |
           set -eu
