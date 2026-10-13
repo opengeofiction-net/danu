@@ -352,12 +352,14 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
     with open(path, 'rb') as f:
         while True:
             block = f.read(chunk)
-            if not block:
-                break
             buf = carry + block
             # a token starting in the last few bytes may not be complete yet, so
-            # it waits for the next block rather than being half-read here
-            limit = len(buf) - _SCAN_OVERLAP if len(block) == chunk else len(buf)
+            # it waits for the next block rather than being half-read here. A
+            # short block is the last, and so is an empty one: a file whose size
+            # is a whole number of blocks ends on a full one, and what that
+            # block held back is read here, not dropped
+            last = len(block) < chunk
+            limit = len(buf) if last else len(buf) - _SCAN_OVERLAP
             for m in _SCAN.finditer(buf):
                 if m.start() >= limit:
                     break
@@ -376,6 +378,8 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
                     has_ele = True
                 else:
                     ele_loose += 1
+            if last:
+                break
             carry = buf[max(limit, 0):]
     return over, drop, longest, ele_ways, ele_loose
 

@@ -12,6 +12,7 @@ import ast
 import pathlib
 import re
 import shutil
+import sys
 import tomllib
 
 import pytest
@@ -26,6 +27,10 @@ pytestmark = pytest.mark.skipif(shutil.which('isofill') is None, reason='isofill
 
 
 SHELL = ROOT / 'server' / 'bin' / 'danu-build-zone'
+# the tests that run that pipeline: bash, on the server. On Windows `bash` is
+# WSL's, and the desktop never runs the pipeline
+server_shell = pytest.mark.skipif(sys.platform == 'win32',
+                                  reason="the server's bash pipeline, which the desktop never runs")
 
 
 def shell_code() -> list[str]:
@@ -544,10 +549,13 @@ def test_the_fill_is_held_to_what_the_machine_has_not_what_the_server_has(monkey
     # to be free would band a raster on Tuesday that it held whole on Monday,
     # and the same mapper would get two surfaces from the same contours. Read
     # before anything is monkeypatched over it
-    with open('/proc/meminfo', encoding='utf-8') as fh:
-        meminfo = dict(line.split(':', 1) for line in fh)
-    total = float(meminfo['MemTotal'].split()[0]) / 1024
-    assert abs(build.machine_mb() - total) < 1.0, 'machine_mb is not the machine total'
+    if sys.platform.startswith('linux'):
+        with open('/proc/meminfo', encoding='utf-8') as fh:
+            meminfo = dict(line.split(':', 1) for line in fh)
+        total = float(meminfo['MemTotal'].split()[0]) / 1024
+        assert abs(build.machine_mb() - total) < 1.0, 'machine_mb is not the machine total'
+    else:                       # asked of the system its own way; that it answers
+        assert build.machine_mb() and build.machine_mb() > 512
 
     monkeypatch.setattr(build, 'machine_mb', lambda: None)
     assert build.memory_budget(p) == p.max_mem_mb, 'a machine that cannot say gets the file'
@@ -691,6 +699,7 @@ def test_the_first_pass_reading_says_where_the_contours_do_not_describe_ground(t
     assert (rgba[shaded.classes == build.UNREACHED][:, 3] > 0).all()
 
 
+@server_shell
 def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
     """Phase 3's ground rule, tested from the other side: the fixture read
     by the editor, written by the editor - a different file from JOSM's,
@@ -717,6 +726,7 @@ def test_a_square_the_editor_wrote_builds_to_the_same_surface(tmp_path):
     assert a.shape == b.shape and int((a != b).sum()) == 0
 
 
+@server_shell
 def test_a_square_drawn_from_blank_saved_by_the_editor_builds_on_the_server_path(tmp_path):
     """Phase 3's exit criterion, as the spec states it: a square can be drawn
     from blank and built by the server unchanged. A square nobody has drawn
