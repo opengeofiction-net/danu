@@ -1,6 +1,7 @@
 """Danu's icon, drawn rather than drawn by hand: contours of a hill over a
 shore, in the relief ramp's colours. Writes the PNGs the window and the Linux
-desktop entry take, and the Windows .ico, which is those PNGs in one file.
+desktop entry take, the Windows .ico, which is those PNGs in one file, and
+the MSIX's tiles.
 
     python packaging/icon/make_icon.py
 
@@ -91,6 +92,14 @@ def main() -> int:
         img.save(str(out / f'danu-{n}.png'))
     (ROOT / 'packaging' / 'windows').mkdir(exist_ok=True)
     (ROOT / 'packaging' / 'windows' / 'danu.ico').write_bytes(ico(images))
+    # the MSIX's tiles, by the names its manifest gives them; the targetsize
+    # forms are what the taskbar and Start take at each scale
+    assets = ROOT / 'packaging' / 'windows' / 'msix' / 'Assets'
+    assets.mkdir(parents=True, exist_ok=True)
+    for name, n in (('Square44x44Logo', 44), ('Square150x150Logo', 150), ('StoreLogo', 50)):
+        draw(n).save(str(assets / f'{name}.png'))
+    for n in (16, 24, 32, 48, 256):
+        draw(n).save(str(assets / f'Square44x44Logo.targetsize-{n}.png'))
     return 0
 
 
