@@ -5111,3 +5111,39 @@ marked, shown with their direction, reversed and imported from the main map
 (#165, #166); and the sea mask drops a seed its step carries across a
 coastline, which took a cone of land behind two islets in N20E086 for sea
 (#167).
+
+## What phase 8 starts from
+
+**The editor has no version.** `pyproject.toml` says 0.0.0; `danu-server` is
+versioned by hand in `debian/changelog`, at 0.2.0-1.
+
+**Nothing is packaged for the desktop.** `packaging/windows` and
+`packaging/linux` are empty. A mapper runs `pip install -e '.[ui]'` and
+`python -m danu.ui`, with GDAL from wherever they can get it and
+`DANU_ISOFILL_LIB` or an `isofill` on `PATH` to find the library.
+
+**Windows is proven in parts.** CI builds and runs `isofill` under MSYS2
+UCRT64 against its GDAL, and runs the UI suite on Windows with PySide6 from
+pip and no GDAL at all. CI has never run the surface on Windows: GDAL's
+Python bindings and `libisofill` have not been in one Windows process there. On
+2026-10-13 MSYS2 UCRT64 has PySide6 6.11.2, the version CI pins, and GDAL
+3.13.3 with its Python bindings, on Python 3.14.
+
+**Linux has the stack in Debian, not in Ubuntu's LTS.** Debian 13 has PySide6
+6.8.2 and testing 6.11.2; the UI suite has only run on 6.11.2. A `.deb` reaches
+Debian 13 and later, so the AppImage is what reaches everyone else.
+
+**A settings UI exists.** Preferences (H6e): the steps, bare rings, where an
+import goes, the keys, the servers and the WMS port.
+
+**A crash goes nowhere.** No exception hook, no fault handler. What there is:
+the usage log (H4c), flushed a line at a time so it survives a crash, and the
+autosave (H4), which puts the edits back at the next start.
+
+**Signing.** Since June 2023 a code signing key must be held in hardware, and
+since 2024 an EV certificate no longer skips SmartScreen's warning: signed or
+not, the warning fades only with downloads. Unsigned, each release starts
+again. Azure Artifact Signing takes individuals only in the US and Canada; an
+OV certificate is roughly $220 to $440 a year; the SignPath Foundation signs
+open source builds for nothing, under its own name, once a release exists.
+

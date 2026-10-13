@@ -1163,10 +1163,63 @@ It ended on its four measures, all met on 2026-10-13:
 
 ### Phase 8
 
-**Phase 8 - release.** Installers for Linux and Windows, GDAL and Qt bundled,
-`isofill` built for both, a settings UI, first-run help, and somewhere for a
-crash to go. Ends when someone who has never opened a terminal can install it
-and draw a contour.
+**Phase 8 - release.** Danu installed and kept up to date by a mapper who has
+never opened a terminal, on Windows and Linux. See *What phase 8 starts from*
+in `implementation.md`.
+
+**One stack a platform, one GDAL a process.** The surface reads GDAL through
+Python's bindings and through `libisofill`, so the two must be the same GDAL.
+On Windows that is MSYS2's UCRT64 environment - Python, PySide6, GDAL and numpy
+from one repository, and `isofill` built by the same compiler against the same
+GDAL, as CI already builds it. Linux has two builds: an AppImage carrying its
+own stack, and a `.deb` beside `danu-server` on the distribution's own.
+
+**Released from a tag.** One version for the editor, from the tag; the
+installers are built and attached to a GitHub Release by CI. Danu says when a
+newer release is out. Unsigned to begin with, so Windows warns on a first run.
+
+In eight steps:
+
+**J1, a version and a release.** The editor carries a version - in the title,
+the About box, the usage log and any crash report. A `v` tag builds every
+artefact, runs each, and attaches them to a draft GitHub Release.
+
+**J2, the Windows installer.** The MSYS2 UCRT64 tree Danu needs, pruned, with
+`isofill` built in it and a launcher, packed by Inno Setup to install per user
+without administrator rights. CI installs it on a clean runner, starts it, and
+builds the golden square's surface with it.
+
+**J3, the AppImage.** Python, PySide6, GDAL and `isofill` in one file, built on
+the oldest base it is to run on. CI runs it as J2 runs the installer.
+
+**J4, the `.deb`.** `danu-editor`, beside `danu-server`, on the distribution's
+PySide6 and GDAL, with a desktop entry and an icon.
+
+**J5, the first run.** With nothing open and nothing to recover, a start page:
+sign in to OGF, import a zone, open a folder of squares. A Help menu with the
+keys, what each layer is, and a link to the wiki page. Preferences gains what
+the release adds.
+
+**J6, a crash.** An exception nothing caught, on any thread, or a fault in C,
+is written to a report beside the usage log - the version, the platform, the
+trace and the last of the log. A dialog shows it, says the autosave has the
+edits, and offers a GitHub issue filled in from it, which the mapper reads and
+submits. A fault that killed the process is offered at the next start. Nothing
+leaves the machine unasked.
+
+**J7, a newer release.** At most once a day, at start, Danu asks GitHub for the
+latest release and says in the status line when it is newer, with a link. It
+can be turned off.
+
+**J8, signing on Windows.** An application to the SignPath Foundation, which
+signs open source builds for nothing, once the first release is out; a cloud
+OV certificate if it is refused or OGF is wanted as the publisher.
+
+Ends when a mapper with no Python, MSYS2 or GDAL installs it on Windows from the
+release, and on Linux from the AppImage and the `.deb`, signs in, imports a
+zone, draws a contour and sees the surface under it; when a crash leaves a
+report and the issue it fills in; and when a newer release is said at start.
+macOS stays under R34: if it is free, not in this phase.
 
 ### Phase scheduling
 
@@ -1249,6 +1302,9 @@ Recorded so the reasoning is not relitigated:
 | handoff | files by email; a drop point is under *Later* |
 | ownership | advisory, never blocking |
 | packaging | a `.deb` on system paths, and desktop installers, from one CI |
+| desktop builds | Windows from MSYS2 UCRT64, one GDAL in the process; Linux as an AppImage and a `.deb` |
+| releases | GitHub Releases from a tag, a check for a newer one at start, unsigned until J8 |
+| crashes | a report on the machine, and a GitHub issue the mapper files from it |
 | testing | pytest, pytest-qt, hypothesis, and a golden-surface regression |
 | sequencing | move, then rename, then the API rebuild goes live |
 | map canvas | `QGraphicsView` in Web Mercator with our own tile layer; not QtWebEngine, not QtLocation |
