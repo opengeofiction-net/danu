@@ -173,3 +173,39 @@ def test_a_height_written_otherwise_but_reading_the_same_is_settled_for_the_butt
     steps = len(w.editor.history._done)
     w.gone_dock.take_all_btn.click()
     assert len(w.editor.history._done) == steps and sq.nodes[502].tags['ele'] == '310.0'
+
+
+# ---------------------------------------------------------------- coastlines
+
+COAST = b"""<osm version="0.6">
+  <node id="11" version="2" lat="-22.5" lon="125.2"/>
+  <node id="12" version="1" lat="-22.5" lon="125.4"/>
+  <way id="101" version="7"><nd ref="11"/><nd ref="12"/><tag k="natural" v="coastline"/></way>
+</osm>"""
+
+
+def test_the_coastline_import_is_one_step_at_sea_level_and_drawn_with_its_direction(window):
+    w = window
+    sq = w.working_set.squares[NORTH]
+    before = edits.snapshot(sq)
+    w.coast._fetch = lambda bounds: COAST
+    w.coast._runner = lambda job: job.run()
+    w.edit_actions['edit.import_coastline'].trigger()
+    assert sq.ways[101].tags == {'natural': 'coastline', 'ele': '0'} and sq.ways[101].version == 7
+    assert 'imported 1 coastline way at 0 m' in w.statusBar().currentMessage()
+    assert (NORTH, 101) in w.contours.coasts, 'drawn as a coastline, its direction shown'
+    w.editor.undo()
+    assert edits.snapshot(sq) == before
+
+
+def test_a_held_coastline_upstream_no_longer_has_is_reported_and_kept(window):
+    w = window
+    sq = w.working_set.squares[NORTH]
+    w.coast._fetch = lambda bounds: COAST
+    w.coast._runner = lambda job: job.run()
+    w.edit_actions['edit.import_coastline'].trigger()
+    w.coast._fetch = lambda bounds: b'<osm version="0.6"></osm>'
+    w.edit_actions['edit.import_coastline'].trigger()
+    assert 101 in sq.ways, 'deleted'
+    assert [(g.id, g.what) for g in w.gone_from_upstream] == [(101, 'coastline')]
+    assert 'no coastline in this working set; 1 held no longer upstream, kept' in w.statusBar().currentMessage()

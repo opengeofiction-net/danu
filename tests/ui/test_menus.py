@@ -30,13 +30,15 @@ def test_the_water_work_has_a_menu_of_its_own(window):
     edit = menu(window, 'Edit')
     assert texts(edit) == ['Undo', 'Redo', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Select',
                            'Draw contour', 'Place spot height', 'Measure', 'Water', 'Spot height',
-                           'Cut out the loop chosen']
+                           'Coastline', 'Cut out the loop chosen']
     water = next(a.menu() for a in edit.actions() if a.text() == '&Water')
     e = window.edit_actions
     assert water.actions() == [e['edit.import_water'], e['edit.set_level'], e['edit.grade'],
                                e['edit.grade_network'], e['edit.flatten'], e['edit.burn'], e['edit.burn_all']]
     heights = next(a.menu() for a in edit.actions() if a.text() == 'Spot &height')
     assert heights.actions() == [e['edit.import_heights']]
+    coastline = next(a.menu() for a in edit.actions() if a.text() == '&Coastline')
+    assert coastline.actions() == [e['edit.import_coastline'], e['edit.reverse_coastline']]
 
 
 def test_the_surface_in_josm_is_under_surface(window):
@@ -113,7 +115,8 @@ def test_single_level_ground_waits_on_unknown_ground(window):
     assert single.isEnabled()
 
 
-@pytest.mark.parametrize('name', ['edit.set_level', 'edit.import_heights', 'view.josm_surface'])
+@pytest.mark.parametrize('name', ['edit.set_level', 'edit.import_heights', 'edit.import_coastline',
+                                  'edit.reverse_coastline', 'view.josm_surface'])
 def test_a_key_still_reaches_an_action_in_a_sub_menu(window, name):
     fired = []
     a = window.edit_actions[name]
