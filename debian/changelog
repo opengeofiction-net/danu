@@ -1,3 +1,15 @@
+danu (0.2.0-1) unstable; urgency=medium
+
+  * The surface is danu.surface.build, the code the editor runs, rather than
+    the shell pipeline's own stages: the squares read and nothing else, water
+    from the squares, the sea mask's seeds dropped where their step crosses a
+    coastline, and isofill through its library where the raster fits.
+    danu-build-zone keeps what only a publisher needs.
+  * Depends on isofill 0.12.0 or later: the library is checked for the
+    version this speaks to, and 0.12.0's second pass is exact out of core.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Tue, 13 Oct 2026 20:45:00 +0100
+
 danu (0.1.4-1) unstable; urgency=medium
 
   * Drop --no-start from the soak units. An upgrade stopped a running soak
