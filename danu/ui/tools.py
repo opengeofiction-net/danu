@@ -717,6 +717,14 @@ class EditController(QObject):
         self.message.emit('a coastline now: land on the left of the way it runs, sea on the right - '
                           'R reverses it' if on else 'a 0 m contour again, not a coastline')
 
+    def toggle_coastline(self):
+        """K: the 0 m line selected made the coastline, or the coastline
+        selected a plain 0 m contour again - Edit › Coastline's Mark, the
+        panel's Coastline button by key."""
+        sel = self.selection
+        way = sel.way if sel is not None and sel.relation is None else None
+        self.mark_coastline(not (way is not None and is_coastline(way)))
+
     def reverse_coastline(self):
         """R: the coastline selected turned round, so the sea is on its other
         side - the one edit that changes which way a coastline runs."""

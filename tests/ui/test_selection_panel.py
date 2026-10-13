@@ -424,3 +424,21 @@ def test_reverse_on_anything_but_a_coastline_says_why(w):
     w.edit_actions['edit.reverse_coastline'].trigger()
     assert way.refs == refs
     assert 'only a coastline has a direction that matters' in w.statusBar().currentMessage()
+
+
+def test_mark_in_the_menu_makes_the_line_selected_a_coastline_and_takes_it_off_again(w):
+    sq, way = sea_level(w)
+    w.editor.selection = Selection(sq, way)
+    mark = w.edit_actions['edit.mark_coastline']
+    mark.trigger()
+    assert way.tags == {'ele': '0', 'natural': 'coastline'} and w.selection_panel.coast_btn.isChecked()
+    mark.trigger()
+    assert way.tags == {'ele': '0'} and not w.selection_panel.coast_btn.isChecked()
+    sq, contour_ = contour(w)
+    w.editor.selection = Selection(sq, contour_)
+    mark.trigger()
+    assert 'natural' not in contour_.tags
+    assert 'only a sea-level line' in w.statusBar().currentMessage()
+    w.editor.selection = None
+    mark.trigger()
+    assert 'choose a 0 m line' in w.statusBar().currentMessage()

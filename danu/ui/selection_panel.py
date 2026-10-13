@@ -376,7 +376,7 @@ class SelectionPanel(QDockWidget):
         self.network_btn.clicked.connect(editor.grade_network)
         form.addRow('', self.network_btn)
         # a 0 m line made the coastline, or not, and a coastline turned round
-        self.coast_btn = QPushButton('Coastline')
+        self.coast_btn = QPushButton('Coastline (K)')
         self.coast_btn.setCheckable(True)
         self.coast_btn.setToolTip('A 0 m line that is the coast: land on the left of the way it runs, '
                                   'sea on the right')
