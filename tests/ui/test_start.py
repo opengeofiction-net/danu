@@ -86,6 +86,7 @@ def test_it_follows_the_map_when_the_window_is_resized(bare, qtbot):
     bare.resize(bare.width() + 300, bare.height() + 200)
     qtbot.waitUntil(lambda: abs(bare.start.geometry().center().x()
                                 - bare.map.viewport().geometry().center().x()) <= 1, timeout=2000)
+    assert bare.map.viewport().geometry().contains(bare.start.geometry())
 
 
 def test_a_window_with_a_square_open_has_no_start_page(window):

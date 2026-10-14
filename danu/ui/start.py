@@ -49,7 +49,6 @@ class StartCard(QFrame):
         opn = QLabel('…or open squares already on this machine')
         opn.setWordWrap(True)
         self.open_ = self._step(steps, 2, '3', opn, 'Open…', open_)
-        self._sign_in_action = sign_in
 
         box = QVBoxLayout(self)
         box.setContentsMargins(20, 16, 20, 18)
