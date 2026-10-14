@@ -5376,3 +5376,33 @@ log says it is up.
 The desktop entry is in Science, Geography and Maps; with Graphics as well it
 named two main categories, and `desktop-file-validate` warned that it would
 appear twice in a menu.
+
+## J5a, the start page
+
+Danu starts by putting back the last session, or failing that by opening the
+most recent square, so a mapper who has used it never sees a start page. One
+who has not - or whose squares are gone from where they were - used to see a
+map and a window of greyed-out panels, with nothing to say that File holds
+the way in.
+
+Now, while nothing is open and nothing is being read, a card sits in the
+middle of the map (`danu/ui/start.py`): Danu and its version, a line on what
+it is for, and the three steps - sign in to OGF, so Danu can say which
+territories are yours; import your zone from the server; or open squares
+already on this machine. Signed in, the first step says as whom. Each button
+triggers the File menu's own action, so the card and the menu are one path
+and the usage log names the step as it names the menu item. The map stays
+live behind it, the tiles and the territories on it, so a mapper can look for
+their zone before importing it. The card goes as soon as a square is being
+read, and comes back if the read fails with nothing else open. The window does
+not show it by itself: at start the session is put back after the window is
+made, and `main` asks for the card only once it knows nothing is opening.
+
+It narrows to fit the map, to no less than 260 px: on Windows' CI the window
+came up at the platform's first size, the map between the docks was 68 px
+wide, and a card of a fixed 420 was all but clipped away.
+
+A card over the map rather than a dialog, which once closed is gone, or a
+page in place of the map, which hides the territories the mapper is looking
+for. Help's getting-started page (J5b) and a preference to show it again
+(J5c) follow.
