@@ -22,6 +22,7 @@ pytest.importorskip('PySide6')
 from PySide6.QtCore import QEvent, QPointF, Qt, QThreadPool
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QMenu
 
 from danu.core import edits
 from danu.core.square import Square, SquareName, write_square
@@ -131,6 +132,19 @@ def window(qtbot, zone, tmp_path, territory_files):
     w.map.set_zoom(12)
     w.activateWindow()
     return w
+
+
+def menu(parent, title):
+    """The menu called title on a menu bar or in a menu, found among parent's
+    children rather than through QAction.menu(): on PySide6 6.8, Debian 13's,
+    the menu that returns is lost with the action's wrapper, and a one-liner
+    that lets the action go - next(a.menu() for a in ...) - was left holding
+    a deleted object. The menus themselves are fine; the editor holds each
+    action while it uses its menu."""
+    found = [m for m in parent.findChildren(QMenu, options=Qt.FindChildOption.FindDirectChildrenOnly)
+             if m.title().replace('&', '') == title]
+    assert len(found) == 1, f'{len(found)} menus called {title}'
+    return found[0]
 
 
 def cursor_to(w, lon, lat):

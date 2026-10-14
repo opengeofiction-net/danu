@@ -13,6 +13,8 @@ from danu.core.square import SquareName, read_square, write_square
 from danu.ui import app as app_module
 from tests.test_mirror import BASE, Server
 
+from .conftest import menu
+
 TEN = SquareName(126, -24)
 TEN_FILE = 'S24E126_Tenmetre.osm.xz'
 
@@ -49,7 +51,7 @@ def ways_at(sq, ele):
 
 
 def test_import_is_in_the_file_menu(window):
-    assert window.import_action in window.menuBar().actions()[0].menu().actions()
+    assert window.import_action in menu(window.menuBar(), 'File').actions()
 
 
 def test_a_zone_is_offered_from_the_servers_list_the_open_one_first(w):

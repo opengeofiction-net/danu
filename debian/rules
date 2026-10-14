@@ -14,7 +14,8 @@ export PYBUILD_NAME=danu
 # quietly undoes the --no-enable above. The soak service is safe either way,
 # because it has no [Install] at all; the timer is the one this protects.
 # Adding a unit here means adding it to the second line too, or it ships
-# un-enabled.
+# un-enabled. -p: the units are the server's, and named units are looked for
+# in every package the call acts on.
 #
 # --no-enable, but not --no-start. An upgrade stops the package's units and
 # then starts them again, and --no-start skips that second half: a soak that
@@ -23,6 +24,14 @@ export PYBUILD_NAME=danu
 # deb-systemd-invoke will not start a unit that is disabled or static, so a
 # fresh install still leaves both soak units alone.
 override_dh_installsystemd:
-	dh_installsystemd --no-enable danu-soak.service danu-soak.timer
-	dh_installsystemd danu-build.service danu-build.timer \
+	dh_installsystemd -pdanu-server --no-enable danu-soak.service danu-soak.timer
+	dh_installsystemd -pdanu-server danu-build.service danu-build.timer \
 		danu-backup.service danu-backup.timer
+
+# The editor's icon, at each size packaging/icon draws, where the desktop
+# looks for it under the name danu.desktop gives
+execute_after_dh_install:
+	for s in 16 24 32 48 64 128 256; do \
+		install -D -m 644 danu/ui/icons/danu-$$s.png \
+			debian/danu-editor/usr/share/icons/hicolor/$${s}x$$s/apps/danu.png; \
+	done

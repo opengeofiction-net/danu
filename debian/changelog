@@ -1,3 +1,14 @@
+danu (0.2.0-2) unstable; urgency=medium
+
+  * The editor packaged: danu-editor, on the distribution's PySide6 and GDAL,
+    with a desktop entry and an icon.
+  * The Python package moves to python3-danu, which danu-editor and
+    danu-server both depend on.
+  * The sea level check finds OGR's in-memory driver by either name, as
+    GDAL 3.10 has it, rather than only by 3.11's.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Wed, 14 Oct 2026 09:00:00 +0100
+
 danu (0.2.0-1) unstable; urgency=medium
 
   * The surface is danu.surface.build, the code the editor runs, rather than

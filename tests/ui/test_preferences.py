@@ -10,6 +10,8 @@ from danu.ui import app as app_module
 from danu.ui.preferences import PreferencesDialog
 from danu.ui.settings import DEFAULT_KEYS, default_url
 
+from .conftest import menu
+
 
 @pytest.fixture
 def dlg(window):
@@ -32,7 +34,7 @@ def test_every_rebindable_action_is_named_as_the_menus_have_it(window):
 
 
 def test_the_preferences_are_in_the_file_menu(window):
-    file = window.menuBar().actions()[0].menu()
+    file = menu(window.menuBar(), 'File')
     assert window.preferences_action in file.actions()
 
 

@@ -133,10 +133,11 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
         return []                          # inland: nothing drawn at sea level to compare with
     from osgeo import gdal, ogr
 
+    from ..surface.land_clamp import ogr_memory_driver
     from .zero_line import nearest_metres
     gdal.UseExceptions()
     ds = gdal.Open(str(dem_path))
-    src = ogr.GetDriverByName('MEM').CreateDataSource('zero')
+    src = ogr_memory_driver().CreateDataSource('zero')     # MEM or, before GDAL 3.11, Memory
     layer = src.CreateLayer('zero')
     layer.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
     # between the sea's 0 and the land's 1 m, where the clamp puts the lowest land
