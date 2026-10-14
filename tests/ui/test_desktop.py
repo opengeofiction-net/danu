@@ -27,7 +27,9 @@ def exec_argv(value: str) -> list[str]:
     quoting, then a doubled % - one quoted argument here."""
     s = re.sub(r'\\(.)', lambda m: {'s': ' ', 'n': '\n', 't': '\t', 'r': '\r'}.get(m[1], m[1]), value)
     assert s.startswith('"') and s.endswith('"'), value
-    return [re.sub(r'\\([\\"`$])', r'\1', s[1:-1]).replace('%%', '%')]
+    arg = re.sub(r'\\([\\"`$])', r'\1', s[1:-1])
+    assert '%' not in arg.replace('%%', ''), f'a field code in {value}'      # %c, %f... are the desktop's
+    return [arg.replace('%%', '%')]
 
 
 @pytest.fixture
