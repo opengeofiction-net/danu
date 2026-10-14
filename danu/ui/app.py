@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -38,6 +38,7 @@ from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
 from . import about, config, josm, oauth, session, wms
 from . import autosave as autosave_ui
+from . import help as help_ui
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
@@ -980,11 +981,40 @@ class MainWindow(QMainWindow):
         self.surface_actions = {'surface.pinch': self.pinch_action}
 
         help_ = self.menuBar().addMenu('&Help')
+        # J5b: the three pages, and the wiki page that is Danu's from outside
+        self.help_window = None
+        self.open_url = None                         # the tests' to hand in; the browser otherwise
+        self.help_actions: dict[str, QAction] = {}
+        for name, text in (('getting-started', '&Getting started'), ('keys', '&Keys'), ('layers', '&Layers')):
+            a = QAction(text, self)
+            self._logged(a, f'help.{name}')
+            a.triggered.connect(lambda _=False, n=name: self.show_help(n))
+            help_.addAction(a)
+            self.help_actions[name] = a
+        self.help_actions['getting-started'].setShortcut(QKeySequence.StandardKey.HelpContents)
+        help_.addSeparator()
+        self.wiki_action = QAction('Danu on the OGF &wiki', self)
+        self.wiki_action.triggered.connect(lambda: self._open(help_ui.WIKI))
+        help_.addAction(self.wiki_action)
+        help_.addSeparator()
         self.about_action = QAction('&About Danu', self)
         self.about_action.setMenuRole(QAction.MenuRole.AboutRole)
         self._logged(self.about_action, 'help.about')
         self.about_action.triggered.connect(lambda: about.show(self))
         help_.addAction(self.about_action)
+
+    def show_help(self, name: str) -> None:
+        """A page of Help, in the one Help window."""
+        if self.help_window is None:
+            self.help_window = help_ui.HelpWindow(self.action_labels, self.settings.key, self,
+                                                  open_url=self._open)
+        self.help_window.show_page(name)
+
+    def _open(self, url: str) -> None:
+        if self.open_url is not None:
+            self.open_url(url)
+        else:
+            QDesktopServices.openUrl(QUrl(url))
 
     # ------------------------------------------------------- preferences
     def keyed_actions(self) -> dict[str, QAction]:

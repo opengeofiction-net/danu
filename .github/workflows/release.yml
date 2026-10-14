@@ -63,6 +63,13 @@ jobs:
           python -m venv /tmp/w && /tmp/w/bin/pip install -q "$GITHUB_WORKSPACE"/dist/*.whl
           got=$(/tmp/w/bin/python -c "import danu; print(danu.__version__)")
           [ "$got" = "${{ needs.version.outputs.version }}" ] || { echo "the wheel says $got"; exit 1; }
+          # the package data the editor reads at run time: its layers, its icons, its help
+          /tmp/w/bin/python - <<'PY'
+          from importlib import resources
+          ui = resources.files('danu.ui')
+          for f in ('default-layers.toml', 'icons/danu-256.png', 'help/getting-started.md', 'help/layers.md'):
+              assert (ui / f).is_file(), f'the wheel has no danu/ui/{f}'
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: wheel
