@@ -19,7 +19,10 @@ def new_window(qtbot, tmp_path, territory_files):
                    territory_fetcher=fetcher)
     w.prompt_on_close = False
     qtbot.addWidget(w)
-    w.resize(1100, 750)       # a window's first size is the platform's: on Windows' CI the map was 68 px
+    # the map as wide as the window: on Windows' CI the window cannot be made
+    # as big as asked, and the map between the docks was 68 px
+    for d in w.docks():
+        d.hide()
     w.show()
     qtbot.waitExposed(w)
     return w
@@ -91,8 +94,6 @@ def test_it_follows_the_map_when_the_window_is_resized(bare, qtbot):
 
 
 def test_on_a_narrow_map_it_narrows_to_fit(bare, qtbot):
-    for d in bare.docks():
-        d.setMinimumWidth(0)
     side = bare.width() - bare.map.viewport().width()
     bare.resize(side + 330, bare.height())
     qtbot.waitUntil(lambda: bare.map.viewport().width() <= 340, timeout=2000)
