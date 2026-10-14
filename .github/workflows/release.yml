@@ -108,7 +108,10 @@ jobs:
           mkdir -p prev
           python3 - "$GITHUB_REPOSITORY" <<'PY'
           import json, sys, urllib.request
-          rel = json.load(urllib.request.urlopen(f'https://api.github.com/repos/{sys.argv[1]}/releases/latest'))
+          # the newest published release, pre-releases included: releases/latest
+          # skips those, and v0.2.0 is one
+          rels = json.load(urllib.request.urlopen(f'https://api.github.com/repos/{sys.argv[1]}/releases'))
+          rel = next(r for r in rels if not r['draft'])
           for a in rel['assets']:
               if a['name'].startswith(('danu-server_', 'isofill_')) and a['name'].endswith('.deb'):
                   print(rel['tag_name'], a['name'])

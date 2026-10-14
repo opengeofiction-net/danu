@@ -278,7 +278,13 @@ jobs:
             python3-pytest python3-pytestqt python3-hypothesis fonts-dejavu-core
       - name: build isofill
         run: make -C extern/isofill isofill libisofill.so
-      - run: PATH="$PWD/extern/isofill:$PATH" python3 -m pytest tests -q -p no:cacheprovider
+      # two runs, as the jobs above make them: in one process, a UI test of the
+      # modules the import check borrows failed after the core suite had
+      # imported them first
+      - run: |
+          export PATH="$PWD/extern/isofill:$PATH"
+          python3 -m pytest tests -q -p no:cacheprovider --ignore=tests/ui
+          python3 -m pytest tests/ui -q -p no:cacheprovider
         env:
           PYTHONPATH: .
           DANU_ISOFILL_LIB: ${{ github.workspace }}/extern/isofill/libisofill.so
