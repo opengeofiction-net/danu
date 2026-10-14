@@ -5398,6 +5398,10 @@ read, and comes back if the read fails with nothing else open. The window does
 not show it by itself: at start the session is put back after the window is
 made, and `main` asks for the card only once it knows nothing is opening.
 
+It narrows to fit the map, to no less than 260 px: on Windows' CI the window
+came up at the platform's first size, the map between the docks was 68 px
+wide, and a card of a fixed 420 was all but clipped away.
+
 A card over the map rather than a dialog, which once closed is gone, or a
 page in place of the map, which hides the territories the mapper is looking
 for. Help's getting-started page (J5b) and a preference to show it again

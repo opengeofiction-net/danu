@@ -23,6 +23,10 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QVBoxLay
 
 from .. import __version__
 
+WIDTH = 420                # the card's width where the map has room for it
+NARROWEST = 260            # and the least it narrows to on a map that has not
+MARGIN = 12                # between the card and the map's edge
+
 
 class StartCard(QFrame):
     def __init__(self, view: QWidget, sign_in: QAction, import_: QAction, open_: QAction):
@@ -57,7 +61,6 @@ class StartCard(QFrame):
         box.addWidget(what)
         box.addSpacing(4)
         box.addLayout(steps)
-        self.setFixedWidth(420)
         # the viewport's resize, held by name: see danu.ui.legend
         self._viewport = view.viewport()
         self._viewport.installEventFilter(self)
@@ -100,8 +103,11 @@ class StartCard(QFrame):
         return False
 
     def place(self) -> None:
-        """In the middle of the map, or as much of it as there is."""
-        self.adjustSize()
+        """In the middle of the map, narrowed to fit it: a small window's map
+        between the docks can be narrower than the card, and the view clips
+        what overhangs it."""
         vp = self._viewport.geometry()
+        self.setFixedWidth(max(NARROWEST, min(WIDTH, vp.width() - 2 * MARGIN)))
+        self.adjustSize()
         self.move(vp.left() + max(0, (vp.width() - self.width()) // 2),
                   vp.top() + max(0, (vp.height() - self.height()) // 2))
