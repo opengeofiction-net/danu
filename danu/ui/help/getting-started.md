@@ -25,6 +25,11 @@ the squares open with unsaved edits are kept.
 the ground can be seen across the square's edges. **File › Open recent** has
 the last few.
 
+Ground nobody has drawn yet starts with **File › New blank square…**, or
+**New…** on the start page: choose the zone's folder, and the square offered
+is the one in the middle of the map. **Help › Start page** brings the start
+page back over whatever is open.
+
 ## 4. Draw
 
 - **A** draws a contour at the *active* elevation, shown in the Elevation

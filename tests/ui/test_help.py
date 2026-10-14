@@ -22,7 +22,7 @@ def opened(window):
 
 def test_help_has_the_three_pages_the_wiki_and_about(window):
     texts = [a.text().replace('&', '') for a in menu(window.menuBar(), 'Help').actions() if not a.isSeparator()]
-    assert texts == ['Getting started', 'Keys', 'Layers', 'Danu on the OGF wiki', 'About Danu']
+    assert texts == ['Getting started', 'Keys', 'Layers', 'Start page', 'Danu on the OGF wiki', 'About Danu']
 
 
 @pytest.mark.parametrize('name', ['getting-started', 'layers'])

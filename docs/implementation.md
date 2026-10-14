@@ -5434,3 +5434,51 @@ that action's default, every way the surface panel shows the surface and every
 base map is on the layers page, every binding is on the keys page, and a
 rebinding shows there. The release's wheel check asks for the help pages
 among its package data.
+
+## J5c, the preferences the release adds
+
+**The theme.** Preferences › General › Theme: follow the desktop, the
+default, or light or dark whatever the desktop is (`danu/ui/theme.py`). Qt
+6.8 can be asked for a colour scheme, and where the platform theme honours
+the request that is all it takes. Measured on Qt 6.11 under Wayland, GNOME's
+honoured both; the portal theme the AppImage runs with honoured neither, and
+nor does the offscreen platform the tests run on. There Danu sets the palette
+itself: Fusion's light one, or a dark one of its own. GNOME's dark palette,
+copied, made a poor fallback - its fields are the window's colour and
+Fusion's outlines are darker still, and drawn by Fusion without the theme
+behind it an unticked box, a radio button and a placeholder all but
+vanished; the one written here has the fields darker than the window and the
+lines lighter. It is applied in `main` before the first widget, and at once
+from the preferences. The map's buttons and the Elevation panel's "i" are
+drawn in the palette's colours, once, and so stayed in the old ones after a
+change; they are drawn again on a palette change, which also covers a desktop
+that turns dark while Danu runs.
+
+**The applications menu.** An AppImage is one file nothing installs, so the
+desktop's menu has no Danu in it. Run from one - `$APPIMAGE`, which the
+runtime sets - the start page asks once whether to add it, and Preferences
+has a box for it after (`danu/ui/desktop.py`): `danu.desktop` under
+`$XDG_DATA_HOME/applications`, the packaged entry with Exec and TryExec the
+AppImage's path, and the icon at each size under `icons/hicolor`. The path is
+quoted as the Desktop Entry spec has it - a `%` doubled, `"`, `` ` ``, `$`
+and `\` escaped inside the quotes, and the whole escaped again as a string
+value - and a test reads it back the way the spec does. The entry carries
+`X-Danu-AppImage`, the AppImage it runs: an entry the mapper wrote is never
+removed or rewritten, and one naming an AppImage that is gone - moved, or a
+newer one run and the old deleted - is taken over by the AppImage running.
+
+**The start page, again.** Help › Start page shows it over whatever is open,
+with a Close; and a preference shows it at every start, over the squares put
+back from last time. Opening other squares closes it.
+
+**A new square from nothing.** File › New blank square… needed a working set
+open, for its zone; a mapper starting a territory has none. The start page
+has it as a fourth step, and with nothing open it asks for the zone's folder
+and offers the square in the middle of the map, then opens the set round it.
+A square the zone has already, under any file name the build would read, is
+refused.
+
+**The portal's message.** Under the AppImage, Qt's portal theme says once a
+run that it could not register the app id - the portal already knows the
+connection by the desktop file. `danu.ui.messages` filters it, counted with
+the network chatter.

@@ -1,4 +1,4 @@
-"""The terminal's contents: Qt's network chatter out, everything else in."""
+"""The terminal's contents: Qt's network and portal chatter out, everything else in."""
 
 import atexit
 
@@ -23,6 +23,10 @@ from danu.ui import messages
     ('', 'while fetching a tile: QIODevice::read (QSslSocket): device not open', False),
     ('', '  QIODevice::read (QSslSocket): device not open  ', True),   # bare, whatever the spacing
     ('default', 'the surface could not be built', False),
+    # the portal, refusing the app id the desktop file already gave it
+    ('qt.qpa.services', 'Failed to register with host portal QDBusError("org.freedesktop.portal.Error.Failed", '
+                        '"Could not register app ID: Connection already associated with an application ID")', True),
+    ('qt.qpa.services', 'Failed to register with host portal: something else', False),
 ])
 def test_what_counts_as_chatter(category, text, noise):
     assert messages.is_noise(category, text) is noise

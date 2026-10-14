@@ -238,6 +238,42 @@ class Settings:
     def bare_min_hectares(self, ha: float):
         self.q.setValue('checks/bare_min_hectares', float(ha))
 
+    # ------------------------------------------------------------ the look
+    @property
+    def theme(self) -> str:
+        """'auto', 'light' or 'dark' (J5c): the desktop's scheme, or one
+        whatever the desktop is."""
+        v = str(self.q.value('appearance/theme', 'auto') or 'auto')
+        return v if v in ('auto', 'light', 'dark') else 'auto'
+
+    @theme.setter
+    def theme(self, v: str):
+        self.q.setValue('appearance/theme', v)
+
+    def _flag(self, key: str, default: bool) -> bool:
+        # an INI holds 'true' and 'false' as text, which bool() takes as true
+        v = self.q.value(key, default)
+        return v if isinstance(v, bool) else str(v).lower() in ('true', '1', 'yes')
+
+    @property
+    def start_always(self) -> bool:
+        """The start page at start even when a square opens (J5c), over it."""
+        return self._flag('start/always', False)
+
+    @start_always.setter
+    def start_always(self, v: bool):
+        self.q.setValue('start/always', bool(v))
+
+    @property
+    def menu_offered(self) -> bool:
+        """The start page has offered the AppImage a place in the
+        applications menu, and been answered (J5c): it asks once."""
+        return self._flag('start/menu_offered', False)
+
+    @menu_offered.setter
+    def menu_offered(self, v: bool):
+        self.q.setValue('start/menu_offered', bool(v))
+
     # ------------------------------------------------------------ the servers
     # Each read where it is used, so one changed in the preferences (H6e)
     # holds from the next use on. Empty, or absent, is the default.

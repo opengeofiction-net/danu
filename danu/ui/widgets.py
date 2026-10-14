@@ -9,7 +9,7 @@ and the fields elsewhere carry none. It is a small "m" to the right now.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
@@ -31,12 +31,20 @@ def unit(field: QWidget, text: str = 'm') -> QWidget:
     return box
 
 
+class _Info(QLabel):
+    def changeEvent(self, event) -> None:
+        # drawn again in a palette that has changed: the theme (J5c)
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange:
+            self.setPixmap(_info_pixmap(self.palette().color(QPalette.ColorRole.WindowText)))
+
+
 def info(text: str) -> QLabel:
     """An "i" whose tooltip is ``text`` - an explanation kept out of the
     panel until it is asked for. Drawn flat in the text colour, as the map's
     icons are: the style's own information icon is a blue disc, and stood
     out from everything round it."""
-    label = QLabel()
+    label = _Info()
     label.setPixmap(_info_pixmap(label.palette().color(QPalette.ColorRole.WindowText)))
     label.setToolTip(text)
     return label

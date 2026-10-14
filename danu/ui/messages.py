@@ -12,6 +12,16 @@ logs one per stream, and a session of panning brings dozens. Neither is ours
 to answer - the socket is read inside Qt, and the shutdown is the server's -
 and together they bury the messages that are ours, and GDAL's.
 
+A third is the desktop portal's, once a run, under the AppImage (J5c)::
+
+    qt.qpa.services: Failed to register with host portal QDBusError(
+        "org.freedesktop.portal.Error.Failed", "Could not register app ID:
+        Connection already associated with an application ID")
+
+The portal knows an application by the desktop file it was started from, and
+refuses a second name for the same connection; Danu works the same either
+way - the colour scheme is read from the portal all the same.
+
 Turning HTTP/2 off would end the GOAWAY reports by ending HTTP/2. Measured
 against tile.opengeofiction.net, 48 tiles at zoom 13: 0.92 s and 2.44 s over
 HTTP/2, 2.28 s and 3.51 s over HTTP/1.1. A canvas asks for thirty tiles at
@@ -46,6 +56,7 @@ NOISE = frozenset({
 # Qt saying it differently means one line through, not a line lost
 NOISY = {
     'qt.network.http2': ('GOAWAY', 'signaled shutdown'),
+    'qt.qpa.services': ('Could not register app ID',),
 }
 
 suppressed = 0
@@ -59,7 +70,7 @@ def is_noise(category: str, text: str) -> bool:
 
 def _report():
     if suppressed:
-        print(f'danu: {suppressed} Qt network message(s) not shown'
+        print(f'danu: {suppressed} Qt message(s) not shown'
               ' - DANU_QT_MESSAGES=all to see them', file=sys.stderr)
 
 
