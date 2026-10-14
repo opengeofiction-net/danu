@@ -1,0 +1,7 @@
+# What the AppImage is made of, from conda-forge: the versions the Windows
+# tree has from MSYS2, so the two platforms run one stack. conda-forge builds
+# against glibc 2.17, and everything here asks for no newer.
+python=3.14
+pyside6=6.11.2
+gdal=3.13.3
+numpy=2.5.4
