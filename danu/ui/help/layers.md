@@ -23,11 +23,12 @@ The ground the contours make, once it has been built (**Ctrl+R**). The Surface
 panel's **Show** chooses how:
 
 - **shaded relief** - colour by height, shaded by the slope.
-- **hillshade** - the shading alone, as the published hillshade is.
+- **hillshade** - the shading alone.
 - **relief** - colour by height alone.
 - **slope** - steepness.
-- **difference** - against the surface the server last published: higher red,
-  lower blue, unchanged clear. What has your editing actually changed?
+- **difference** - against the surface the server last published: red where
+  yours is higher, blue where it is lower, clear where it has not moved. What
+  has your editing actually changed?
 
 **Ramp** is the colours by height, and **Scaling** what range they are spread
 over: the whole set's land, the land on screen, a range you give, or pinched
@@ -42,7 +43,7 @@ does **Alt** with the mouse wheel.
 - **Unknown ground** - where the contours say nothing and the build found no
   answer: ground a contour is missing from.
 - **Single-level ground** - within the unknown, the cells that see one level
-  only, mostly beside contours.
+  only, mostly beside contours. It shows only while unknown ground does.
 - **Envelope** - the outline of the ground the contours describe; the surface
   is not filled beyond it.
 

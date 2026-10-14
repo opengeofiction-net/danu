@@ -14,8 +14,9 @@ and opening squares work without it.
 
 **File › Import…** lists the zones on the server and copies the chosen one's
 squares to this machine - into the folder Preferences names under *where an
-import goes*. Import again later to bring in what others have sent since; a
-square you have edited is kept unless you say otherwise.
+import goes*. Import again later to bring in what others have sent since: a
+square that differs from the server's is overwritten only if you say so, and
+the squares open with unsaved edits are kept.
 
 ## 3. Open a square
 
