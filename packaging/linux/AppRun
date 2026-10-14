@@ -1,0 +1,31 @@
+#!/bin/sh
+# What an AppImage runs: the editor with the bundled Python, its GDAL and PROJ
+# pointed at their data inside the image, and nothing of a Python on the
+# machine read instead. A conda environment holds the path it was installed
+# at in a few of its libraries; where one of those names a file the machine
+# has its own of - fontconfig's, the CA certificates - the machine's is used,
+# and for the certificates the image's where it has none.
+HERE=$(dirname "$(readlink -f "$0")")
+U=$HERE/usr
+export PATH="$U/bin:$PATH"
+export GDAL_DATA="$U/share/gdal" PROJ_DATA="$U/share/proj"
+unset PYTHONHOME PYTHONPATH
+# fontconfig reads a relative include - the machine's conf.d, where the
+# generic families and the bitmap rule are - against FONTCONFIG_PATH, not the
+# file's own directory: given the file alone, "Sans Serif" was a maths font
+if [ -z "${FONTCONFIG_FILE:-}${FONTCONFIG_PATH:-}" ] && [ -f /etc/fonts/fonts.conf ]; then
+	export FONTCONFIG_FILE=/etc/fonts/fonts.conf FONTCONFIG_PATH=/etc/fonts
+fi
+if [ -z "${SSL_CERT_FILE:-}${SSL_CERT_DIR:-}" ]; then
+	for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem "$U/ssl/cacert.pem"; do
+		[ -f "$f" ] && { export SSL_CERT_FILE="$f"; break; }
+	done
+fi
+[ -d /usr/share/X11/locale ] && export XLOCALEDIR="${XLOCALEDIR:-/usr/share/X11/locale}"
+# --python runs the image's Python on the rest instead of the editor, for a
+# check of the image made from outside it, as CI's
+if [ "${1:-}" = --python ]; then
+	shift
+	exec "$U/bin/python3" "$@"
+fi
+exec "$U/bin/python3" -m danu.ui "$@"

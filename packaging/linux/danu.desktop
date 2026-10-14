@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Danu
+Comment=Draw the contours of an OpenGeofiction territory
+Exec=danu
+Icon=danu
+Categories=Graphics;Science;Geography;
+Terminal=false

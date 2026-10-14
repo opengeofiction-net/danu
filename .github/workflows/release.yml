@@ -21,6 +21,8 @@ on:
       - danu/__init__.py
       - extern/isofill
       - packaging/windows/**
+      - packaging/linux/**
+      - packaging/smoke.py
   workflow_dispatch:
 
 jobs:
@@ -194,7 +196,7 @@ jobs:
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           $env:GDAL_DATA = "$env:RUNNER_TEMP\Danu\share\gdal"
           $env:PROJ_DATA = "$env:RUNNER_TEMP\Danu\share\proj"
-          & "$env:RUNNER_TEMP\Danu\bin\python.exe" packaging\windows\smoke.py `
+          & "$env:RUNNER_TEMP\Danu\bin\python.exe" packaging\smoke.py `
             tests\golden\S24E125_Los_Pizarrales.osm.xz tests\golden\expected.tif "$env:RUNNER_TEMP\smoke"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Danu.exe starts the editor
@@ -275,7 +277,7 @@ jobs:
             "set PATH=%SystemRoot%\System32;%SystemRoot%"
             "set GDAL_DATA=$env:DANU_DIR\share\gdal"
             "set PROJ_DATA=$env:DANU_DIR\share\proj"
-            "`"$env:DANU_DIR\bin\python.exe`" `"$w\packaging\windows\smoke.py`" `"$w\tests\golden\S24E125_Los_Pizarrales.osm.xz`" `"$w\tests\golden\expected.tif`" `"$t\smoke`" > `"$t\smoke.txt`" 2>&1"
+            "`"$env:DANU_DIR\bin\python.exe`" `"$w\packaging\smoke.py`" `"$w\tests\golden\S24E125_Los_Pizarrales.osm.xz`" `"$w\tests\golden\expected.tif`" `"$t\smoke`" > `"$t\smoke.txt`" 2>&1"
             "echo %ERRORLEVEL% > `"$t\smoke.done`""
           ) | Set-Content -Encoding ascii "$t\smoke.cmd"
           Invoke-CommandInDesktopPackage -PackageFamilyName $env:PFN -AppId Danu -Command cmd.exe -Args "/c `"$t\smoke.cmd`""
@@ -307,9 +309,79 @@ jobs:
           Get-AppxPackage -Name (Get-AppxPackage | Where-Object PackageFamilyName -eq $env:PFN).Name | Remove-AppxPackage
           if (Get-AppxPackage | Where-Object PackageFamilyName -eq $env:PFN) { throw 'still installed' }
 
+  # J3: the AppImage, from conda-forge's stack at Windows' versions, cut and
+  # packed by packaging/linux/build-appdir.sh. conda-forge builds against
+  # glibc 2.17 and isofill is built here by its compiler, so the image asks no
+  # newer glibc than that of the machine it runs on.
+  appimage:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: micromamba
+        run: |
+          set -eu
+          curl -fsSL -o "$RUNNER_TEMP/micromamba" \
+            https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
+          chmod +x "$RUNNER_TEMP/micromamba"
+      - name: the image
+        run: |
+          MICROMAMBA="$RUNNER_TEMP/micromamba" bash packaging/linux/build-appdir.sh \
+            "$RUNNER_TEMP/appimage" ${{ needs.version.outputs.version }}
+          mkdir out && mv "$RUNNER_TEMP"/appimage/*.AppImage out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: out/*.AppImage
+
+  # The image as a mapper runs it: downloaded, made executable, and started -
+  # mounted with FUSE, on a desktop under Xvfb, with the machine's fonts and
+  # CA certificates. The golden square built by the image's Python, GDAL and
+  # isofill and held to the reference, and the editor started on X11 until its
+  # usage log says the window is up. Then the same golden square on CentOS 7,
+  # the oldest glibc the image claims, in a container with nothing installed,
+  # unpacked rather than mounted since a container has no FUSE.
+  appimage-run:
+    needs: [version, appimage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: appimage
+          path: img
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fuse3 xvfb xauth
+      - name: the golden square, built by the image
+        run: |
+          set -eu
+          chmod +x img/*.AppImage
+          env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin img/*.AppImage --python packaging/smoke.py \
+            tests/golden/S24E125_Los_Pizarrales.osm.xz tests/golden/expected.tif "$RUNNER_TEMP/smoke"
+      - name: the image starts the editor
+        run: |
+          set -eu
+          h="$RUNNER_TEMP/home2"
+          mkdir -p "$h"
+          env -i HOME="$h" PATH=/usr/bin:/bin QT_QPA_PLATFORM=xcb \
+            xvfb-run -a -s '-screen 0 1280x900x24' img/*.AppImage > "$RUNNER_TEMP/out.txt" 2>&1 &
+          t=0
+          until ls "$h"/.local/share/danu/usage/*.jsonl >/dev/null 2>&1 || [ $t -ge 60 ]; do sleep 2; t=$((t + 2)); done
+          log=$(ls "$h"/.local/share/danu/usage/*.jsonl 2>/dev/null | head -1)
+          [ -n "$log" ] || { cat "$RUNNER_TEMP/out.txt"; echo 'no usage log after 60 s'; exit 1; }
+          head -1 "$log"
+          got=$(head -1 "$log" | python3 -c 'import json, sys; print(json.load(sys.stdin)["danu"])')
+          [ "$got" = "${{ needs.version.outputs.version }}" ] || { echo "the window says danu $got"; exit 1; }
+          kill $! || true
+      - name: the golden square on CentOS 7
+        run: |
+          docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 -v "$PWD:/w:ro" centos:7 sh -c \
+            '/w/img/*.AppImage --python /w/packaging/smoke.py /w/tests/golden/S24E125_Los_Pizarrales.osm.xz /w/tests/golden/expected.tif /root/smoke'
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, wheel, deb, windows, windows-run, windows-msix-run]
+    needs: [version, wheel, deb, windows, windows-run, windows-msix-run, appimage, appimage-run]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -324,5 +396,7 @@ jobs:
         run: |
           set -eu
           ls -l art
+          # not the MSIX: it goes to the Store, and unsigned installs nowhere
+          rm -f art/*.msix
           gh release create "${GITHUB_REF_NAME}" art/* --repo "${GITHUB_REPOSITORY}" \
             --draft --title "Danu ${{ needs.version.outputs.version }}" --generate-notes

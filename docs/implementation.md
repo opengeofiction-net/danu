@@ -5281,3 +5281,55 @@ under `%LOCALAPPDATA%\Packages\<family>\LocalCache\Local\danu` - the
 package's own copy of AppData, as the plan said it would be, and gone with
 the package. Then the package is removed, and is gone.
 
+
+## J3, the AppImage
+
+`packaging/linux/build-appdir.sh` makes it from conda-forge, which has the
+versions MSYS2 gives Windows - Python 3.14.8, PySide6 6.11.2, GDAL 3.13.3,
+numpy 2.5.4, in `stack.txt` - and builds every one of its packages against
+glibc 2.17. `isofill` is built beside them by conda-forge's compiler, against
+that GDAL, so nothing in the image asks for a newer glibc either: the oldest
+base it runs on is conda-forge's, and nothing has to be built on an old
+distribution to get there.
+
+The environment is 1.4 GB as installed. What is kept: the interpreter and
+`isofill` of `bin`; the standard library less what Windows drops too; of
+site-packages PySide6, shiboken6, osgeo and numpy, and of PySide6 the four
+modules the editor imports, without which the rest of Qt - QML, and
+PySide6's generator, which brought LLVM - stays out; the Qt plugins for X11
+and Wayland, images, icons, TLS and the desktop's file dialogs; GDAL's and
+PROJ's data; and of the environment's libraries the 136 that something kept
+links, which `closure.py` finds by following `DT_NEEDED` from every program
+and module, as `ntldd` does on Windows. 423 MB in 2,515 files, packed by
+`appimagetool` into 139 MB.
+
+`AppRun` starts the editor with the image's Python, and with `--python` runs
+that Python on a script instead, for a check from outside. A conda
+environment holds the path it was installed at in some of its libraries,
+which in an image mounted somewhere new name nothing; for each the machine
+has an answer of its own, `AppRun` points there:
+
+- **Fonts.** Given only the machine's `fonts.conf`, the image's fontconfig
+  read its `conf.d` against the directory it was built with, found none of
+  the rules for the generic families, and "Sans Serif" was DejaVu Math TeX
+  Gyre. `FONTCONFIG_PATH` beside the file, and it is Noto Sans, as Danu run
+  from a virtualenv on the same machine has it.
+- **CA certificates.** Python's TLS is told the machine's bundle, or the
+  image's where the machine has none. Qt's reads the machine's certificate
+  directories itself: a machine without them signs in, but draws no tiles.
+- **OpenGL.** What Qt links is libglvnd, which only dispatches to the driver
+  the machine names, and is kept: without it the image would not start in a
+  container, nor on a machine with no GL. The driver's own libraries - DRM,
+  GBM - are the machine's.
+
+Run from the image: the golden square on CentOS 7, Debian 11, Rocky Linux 8
+and Ubuntu 20.04, in containers with nothing installed, all 1,442,401 cells
+the reference's; and the editor on X11 under Xvfb on Ubuntu 20.04, its usage
+log saying danu 0.2.0, with tiles fetched over TLS where the container had
+CA certificates. The release workflow builds the image, then on a fresh
+runner mounts it with FUSE, builds the golden square and starts the editor
+on X11 until the usage log says it is up, and builds the golden square once
+more on CentOS 7.
+
+The release step dropped nothing it downloaded, and so would have attached
+the MSIX, which J2c meant to keep off the release; it now removes it.

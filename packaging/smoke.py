@@ -1,7 +1,8 @@
 """The installed Danu, run as a mapper's machine would run it: from its own
-tree, with nothing of MSYS2 or of the build on PATH.
+tree, with nothing of MSYS2, conda or the build on PATH.
 
-    <installed>\\bin\\python.exe smoke.py SQUARE EXPECTED WORK
+    <installed>\\bin\\python.exe smoke.py SQUARE EXPECTED WORK      (Windows)
+    danu-<version>-x86_64.AppImage --python smoke.py SQUARE EXPECTED WORK
 
 Imports what the editor imports, from the tree; builds the golden square's
 surface with the bundled GDAL and the bundled isofill library, and holds it to
