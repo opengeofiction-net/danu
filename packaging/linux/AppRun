@@ -22,6 +22,11 @@ if [ -z "${SSL_CERT_FILE:-}${SSL_CERT_DIR:-}" ]; then
 	done
 fi
 [ -d /usr/share/X11/locale ] && export XLOCALEDIR="${XLOCALEDIR:-/usr/share/X11/locale}"
+# conda-forge's Qt has no GTK theme, which is how Qt from pip follows GNOME's
+# dark setting; without one the palette was always light. The portal's says
+# what the desktop's colour scheme is, on GNOME and KDE alike, and follows it
+# when it changes
+export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-xdgdesktopportal}"
 # --python runs the image's Python on the rest instead of the editor, for a
 # check of the image made from outside it, as CI's
 if [ "${1:-}" = --python ]; then
