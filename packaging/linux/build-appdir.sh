@@ -14,12 +14,14 @@
 # packed by appimagetool as OUT/danu-VERSION-x86_64.AppImage.
 #
 # MICROMAMBA is the micromamba to use (default: the one on PATH);
-# APPIMAGETOOL and RUNTIME the packer and the runtime it puts at the head of
-# the image (default: fetched, at the versions named below).
+# APPIMAGETOOL and RUNTIME the packer - appimagetool's own AppImage - and the
+# runtime it puts at the head of the image (default: fetched, at the versions
+# named below).
 set -euo pipefail
 
 OUT=${1:?usage: build-appdir.sh OUT [VERSION]}
 VERSION=${2:-}
+case $VERSION in *[!0-9A-Za-z.+~-]*) echo "version $VERSION: letters, digits and .+~- only" >&2; exit 1 ;; esac
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 HERE=$ROOT/packaging/linux
 MM=${MICROMAMBA:-micromamba}
@@ -37,7 +39,9 @@ export MAMBA_ROOT_PREFIX=$OUT/mamba
 spec=$(grep -v '^#' "$HERE/stack.txt")
 # shellcheck disable=SC2086
 "$MM" create -q -y -p "$U" -c conda-forge --override-channels $spec
-"$MM" create -q -y -p "$B" -c conda-forge --override-channels c-compiler make
+# conda-forge's compiler defaults to a newer sysroot than its packages are
+# built on; unpinned, isofill asked for glibc 2.38
+"$MM" create -q -y -p "$B" -c conda-forge --override-channels c-compiler make 'sysroot_linux-64=2.17'
 PY=$("$U/bin/python3" -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}")')
 
 # isofill, against the GDAL being shipped, finding its libraries beside it
@@ -97,11 +101,11 @@ find "$U/share" -mindepth 1 -maxdepth 1 ! -name gdal ! -name proj ! -name X11 ! 
 find "$U/lib" -mindepth 1 -maxdepth 1 -type d ! -name "$PY" ! -name qt6 -print0 | xargs -0 rm -rf
 find "$U/ssl" -mindepth 1 -maxdepth 1 ! -name cacert.pem -print0 | xargs -0 rm -rf
 find "$U/lib" -maxdepth 1 \( -name '*.a' -o -name '*.la' -o -name '*.prl' \) -delete
-python3 "$HERE/closure.py" "$U" libisofill.so
+"$U/bin/python3" "$HERE/closure.py" "$U" libisofill.so
 
 # compiled once, here, rather than on a mapper's first start inside an image
 # nothing can write to
-"$U/bin/python3" -m compileall -q -j 0 "$P" >/dev/null ||
+"$U/bin/python3" -m compileall -q -j 0 "$P" ||
 	echo "  warning: some of the tree did not compile; it will be compiled in memory on each start" >&2
 
 cp "$HERE/AppRun" "$A/AppRun"

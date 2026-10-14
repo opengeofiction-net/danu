@@ -5288,9 +5288,15 @@ the package. Then the package is removed, and is gone.
 versions MSYS2 gives Windows - Python 3.14.8, PySide6 6.11.2, GDAL 3.13.3,
 numpy 2.5.4, in `stack.txt` - and builds every one of its packages against
 glibc 2.17. `isofill` is built beside them by conda-forge's compiler, against
-that GDAL, so nothing in the image asks for a newer glibc either: the oldest
-base it runs on is conda-forge's, and nothing has to be built on an old
-distribution to get there.
+that GDAL and on the 2.17 sysroot, so nothing in the image asks for a newer
+glibc either: the oldest base it runs on is conda-forge's, and nothing has to
+be built on an old distribution to get there. The compiler's own default
+sysroot is 2.39, and with it the `isofill` binary asked for glibc 2.38 - which
+the golden square passed on CentOS 7 regardless, since it went through the
+library. Now the build asks every file it keeps which glibc it needs and
+fails on anything past 2.17, and the check builds the golden square through
+the binary too, as the editor does for a raster too big to hold; on Windows
+as well.
 
 The environment is 1.4 GB as installed. What is kept: the interpreter and
 `isofill` of `bin`; the standard library less what Windows drops too; of
@@ -5324,7 +5330,8 @@ has an answer of its own, `AppRun` points there:
 
 Run from the image: the golden square on CentOS 7, Debian 11, Rocky Linux 8
 and Ubuntu 20.04, in containers with nothing installed, all 1,442,401 cells
-the reference's; and the editor on X11 under Xvfb on Ubuntu 20.04, its usage
+the reference's - on CentOS 7 and Ubuntu 20.04 through the binary as well;
+and the editor on X11 under Xvfb on Ubuntu 20.04, its usage
 log saying danu 0.2.0, with tiles fetched over TLS where the container had
 CA certificates. The release workflow builds the image, then on a fresh
 runner mounts it with FUSE, builds the golden square and starts the editor

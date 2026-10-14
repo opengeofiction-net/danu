@@ -5,9 +5,11 @@ tree, with nothing of MSYS2, conda or the build on PATH.
     danu-<version>-x86_64.AppImage --python smoke.py SQUARE EXPECTED WORK
 
 Imports what the editor imports, from the tree; builds the golden square's
-surface with the bundled GDAL and the bundled isofill library, and holds it to
-the reference the server's pipeline made, cell for cell - the check the golden
-suite makes, made of the installed copy. Exits non-zero on any difference.
+surface with the bundled GDAL, twice - through the bundled isofill library,
+and through the bundled binary, which the editor runs for a raster too big to
+hold - and holds each to the reference the server's pipeline made, cell for
+cell: the check the golden suite makes, made of the installed copy. Exits
+non-zero on any difference.
 """
 
 import shutil
@@ -41,18 +43,24 @@ def main() -> int:
     zone = work / 'golden'
     zone.mkdir(parents=True)
     shutil.copy(square, zone / square.name)
-    lines: list[str] = []
-    result = build.build_dem(zone, work / 'build', params.load().with_arcsec(3.0), log=lines.append, library=True)
-    print('\n'.join(lines))
-    check(result.dem is not None, 'no DEM')
-    check(any('as a library' in line for line in lines), 'isofill was not called as the library')
-    ref_ds, new_ds = gdal.Open(str(expected)), gdal.Open(str(result.dem))
+    # each dataset held by a name while its band is read: chained, the
+    # dataset is freed under the band
+    ref_ds = gdal.Open(str(expected))
     a = ref_ds.GetRasterBand(1).ReadAsArray()
-    b = new_ds.GetRasterBand(1).ReadAsArray()
-    check(a.shape == b.shape, f'reference {a.shape}, built {b.shape}')
-    differing = int((a != b).sum())
-    check(differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m')
-    print(f'the installed Danu built the golden square: all {a.size} cells the reference\'s')
+    exe = here / 'bin' / ('isofill.exe' if sys.platform == 'win32' else 'isofill')
+    for library, said in ((True, 'as a library'), (False, 'as the binary')):
+        lines: list[str] = []
+        result = build.build_dem(zone, work / ('build-library' if library else 'build-binary'), params.load().with_arcsec(3.0),
+                                 isofill=str(exe), log=lines.append, library=library)
+        print('\n'.join(lines))
+        check(result.dem is not None, 'no DEM')
+        check(any(said in line for line in lines), f'isofill was not called {said}')
+        new_ds = gdal.Open(str(result.dem))
+        b = new_ds.GetRasterBand(1).ReadAsArray()
+        check(a.shape == b.shape, f'reference {a.shape}, built {b.shape}')
+        differing = int((a != b).sum())
+        check(differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m')
+        print(f'the installed Danu built the golden square with isofill {said}: all {a.size} cells the reference\'s')
     return 0
 
 
