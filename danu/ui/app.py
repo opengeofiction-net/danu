@@ -61,6 +61,7 @@ from .published import PublishedDem
 from .selection_panel import SelectionPanel
 from .settings import REBUILD_KEY, Settings
 from .squares import SquaresItem
+from .start import StartCard
 from .surface import ARCSEC, SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
@@ -403,6 +404,10 @@ class MainWindow(QMainWindow):
         self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
         self.importer.finished.connect(self._imported)
         self._menus()
+        # the start page (J5a), shown by update_start once it is known that
+        # nothing is being opened
+        self.start = StartCard(self.map, self.account_action, self.import_action, self.open_action)
+        self.start.hide()
         self._docked_only()
         self._default_layout = self.saveState()       # what Reset panels goes back to
         # signing in to OGF (H6f): the tests hand in where the browser goes
@@ -598,6 +603,7 @@ class MainWindow(QMainWindow):
     def _account_changed(self) -> None:
         user = self.settings.user if self.settings.token else ''
         self.account_action.setText(f'Sign &out ({user})' if user else 'Sign &in to OGF…')
+        self.start.set_account(user)
         self.show_territory()
 
     # -------------------------------------------------------------- save
@@ -1108,10 +1114,16 @@ class MainWindow(QMainWindow):
             return False
         self._pending = (zone_dir, centre, size)
         self.zone_dir = zone_dir
+        self.update_start()                              # the start page goes while it is read
         self.open_action.setEnabled(False)
         self.statusBar().showMessage(f'reading {centre} and its neighbours from {zone_dir.name}…')
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         return True
+
+    def update_start(self) -> None:
+        """The start page, while there is no working set and none is being
+        read: at start when nothing opened, and after a read that failed."""
+        self.start.setVisible(self.working_set is None and self._pending is None)
 
     def _loaded(self, ws: WorkingSet):
         QApplication.restoreOverrideCursor()
@@ -1994,6 +2006,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self.open_action.setEnabled(True)
         self._pending = None
+        self.update_start()
         self.statusBar().showMessage('the square could not be read')
         QMessageBox.warning(self, 'Danu', f'The square could not be read.\n\n{text}')
 
@@ -2038,4 +2051,5 @@ def main(argv: list[str] | None = None) -> int:
         pass                                     # restore opened the set; the view and surface follow it
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
+    win.update_start()                           # nothing opened, or opening: the start page or not
     return app.exec()

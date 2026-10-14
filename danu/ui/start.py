@@ -1,0 +1,108 @@
+"""The start page (J5a): a card over the map when nothing is open.
+
+Danu starts by putting back the last session, or failing that by opening the
+most recent square. Only when neither opens anything - a first run, or every
+square gone from where it was - is there nothing to show but the map, and
+then this says what to do: sign in, import a zone, or open squares already
+on disk. The map stays live behind it, the territories on it, so a mapper can
+look for their zone before importing it. It goes when a working set is on
+screen.
+
+Each step's button triggers the File menu's own action, so the card and the
+menu are one path, and the usage log has the step by the action's name.
+
+A child of the **view**, not of its viewport, for the reason
+``danu.ui.legend`` records: a scroll takes a viewport's children with it.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+
+from .. import __version__
+
+
+class StartCard(QFrame):
+    def __init__(self, view: QWidget, sign_in: QAction, import_: QAction, open_: QAction):
+        super().__init__(view)
+        self.setObjectName('startCard')
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setAutoFillBackground(True)              # the map does not show through the text
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        title = QLabel(f'<b>Danu</b> {__version__}')
+        what = QLabel('Draw the contours of an OpenGeofiction territory and see the ground they make.')
+        what.setWordWrap(True)
+
+        steps = QGridLayout()
+        steps.setColumnStretch(1, 1)
+        steps.setHorizontalSpacing(12)
+        steps.setVerticalSpacing(10)
+        self.account = QLabel()
+        self.account.setWordWrap(True)
+        self.sign_in = self._step(steps, 0, '1', self.account, 'Sign in…', sign_in)
+        imp = QLabel('Import your zone: its squares from the server, to work on here')
+        imp.setWordWrap(True)
+        self.import_ = self._step(steps, 1, '2', imp, 'Import…', import_)
+        opn = QLabel('…or open squares already on this machine')
+        opn.setWordWrap(True)
+        self.open_ = self._step(steps, 2, '3', opn, 'Open…', open_)
+        self._sign_in_action = sign_in
+
+        box = QVBoxLayout(self)
+        box.setContentsMargins(20, 16, 20, 18)
+        box.setSpacing(10)
+        box.addWidget(title)
+        box.addWidget(what)
+        box.addSpacing(4)
+        box.addLayout(steps)
+        self.setFixedWidth(420)
+        # the viewport's resize, held by name: see danu.ui.legend
+        self._viewport = view.viewport()
+        self._viewport.installEventFilter(self)
+        self.set_account('')
+
+    def _step(self, grid: QGridLayout, row: int, n: str, text: QLabel, label: str,
+              action: QAction) -> QPushButton:
+        num = QLabel(f'<b>{n}</b>')
+        num.setAlignment(Qt.AlignmentFlag.AlignTop)
+        b = QPushButton(label)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)      # the map keeps the keys
+        b.clicked.connect(action.trigger)
+        action.changed.connect(lambda: b.setEnabled(action.isEnabled()))
+        grid.addWidget(num, row, 0)
+        grid.addWidget(text, row, 1)
+        grid.addWidget(b, row, 2, Qt.AlignmentFlag.AlignTop)
+        return b
+
+    def set_account(self, user: str) -> None:
+        """Who is signed in, if anyone. Signed in, Danu can say whether the
+        territory under the squares is yours; signing in is not needed to
+        import or to open."""
+        if user:
+            self.account.setText(f'Signed in to OGF as <b>{user}</b> ✓')
+            self.sign_in.hide()
+        else:
+            self.account.setText('Sign in to OGF, so Danu can say which territories are yours')
+            self.sign_in.show()
+        self.place()
+
+    # ------------------------------------------------------------ layout
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.place()
+        self.raise_()
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if obj is self._viewport and event.type() == QEvent.Type.Resize:
+            self.place()
+        return False
+
+    def place(self) -> None:
+        """In the middle of the map, or as much of it as there is."""
+        self.adjustSize()
+        vp = self._viewport.geometry()
+        self.move(vp.left() + max(0, (vp.width() - self.width()) // 2),
+                  vp.top() + max(0, (vp.height() - self.height()) // 2))
