@@ -2017,6 +2017,10 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(about.__version__)
+    # the Wayland app id and the X11 class: what the desktop matches to
+    # danu.desktop for the name and icon it shows. Unset, Qt took it from
+    # argv[0], which under python -m is __main__
+    app.setDesktopFileName(APP_NAME)
     app.setWindowIcon(about.icon())
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir())
