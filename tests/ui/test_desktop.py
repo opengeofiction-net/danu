@@ -149,3 +149,10 @@ def test_a_menu_that_cannot_be_written_is_said(window, image, monkeypatch):
     (desktop.data_home() / 'applications').write_text('a file where the directory goes')
     assert not window.set_menu_entry(True)
     assert said and 'could not be changed' in said[0]
+
+
+def test_a_relative_data_home_is_ignored(monkeypatch):
+    monkeypatch.setenv('XDG_DATA_HOME', 'not/absolute')
+    assert desktop.data_home() == Path.home() / '.local' / 'share'
+    monkeypatch.setenv('XDG_DATA_HOME', '')
+    assert desktop.data_home() == Path.home() / '.local' / 'share'

@@ -40,7 +40,9 @@ def appimage() -> Path | None:
 
 
 def data_home() -> Path:
-    return Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share')
+    # a relative one is to be ignored, the base directory spec says
+    env = os.environ.get('XDG_DATA_HOME', '')
+    return Path(env) if os.path.isabs(env) else Path.home() / '.local' / 'share'
 
 
 def entry_path() -> Path:

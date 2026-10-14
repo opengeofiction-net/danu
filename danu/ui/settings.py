@@ -241,8 +241,8 @@ class Settings:
     # ------------------------------------------------------------ the look
     @property
     def theme(self) -> str:
-        """'auto', 'light' or 'dark' (J5c): the desktop's scheme, or one
-        whatever the desktop is."""
+        """'auto', 'light' or 'dark' (J5c): the desktop's colour scheme, or
+        light or dark whatever the desktop's is."""
         v = str(self.q.value('appearance/theme', 'auto') or 'auto')
         return v if v in ('auto', 'light', 'dark') else 'auto'
 
@@ -257,7 +257,8 @@ class Settings:
 
     @property
     def start_always(self) -> bool:
-        """The start page at start even when a square opens (J5c), over it."""
+        """The start page shown at every start (J5c), over the squares that
+        open, rather than only when none do."""
         return self._flag('start/always', False)
 
     @start_always.setter
