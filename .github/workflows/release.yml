@@ -68,23 +68,29 @@ jobs:
           name: wheel
           path: dist/*
 
-  # danu-server as util installs it, built on Debian 13 - what util runs - with
-  # the isofill it depends on built beside it from the pinned submodule. Both
-  # installed with apt, which resolves the rest, and then run: the package
-  # imports from its installed path, finds the library and accepts its
-  # version, and the build script starts.
+  # The Debian packages, built on Debian 13 - what util runs, and the oldest
+  # Debian the editor's package is for - with the isofill they depend on built
+  # beside them from the pinned submodule: python3-danu, the code; danu-server,
+  # the pipeline; danu-editor, the editor on the distribution's PySide6.
+  #
+  # Installed as util is upgraded: the latest published danu-server first,
+  # then these over it with apt, which resolves the rest - so a release that
+  # moves files between packages is upgraded through, not only installed
+  # fresh. Then run: the code imports from its installed path, finds the
+  # library and accepts its version, the build script starts, and danu starts
+  # the editor, offscreen, until its usage log says the window is up.
   deb:
     needs: version
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
-      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - run: |
           apt-get install -y --no-install-recommends build-essential debhelper dh-python \
-            pybuild-plugin-pyproject python3-all python3-setuptools libgdal-dev
+            pybuild-plugin-pyproject python3-all python3-setuptools libgdal-dev desktop-file-utils
       - name: build
         run: |
           set -eu
@@ -93,12 +99,28 @@ jobs:
           (cd extern/isofill && dpkg-buildpackage -us -uc -b)
           dpkg-buildpackage -us -uc -b
           # each beside its own source tree, as dpkg-buildpackage leaves them
-          mv ../danu-server_*.deb extern/isofill_*.deb out/
+          mv ../python3-danu_*.deb ../danu-server_*.deb ../danu-editor_*.deb extern/isofill_*.deb out/
           ls -l out
+          desktop-file-validate packaging/linux/danu.desktop
+      - name: the published danu-server, to upgrade from
+        run: |
+          set -eu
+          mkdir -p prev
+          python3 - "$GITHUB_REPOSITORY" <<'PY'
+          import json, sys, urllib.request
+          rel = json.load(urllib.request.urlopen(f'https://api.github.com/repos/{sys.argv[1]}/releases/latest'))
+          for a in rel['assets']:
+              if a['name'].startswith(('danu-server_', 'isofill_')) and a['name'].endswith('.deb'):
+                  print(rel['tag_name'], a['name'])
+                  urllib.request.urlretrieve(a['browser_download_url'], 'prev/' + a['name'])
+          PY
+          apt-get install -y ./prev/*.deb
       - name: run
         run: |
           set -eu
-          apt-get install -y ./out/isofill_*.deb ./out/danu-server_*.deb
+          apt-get install -y ./out/isofill_*.deb ./out/python3-danu_*.deb ./out/danu-server_*.deb \
+            ./out/danu-editor_*.deb
+          dpkg -l 'danu*' 'python3-danu' isofill | grep ^ii
           cd /
           python3 - <<'PY'
           import danu
@@ -109,6 +131,14 @@ jobs:
           print('danu', danu.__version__, 'isofill', isofill_lib.Isofill.load().version)
           PY
           danu-build-zone 2>&1 | grep -q 'usage: danu-build-zone <zone>'
+          mkdir -p /tmp/h
+          HOME=/tmp/h QT_QPA_PLATFORM=offscreen danu > /tmp/editor.txt 2>&1 &
+          t=0
+          until ls /tmp/h/.local/share/danu/usage/*.jsonl >/dev/null 2>&1 || [ $t -ge 60 ]; do sleep 2; t=$((t + 2)); done
+          log=$(ls /tmp/h/.local/share/danu/usage/*.jsonl 2>/dev/null | head -1)
+          [ -n "$log" ] || { cat /tmp/editor.txt; echo 'no usage log after 60 s'; exit 1; }
+          head -1 "$log"
+          kill $! || true
       - uses: actions/upload-artifact@v4
         with:
           name: deb

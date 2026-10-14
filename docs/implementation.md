@@ -5340,3 +5340,39 @@ more on CentOS 7.
 
 The release step dropped nothing it downloaded, and so would have attached
 the MSIX, which J2c meant to keep off the release; it now removes it.
+
+## J4, the `.deb`
+
+One source, now three packages: `python3-danu`, the code; `danu-server`, the
+pipeline, as before; and `danu-editor` - `/usr/bin/danu`, the desktop entry
+and the icon at each size `packaging/icon` draws - on Debian's own PySide6,
+GDAL and numpy. Until now the code was in `danu-server`; `python3-danu` breaks
+and replaces `danu-server` before 0.2.0-2, and an upgrade from the published
+0.2.0-1 hands the files over - built and upgraded through in a Debian 13
+container, then the editor started from the installed `danu`.
+
+Debian 13 has PySide6 6.8.2 and GDAL 3.10.3, older than anything CI had run
+the suites on, and both found something:
+
+- **The sea level check (R32) asked for OGR's in-memory driver as `MEM`**, the
+  name GDAL 3.11 gave it. On 3.10 that is `None`, and the check failed with
+  an AttributeError. The rest of the code already asked by either name,
+  through `land_clamp.ogr_memory_driver`; this one now does too. The golden
+  job runs on Ubuntu's GDAL 3.8, but not the surface checks' tests.
+- **Six UI tests failed on PySide6 6.8 with "Internal C++ object (QMenu)
+  already deleted".** On 6.8 the wrapper `QAction.menu()` returns is lost
+  with the action's own wrapper, so a one-liner that lets the action go -
+  `next(a.menu() for a in bar.actions() ...)`, `bar.actions()[0].menu()` -
+  holds a dead object. The menus are fine, and the editor holds each action
+  while it walks its menu; the tests now find a menu by its title among its
+  parent's children, through `conftest.menu`.
+
+With those, the core suite and all 794 UI tests pass on Debian 13's packages.
+CI gains a `debian` job that runs both there on every pull request. The
+release's `deb` job builds the three, installs the latest published
+`danu-server`, upgrades it with these, and starts the editor until its usage
+log says it is up.
+
+The desktop entry is in Science, Geography and Maps; with Graphics as well it
+named two main categories, and `desktop-file-validate` warned that it would
+appear twice in a menu.

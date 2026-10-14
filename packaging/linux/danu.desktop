@@ -4,5 +4,5 @@ Name=Danu
 Comment=Draw the contours of an OpenGeofiction territory
 Exec=danu
 Icon=danu
-Categories=Graphics;Science;Geography;
+Categories=Science;Geography;Maps;
 Terminal=false
