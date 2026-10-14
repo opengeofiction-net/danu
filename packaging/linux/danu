@@ -1,0 +1,4 @@
+#!/bin/sh
+# The editor, as danu-editor installs it: the distribution's Python, PySide6
+# and GDAL, and isofill from its own package
+exec python3 -m danu.ui "$@"

@@ -12,9 +12,11 @@ from PySide6.QtWidgets import QDockWidget
 
 from danu.ui import session
 
+from .conftest import menu as _menu
+
 
 def menu(w, title):
-    return next(a.menu() for a in w.menuBar().actions() if a.text().replace('&', '') == title)
+    return _menu(w.menuBar(), title)
 
 
 def texts(m):
@@ -31,13 +33,13 @@ def test_the_water_work_has_a_menu_of_its_own(window):
     assert texts(edit) == ['Undo', 'Redo', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Select',
                            'Draw contour', 'Place spot height', 'Measure', 'Water', 'Spot height',
                            'Coastline', 'Cut out the loop chosen']
-    water = next(a.menu() for a in edit.actions() if a.text() == '&Water')
+    water = _menu(edit, 'Water')
     e = window.edit_actions
     assert water.actions() == [e['edit.import_water'], e['edit.set_level'], e['edit.grade'],
                                e['edit.grade_network'], e['edit.flatten'], e['edit.burn'], e['edit.burn_all']]
-    heights = next(a.menu() for a in edit.actions() if a.text() == 'Spot &height')
+    heights = _menu(edit, 'Spot height')
     assert heights.actions() == [e['edit.import_heights']]
-    coastline = next(a.menu() for a in edit.actions() if a.text() == '&Coastline')
+    coastline = _menu(edit, 'Coastline')
     assert coastline.actions() == [e['edit.import_coastline'], e['edit.mark_coastline'], e['edit.reverse_coastline']]
 
 

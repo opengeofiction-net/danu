@@ -10,6 +10,8 @@ from PySide6.QtGui import QGuiApplication
 from danu import __version__
 from danu.ui import about
 
+from .conftest import menu
+
 
 def test_the_title_carries_the_version_with_or_without_a_working_set(window):
     assert window.windowTitle().startswith(f'Danu {__version__} - ')
@@ -18,7 +20,7 @@ def test_the_title_carries_the_version_with_or_without_a_working_set(window):
 
 
 def test_help_about_names_the_version_and_what_it_runs_on(window, qtbot):
-    help_ = next(a.menu() for a in window.menuBar().actions() if a.text().replace('&', '') == 'Help')
+    help_ = menu(window.menuBar(), 'Help')
     assert window.about_action in help_.actions()
     v = {'danu': __version__, 'python': '3.x', 'qt': '6.x', 'pyside6': '6.x', 'platform': 'p',
          'gdal': 'not available (No module named osgeo)', 'isofill': '0.12.0 (/lib/libisofill.so)'}

@@ -7,10 +7,23 @@ Build-Depends: debhelper-compat (= 13), dh-python, pybuild-plugin-pyproject,
 Standards-Version: 4.6.2
 Homepage: https://github.com/opengeofiction-net/danu
 
+Package: python3-danu
+Architecture: all
+Section: python
+Depends: ${python3:Depends}, ${misc:Depends}, python3-gdal, python3-numpy,
+         isofill (>= 0.12.0)
+Breaks: danu-server (<< 0.2.0-2~)
+Replaces: danu-server (<< 0.2.0-2~)
+Description: OpenGeofiction contour editor and elevation pipeline - Python package
+ The danu Python package: the squares, the checks and the surface build that
+ the editor and the server pipeline share.
+ .
+ This package holds the code only. Install danu-editor for the editor or
+ danu-server for the pipeline.
+
 Package: danu-server
 Architecture: all
-Depends: ${python3:Depends}, ${misc:Depends},
-         python3-gdal, python3-numpy, python3-pyosmium,
+Depends: ${misc:Depends}, python3-danu (= ${binary:Version}), python3-pyosmium,
          gdal-bin, isofill (>= 0.12.0), osmium-tool, xz-utils, zip
 Description: OpenGeofiction elevation pipeline
  Builds digital elevation models from the contour squares mappers draw, and
@@ -20,3 +33,16 @@ Description: OpenGeofiction elevation pipeline
  This is the server half of Danu. The editor is packaged separately; both are
  built from the same source so that what an editor previews is what this
  produces.
+
+Package: danu-editor
+Architecture: all
+Depends: ${misc:Depends}, python3-danu (= ${binary:Version}),
+         python3-pyside6.qtcore, python3-pyside6.qtgui,
+         python3-pyside6.qtwidgets, python3-pyside6.qtnetwork
+Recommends: josm
+Description: OpenGeofiction contour editor
+ Draws and checks the contours of an OpenGeofiction territory and shows the
+ surface they make as the server will publish it, alongside JOSM.
+ .
+ This is the editor half of Danu, built from the same source as danu-server
+ so that what it previews is what the server produces.

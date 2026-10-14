@@ -19,6 +19,8 @@ from PySide6.QtNetwork import QHostAddress, QTcpServer
 
 from danu.ui import oauth
 
+from .conftest import menu
+
 
 class FakeOgf:
     """The server's three ends. ``tokens`` the ones it takes; the code it
@@ -222,7 +224,7 @@ def test_the_port_taken_says_so(w, qtbot):
 
 
 def test_the_manual_username_is_gone(window):
-    texts = [a.text().replace('&', '') for a in window.menuBar().actions()[0].menu().actions()]
+    texts = [a.text().replace('&', '') for a in menu(window.menuBar(), 'File').actions()]
     assert 'Your OGF username…' not in texts and 'Sign in to OGF…' in texts
 
 
