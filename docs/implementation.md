@@ -5257,3 +5257,27 @@ next. `node_xy` uses the array projection now, so the node and the end of its
 segment are one point to the bit; a test pushes the two projections apart on
 purpose and snaps anyway, and fails against the old `node_xy`.
 
+## J2c, the MSIX
+
+`packaging/windows/build-msix.ps1` packs the J2b tree with the Windows SDK's
+`makeappx`, with `msix/AppxManifest.xml.in` and the tiles `packaging/icon`
+draws at the Store's sizes. Danu is a full-trust desktop app in it, with a
+`danu` command alias. The package is unsigned, as the Store wants it: the
+Store signs what it certifies. 211 MB, to the installer's 122 - MSIX
+compresses each file on its own where Inno compresses the tree as one.
+
+The identity - name and publisher - is a stand-in, `OpenGeofiction.Danu` and
+`CN=OpenGeofiction`, until Partner Center reserves the real one (J8); the
+script takes both as parameters, and nothing else changes.
+
+The release workflow installs it as the Store would, on a fresh runner:
+signed with a throwaway certificate whose subject is the manifest's
+publisher, trusted, and added with `Add-AppxPackage`. A package's files
+cannot be run by path from `WindowsApps`, even by an administrator, so the
+golden square is built inside the package's context through
+`Invoke-CommandInDesktopPackage`: all 1,442,401 cells the reference's. The
+editor is started through the alias, offscreen, and its usage log turns up
+under `%LOCALAPPDATA%\Packages\<family>\LocalCache\Local\danu` - the
+package's own copy of AppData, as the plan said it would be, and gone with
+the package. Then the package is removed, and is gone.
+
