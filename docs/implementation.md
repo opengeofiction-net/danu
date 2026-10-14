@@ -5406,3 +5406,31 @@ A card over the map rather than a dialog, which once closed is gone, or a
 page in place of the map, which hides the territories the mapper is looking
 for. Help's getting-started page (J5b) and a preference to show it again
 (J5c) follow.
+
+## J5b, Help
+
+Help has three pages, then the wiki and About:
+
+- **Getting started** - sign in, import, open, draw, see the ground, save -
+  and **Layers** - the base maps, the squares, the ways the surface is shown,
+  and the overlays - are Markdown in `danu/ui/help`, shipped as package data.
+  They describe the Danu they came with, offline, and read the same on
+  GitHub.
+- **Keys** is not written down: `danu.ui.help.keys` makes it from the bindings
+  as they are now, under the menu path each action has, so a key rebound in
+  Preferences is the key Help gives. What no binding names - the wheel with
+  each modifier, the right-button drag, Enter, Backspace and Escape while
+  drawing - is listed beside it, from what `mapview` and `tools` do.
+- **Danu on the OGF wiki** opens `OpenGeofiction:Danu`: what Danu is, where to
+  get it, how to send squares in. That page is written in `docs-internal`
+  and synced to the wiki each night; it changes rarely, so Help links to it
+  rather than repeating it.
+
+The three pages are one window, a `QTextBrowser` with each page's links to the
+others along its top; a link out of Help goes to the browser.
+
+Tests hold the pages to the code: every key getting started names is still
+that action's default, every way the surface panel shows the surface and every
+base map is on the layers page, every binding is on the keys page, and a
+rebinding shows there. The release's wheel check asks for the help pages
+among its package data.
