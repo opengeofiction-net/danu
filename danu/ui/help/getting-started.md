@@ -60,8 +60,8 @@ checks panel's findings - crossings, loops, contours touching.
 also autosaved as you work, and offered back if Danu is closed before they
 are saved.
 
-How to send finished squares to OpenGeofiction is on the wiki page,
-**Help › Danu on the OGF wiki**.
+For now, finished squares are sent by email to info@opengeofiction.net:
+the wiki page, **Help › Danu on the OGF wiki**, says how.
 
 ## If something goes wrong
 

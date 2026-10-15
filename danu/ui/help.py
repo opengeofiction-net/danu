@@ -7,7 +7,7 @@ bindings as they are now, so a key changed in Preferences is the key Help
 gives. What is not a binding - the mouse, the keys while drawing - is listed
 here, beside the code that names the bindings.
 
-The wiki page, OpenGeofiction:Danu, is where Danu is found from outside:
+The wiki page, Help:Danu, is where Danu is found from outside:
 what it is, where to get it, how to send squares in. It changes rarely, and
 Help links to it rather than repeating it.
 """
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QDialog, QTextBrowser, QVBoxLayout
 
 from .settings import DEFAULT_KEYS, REBUILD_KEY
 
-WIKI = 'https://wiki.opengeofiction.net/index.php/OpenGeofiction:Danu'
+WIKI = 'https://wiki.opengeofiction.net/index.php/Help:Danu'
 PAGES = {'getting-started': 'Getting started', 'keys': 'Keys', 'layers': 'Layers'}
 
 # what no binding names, as the code has it: danu.ui.mapview's wheel and
