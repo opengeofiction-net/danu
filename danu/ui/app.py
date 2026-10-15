@@ -10,6 +10,7 @@ That comes with the desktop packaging.
 from __future__ import annotations
 
 import argparse
+import html
 import sys
 import time
 from pathlib import Path
@@ -36,7 +37,7 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, crash, desktop, josm, oauth, session, theme, wms
+from . import about, config, crash, desktop, josm, oauth, session, theme, update, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -429,6 +430,11 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._territory)
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
+        # a newer release (J7), first of the permanent ones when there is one
+        self.newer = QLabel()
+        self.newer.setOpenExternalLinks(True)
+        self.newer.setVisible(False)
+        self.statusBar().insertPermanentWidget(0, self.newer)
         self.map.cursorMoved.connect(self._cursor)
         self.map.setFocus()
         self.map.zoomChanged.connect(lambda _: self._cursor(*self.map.center_lonlat()))
@@ -1114,11 +1120,21 @@ class MainWindow(QMainWindow):
         if taken:
             self.set_menu_entry(True)
 
+    def show_newer(self, tag: str, url: str) -> None:
+        """A newer release, in the status line with a link to its page."""
+        self.newer.setText(f'<a href="{html.escape(url, quote=True)}">Danu {html.escape(tag.removeprefix("v"))} is out</a>')
+        self.newer.setToolTip(f'You have {about.__version__}. {url}')
+        self.newer.setVisible(True)
+
     def apply_settings(self) -> None:
         """The settings put to use, as the preferences left them: keys at
         once, the servers from their next use."""
         s = self.settings
         theme.apply(QApplication.instance(), s.theme)
+        if not s.update_check:
+            self.newer.setVisible(False)                 # turned off: not said either
+        elif update.is_newer(s.update_latest[0]) and not update.from_store():
+            self.show_newer(*s.update_latest)            # on again: what was found, said again
         for name, a in self.keyed_actions().items():
             a.setShortcut(QKeySequence(s.key(name)))
         self.controls.retip()
@@ -2185,6 +2201,10 @@ def main(argv: list[str] | None = None) -> int:
         win.show_start()                         # over what is opening, by the preferences
     win.update_start()                           # nothing opened, or opening: the start page or not
     QTimer.singleShot(0, reporter.offer_earlier)  # a run that died, once the window is up
+    # a newer release, asked of GitHub once a day; in main, so no test's window asks
+    win.updates = update.UpdateCheck(settings, win)
+    win.updates.found.connect(win.show_newer)
+    win.updates.start()
     if args.crash:
         QTimer.singleShot(1000, lambda: crash.provoke(args.crash))
     try:

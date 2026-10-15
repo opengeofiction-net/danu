@@ -275,6 +275,38 @@ class Settings:
     def menu_offered(self, v: bool):
         self.q.setValue('start/menu_offered', bool(v))
 
+    # ------------------------------------------------------- a newer release
+    @property
+    def update_check(self) -> bool:
+        """GitHub asked for a newer release at start, once a day (J7)."""
+        return self._flag('update/check', True)
+
+    @update_check.setter
+    def update_check(self, v: bool):
+        self.q.setValue('update/check', bool(v))
+
+    @property
+    def update_checked(self) -> float:
+        """When GitHub last answered, in seconds since the epoch; 0 never."""
+        try:
+            return float(self.q.value('update/checked', 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @update_checked.setter
+    def update_checked(self, v: float):
+        self.q.setValue('update/checked', float(v))
+
+    @property
+    def update_latest(self) -> tuple[str, str]:
+        """The newest release it said, (tag, page), or empty strings."""
+        return str(self.q.value('update/latest', '') or ''), str(self.q.value('update/url', '') or '')
+
+    @update_latest.setter
+    def update_latest(self, v: tuple[str, str]):
+        self.q.setValue('update/latest', v[0])
+        self.q.setValue('update/url', v[1])
+
     # ------------------------------------------------------------ the servers
     # Each read where it is used, so one changed in the preferences (H6e)
     # holds from the next use on. Empty, or absent, is the default.
