@@ -105,17 +105,20 @@ def test_one_on_a_python_thread_too(reporter, qtbot):
 @pytest.mark.parametrize('dirty, flush, said', [
     (True, None, 'Your edits are in the autosave'),
     (True, 'raise', 'could not be written'),
+    ('raise', None, 'could not be written'),
     (False, None, 'No edits were waiting'),
 ])
 def test_the_edits_go_to_the_autosave_there_and_then(reporter, qtbot, dirty, flush, said):
-    def broken():
+    def broken(*_a):
         raise OSError('disk full')
-    w = Fakes(dirty=dirty, flush=broken if flush else None)
+    w = Fakes(dirty=dirty is True, flush=broken if flush else None)
+    if dirty == 'raise':                      # the window itself broken
+        w.editor = type('E', (), {'dirty': broken})()
     reporter.attach(w)
     raise_in_slot()
     qtbot.waitUntil(lambda: reporter.dialog is not None, timeout=2000)
     assert said in reporter.dialog.label.text()
-    assert w.flushed == (1 if dirty and not flush else 0)
+    assert w.flushed == (1 if dirty is True and not flush else 0)
 
 
 def test_the_hooks_found_are_put_back(tmp_path, qapp):
@@ -229,7 +232,7 @@ def test_a_run_still_going_or_killed_is_not_a_fault(tmp_path, qapp):
     d = tmp_path / 'crashes'
     d.mkdir()
     alive = d / '20261015-080000-1.fault'
-    alive.write_text(f'{crash.HEAD}danu 0.2.0, here\n{crash.HEAD}log /x.jsonl\n')
+    alive.write_text(f'{crash.HEAD}danu 0.2.0, here\n{crash.LOG}/x.jsonl\n')
     r = crash.Reporter(d)
     assert r.earlier() == []
     assert alive.exists()

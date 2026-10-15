@@ -47,6 +47,7 @@ KEEP = 20                       # reports kept, and fault files
 LOG_LINES = 40                  # of the usage log, in a report
 URL_MAX = 7500                  # GitHub's new-issue link, encoded; past ~8k it is refused
 HEAD = '# '                     # a fault file's header lines
+LOG = f'{HEAD}log '             # the one naming the run's usage log
 
 
 def _private(text: str) -> str:
@@ -180,7 +181,7 @@ class Reporter(QObject):
         self.window = window
         usage = getattr(window, 'usage', None)
         if self._fault is not None and usage is not None:
-            self._fault.write(f'{HEAD}log {usage.path}\n')
+            self._fault.write(f'{LOG}{usage.path}\n')
             self._fault.flush()
 
     def uninstall(self) -> None:
@@ -261,7 +262,7 @@ class Reporter(QObject):
                 path.replace(claimed)                    # refused while its process has it open
             except OSError:
                 continue
-            log = next((Path(ln[len(HEAD) + 4:].strip()) for ln in lines if ln.startswith(f'{HEAD}log ')), None)
+            log = next((Path(ln[len(LOG):].strip()) for ln in lines if ln.startswith(LOG)), None)
             when = time.strftime('%Y-%m-%d %H:%M', time.localtime(claimed.stat().st_mtime))
             first = next((ln.strip() for ln in body if ln.strip()), 'a fault')
             report = Report(f'Crash: {first}', f'the run that ended {when}\n' + ''.join(body),
@@ -295,9 +296,11 @@ class Reporter(QObject):
         """The edits written to the autosave now: True if they were, None if
         there were none, False if it could not."""
         w = self.window
-        if w is None or getattr(w, 'autosave', None) is None or not w.editor.dirty():
+        if w is None or getattr(w, 'autosave', None) is None:
             return None
-        try:
+        try:                                             # the window may be what is broken
+            if not w.editor.dirty():
+                return None
             w.autosave.flush()
         except Exception:                                # noqa: BLE001 - in a broken state, say so
             return False
