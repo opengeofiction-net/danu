@@ -8,11 +8,14 @@ Imports what the editor imports, from the tree; builds the golden square's
 surface with the bundled GDAL, twice - through the bundled isofill library,
 and through the bundled binary, which the editor runs for a raster too big to
 hold - and holds each to the reference the server's pipeline made, cell for
-cell: the check the golden suite makes, made of the installed copy. Exits
-non-zero on any difference.
+cell: the check the golden suite makes, made of the installed copy. And a
+fault in C, made in a child of the installed Python, written down and found
+by the next start as the editor would find it (J6). Exits non-zero on any
+difference.
 """
 
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -61,7 +64,29 @@ def main() -> int:
         differing = int((a != b).sum())
         check(differing == 0, f'{differing} of {a.size} cells differ; worst {np.abs(a - b).max():.3f} m')
         print(f'the installed Danu built the golden square with isofill {said}: all {a.size} cells the reference\'s')
+    crashed(work / 'crashes')
     return 0
+
+
+FAULT = '''
+import faulthandler, sys
+from pathlib import Path
+from danu.ui import crash
+crash.Reporter(Path(sys.argv[1])).install()
+faulthandler._sigsegv()
+'''
+
+
+def crashed(directory: Path) -> None:
+    """A segfault leaves a report the next start offers."""
+    from danu.ui import crash
+    done = subprocess.run([sys.executable, '-c', FAULT, str(directory)], capture_output=True, timeout=120)
+    check(done.returncode != 0, 'the fault did not end the child')
+    reports = crash.Reporter(directory).earlier()
+    check(len(reports) == 1, f'{len(reports)} reports of the fault; {done.stderr.decode(errors="replace")[-500:]}')
+    check('Segmentation fault' in reports[0].trace and 'in <module>' in reports[0].trace,
+          f'the report: {reports[0].trace[:500]}')
+    print(f'a fault in C was written down and offered at the next start: {reports[0].path}')
 
 
 if __name__ == '__main__':

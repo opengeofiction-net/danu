@@ -62,3 +62,11 @@ are saved.
 
 How to send finished squares to OpenGeofiction is on the wiki page,
 **Help › Danu on the OGF wiki**.
+
+## If something goes wrong
+
+If Danu meets an error it did not expect, it writes a report, saves your
+edits to the autosave, and offers to open a GitHub issue filled in from the
+report. Read the issue before you submit it, and take out anything you would
+rather not share: nothing is sent until you submit it. If Danu stops without
+warning, the report is offered the next time it starts.

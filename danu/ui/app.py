@@ -36,7 +36,7 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, desktop, josm, oauth, session, theme, wms
+from . import about, config, crash, desktop, josm, oauth, session, theme, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -2136,6 +2136,8 @@ def main(argv: list[str] | None = None) -> int:
                     help='build and show the surface once the square is open, at this resolution '
                          '(default 3, which is what the editor builds at; another is for comparing, '
                          'and the rebuilds after it keep to it)')
+    # a crash on purpose, to see a build report one: python, thread or fault
+    ap.add_argument('--crash', choices=crash.PROVOKE, help=argparse.SUPPRESS)
     args = ap.parse_args(argv[1:])
     if bool(args.zone_dir) != bool(args.square):
         ap.error('give both a zone directory and a square, or neither')
@@ -2149,6 +2151,10 @@ def main(argv: list[str] | None = None) -> int:
     # argv[0], which under python -m is __main__
     app.setDesktopFileName(APP_NAME)
     app.setWindowIcon(about.icon())
+    # what nothing catches from here on is written down and offered as an
+    # issue; a fault in C at the next start (J6)
+    reporter = crash.Reporter(user_data_dir() / 'crashes')
+    reporter.install()
     # the theme before the first widget, which would be drawn in the desktop's
     settings = Settings()
     theme.apply(app, settings.theme)
@@ -2160,6 +2166,7 @@ def main(argv: list[str] | None = None) -> int:
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir(),
                      settings=settings)
+    reporter.attach(win)
     last = session.read(win.session_path) if not args.zone_dir else None
     if last is not None:
         session.restore_window(win, last)
@@ -2177,4 +2184,10 @@ def main(argv: list[str] | None = None) -> int:
     if settings.start_always:
         win.show_start()                         # over what is opening, by the preferences
     win.update_start()                           # nothing opened, or opening: the start page or not
-    return app.exec()
+    QTimer.singleShot(0, reporter.offer_earlier)  # a run that died, once the window is up
+    if args.crash:
+        QTimer.singleShot(1000, lambda: crash.provoke(args.crash))
+    try:
+        return app.exec()
+    finally:
+        reporter.uninstall()
