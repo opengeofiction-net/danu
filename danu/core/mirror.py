@@ -33,6 +33,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import USER_AGENT
+
 URL = 'https://data.opengeofiction.net/dem/osm-squares'
 MANIFEST = '.danu-mirror.json'
 PART = '.part-'                       # a fetched file's prefix until it is put in place
@@ -106,7 +108,7 @@ class Fetched:
 
 
 def _get(url: str, opener, timeout: float) -> bytes:
-    with opener(urllib.request.Request(url, headers={'User-Agent': 'danu'}), timeout=timeout) as r:
+    with opener(urllib.request.Request(url, headers={'User-Agent': USER_AGENT}), timeout=timeout) as r:
         return r.read()
 
 
@@ -187,7 +189,7 @@ def _download(url: str, into: Path, opener, timeout: float) -> Path:
     # are the owner's alone, and a square put in place kept them
     tmp = into / f'{PART}{secrets.token_hex(8)}'
     try:
-        with open(tmp, 'xb') as f, opener(urllib.request.Request(url, headers={'User-Agent': 'danu'}),
+        with open(tmp, 'xb') as f, opener(urllib.request.Request(url, headers={'User-Agent': USER_AGENT}),
                                           timeout=timeout) as r:
             while chunk := r.read(1 << 20):
                 f.write(chunk)

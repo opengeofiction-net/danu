@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from .. import USER_AGENT
+
 URL = 'https://data.opengeofiction.net/dem/{zone}/dem-{zone}.tif'
 TIMEOUT_S = 60
 
@@ -25,7 +27,7 @@ def fetch(url: str, into: Path, timeout: float = TIMEOUT_S) -> tuple[Path, str]:
     there. Returns the file and what was done - 'fetched', 'unchanged', or
     'kept: <why>' when the server could not be asked and a copy is held."""
     into.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
     if into.exists():
         req.add_header('If-Modified-Since', email.utils.formatdate(into.stat().st_mtime, usegmt=True))
     try:

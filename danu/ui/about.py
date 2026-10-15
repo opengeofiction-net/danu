@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdit,
 from .. import __version__
 
 HOME = 'https://github.com/opengeofiction-net/danu'
+PRIVACY = f'{HOME}/blob/main/PRIVACY.md'          # the Store's privacy policy URL too (J8)
 
 
 def basics() -> dict[str, str]:
@@ -64,7 +65,8 @@ class AboutDialog(QDialog):
         self.versions = text(v)
         head = QLabel(f'<b>Danu {__version__}</b><br>the OpenGeofiction contour editor<br>'
                       f'<a href="{HOME}">{HOME}</a><br><br>'
-                      'Free software under the GNU General Public Licence, version 3 or later.')
+                      'Free software under the GNU General Public Licence, version 3 or later.<br>'
+                      f'<a href="{PRIVACY}">Privacy policy</a>')
         head.setTextFormat(Qt.TextFormat.RichText)
         head.setOpenExternalLinks(True)
         body = QPlainTextEdit(self.versions)

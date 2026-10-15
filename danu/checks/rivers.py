@@ -35,6 +35,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from osgeo import gdal
 
+from danu import USER_AGENT
 from danu.core.profile import densify, invalid_intervals, linear_fix
 from danu.core.profile import seg_lengths as seg_len_m
 
@@ -61,7 +62,7 @@ def fetch_waterways(bbox, timeout=180):
              f'(._;>;);out body;')
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            req = urllib.request.Request(OVERPASS_URL, data=query.encode())
+            req = urllib.request.Request(OVERPASS_URL, data=query.encode(), headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(req, timeout=timeout + 60) as resp:
                 return parse_osm(resp.read())
         except Exception as exc:

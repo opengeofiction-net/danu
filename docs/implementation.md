@@ -5266,8 +5266,8 @@ draws at the Store's sizes. Danu is a full-trust desktop app in it, with a
 Store signs what it certifies. 211 MB, to the installer's 122 - MSIX
 compresses each file on its own where Inno compresses the tree as one.
 
-The identity - name and publisher - is a stand-in, `OpenGeofiction.Danu` and
-`CN=OpenGeofiction`, until Partner Center reserves the real one (J8); the
+The identity - name and publisher - was a stand-in, `OpenGeofiction.Danu` and
+`CN=OpenGeofiction`, until Partner Center reserved the real one (J8); the
 script takes both as parameters, and nothing else changes.
 
 The release workflow installs it as the Store would, on a fresh runner:
@@ -5536,3 +5536,31 @@ gives a name to.
 
 It starts in `main`, so no test's window asks; measured against GitHub, the
 first start asked and found v0.2.0, not newer, and the second did not ask.
+
+## J8, the Microsoft Store
+
+Partner Center reserved Danu as `OpenGeofiction.Danu`, published by
+`CN=8B656AD9-4FD8-43AC-8CE7-DAC62DE06D6C`, shown as OpenGeofiction; these
+are now `build-msix.ps1`'s defaults, so the MSIX every release builds is the
+one the Store takes. CI's install of it signs with a throwaway certificate
+whose subject it reads from the manifest, so the real publisher changes
+nothing there.
+
+`PRIVACY.md` is the privacy policy the Store asks for, at its GitHub URL,
+and linked from Help › About. It covers what Danu itself does: the
+requests it makes, all to OpenGeofiction's servers but the daily release
+check to GitHub; the listeners on 127.0.0.1; and what it keeps on the
+machine. What OpenGeofiction keeps of an account is OpenGeofiction's own
+policy, which it points to.
+
+Writing it turned up that the requests did not say what made them: tiles
+and the release check sent `Danu/0.2.0`, territories and the importer a
+bare `danu`, and OAuth, JOSM, Overpass, the published DEM and the rivers
+check nothing at all, Qt's or Python's default. Every request now carries
+`danu.USER_AGENT`, `Danu/<version> (+<repository>)`, and a test counts the
+requests built in the source against the headers set.
+
+`packaging/windows/STORE.md` holds what the submission asks for: the
+listing, the category, the age rating answers, the reason for
+`runFullTrust`, and how a release's MSIX is taken from CI and submitted.
+The submission itself is made in Partner Center, by hand.
