@@ -47,7 +47,7 @@ def test_the_pages_link_to_each_other_and_out_to_the_wiki(window, opened):
 
 def test_the_wiki_page_is_opengeofictions_danu(window, opened):
     window.wiki_action.trigger()
-    assert opened == ['https://wiki.opengeofiction.net/index.php/OpenGeofiction:Danu']
+    assert opened == ['https://wiki.opengeofiction.net/index.php/Help:Danu']
 
 
 def test_the_keys_are_the_bindings_as_they_are_now(window):
