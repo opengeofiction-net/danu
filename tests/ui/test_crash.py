@@ -79,6 +79,21 @@ def test_the_same_fault_again_is_counted_not_shown(reporter, qtbot):
     assert len(reporter.reports) == 1
 
 
+def test_a_second_fault_waits_in_its_file_while_one_is_shown(reporter, qtbot):
+    def first():
+        raise ValueError('first')
+
+    def second():
+        raise KeyError('second')
+    QTimer.singleShot(0, first)
+    QTimer.singleShot(0, second)
+    qtbot.waitUntil(lambda: len(reporter.reports) == 2, timeout=2000)
+    qtbot.wait(50)
+    shown = reporter.dialog
+    assert shown is not None and shown.report.title == 'Crash: ValueError: first'
+    assert [w for w in QApplication.topLevelWidgets() if isinstance(w, crash.CrashDialog) and w.isVisible()] == [shown]
+
+
 def test_one_on_the_pool_is_shown_on_the_main_thread(reporter, qtbot):
     shown_on = []
     reporter.caught.connect(lambda _r: shown_on.append(threading.current_thread()))
