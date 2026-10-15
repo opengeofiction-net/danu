@@ -1,3 +1,16 @@
+danu (1.0.0-1) unstable; urgency=medium
+
+  * The first release for mappers: the editor installed without a terminal,
+    on Windows from an installer or the Microsoft Store, on any Linux from
+    an AppImage, and on Debian 13 from danu-editor.
+  * A start page, a Help menu, and preferences for the theme, the start
+    page, a menu entry for the AppImage and the check for a newer release.
+  * A crash is written to a report and offered as a GitHub issue to read
+    and submit; a fault in C is offered at the next start.
+  * Each request says it is Danu, and which version.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Thu, 15 Oct 2026 19:00:00 +0100
+
 danu (0.2.0-2) unstable; urgency=medium
 
   * The editor packaged: danu-editor, on the distribution's PySide6 and GDAL,
