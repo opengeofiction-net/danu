@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 pytest.importorskip('PySide6')
-from PySide6.QtCore import QThreadPool, QTimer
+from PySide6.QtCore import QRunnable, QThreadPool, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from danu.ui import crash
@@ -98,16 +98,21 @@ def test_one_on_the_pool_is_shown_on_the_main_thread(reporter, qtbot):
     shown_on = []
     reporter.caught.connect(lambda _r: shown_on.append(threading.current_thread()))
 
-    def fail():
-        raise RuntimeError('on the pool')
-    QThreadPool.globalInstance().start(fail)
+    class Fail(QRunnable):                    # as Danu's jobs are; see crash.provoke
+        def run(self):
+            raise RuntimeError('on the pool')
+    QThreadPool.globalInstance().start(Fail())
     qtbot.waitUntil(lambda: reporter.dialog is not None, timeout=5000)
     assert shown_on == [threading.main_thread()]
     text = reporter.reports[0].read_text()
     assert 'RuntimeError: on the pool' in text and 'on thread MainThread' not in text
 
 
-def test_one_on_a_python_thread_too(reporter, qtbot):
+def test_one_on_a_python_thread_too(reporter, qtbot, monkeypatch):
+    # pytest 8.3, Debian 13's, puts its own hook in for each phase of a test,
+    # over the one the fixture installed; set again here, in the test's
+    monkeypatch.setattr(threading, 'excepthook', reporter._thread_except)
+
     def fail():
         raise KeyError('k')
     t = threading.Thread(target=fail, name='worker')
@@ -140,7 +145,7 @@ def test_the_hooks_found_are_put_back(tmp_path, qapp):
     before = sys.excepthook, threading.excepthook
     r = crash.Reporter(tmp_path)
     r.install(fault=False)
-    assert sys.excepthook != before[0]
+    assert sys.excepthook == r._except and threading.excepthook == r._thread_except
     r.uninstall()
     assert (sys.excepthook, threading.excepthook) == before
 

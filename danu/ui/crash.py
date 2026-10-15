@@ -2,7 +2,9 @@
 and offered as a GitHub issue the mapper reads before it is sent.
 
 PySide6 hands an exception raised in a slot, in an override of Qt's - a paint
-event - or in a ``QRunnable`` on the thread pool to ``sys.excepthook``, and
+event - or in a ``QRunnable`` on the thread pool to ``sys.excepthook`` (on
+6.8 not one from a plain function started on the pool, which no job of
+Danu's is), and
 one on a Python thread to ``threading.excepthook``; either way the editor
 goes on running, measured on 6.11. Each is written to a report under
 ``crashes/`` beside the usage log - the versions, the trace and the last of
@@ -164,7 +166,7 @@ class Reporter(QObject):
         self._prune()
         self._previous = (sys.excepthook, threading.excepthook)
         sys.excepthook = self._except
-        threading.excepthook = lambda a: self._except(a.exc_type, a.exc_value, a.exc_traceback)
+        threading.excepthook = self._thread_except
         if not fault:
             return
         path = self.directory / time.strftime(f'%Y%m%d-%H%M%S-{os.getpid()}.fault')
@@ -195,6 +197,9 @@ class Reporter(QObject):
             self._fault.close()
             self._fault = None
             path.unlink(missing_ok=True)
+
+    def _thread_except(self, args) -> None:
+        self._except(args.exc_type, args.exc_value, args.exc_traceback)
 
     def _except(self, exc_type, exc, tb) -> None:
         """On whichever thread raised it: the terminal told as before, the
@@ -357,10 +362,14 @@ def provoke(how: str) -> None:
     if how == 'fault':
         faulthandler._sigsegv()
     elif how == 'thread':
-        from PySide6.QtCore import QThreadPool
+        # a QRunnable, as Danu's own jobs are: PySide6 6.8 - Debian 13's -
+        # hands sys.excepthook an exception from one, but not from a plain
+        # function started on the pool, measured
+        from PySide6.QtCore import QRunnable, QThreadPool
 
-        def fail():
-            raise RuntimeError('a crash on the thread pool, asked for by --crash')
-        QThreadPool.globalInstance().start(fail)
+        class Fail(QRunnable):
+            def run(self):
+                raise RuntimeError('a crash on the thread pool, asked for by --crash')
+        QThreadPool.globalInstance().start(Fail())
     else:
         raise RuntimeError('a crash asked for by --crash')
