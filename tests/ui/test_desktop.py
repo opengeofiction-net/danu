@@ -58,7 +58,9 @@ def test_the_entry_is_the_packaged_one_running_the_appimage(image):
     assert packaged.pop('Exec') == 'danu'
     assert {k: got[k] for k in packaged} == packaged
     assert exec_argv(got['Exec']) == [str(image)]
-    assert got['TryExec'] == str(image) and got[desktop.MARK] == str(image)
+    # string values, escaped as the file has them: a Windows path's \ is \\
+    assert desktop._unstring(got['TryExec']) == str(image)
+    assert desktop._unstring(got[desktop.MARK]) == str(image)
     assert desktop.installed() == image
 
 
@@ -78,6 +80,7 @@ def test_a_path_the_shell_or_the_file_would_misread_is_quoted(tmp_path, name):
     desktop.install(path)
     got = entry()
     assert exec_argv(got['Exec']) == [str(path)]
+    assert desktop._unstring(got['TryExec']) == str(path)
     assert desktop.installed() == path
 
 
