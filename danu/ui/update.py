@@ -28,6 +28,7 @@ from . import about
 
 RELEASES = 'https://api.github.com/repos/opengeofiction-net/danu/releases?per_page=30'
 DAY = 24 * 3600
+APPMODEL_ERROR_NO_PACKAGE = 15700
 USER_AGENT = f'Danu/{__version__} (+{about.HOME})'
 
 _VERSION = re.compile(r'v?(\d+)\.(\d+)\.(\d+)(?:[-.]?(a|alpha|b|beta|rc)\.?(\d+))?')
@@ -66,8 +67,10 @@ def is_newer(tag: str, than: str = __version__) -> bool:
 
 
 def from_store() -> bool:
-    """Running as a packaged (MSIX) app: GetCurrentPackageFullName says
-    APPMODEL_ERROR_NO_PACKAGE, 15700, for any other process."""
+    """Running as a packaged (MSIX) app. Asked with no buffer,
+    GetCurrentPackageFullName says APPMODEL_ERROR_NO_PACKAGE, 15700, for a
+    process with no package, and ERROR_INSUFFICIENT_BUFFER, 122, for one
+    with a name to give: anything but 15700 is a package."""
     if sys.platform != 'win32':
         return False
     import ctypes
@@ -77,7 +80,7 @@ def from_store() -> bool:
         rc = ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(n), None)
     except (AttributeError, OSError):
         return False                                   # older than Windows 8: no packages
-    return rc != 15700
+    return rc != APPMODEL_ERROR_NO_PACKAGE
 
 
 class UpdateCheck(QObject):

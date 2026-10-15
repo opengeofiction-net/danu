@@ -1122,7 +1122,7 @@ class MainWindow(QMainWindow):
 
     def show_newer(self, tag: str, url: str) -> None:
         """A newer release, in the status line with a link to its page."""
-        self.newer.setText(f'<a href="{html.escape(url, quote=True)}">Danu {html.escape(tag.lstrip("v"))} is out</a>')
+        self.newer.setText(f'<a href="{html.escape(url, quote=True)}">Danu {html.escape(tag.removeprefix("v"))} is out</a>')
         self.newer.setToolTip(f'You have {about.__version__}. {url}')
         self.newer.setVisible(True)
 
@@ -1133,6 +1133,8 @@ class MainWindow(QMainWindow):
         theme.apply(QApplication.instance(), s.theme)
         if not s.update_check:
             self.newer.setVisible(False)                 # turned off: not said either
+        elif update.is_newer(s.update_latest[0]) and not update.from_store():
+            self.show_newer(*s.update_latest)            # on again: what was found, said again
         for name, a in self.keyed_actions().items():
             a.setShortcut(QKeySequence(s.key(name)))
         self.controls.retip()

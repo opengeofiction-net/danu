@@ -180,6 +180,15 @@ def test_the_preferences_turn_it_off(window, monkeypatch):
     assert not window.newer.isVisibleTo(window)
     assert Settings(window.settings.q.fileName()).update_check is False
 
+    def on(dlg):
+        dlg.update_check.setChecked(True)
+        dlg.accept()
+        return dlg.result()
+    window.settings.update_latest = ('v99.0.0', PAGE + 'v99.0.0')
+    monkeypatch.setattr(PreferencesDialog, 'exec', on)
+    assert window.preferences()
+    assert window.newer.isVisibleTo(window) and 'Danu 99.0.0 is out' in window.newer.text()
+
 
 def test_the_store_has_no_box_for_it(window, monkeypatch):
     monkeypatch.setattr(preferences_module.update, 'from_store', lambda: True)
