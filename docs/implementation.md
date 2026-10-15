@@ -5482,3 +5482,36 @@ refused.
 run that it could not register the app id - the portal already knows the
 connection by the desktop file. `danu.ui.messages` filters it, counted with
 the network chatter.
+
+## J6, a crash
+
+`danu/ui/crash.py`. Measured on PySide6 6.11: an exception raised in a slot,
+in a Python override of Qt's - a paint event - or in a `QRunnable` on the
+thread pool goes to `sys.excepthook`, one on a Python thread to
+`threading.excepthook`, and the editor goes on running. Both hooks write a
+report under `crashes/` in the data directory, beside `usage/`: the versions
+About gives, the trace with the thread it was raised on, and the last 40
+lines of the usage log. A dialog, on the main thread whichever thread raised
+it, says so; writes the autosave there and then if there are edits, and says
+whether it could; and offers the issue. The same exception again from the
+same line - a paint event's comes back at every paint - is counted, not
+written or shown again.
+
+A fault in C ends the process before Python can do anything. `faulthandler`
+writes the Python stacks, and on 3.14 the C stack under them, to a `.fault`
+file of the run's own, under a header naming its usage log; the run ending
+as it should removes it. At the next start a fault file with more than its
+header is renamed, which on Windows a file another Danu still has open
+refuses, then made a report with that run's log and offered - once.
+
+The issue is GitHub's new-issue link with the title and body in its query:
+the mapper reads it in the browser, takes out what they like and submits it;
+nothing leaves the machine before. The link is cut to under 7500 characters,
+the log's oldest lines first, then a traceback's oldest - its end is where
+it went wrong - or a fault dump's last, the C stack under the Python one. The
+home directory is written `~`, in the report and the issue.
+
+`danu --crash python|thread|fault`, not in `--help`, makes one on purpose,
+to see a build report it. `packaging/smoke.py` segfaults a child of each
+installed Python and has the next start find the report, so every package CI
+builds is checked for it.
