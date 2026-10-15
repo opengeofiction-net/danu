@@ -3,9 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+    # a release's tag: everything, the UI on pip's PySide6 on Windows among
+    # it - see the ui job
+    tags: ['v*']
   pull_request:
-  # by hand (Actions > CI > Run workflow): everything, the UI on pip's
-  # PySide6 on Windows among it - see the ui job
+  # and by hand, Actions > CI > Run workflow, the same
   workflow_dispatch:
 
 # a newer push to a pull request stops the run of the one before it; main's
@@ -32,8 +34,9 @@ jobs:
       - run: pip install ruff
       - run: ruff check .
 
-  # Linux only: on Windows the core suite runs in windows-stack, with GDAL,
-  # as the packages have it
+  # Linux only. On Windows the core suite runs in windows-stack, with GDAL,
+  # as the packages have it; that the pure logic imports with no GDAL is
+  # asked of Linux alone now
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -56,14 +59,14 @@ jobs:
   # only when run by hand: windows-stack runs this suite on the stack the
   # packages are made of. In the two weeks to 2026-10-15 this leg caught two
   # things that windows-stack did not - a path's backslashes, which MSYS2's
-  # Python hid behind MSYSTEM until windows-stack ran without it, and the
-  # start card wider than a narrow map, for a reason not found - so it is
-  # kept, to run before a release
+  # Python hid until windows-stack ran outside the MSYS2 shell, and the
+  # start card wider than a narrow map, for a reason not found - so it runs
+  # on a release's tag, and by hand
   ui:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
+        os: ${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -120,6 +123,7 @@ jobs:
         with:
           submodules: recursive
       - uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: UCRT64
           update: true
@@ -141,13 +145,6 @@ jobs:
         run: make
       - name: run isofill
         run: bash packaging/ci/isofill-runs.sh
-      # MSYS2's Python takes / for its separator while MSYSTEM is set, as it
-      # is in this shell; the installed Danu runs without it, with \. The
-      # suites below run as Danu does, and this says which is which
-      - name: the separator, in this shell and as Danu runs
-        run: |
-          python -c "import os; print('with MSYSTEM', repr(os.sep))"
-          env -u MSYSTEM python -c "import os; print('without', repr(os.sep))"
       # pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a
       # Rust part, which has no wheel for this platform. pytest-qt is pure
       # Python and MSYS2 has none, so it comes from PyPI, alone, into a venv
@@ -157,20 +154,36 @@ jobs:
           set -eu
           python -m venv --system-site-packages ../venv
           ../venv/bin/python -m pip install -q --no-deps pytest-qt
+      # The suites as the installed Danu runs: started by Windows, not from
+      # the MSYS2 shell, with the tree's bin, isofill and Windows' own on
+      # PATH and nothing else. Run from the shell, MSYS2's Python took / for
+      # its path separator, with or without MSYSTEM, where the installed
+      # Danu takes \ - and J5c's test of a path's backslashes passed here and
+      # failed on pip's Python. The first line holds the separator to \
       - name: core and golden
+        shell: pwsh
         run: |
-          set -eu
-          export PATH="$PWD/extern/isofill:$PATH"
-          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
-          PYTHONPATH=. env -u MSYSTEM ../venv/bin/python -m danu.ui.about
-          PYTHONPATH=. env -u MSYSTEM ../venv/bin/python -m pytest tests -q --ignore=tests/ui \
-            --ignore=tests/golden/test_golden_surface.py
+          $ErrorActionPreference = 'Stop'
+          $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
+          $env:PYTHONPATH = '.'
+          $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
+          $py = Resolve-Path ..\venv\bin\python.exe
+          $sep = & $py -c "import os; print(os.sep)"
+          if ($sep -ne '\') { throw "os.sep is '$sep', not the installed Danu's '\'" }
+          & $py -m danu.ui.about
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $py -m pytest tests -q --ignore=tests/ui --ignore=tests/golden/test_golden_surface.py
+          exit $LASTEXITCODE
       - name: ui
+        shell: pwsh
         run: |
-          set -eu
-          export PATH="$PWD/extern/isofill:$PATH"
-          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
-          PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 env -u MSYSTEM ../venv/bin/python -m pytest tests/ui -q
+          $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
+          $env:PYTHONPATH = '.'
+          $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:QT_API = 'pyside6'
+          & (Resolve-Path ..\venv\bin\python.exe) -m pytest tests/ui -q
+          exit $LASTEXITCODE
 
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
