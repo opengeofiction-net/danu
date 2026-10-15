@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import desktop
+from . import desktop, update
 from .settings import DEFAULT_KEYS, REBUILD_KEY, URLS, Settings, default_url
 from .theme import THEMES
 from .widgets import unit
@@ -106,6 +106,13 @@ class PreferencesDialog(QDialog):
             self.menu.setChecked(desktop.installed() is not None)
             self.menu.setToolTip(f'{desktop.entry_path()}, running {desktop.appimage()}')
             form.addRow('', self.menu)
+        # the Store updates what it installed, and Danu does not ask for it
+        self.update_check = None
+        if not update.from_store():
+            self.update_check = QCheckBox('Say when a newer Danu is out')
+            self.update_check.setChecked(settings.update_check)
+            self.update_check.setToolTip('GitHub asked for Danu\'s releases at start, at most once a day')
+            form.addRow('', self.update_check)
         tabs.addTab(general, 'General')
 
         keys = QWidget()
@@ -195,6 +202,8 @@ class PreferencesDialog(QDialog):
         s.import_root = Path(self.import_root.text().strip()) if self.import_root.text().strip() else None
         s.theme = self.theme.currentData()
         s.start_always = self.start_always.isChecked()
+        if self.update_check is not None:
+            s.update_check = self.update_check.isChecked()
         for name, edit in self.edits.items():
             key = edit.keySequence().toString()
             if key == DEFAULT_KEYS[name]:

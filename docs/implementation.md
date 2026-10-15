@@ -5515,3 +5515,24 @@ home directory is written `~`, in the report and the issue.
 to see a build report it. `packaging/smoke.py` segfaults a child of each
 installed Python and has the next start find the report, so every package CI
 builds is checked for it.
+
+## J7, a newer release
+
+`danu/ui/update.py`. At start, at most once a day, Danu asks GitHub for its
+releases and takes the newest that is not a draft; one newer than the
+running version is said in the status line, "Danu 0.3.0 is out", a link to
+its page. GitHub's `releases/latest` leaves out a prerelease and every
+release so far is one - v0.2.0's `releases/latest` is a 404 - so the list is
+read instead. Tags compare as versions, `v0.3.0` above `v0.3.0rc1`; a page
+not under Danu's own releases is not linked to.
+
+The answer is kept in the settings with when it came, so the other starts
+that day say it without asking, and a release installed since says nothing.
+No answer - offline, GitHub down, a body that is not the list - leaves the
+time unset and the next start asks again. Preferences › General turns it
+off, which hides the link too. Installed from the Store it never asks and
+the box is not there: a packaged process is one `GetCurrentPackageFullName`
+gives a name to.
+
+It starts in `main`, so no test's window asks; measured against GitHub, the
+first start asked and found v0.2.0, not newer, and the second did not ask.
