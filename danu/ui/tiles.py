@@ -30,12 +30,11 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QGraphicsItem
 
-from .. import __version__
+from .. import USER_AGENT
 from . import mercator as m
 from .config import Layer
 from .mapview import visible_rect
 
-USER_AGENT = f'Danu/{__version__} (+https://github.com/opengeofiction-net/danu)'
 DISK_CACHE_BYTES = 512 * 1024 * 1024
 # decoded pixmaps kept in memory; a 1920x1200 view is about 50 tiles, so this
 # is a dozen screens of panning before anything is decoded twice

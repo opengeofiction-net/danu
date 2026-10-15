@@ -23,13 +23,12 @@ import time
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
-from .. import __version__
+from .. import USER_AGENT, __version__
 from . import about
 
 RELEASES = 'https://api.github.com/repos/opengeofiction-net/danu/releases?per_page=30'
 DAY = 24 * 3600
 APPMODEL_ERROR_NO_PACKAGE = 15700
-USER_AGENT = f'Danu/{__version__} (+{about.HOME})'
 
 _VERSION = re.compile(r'v?(\d+)\.(\d+)\.(\d+)(?:[-.]?(a|alpha|b|beta|rc)\.?(\d+))?')
 _PRE = {'a': 0, 'alpha': 0, 'b': 1, 'beta': 1, 'rc': 2}

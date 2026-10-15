@@ -36,6 +36,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
+from .. import USER_AGENT
 from ..core import chains
 from ..core.square import Member, Node, Relation, Way, xml_version
 
@@ -195,7 +196,7 @@ def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES,
     last: Exception | None = None
     for _attempt in range(retries):
         try:
-            with opener(urllib.request.Request(url, data=data), timeout=READ_TIMEOUT) as resp:
+            with opener(urllib.request.Request(url, data=data, headers={'User-Agent': USER_AGENT}), timeout=READ_TIMEOUT) as resp:
                 return resp.read()
         except Exception as exc:      # noqa: BLE001 - every failure is the same failure
             last = exc

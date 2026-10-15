@@ -19,6 +19,8 @@ from urllib.parse import urlencode
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
+from .. import USER_AGENT
+
 DEFAULT_URL = 'http://127.0.0.1:8111'
 TIMEOUT_MS = 3000
 
@@ -84,6 +86,7 @@ class JosmRemote(QObject):
             self._replaced.add(id(self._reply))
             self._reply.abort()
         req = QNetworkRequest(QUrl(url))
+        req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
         req.setTransferTimeout(self.timeout_ms)
         reply = self.nam.get(req)
         self._reply = reply

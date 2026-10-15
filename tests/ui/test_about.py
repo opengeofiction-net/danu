@@ -2,6 +2,8 @@
 title, Help › About and the usage log - and the versions of what Danu runs
 on, which a report needs as much."""
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip('PySide6')
@@ -48,3 +50,10 @@ def test_the_versions_say_why_a_library_is_missing(monkeypatch):
 def test_the_icon_is_there_at_every_size_it_was_drawn_at():
     sizes = {s.width() for s in about.icon().availableSizes()}
     assert sizes == {16, 24, 32, 48, 64, 128, 256}
+
+
+def test_the_about_box_links_to_the_privacy_policy(qapp):
+    dlg = about.AboutDialog(v={'danu': '0.2.0'})
+    heads = [w.text() for w in dlg.findChildren(about.QLabel)]
+    assert any(f'href="{about.PRIVACY}"' in t for t in heads)
+    assert (Path(__file__).parents[2] / about.PRIVACY.rsplit('/blob/main/', 1)[1]).exists()

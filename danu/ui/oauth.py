@@ -35,6 +35,8 @@ from PySide6.QtCore import QByteArray, QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QHostAddress, QNetworkAccessManager, QNetworkReply, QNetworkRequest, QTcpServer
 
+from .. import USER_AGENT
+
 CLIENT_ID = 'y7vRkuN2vW_6JwIKeFmLsrOG3UUQWp1fppC8lzRAQUY'
 PORT = 8116                     # the redirect registered with the server
 PATH = '/oauth_authorization'
@@ -171,6 +173,7 @@ class SignIn(QObject):
     # ------------------------------------------------------- the server
     def _exchange(self, code: str) -> None:
         req = QNetworkRequest(QUrl(f'{self.server}/oauth2/token'))
+        req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
         req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, 'application/x-www-form-urlencoded')
         body = urlencode({'grant_type': 'authorization_code', 'code': code, 'redirect_uri': self.redirect,
                           'client_id': CLIENT_ID, 'code_verifier': self.verifier})
@@ -200,6 +203,7 @@ def details(nam: QNetworkAccessManager, server: str, token: str, ok, failed, ref
     the server no longer takes the token - expired, or revoked - and
     ``failed(why)`` for anything else, the server not reached among it."""
     req = QNetworkRequest(QUrl(f'{server.rstrip("/")}/api/0.6/user/details.json'))
+    req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
     req.setRawHeader(b'Authorization', f'Bearer {token}'.encode('ascii'))
     reply = nam.get(req)
 
@@ -226,6 +230,7 @@ def details(nam: QNetworkAccessManager, server: str, token: str, ok, failed, ref
 def revoke(nam: QNetworkAccessManager, server: str, token: str) -> QNetworkReply:
     """The token given back to the server: asked, not waited on."""
     req = QNetworkRequest(QUrl(f'{server.rstrip("/")}/oauth2/revoke'))
+    req.setHeader(QNetworkRequest.KnownHeaders.UserAgentHeader, USER_AGENT)
     req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, 'application/x-www-form-urlencoded')
     reply = nam.post(req, QByteArray(urlencode({'token': token, 'client_id': CLIENT_ID}).encode('ascii')))
     reply.finished.connect(reply.deleteLater)

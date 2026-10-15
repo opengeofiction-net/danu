@@ -2,16 +2,17 @@
 # packed by the Windows SDK's makeappx. Unsigned - the Store signs what it is
 # given; CI signs a copy with a test certificate to install it.
 #
-#   build-msix.ps1 -Tree OUT\Danu -Version 0.2.0 -Out out [-Name ...] [-Publisher ...]
+#   build-msix.ps1 -Tree OUT\Danu -Version 0.2.0 -Out out
 #
-# Name and Publisher are the identity Partner Center reserves for the app;
-# until it has one, these are stand-ins that install but cannot be submitted.
+# The identity is the one Partner Center reserved for Danu (J8), from
+# Product management > Product identity: what the Store takes is this
+# package with these three as they are there.
 param(
     [Parameter(Mandatory)] [string] $Tree,
     [Parameter(Mandatory)] [string] $Version,
     [Parameter(Mandatory)] [string] $Out,
     [string] $Name = 'OpenGeofiction.Danu',
-    [string] $Publisher = 'CN=OpenGeofiction',
+    [string] $Publisher = 'CN=8B656AD9-4FD8-43AC-8CE7-DAC62DE06D6C',
     [string] $PublisherDisplay = 'OpenGeofiction'
 )
 $ErrorActionPreference = 'Stop'
