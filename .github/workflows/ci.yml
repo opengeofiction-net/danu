@@ -3,7 +3,18 @@ name: CI
 on:
   push:
     branches: [main]
+    # a release's tag: everything, the UI on pip's PySide6 on Windows among
+    # it - see the ui job
+    tags: ['v*']
   pull_request:
+  # and by hand, Actions > CI > Run workflow, the same
+  workflow_dispatch:
+
+# a newer push to a pull request stops the run of the one before it; main's
+# runs all finish, each the record of a merge
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # The pure logic, on both targets. GDAL is deliberately not installed here:
@@ -23,12 +34,11 @@ jobs:
       - run: pip install ruff
       - run: ruff check .
 
+  # Linux only. On Windows the core suite runs in windows-stack, with GDAL,
+  # as the packages have it; that the pure logic imports with no GDAL is
+  # asked of Linux alone now
   tests:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       # with the submodule: test_params holds the library version this code
       # speaks to against the version isofill's header defines
@@ -44,15 +54,19 @@ jobs:
         env:
           PYTHONPATH: .
 
-  # The editor's widgets, offscreen, on both targets. Separate from tests
-  # because PySide6 is a large install the pure job has no use for, and
-  # because this is the job that answers whether Qt paints on the Windows
-  # runner at all - a question worth its own red or green.
+  # The editor's widgets, offscreen. Separate from tests because PySide6 is
+  # a large install the pure job has no use for. Windows, on pip's PySide6,
+  # only when run by hand: windows-stack runs this suite on the stack the
+  # packages are made of. In the two weeks to 2026-10-15 this leg caught two
+  # things that windows-stack did not - a path's backslashes, which MSYS2's
+  # Python hid until windows-stack ran outside the MSYS2 shell, and the
+  # start card wider than a narrow map, for a reason not found - so it runs
+  # on a release's tag, and by hand
   ui:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ (github.event_name == 'workflow_dispatch' || github.ref_type == 'tag') && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -77,88 +91,6 @@ jobs:
           # pure tests job - which has no pytest-qt - is not warned about an
           # option it cannot know
           QT_API: pyside6
-
-  # isofill is C and is built rather than mocked, because a preview which does
-  # not match the build is worse than no preview. Windows is here from the
-  # start: finding out in phase 7 that it cannot be built is the usual way this
-  # goes wrong.
-  isofill:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    # named once: the install and the check after it cannot then drift
-    env:
-      MSYS2_PACKAGES: >-
-        make
-        mingw-w64-ucrt-x86_64-gcc
-        mingw-w64-ucrt-x86_64-libgfortran
-        mingw-w64-ucrt-x86_64-gdal
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: install gdal (linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgdal-dev
-      # MSYS2 rather than conda. The conda route was tried first and never
-      # built once: conda's libgdal ships no gdal-config on Windows, and the
-      # Makefile stops without one - which continue-on-error then reported as
-      # success for the whole of phase 0. MSYS2's UCRT64 environment has gcc,
-      # make, and a GDAL whose gdal-config works, so the same Makefile builds
-      # here as on Linux with nothing special-cased in it.
-      # libgfortran is named although GDAL depends on it anyway: it provides
-      # fc-libs, and on 2026-09-21 the other provider - gcc-libgfortran -
-      # pinned a gcc-libs the repository had already moved past. pacman under
-      # --noconfirm takes the first provider, could not resolve it, answered
-      # its own "skip gdal for this upgrade?" with yes, installed the
-      # toolchain alone and exited 0; the build then stopped on gdal-config
-      # two steps later, which read as our fault. MSYS2 has since dropped
-      # gcc-libgfortran, so naming the survivor is a no-op today and takes
-      # the coin toss out of the next rename
-      - name: install toolchain and gdal (windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: ${{ env.MSYS2_PACKAGES }}
-      # pacman can answer its own "skip this package?" with yes under
-      # --noconfirm and still exit 0, so the packages are asked for by name
-      # here rather than trusted: pacman -Q fails on one that is not there and
-      # names it. Probing the binaries would not do - gcc and make would
-      # answer for themselves while gdal was missing, and libgfortran has no
-      # binary of its own to ask. gdal-config goes in the log besides, because
-      # a Windows build that fails later is usually a GDAL nobody expected
-      - name: check the packages asked for are installed (windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          set -eu
-          pacman -Q $MSYS2_PACKAGES
-          gdal-config --version
-          gdal-config --libs
-      - name: build (linux)
-        if: runner.os == 'Linux'
-        working-directory: extern/isofill
-        run: make
-      - name: build (windows)
-        if: runner.os == 'Windows'
-        working-directory: extern/isofill
-        shell: msys2 {0}
-        run: make
-      # Not just built: run. A binary that compiles and cannot find its GDAL
-      # DLLs at load is the Windows failure that a build step never sees. One
-      # script for both platforms, so what they assert cannot drift; it wants
-      # isofill's exit 2 after usage and the exact usage line, not a substring
-      - name: run (linux)
-        if: runner.os == 'Linux'
-        run: bash packaging/ci/isofill-runs.sh
-      - name: run (windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: bash packaging/ci/isofill-runs.sh
 
   # J2a: the stack the Windows packages are made of, before anything is
   # packed. Python, PySide6, GDAL's bindings and numpy from MSYS2's UCRT64,
@@ -191,19 +123,28 @@ jobs:
         with:
           submodules: recursive
       - uses: msys2/setup-msys2@v2
+        id: msys2
         with:
           msystem: UCRT64
           update: true
           install: ${{ env.MSYS2_STACK }}
-      # by name, as the isofill job does: pacman can skip one and exit 0
+      # by name: pacman under --noconfirm can answer its own "skip this
+      # package?" with yes and still exit 0, as it did with gdal on
+      # 2026-09-21, when two packages provided fc-libs - which is why
+      # libgfortran is named, though GDAL depends on it anyway
       - name: the stack, and its versions
         run: |
           set -eu
           pacman -Q $MSYS2_STACK
           python -c "import sys, numpy, PySide6; from osgeo import gdal; print(sys.version, 'numpy', numpy.__version__, 'PySide6', PySide6.__version__, 'GDAL', gdal.__version__)"
+      # built, and run: a binary that compiles and cannot find its GDAL DLLs
+      # at load is the Windows failure a build step never sees. isofill-runs
+      # wants its exit 2 after usage and the exact usage line
       - name: build isofill
         working-directory: extern/isofill
         run: make
+      - name: run isofill
+        run: bash packaging/ci/isofill-runs.sh
       # pytest and hypothesis are MSYS2's: hypothesis from PyPI now builds a
       # Rust part, which has no wheel for this platform. pytest-qt is pure
       # Python and MSYS2 has none, so it comes from PyPI, alone, into a venv
@@ -213,20 +154,39 @@ jobs:
           set -eu
           python -m venv --system-site-packages ../venv
           ../venv/bin/python -m pip install -q --no-deps pytest-qt
+      # The suites as the installed Danu runs: started by Windows, not from
+      # the MSYS2 shell, with the tree's bin, isofill and Windows' own on
+      # PATH, and none of MSYS2's variables - setup-msys2 puts MSYSTEM in
+      # every later step's environment, and under it MSYS2's Python takes /
+      # for its path separator where the installed Danu takes \. J5c's test
+      # of a path's backslashes passed here and failed on pip's Python for
+      # it. The separator is held to \ before anything runs
       - name: core and golden
+        shell: pwsh
         run: |
-          set -eu
-          export PATH="$PWD/extern/isofill:$PATH"
-          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
-          PYTHONPATH=. ../venv/bin/python -m danu.ui.about
-          PYTHONPATH=. ../venv/bin/python -m pytest tests -q --ignore=tests/ui \
-            --ignore=tests/golden/test_golden_surface.py
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem Env: | Where-Object Name -Match '^(MSYS|MINGW)' | ForEach-Object { "unset $($_.Name)=$($_.Value)"; Remove-Item "Env:$($_.Name)" }
+          $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
+          $env:PYTHONPATH = '.'
+          $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
+          $py = Resolve-Path ..\venv\bin\python.exe
+          $sep = & $py -c "import os; print(os.sep)"
+          if ($sep -ne '\') { throw "os.sep is '$sep', not the installed Danu's '\'" }
+          & $py -m danu.ui.about
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $py -m pytest tests -q --ignore=tests/ui --ignore=tests/golden/test_golden_surface.py
+          exit $LASTEXITCODE
       - name: ui
+        shell: pwsh
         run: |
-          set -eu
-          export PATH="$PWD/extern/isofill:$PATH"
-          export DANU_ISOFILL_LIB="$(cygpath -w "$PWD/extern/isofill/libisofill.dll")"
-          PYTHONPATH=. QT_QPA_PLATFORM=offscreen QT_API=pyside6 ../venv/bin/python -m pytest tests/ui -q
+          Get-ChildItem Env: | Where-Object Name -Match '^(MSYS|MINGW)' | ForEach-Object { "unset $($_.Name)=$($_.Value)"; Remove-Item "Env:$($_.Name)" }
+          $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
+          $env:PYTHONPATH = '.'
+          $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:QT_API = 'pyside6'
+          & (Resolve-Path ..\venv\bin\python.exe) -m pytest tests/ui -q
+          exit $LASTEXITCODE
 
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
@@ -247,10 +207,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gdal-bin python3-gdal python3-numpy python3-pyosmium \
                                   osmium-tool xz-utils zip python3-pytest libgdal-dev
-      # binary and library both; ldconfig so the library is found by name
+      # binary and library both; ldconfig so the library is found by name.
+      # Then run, as windows-stack runs its own: Linux's half of what the
+      # isofill job did, which was this build twice
       - name: build and install isofill
         working-directory: extern/isofill
         run: make && sudo make install && sudo ldconfig
+      - name: run isofill
+        run: bash packaging/ci/isofill-runs.sh
       # and the one ui test that needs PROJ: the canvas projection against gdalwarp's
       - run: python3 -m pytest tests/golden tests/test_mercator_proj.py tests/test_land_clamp.py -q
         env:
