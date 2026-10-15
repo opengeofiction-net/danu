@@ -3,10 +3,18 @@
 Danu starts by putting back the last session, or failing that by opening the
 most recent square. Only when neither opens anything - a first run, or every
 square gone from where it was - is there nothing to show but the map, and
-then this says what to do: sign in, import a zone, or open squares already
-on disk. The map stays live behind it, the territories on it, so a mapper can
-look for their zone before importing it. It goes when a working set is on
-screen.
+then this says what to do: sign in, import a zone, open squares already
+on disk, or start a square nobody has drawn (J5c). The map stays live behind
+it, the territories on it, so a mapper can look for their zone before
+importing it - or find the ground a new square is to be. It goes when a
+working set is on screen.
+
+Asked for - Help › Start page, or at every start by the preferences - it is
+shown over the squares too, with a Close; opening others closes it as well.
+
+Run from an AppImage with no place in the applications menu, it offers one,
+once: whether taken or declined the question is not put again, and the
+preferences have it after.
 
 Each step's button triggers the File menu's own action, so the card and the
 menu are one path, and the usage log has the step by the action's name.
@@ -17,9 +25,9 @@ A child of the **view**, not of its viewport, for the reason
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import __version__
 
@@ -29,7 +37,11 @@ MARGIN = 12                # between the card and the map's edge
 
 
 class StartCard(QFrame):
-    def __init__(self, view: QWidget, sign_in: QAction, import_: QAction, open_: QAction):
+    menuAnswered = Signal(bool)          # the applications menu offered: taken, or not
+    closed = Signal()
+
+    def __init__(self, view: QWidget, sign_in: QAction, import_: QAction, open_: QAction,
+                 new: QAction):
         super().__init__(view)
         self.setObjectName('startCard')
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -53,6 +65,29 @@ class StartCard(QFrame):
         opn = QLabel('…or open squares already on this machine')
         opn.setWordWrap(True)
         self.open_ = self._step(steps, 2, '3', opn, 'Open…', open_)
+        new_ = QLabel('…or start a square nobody has drawn: the one in the middle of the map')
+        new_.setWordWrap(True)
+        self.new = self._step(steps, 3, '', new_, 'New…', new)
+
+        # the AppImage's place in the menu, asked once
+        self.offer = QWidget()
+        row = QHBoxLayout(self.offer)
+        row.setContentsMargins(0, 0, 0, 0)
+        ask = QLabel('Add Danu to your applications menu?')
+        ask.setWordWrap(True)
+        row.addWidget(ask, 1)
+        self.offer_add = QPushButton('Add')
+        self.offer_no = QPushButton('No thanks')
+        for b, taken in ((self.offer_add, True), (self.offer_no, False)):
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.clicked.connect(lambda _=False, t=taken: self._answer(t))
+            row.addWidget(b, 0, Qt.AlignmentFlag.AlignTop)
+        self.offer.hide()
+
+        self.close_ = QPushButton('Close')
+        self.close_.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.close_.clicked.connect(self.closed)
+        self.close_.hide()
 
         box = QVBoxLayout(self)
         box.setContentsMargins(20, 16, 20, 18)
@@ -61,6 +96,8 @@ class StartCard(QFrame):
         box.addWidget(what)
         box.addSpacing(4)
         box.addLayout(steps)
+        box.addWidget(self.offer)
+        box.addWidget(self.close_, 0, Qt.AlignmentFlag.AlignRight)
         # the viewport's resize, held by name: see danu.ui.legend
         self._viewport = view.viewport()
         self._viewport.installEventFilter(self)
@@ -89,6 +126,20 @@ class StartCard(QFrame):
         else:
             self.account.setText('Sign in to OGF, so Danu can say which territories are yours')
             self.sign_in.show()
+        self.place()
+
+    def offer_menu(self, ask: bool) -> None:
+        self.offer.setVisible(ask)
+        self.place()
+
+    def _answer(self, taken: bool) -> None:
+        self.offer.hide()
+        self.place()
+        self.menuAnswered.emit(taken)
+
+    def set_closable(self, closable: bool) -> None:
+        """A Close, while it is over squares that are open."""
+        self.close_.setVisible(closable)
         self.place()
 
     # ------------------------------------------------------------ layout

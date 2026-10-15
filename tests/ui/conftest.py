@@ -111,6 +111,14 @@ def collected_on_the_main_thread():
     gc.collect()
 
 
+@pytest.fixture(autouse=True)
+def not_an_appimage(monkeypatch, tmp_path):
+    """Not run from an AppImage unless a test says so, and the applications
+    menu a directory of the test's own: never the desktop's (J5c)."""
+    monkeypatch.delenv('APPIMAGE', raising=False)
+    monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path / 'xdg-data'))
+
+
 @pytest.fixture
 def window(qtbot, zone, tmp_path, territory_files):
     settings = Settings(tmp_path / 'danu.ini')

@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = ["PySide6>=6.6"]
+ui = ["PySide6>=6.8"]
 dev = ["pytest>=8", "pytest-qt>=4", "hypothesis>=6", "ruff>=0.16"]
 
 # No [project.scripts] yet. Declaring entry points for modules which do not

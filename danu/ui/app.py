@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QByteArray, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtCore import QByteArray, QEvent, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,12 +31,12 @@ from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
 from ..core import edits, make_square, save, territory
 from ..core.autosave import Store
-from ..core.square import Square, SquareName, WorkingSet
+from ..core.square import Square, SquareName, WorkingSet, list_squares
 from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, josm, oauth, session, wms
+from . import about, config, desktop, josm, oauth, session, theme, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -406,9 +406,13 @@ class MainWindow(QMainWindow):
         self.importer.finished.connect(self._imported)
         self._menus()
         # the start page (J5a), shown by update_start once it is known that
-        # nothing is being opened
-        self.start = StartCard(self.map, self.account_action, self.import_action, self.open_action)
+        # nothing is being opened - or over what is, when asked for (J5c)
+        self.start = StartCard(self.map, self.account_action, self.import_action, self.open_action,
+                               self.new_square_action)
         self.start.hide()
+        self._start_asked = False
+        self.start.closed.connect(self.close_start)
+        self.start.menuAnswered.connect(self._menu_answered)
         self._docked_only()
         self._default_layout = self.saveState()       # what Reset panels goes back to
         # signing in to OGF (H6f): the tests hand in where the browser goes
@@ -703,15 +707,37 @@ class MainWindow(QMainWindow):
 
     def new_blank_square(self):
         """R5: a blank square file - frame only - into the zone, for ground
-        nobody has drawn. The set is re-read so it shows as present."""
-        if self.working_set is None or self.zone_dir is None:
+        nobody has drawn. The set is re-read so it shows as present.
+
+        With nothing open (J5c) - a mapper starting a territory, from the
+        start page - the zone's directory is asked for, the square offered is
+        the one in the middle of the map, and the set opens round it."""
+        ws = self.working_set
+        if ws is None:
+            if self._pending is not None:
+                self.statusBar().showMessage('a square is being read')
+                return
+            root = self.settings.squares_root or self.settings.import_root
+            chosen = QFileDialog.getExistingDirectory(self, "The zone's directory, for the new square",
+                                                      str(root))
+            if not chosen:
+                return
+            zone_dir = Path(chosen)
+            lon, lat = self.map.center_lonlat()
+            try:
+                default = str(SquareName(int(np.floor(lon)), int(np.floor(lat))))
+            except ValueError:                           # the map's edge, past the squares
+                default = ''
+        elif self.zone_dir is None:
             self.statusBar().showMessage('open a square in the zone first')
             return
-        if self.editor.dirty():
+        elif self.editor.dirty():
             self.statusBar().showMessage('save first: a new square re-reads the set')
             return
-        default = next((str(n) for n, s in self.working_set.squares.items() if not s.present), str(self.working_set.centre))
-        text, ok = QInputDialog.getText(self, 'New blank square', 'Square (e.g. N20E087):', text=default)
+        else:
+            zone_dir = self.zone_dir
+            default = next((str(n) for n, s in ws.squares.items() if not s.present), str(ws.centre))
+        text, ok = self.ask_text('New blank square', 'Square (e.g. N20E087):', default)
         if not ok or not text.strip():
             return
         try:
@@ -719,13 +745,26 @@ class MainWindow(QMainWindow):
         except ValueError as e:
             QMessageBox.warning(self, 'Danu', str(e))
             return
-        path = save.default_path(self.zone_dir, name)
-        if path.exists() or (name in self.working_set.squares and self.working_set.squares[name].present):
-            QMessageBox.warning(self, 'Danu', f'{name} already exists in {self.zone_dir.name}')
+        path = save.default_path(zone_dir, name)
+        if (path.exists() or name in list_squares(zone_dir)
+                or (ws is not None and name in ws.squares and ws.squares[name].present)):
+            QMessageBox.warning(self, 'Danu', f'{name} already exists in {zone_dir.name}')
             return
         make_square.write_square(path, name.lon, name.lat, save.FRAME_NOTE)
         self.statusBar().showMessage(f'wrote {path.name}')
-        self.open_working_set(self.zone_dir, self.working_set.centre, self.working_set.size)
+        if ws is None:
+            self.open_working_set(zone_dir, name, self.settings.size)
+        else:
+            self.open_working_set(zone_dir, ws.centre, ws.size)
+
+    def ask_text(self, title: str, label: str, text: str) -> tuple[str, bool]:
+        """A line of text asked for; the tests hand in the answer."""
+        return QInputDialog.getText(self, title, label, text=text)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange and hasattr(self, 'controls'):
+            self.controls.recolour()                     # see MapControls.recolour
 
     def closeEvent(self, event):
         self.wait_for_writes()
@@ -992,6 +1031,11 @@ class MainWindow(QMainWindow):
             help_.addAction(a)
             self.help_actions[name] = a
         self.help_actions['getting-started'].setShortcut(QKeySequence.StandardKey.HelpContents)
+        # and the start page (J5c), over whatever is open
+        self.start_action = QAction('&Start page', self)
+        self._logged(self.start_action, 'help.start')
+        self.start_action.triggered.connect(self.show_start)
+        help_.addAction(self.start_action)
         help_.addSeparator()
         self.wiki_action = QAction('Danu on the OGF &wiki', self)
         self.wiki_action.triggered.connect(lambda: self._open(help_ui.WIKI))
@@ -1042,13 +1086,39 @@ class MainWindow(QMainWindow):
         dlg = PreferencesDialog(self.settings, self.action_labels(), self)
         if not dlg.exec():
             return False
+        if dlg.menu is not None and dlg.menu.isChecked() != (desktop.installed() is not None):
+            self.set_menu_entry(dlg.menu.isChecked())
         self.apply_settings()
         return True
+
+    def set_menu_entry(self, on: bool) -> bool:
+        """The AppImage in the applications menu, or out of it (J5c). True
+        if done; a directory that cannot be written is said."""
+        image = desktop.appimage()
+        try:
+            if on and image is not None:
+                desktop.install(image)
+            elif not on:
+                desktop.remove()
+        except OSError as e:
+            QMessageBox.warning(self, 'Danu', f'The applications menu could not be changed.\n\n{e}')
+            return False
+        self.settings.menu_offered = True                # answered, here or on the start page
+        self.statusBar().showMessage('Danu is in the applications menu' if on
+                                     else 'Danu is out of the applications menu')
+        self.update_start()
+        return True
+
+    def _menu_answered(self, taken: bool) -> None:
+        self.settings.menu_offered = True
+        if taken:
+            self.set_menu_entry(True)
 
     def apply_settings(self) -> None:
         """The settings put to use, as the preferences left them: keys at
         once, the servers from their next use."""
         s = self.settings
+        theme.apply(QApplication.instance(), s.theme)
         for name, a in self.keyed_actions().items():
             a.setShortcut(QKeySequence(s.key(name)))
         self.controls.retip()
@@ -1144,6 +1214,7 @@ class MainWindow(QMainWindow):
             return False
         self._pending = (zone_dir, centre, size)
         self.zone_dir = zone_dir
+        self._start_asked = False                        # others asked for: what it was shown over has gone
         self.update_start()                              # the start page goes while it is read
         self.open_action.setEnabled(False)
         self.statusBar().showMessage(f'reading {centre} and its neighbours from {zone_dir.name}…')
@@ -1152,8 +1223,21 @@ class MainWindow(QMainWindow):
 
     def update_start(self) -> None:
         """The start page, while there is no working set and none is being
-        read: at start when nothing opened, and after a read that failed."""
-        self.start.setVisible(self.working_set is None and self._pending is None)
+        read: at start when nothing opened, and after a read that failed.
+        Or over the squares, asked for, until closed or others are opened."""
+        nothing = self.working_set is None and self._pending is None
+        self.start.offer_menu(desktop.appimage() is not None and desktop.installed() is None
+                              and not self.settings.menu_offered)
+        self.start.set_closable(not nothing)
+        self.start.setVisible(nothing or self._start_asked)
+
+    def show_start(self) -> None:
+        self._start_asked = True
+        self.update_start()
+
+    def close_start(self) -> None:
+        self._start_asked = False
+        self.update_start()
 
     def _loaded(self, ws: WorkingSet):
         QApplication.restoreOverrideCursor()
@@ -2065,8 +2149,17 @@ def main(argv: list[str] | None = None) -> int:
     # argv[0], which under python -m is __main__
     app.setDesktopFileName(APP_NAME)
     app.setWindowIcon(about.icon())
+    # the theme before the first widget, which would be drawn in the desktop's
+    settings = Settings()
+    theme.apply(app, settings.theme)
+    # an AppImage moved, or its newer self run, keeps its place in the menu
+    try:
+        desktop.follow(desktop.appimage())
+    except OSError:
+        pass                                     # left as it was; the preferences say where it is
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
-    win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir())
+    win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir(),
+                     settings=settings)
     last = session.read(win.session_path) if not args.zone_dir else None
     if last is not None:
         session.restore_window(win, last)
@@ -2081,5 +2174,7 @@ def main(argv: list[str] | None = None) -> int:
         pass                                     # restore opened the set; the view and surface follow it
     elif recent := win.settings.recent():
         win.open_working_set(*recent[0])
+    if settings.start_always:
+        win.show_start()                         # over what is opening, by the preferences
     win.update_start()                           # nothing opened, or opening: the start page or not
     return app.exec()

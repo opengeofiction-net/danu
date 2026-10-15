@@ -37,7 +37,7 @@ def bare(qtbot, tmp_path, territory_files):
 
 
 def buttons(w):
-    return {b.text(): b for b in w.start.findChildren(QPushButton) if not b.isHidden()}
+    return {b.text(): b for b in w.start.findChildren(QPushButton) if b.isVisibleTo(w.start)}
 
 
 def test_with_nothing_open_the_start_page_is_over_the_middle_of_the_map(bare):
@@ -46,26 +46,26 @@ def test_with_nothing_open_the_start_page_is_over_the_middle_of_the_map(bare):
     card = bare.start.geometry()
     assert vp.contains(card)
     assert abs(card.center().x() - vp.center().x()) <= 1 and abs(card.center().y() - vp.center().y()) <= 1
-    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…']
+    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…', 'New…']
 
 
 def test_each_step_is_the_file_menus_own_action(bare):
     fired = []
-    for a in (bare.account_action, bare.import_action, bare.open_action):
+    for a in (bare.account_action, bare.import_action, bare.open_action, bare.new_square_action):
         a.triggered.disconnect()
         a.triggered.connect(lambda _=False, a=a: fired.append(a))
     for b in buttons(bare).values():
         b.click()
-    assert fired == [bare.account_action, bare.import_action, bare.open_action]
+    assert fired == [bare.account_action, bare.import_action, bare.open_action, bare.new_square_action]
 
 
 def test_signed_in_it_says_as_whom_and_offers_no_sign_in(bare):
     assert 'Sign in to OGF' in bare.start.account.text()
     bare._signed_in('wangi', 'tok-1', [])
     assert 'Signed in to OGF as <b>wangi</b>' in bare.start.account.text()
-    assert list(buttons(bare)) == ['Import…', 'Open…']
+    assert list(buttons(bare)) == ['Import…', 'Open…', 'New…']
     bare.sign_out()
-    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…']
+    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…', 'New…']
 
 
 def test_it_goes_while_a_square_is_read_and_stays_gone_once_it_is_open(bare, zone, qtbot):
@@ -112,3 +112,96 @@ def test_a_new_window_waits_to_be_told_nothing_is_opening(qtbot, tmp_path, terri
     after the window is made, and a card shown first would flash over it."""
     w = new_window(qtbot, tmp_path, territory_files)
     assert not w.start.isVisible()
+
+
+# ------------------------------------------------------------------ J5c
+def test_with_nothing_open_a_new_square_asks_the_zone_and_is_the_one_mid_map(bare, tmp_path, qtbot,
+                                                                             monkeypatch):
+    zone = tmp_path / 'newzone'
+    zone.mkdir()
+    monkeypatch.setattr('danu.ui.app.QFileDialog.getExistingDirectory', lambda *a: str(zone))
+    offered = []
+    bare.ask_text = lambda title, label, text: (offered.append(text), ('', False))[1]
+    bare.map.center_on_lonlat(20.6, -33.2)
+    bare.new_blank_square()
+    assert offered == ['S34E020']
+    assert not list(zone.iterdir()), 'written though cancelled'
+
+    bare.ask_text = lambda title, label, text: (text, True)
+    with qtbot.waitSignal(bare.loader.finished, timeout=15000):
+        bare.new_blank_square()
+    assert (zone / 'S34E020.osm.xz').exists()
+    assert bare.zone_dir == zone and bare.working_set.centre == SquareName(20, -34)
+    assert not bare.start.isVisible()
+
+
+def test_a_square_the_zone_has_already_is_refused(bare, zone, monkeypatch):
+    monkeypatch.setattr('danu.ui.app.QFileDialog.getExistingDirectory', lambda *a: str(zone))
+    said = []
+    monkeypatch.setattr('danu.ui.app.QMessageBox.warning', lambda *a: said.append(a[2]))
+    before = sorted(p.name for p in zone.iterdir())
+    bare.ask_text = lambda title, label, text: ('S24E125', True)
+    bare.new_blank_square()
+    assert said and 'already exists' in said[0]
+    assert sorted(p.name for p in zone.iterdir()) == before
+
+
+def test_asked_for_it_is_over_the_squares_with_a_close(window):
+    assert not window.start.isVisible()
+    window.start_action.trigger()
+    assert window.start.isVisible() and window.start.close_.isVisible()
+    window.start.close_.click()
+    assert not window.start.isVisible()
+
+
+def test_with_nothing_open_it_has_no_close(bare):
+    assert not bare.start.close_.isVisible()
+
+
+def test_opening_other_squares_closes_it(window, zone, qtbot):
+    window.show_start()
+    with qtbot.waitSignal(window.loader.finished, timeout=15000):
+        window.open_working_set(zone, SquareName(125, -24))
+    assert not window.start.isVisible()
+
+
+def test_an_appimage_is_offered_the_menu_once(qtbot, tmp_path, territory_files, monkeypatch):
+    from danu.ui import desktop
+    image = tmp_path / 'Danu.AppImage'
+    image.write_bytes(b'')
+    monkeypatch.setenv('APPIMAGE', str(image))
+    w = new_window(qtbot, tmp_path, territory_files)
+    w.update_start()
+    assert w.start.offer.isVisible()
+    w.start.offer_add.click()
+    assert desktop.installed() == image and not w.start.offer.isVisible()
+    assert w.settings.menu_offered
+
+    desktop.remove()                                     # taken out by hand: not asked again
+    again = new_window(qtbot, tmp_path, territory_files)
+    again.update_start()
+    assert not again.start.offer.isVisible()
+
+
+def test_declined_it_is_not_offered_again_and_nothing_is_written(qtbot, tmp_path, territory_files,
+                                                                 monkeypatch):
+    from danu.ui import desktop
+    monkeypatch.setenv('APPIMAGE', str(tmp_path / 'Danu.AppImage'))
+    w = new_window(qtbot, tmp_path, territory_files)
+    w.update_start()
+    w.start.offer_no.click()
+    assert desktop.installed() is None and w.settings.menu_offered
+    assert not w.start.offer.isVisible()
+
+
+def test_not_an_appimage_it_offers_nothing(bare):
+    assert not bare.start.offer.isVisible()
+
+
+def test_shown_at_every_start_is_a_preference(window):
+    from danu.ui.preferences import PreferencesDialog
+    dlg = PreferencesDialog(window.settings, window.action_labels(), window)
+    assert not dlg.start_always.isChecked()
+    dlg.start_always.setChecked(True)
+    dlg.accept()
+    assert window.settings.start_always

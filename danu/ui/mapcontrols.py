@@ -293,15 +293,16 @@ class MapControls(QWidget):
         self._tipped: list[tuple[QToolButton, str, str]] = []   # a button with a keyed tip, what and action
         column = self.column = _Column()
 
-        ink = self.palette().color(QPalette.ColorRole.ButtonText)
-        lit = self.palette().color(QPalette.ColorRole.HighlightedText)
+        # (button, paint, drawn again when checked): drawn in the palette's
+        # colours, and again when they change - see changeEvent
+        self._painted: list[tuple[QToolButton, object, bool]] = []
         self.zoom_in = self._button('+', 'Zoom in', column)
         self.zoom_out = self._button('−', 'Zoom out', column)
         # the layers: a popup holding the chooser, which the panel was
         self.layers = None
         if layers is not None:
             self.layers = self._button('', 'Layers - the map under the contours, and how opaque', column,
-                                       icon=_icon(_layers, ink))
+                                       paint=_layers)
             menu = QMenu(self.layers)
             held = QWidgetAction(menu)
             held.setDefaultWidget(layers)
@@ -311,15 +312,15 @@ class MapControls(QWidget):
         column.end_group()
         self.select = self._button('', self._tip('Select - pick a contour or a node',
                                                  'tool.select'), column,
-                                   checkable=True, icon=_icon(_pointer, ink, on=lit))
+                                   checkable=True, paint=_pointer, lit=True)
         self.draw = self._button('', self._tip('Draw a contour', 'tool.draw'), column,
-                                 checkable=True, icon=_icon(_polyline, ink, on=lit))
+                                 checkable=True, paint=_polyline, lit=True)
         self.spot = self._button('', self._tip('Place a spot height at the active elevation',
                                                'tool.spot'), column,
-                                 checkable=True, icon=_icon(_spot, ink, on=lit))
+                                 checkable=True, paint=_spot, lit=True)
         self.measure = self._button('', self._tip('Measure - a line, and the ground along it',
                                                   'tool.measure'), column,
-                                    checkable=True, icon=_icon(_ruler, ink, on=lit))
+                                    checkable=True, paint=_ruler, lit=True)
         self.modes = QButtonGroup(self)
         self.modes.addButton(self.select)
         self.modes.addButton(self.draw)
@@ -329,32 +330,32 @@ class MapControls(QWidget):
         column.end_group()
         # the edits, by the window's actions - see bind - and greyed by the
         # history and the selection
-        self.undo = self._button('', self._tip('Undo', 'edit.undo'), column, icon=_icon(_undo, ink))
-        self.redo = self._button('', self._tip('Redo', 'edit.redo'), column, icon=_icon(_redo, ink))
+        self.undo = self._button('', self._tip('Undo', 'edit.undo'), column, paint=_undo)
+        self.redo = self._button('', self._tip('Redo', 'edit.redo'), column, paint=_redo)
         column.end_group()
         self.delete = self._button('', self._tip('Delete what is selected', 'edit.delete'), column,
-                                   icon=_icon(_delete, ink))
+                                   paint=_delete)
         self.split = self._button('', self._tip('Split the contour at the node selected', 'edit.split'),
-                                  column, icon=_icon(_split, ink))
+                                  column, paint=_split)
         self.unglue = self._button('', self._tip('Unglue the node selected from the other contours',
-                                                 'edit.unglue'), column, icon=_icon(_unglue, ink))
+                                                 'edit.unglue'), column, paint=_unglue)
         self.edits = {'edit.undo': self.undo, 'edit.redo': self.redo, 'edit.delete': self.delete,
                       'edit.split': self.split, 'edit.unglue': self.unglue}
         column.end_group()
         # not a tool: the loupe is over whichever tool is in use
         self.magnify = self._button('', self._tip('Magnify - a loupe at the cursor; shift and the wheel '
                                                   'for more or less', 'view.magnify'), column,
-                                    checkable=True, icon=_icon(_magnifier, ink, on=lit))
+                                    checkable=True, paint=_magnifier, lit=True)
         column.end_group()
         self.water = self._button(
             '', self._tip('Import water from Overpass for the working set',
                           'edit.import_water'),
-            column, icon=_icon(_water, ink))
+            column, paint=_water)
         self.water.clicked.connect(self.importWater)
         self.heights = self._button(
             '', self._tip("Import the main map's peaks and saddles as spot heights",
                           'edit.import_heights'),
-            column, icon=_icon(_peak, ink))
+            column, paint=_peak)
         self.heights.clicked.connect(self.importHeights)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
@@ -405,20 +406,38 @@ class MapControls(QWidget):
             b.setToolTip(self._tip(what, action))
 
     def _button(self, text: str, tip: str, column: _Column, checkable: bool = False,
-                icon: QIcon | None = None) -> QToolButton:
+                paint=None, lit: bool = False) -> QToolButton:
         b = QToolButton(self)
         b.setText(text)
         b.setToolTip(tip)
         if isinstance(tip, _Keyed):                  # said again if the key is rebound
             self._tipped.append((b, tip.what, tip.action))
-        if icon is not None:
-            b.setIcon(icon)
+        if paint is not None:
+            self._painted.append((b, paint, lit))
+            b.setIcon(self._icon(paint, lit))
             b.setIconSize(QSize(ICON, ICON))
         b.setCheckable(checkable)
         b.setFixedSize(QSize(SIZE, SIZE))
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)      # the map keeps the keys
         column.addWidget(b)
         return b
+
+    def _icon(self, paint, lit: bool) -> QIcon:
+        pal = self.palette()
+        return _icon(paint, pal.color(QPalette.ColorRole.ButtonText),
+                     on=pal.color(QPalette.ColorRole.HighlightedText) if lit else None)
+
+    def recolour(self) -> None:
+        """The buttons in a palette that has changed - the theme set in the
+        preferences, or the desktop's turned dark (J5c). Qt does not carry
+        an application's new palette into a widget with a style sheet, and
+        the sheet's palette is fixed on each button as it is polished: the
+        window says when (``MainWindow.changeEvent``), the sheet is put
+        again, and the icons drawn again in what it gives."""
+        self.setStyleSheet('')
+        self.setStyleSheet(STYLE)
+        for b, paint, lit in self._painted:
+            b.setIcon(self._icon(paint, lit))
 
     # ------------------------------------------------------------ layout
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
