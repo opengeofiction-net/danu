@@ -156,14 +156,16 @@ jobs:
           ../venv/bin/python -m pip install -q --no-deps pytest-qt
       # The suites as the installed Danu runs: started by Windows, not from
       # the MSYS2 shell, with the tree's bin, isofill and Windows' own on
-      # PATH and nothing else. Run from the shell, MSYS2's Python took / for
-      # its path separator, with or without MSYSTEM, where the installed
-      # Danu takes \ - and J5c's test of a path's backslashes passed here and
-      # failed on pip's Python. The first line holds the separator to \
+      # PATH, and none of MSYS2's variables - setup-msys2 puts MSYSTEM in
+      # every later step's environment, and under it MSYS2's Python takes /
+      # for its path separator where the installed Danu takes \. J5c's test
+      # of a path's backslashes passed here and failed on pip's Python for
+      # it. The separator is held to \ before anything runs
       - name: core and golden
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          Get-ChildItem Env: | Where-Object Name -Match '^(MSYS|MINGW)' | ForEach-Object { "unset $($_.Name)=$($_.Value)"; Remove-Item "Env:$($_.Name)" }
           $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
           $env:PYTHONPATH = '.'
           $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
@@ -177,6 +179,7 @@ jobs:
       - name: ui
         shell: pwsh
         run: |
+          Get-ChildItem Env: | Where-Object Name -Match '^(MSYS|MINGW)' | ForEach-Object { "unset $($_.Name)=$($_.Value)"; Remove-Item "Env:$($_.Name)" }
           $env:PATH = "$PWD\extern\isofill;${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin;$env:SystemRoot\System32;$env:SystemRoot"
           $env:PYTHONPATH = '.'
           $env:DANU_ISOFILL_LIB = "$PWD\extern\isofill\libisofill.dll"
