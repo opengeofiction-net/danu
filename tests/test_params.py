@@ -1,5 +1,6 @@
 """danu.surface.params: one file, no defaults, and the shell held to it."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,8 @@ def test_a_missing_key_is_an_error_not_a_default(tmp_path):
         params.load(f)
 
 
+# the server's shell: windows-stack runs as the installed Danu does, with no sh
+@pytest.mark.skipif(shutil.which('sh') is None, reason='no sh; danu-build-zone sources this on the server')
 def test_the_shell_text_is_the_file_and_the_shell_can_source_it():
     """danu-build-zone reads the parameters from here rather than carrying
     copies of them. Every line has to be a plain assignment a POSIX shell can
