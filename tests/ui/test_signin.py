@@ -74,7 +74,8 @@ class FakeOgf:
         self.http.daemon_threads = True
         self.closed = False
         self.url = f'http://127.0.0.1:{self.http.server_port}'
-        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        # a short poll: shutdown waits one out, and every test here ends with one
+        threading.Thread(target=self.http.serve_forever, kwargs={'poll_interval': 0.02}, daemon=True).start()
 
     def close(self):
         if not self.closed:
