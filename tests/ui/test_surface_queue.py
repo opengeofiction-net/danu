@@ -234,6 +234,13 @@ def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
 
 
 
+def held(job) -> None:
+    """A runner that starts a build and never runs it - and says it has
+    stopped, or the window's closing waits SurfaceBuilder.cleanup's fifteen
+    seconds for it, which these tests did, each."""
+    job.done.set()
+
+
 def test_the_status_line_names_the_resolution_being_built(qtbot, window):
     """It said "building at 0″" on the first build of a session.
 
@@ -245,7 +252,7 @@ def test_the_status_line_names_the_resolution_being_built(qtbot, window):
     """
     said = []
     window.statusBar().messageChanged.connect(said.append)
-    window.builder._runner = lambda job: None            # start it, do not run it
+    window.builder._runner = held                        # start it, do not run it
     assert window.rebuild_surface(1.0)
     building = [t for t in said if 'building the surface' in t]
     assert building, said
@@ -258,7 +265,7 @@ def test_the_editor_builds_at_3_arcseconds_unless_the_command_line_said(qtbot, w
     arcseconds, and the ground in view is solved at 1 over it. --surface still
     builds at another, for comparing, and the rebuilds after it keep to that
     rather than changing the surface's resolution under the mapper."""
-    window.builder._runner = lambda job: None            # start it, do not run it
+    window.builder._runner = held                        # start it, do not run it
     assert window.rebuild_surface()
     assert window._arcsec == 3.0
     window.surface_panel.button.click()
@@ -272,7 +279,7 @@ def test_the_editor_builds_at_3_arcseconds_unless_the_command_line_said(qtbot, w
 def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
     """At the resolution the surface on screen was built at: 3, or the
     command line's - never elevation.toml's own 1, which is the server's."""
-    window.builder._runner = lambda job: None
+    window.builder._runner = held                        # start it, do not run it
     assert window.rebuild_surface(1.0)
     asked = []
     window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
@@ -285,7 +292,7 @@ def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
 def test_an_idle_rebuild_does_nothing_with_nothing_edited(qtbot, window):
     """The timer runs on any edit, including one undone again. Rebuilding a set
     with no unsaved change is seconds of CPU for the same answer."""
-    window.builder._runner = lambda job: None
+    window.builder._runner = held                        # start it, do not run it
     asked = []
     window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
     window.editor.history.dirty_squares = lambda: {}

@@ -12,42 +12,43 @@ decide what a contour means separable from the ones which read rasters. So it
 is asserted rather than asserted-in-a-comment.
 """
 
-import builtins
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parents[1]
 
 
-def test_profile_imports_without_gdal(monkeypatch):
-    real = builtins.__import__
-
-    def blocked(name, *args, **kwargs):
-        if name.split('.')[0] == 'osgeo':
-            raise ModuleNotFoundError(f"No module named '{name}'")
-        return real(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, '__import__', blocked)
-    for mod in ('danu.core.profile', 'danu.core.square'):
-        monkeypatch.delitem(__import__('sys').modules, mod, raising=False)
-        importlib = __import__('importlib')
-        importlib.import_module(mod)
+def imports_without_gdal(module: str) -> None:
+    """``module`` imported by a Python of its own in which osgeo cannot be.
+    In this process it took deleting danu.surface from sys.modules, and a
+    re-import rebinds the attribute on the package, which monkeypatch does
+    not put back: danu.surface stayed the stray copy, with no shade, and a
+    UI test later in the same run failed on it."""
+    code = f"import sys; sys.modules['osgeo'] = None; import {module}"  # None: ModuleNotFoundError
+    env = {**os.environ, 'PYTHONPATH': str(ROOT)}
+    done = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr[-2000:]
 
 
-def test_the_1_arcsecond_view_imports_without_gdal(monkeypatch):
+def test_profile_imports_without_gdal():
+    imports_without_gdal('danu.core.profile')
+    imports_without_gdal('danu.core.square')
+
+
+def test_the_1_arcsecond_view_imports_without_gdal():
     """The editor's driver for it is imported by the window, and the ui job
     has no GDAL: with drawn_mask and sea_mask imported at the top of
     danu.surface.fine, every ui test failed to collect."""
-    import importlib
-    import sys
+    imports_without_gdal('danu.surface.fine')
 
-    real = builtins.__import__
 
-    def blocked(name, *args, **kwargs):
-        if name.split('.')[0] == 'osgeo':
-            raise ModuleNotFoundError(f"No module named '{name}'")
-        return real(name, *args, **kwargs)
-
-    for mod in [m for m in sys.modules if m == 'osgeo' or m.startswith(('osgeo.', 'danu.surface'))]:
-        monkeypatch.delitem(sys.modules, mod)
-    monkeypatch.setattr(builtins, '__import__', blocked)
-    importlib.import_module('danu.surface.fine')
+def test_the_check_is_a_check():
+    """A module that does need GDAL fails it."""
+    import pytest
+    with pytest.raises(AssertionError, match='osgeo'):
+        imports_without_gdal('danu.surface.build')
 
 
 def test_the_pure_modules_import_no_raster_ui_or_network_library():
