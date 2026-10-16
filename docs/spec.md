@@ -628,9 +628,10 @@ Each is an issue now; the eight phases above are the spec's whole plan.
   uploads are authenticated, the server knows who holds what, and *who may
   edit this square* stops being a social question - and the two are one
   piece of work.
-- **Terrain features** (#191). Typed elevation features - `natural=peak`,
-  `saddle`, `sinkhole` read as what they are, and areas carrying `ele` held
-  flat the way R26 holds a water body - and the procedural terrain areas the
+- **Terrain features** (#191). A marked one-level enclosure held flat by
+  isofill, lakes and plateaus alike, so the `danu:fill` lines G7a draws
+  across a flattened lake can go; typed elevation features - `natural=peak`,
+  `saddle`, `sinkhole` read as what they are; and the procedural terrain areas the
   2014 Perl generated, `ogf:terrain_area` karst, plateau, mountains and
   coastal plain. The second is *texture*, plausible roughness where nobody
   has drawn any, and needs a tagging convention re-established first.
