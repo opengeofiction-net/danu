@@ -1225,10 +1225,20 @@ each. The installer on the GitHub release stays unsigned; the SignPath
 Foundation, which signs open source builds for nothing, is the way to sign it
 if its warning turns out to matter.
 
-Ends when a mapper with no Python, MSYS2 or GDAL installs it on Windows from the
-Store and from the release, and on Linux from the AppImage and the `.deb`, signs in, imports a
-zone, draws a contour and sees the surface under it; when a crash leaves a
-report and the issue it fills in; and when a newer release is said at start.
+It ended on 2026-10-16, with v1.0.0 released on GitHub and in the Microsoft
+Store:
+
+- On Windows the installer and the Store's MSIX each install on a clean
+  machine with no Python, MSYS2 or GDAL, build the golden square cell for
+  cell and start the editor (J2); the Store certified the MSIX.
+- On Linux the AppImage and the `.deb` do the same, the AppImage down to
+  glibc 2.17 (J3, J4).
+- Signing in, importing a zone, drawing a contour and the surface under it
+  pass on the stacks the packages are made of, Windows' and Debian 13's.
+- A crash leaves a report and fills in the issue, and a fault in C in each
+  installed package is found at the next start (J6).
+- A newer release is said at start, against GitHub's own (J7).
+
 macOS stays under R34: if it is free, not in this phase.
 
 ### Phase scheduling

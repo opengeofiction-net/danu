@@ -1,8 +1,10 @@
 # Danu in the Microsoft Store
 
 What Partner Center asks for, to paste from, and how a release gets there.
-The app is reserved as **Danu**. Its identity, from Product management ›
-Product identity, is the default in `build-msix.ps1`:
+The app is **Danu**, in the Store at
+https://apps.microsoft.com/detail/9NDV1LL172D3 since 2026-10-16, from
+v1.0.0. Its identity, from Product management › Product identity, is the
+default in `build-msix.ps1`:
 
 | | |
 |---|---|

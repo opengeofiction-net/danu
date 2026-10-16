@@ -5564,3 +5564,54 @@ requests built in the source against the headers set.
 listing, the category, the age rating answers, the reason for
 `runFullTrust`, and how a release's MSIX is taken from CI and submitted.
 The submission itself is made in Partner Center, by hand.
+
+## Phase 8 ends
+
+On 2026-10-16, with v1.0.0 published on GitHub on 2026-10-15 (#188) and in
+the Microsoft Store, https://apps.microsoft.com/detail/9NDV1LL172D3, the
+next day. Each part of the end, and what showed it:
+
+- **Windows, from the release.** The v1.0.0 tag's run installed the
+  installer on a clean runner with PATH cut to Windows' own, built the golden
+  square with the installed Python, GDAL and isofill - every cell the
+  reference's - and started `Danu.exe` until its usage log said the window
+  was up (J2b).
+- **Windows, from the Store.** The same run installed the MSIX the Store was
+  given, test-signed, on a clean runner, built the golden square inside the
+  package and started the editor through its alias (J2c). Microsoft
+  certified it. Nobody has yet installed it from the live listing on a
+  Windows machine of their own: none was to hand.
+- **Linux.** The AppImage on a clean runner and in CentOS 7, glibc 2.17
+  (J3); the `.deb`s built, upgraded over `danu-server` 0.2.0-1 and the editor
+  started in Debian 13 (J4). util runs `danu-server` 1.0.0-1 from the
+  release; its first nightly run on it was clean, with no zone changed to
+  build.
+- **Signing in, importing, drawing, the surface.** The UI suite, 880 tests,
+  on the two stacks the packages are made of: `windows-stack`, run as the
+  installed Danu runs since #185, and `debian`, on Debian 13's own PySide6
+  and GDAL. Sign-in is against a stand-in OAuth server and the import against
+  a stand-in mirror; by hand they were first done on Linux against OGF's
+  own, in H6f and H6g.
+- **A crash.** Reported and offered as an issue (J6); and on every package of
+  the v1.0.0 run, `smoke.py` segfaulted a child of the installed Python and
+  found the report as the next start would.
+- **A newer release.** Asked of GitHub as a version before 1.0.0 would ask,
+  the check said v1.0.0 with its page, and kept it for the day's other
+  starts.
+
+Beyond the plan:
+
+- **Every request says it is Danu**, `Danu/<version>`. Writing the privacy
+  policy found five that said nothing of their own (J8).
+- **CI cut back** to what each runner answers that no other does (#185), and
+  `windows-stack` run without MSYS2's environment, under which its Python
+  took / for the path separator where the installed Danu takes \.
+- **The suite in one process again**, 242 s to 154 s (#186).
+- **The wiki.** `Help:Danu`, what Danu is and where to get it, with
+  squares sent in by email for now; and `Admin:Elevation process` installs
+  the server's packages from the release and links to it.
+
+Left as it is: the `.deb`s install on Debian 13 and Ubuntu 25.10, but not on
+Ubuntu 26.04 LTS, whose GDAL 3.12 is `libgdal38` to the `libgdal36` isofill
+is built against - an isofill built there is all it needs, measured - nor on
+24.04, which has no PySide6. The AppImage covers both.
