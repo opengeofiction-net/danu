@@ -633,7 +633,7 @@ Each is an issue now; the eight phases above are the spec's whole plan.
   across a flattened lake can go; typed elevation features - `natural=peak`,
   `saddle`, `sinkhole` read as what they are; and the procedural terrain areas the
   2014 Perl generated, `ogf:terrain_area` karst, plateau, mountains and
-  coastal plain. The second is *texture*, plausible roughness where nobody
+  coastal plain. The last is *texture*, plausible roughness where nobody
   has drawn any, and needs a tagging convention re-established first.
 - **Roantra** (#192), the one zone with a `water/` overlay, which nothing but
   a text editor edits, and a hillshade a distribution report has flagged.
