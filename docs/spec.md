@@ -618,27 +618,26 @@ is how contour work already reaches the servers.
 
 ## Later
 
-Deliberately out of scope, recorded so the shape is not designed against:
+Deliberately out of scope, recorded so the shape is not designed against.
+Each is an issue now; the eight phases above are the spec's whole plan.
 
-- **A data drop point.** Mappers authenticate against the API server over OAuth
-  and upload a square directly, instead of sending it to somebody. This is the
-  right answer to handoff and it is too many moving parts to take on alongside
-  everything above. It also carries the locking problem with it: once uploads
-  are authenticated, the server knows who holds what, and *who may edit this
-  square* stops being a social question. The two belong in one piece of work.
-- **Direct API upload** of contour ways as a changeset, rather than square
-  files.
-- **Procedural terrain areas** - `ogf:terrain_area` karst, plateau, mountains,
-  coastal plain - which the 2014 Perl could generate and nothing has since. No
-  way in OGF carries those tags today, so reviving them means re-establishing a
-  tagging convention first. This is *texture*: inventing plausible roughness
-  where nobody has drawn any, which is a different thing from R36's spot
-  heights - those only say where the ground already is.
-- **Typed elevation features** - `natural=peak`, `saddle`, `sinkhole` read as
-  what they are, and areas carrying `ele` held flat the way R26 holds a water
-  body, which is what a plateau wants and what karst is mostly made of.
-  Deferred until spot heights are carrying their weight.
-- **Editing roantra's `water/` overlay**, which is the only one of its kind.
+- **An authenticated data drop** (#190). Mappers signed in to OGF upload a
+  square, instead of emailing it to somebody to put in place by hand. The
+  squares stay files: contours are never uploaded to the API database, as
+  ways or as changesets. It carries the locking problem with it - once
+  uploads are authenticated, the server knows who holds what, and *who may
+  edit this square* stops being a social question - and the two are one
+  piece of work.
+- **Terrain features** (#191). Typed elevation features - `natural=peak`,
+  `saddle`, `sinkhole` read as what they are, and areas carrying `ele` held
+  flat the way R26 holds a water body - and the procedural terrain areas the
+  2014 Perl generated, `ogf:terrain_area` karst, plateau, mountains and
+  coastal plain. The second is *texture*, plausible roughness where nobody
+  has drawn any, and needs a tagging convention re-established first.
+- **Roantra** (#192), the one zone with a `water/` overlay, which nothing but
+  a text editor edits, and a hillshade a distribution report has flagged.
+- **The `.deb`s on Ubuntu 26.04 LTS** (#193), which want an `isofill` built
+  against its GDAL; and **macOS** (#194), under R34.
 
 ## Testing
 
@@ -1381,11 +1380,12 @@ Recorded so the reasoning is not relitigated:
 
 ## Open questions
 
-Nothing about the design. What is left is what building it will answer:
+Nothing about the design. What was left was what building it would answer,
+and building it has:
 
-1. **Can the move keep its history?** `git filter-repo` can lift a path set with
-   its commits, and these files carry the reasoning behind most of the elevation
-   decisions of the last two months. Worth an hour; not worth a week.
+1. ~~**Can the move keep its history?**~~ **Answered: yes.** The repository
+   begins with the scripts' own commits, the reasoning behind the elevation
+   decisions of the two months before the move with them.
 2. ~~**Is the local second pass good enough?**~~ **Answered: yes.** Measured
    against a whole-raster solve in F3, a patch covering the edit by two radii
    and solved with two radii of clearance is wrong by at most 0.268 m over
@@ -1399,6 +1399,8 @@ Nothing about the design. What is left is what building it will answer:
    pass to convergence, twelve deleted contours on the gobras 3x3 preview
    within 0.9 mm of a whole rebuild, where 0.10.1's worst was 4.78 m - see
    *I2, the second pass solved*.
-3. **Does Windows package cleanly?** Qt and GDAL together, plus a C library
-   built for it. The phase 0 CI build is there to find out early rather than at
-   the end.
+3. ~~**Does Windows package cleanly?**~~ **Answered: yes,** from MSYS2's
+   UCRT64 stack, with GDAL's bindings and `libisofill` one GDAL in one
+   process: an installer and an MSIX, each building the golden square cell
+   for cell on a clean machine, and the MSIX in the Microsoft Store. See
+   *J2a, the Windows stack* in `implementation.md`.
