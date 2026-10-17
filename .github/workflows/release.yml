@@ -22,6 +22,8 @@ on:
       - extern/isofill
       - packaging/windows/**
       - packaging/linux/**
+      - packaging/macos/**
+      - packaging/stack.txt
       - packaging/smoke.py
   workflow_dispatch:
 
@@ -422,9 +424,103 @@ jobs:
           docker run --rm -e APPIMAGE_EXTRACT_AND_RUN=1 -v "$PWD:/w:ro" centos:7 sh -c \
             '/w/img/*.AppImage --python /w/packaging/smoke.py /w/tests/golden/S24E125_Los_Pizarrales.osm.xz /w/tests/golden/expected.tif /root/smoke'
 
+  # K2 (#194): Danu.app for Apple Silicon, in a .dmg - from the stack the CI
+  # macos-stack job tests. See packaging/macos/.
+  macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: micromamba
+        run: |
+          set -eu
+          curl -fsSL -o "$RUNNER_TEMP/micromamba" \
+            https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64
+          chmod +x "$RUNNER_TEMP/micromamba"
+      - name: the app
+        run: |
+          MICROMAMBA="$RUNNER_TEMP/micromamba" bash packaging/macos/build-app.sh \
+            "$RUNNER_TEMP/app" ${{ needs.version.outputs.version }}
+          mkdir out && mv "$RUNNER_TEMP"/app/*.dmg out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*.dmg
+
+  # The app as a mapper runs it, on a runner that has not built it: the .dmg
+  # mounted read-only, and the app run from it with nothing of the build's
+  # environment. macOS taking it for Danu, not for its Python - which is
+  # what names the menu bar and the Dock; the golden square built by the
+  # app's Python, GDAL and isofill and held to the reference, and a fault in
+  # it found at the next start; and the editor started until its usage log
+  # says the window is up.
+  macos-run:
+    needs: [version, macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: dmg
+      - name: mounted, signed, and taken for Danu
+        run: |
+          set -eu
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/vol" dmg/*.dmg
+          codesign --verify --deep --verbose=1 "$RUNNER_TEMP/vol/Danu.app"
+          who=$(env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin \
+            "$RUNNER_TEMP/vol/Danu.app/Contents/MacOS/Danu" --python packaging/macos/whoami.py)
+          echo "macOS takes it for: $who"
+          [ "$who" = net.opengeofiction.danu ] || { echo 'not taken for Danu'; exit 1; }
+      - name: the golden square, built by the app
+        run: |
+          env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin \
+            "$RUNNER_TEMP/vol/Danu.app/Contents/MacOS/Danu" --python packaging/smoke.py \
+            tests/golden/S24E125_Los_Pizarrales.osm.xz tests/golden/expected.tif "$RUNNER_TEMP/smoke"
+      - name: the app starts the editor
+        run: |
+          set -eu
+          # in the account's own home, whatever HOME says: Qt on macOS asks
+          # the system, NSHomeDirectory, for where Application Support is
+          u="$(cd ~ && pwd)/Library/Application Support/danu/usage"
+          since="$RUNNER_TEMP/since"
+          touch "$since"
+          env -i HOME="$RUNNER_TEMP/home2" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
+            "$RUNNER_TEMP/vol/Danu.app/Contents/MacOS/Danu" > "$RUNNER_TEMP/out.txt" 2>&1 &
+          t=0
+          until [ -n "$(find "$u" -name '*.jsonl' -newer "$since" 2>/dev/null)" ] || [ $t -ge 90 ]; do sleep 2; t=$((t + 2)); done
+          log=$(find "$u" -name '*.jsonl' -newer "$since" 2>/dev/null | head -1)
+          [ -n "$log" ] || { cat "$RUNNER_TEMP/out.txt"; echo 'no usage log after 90 s'; exit 1; }
+          head -1 "$log"
+          got=$(head -1 "$log" | python3 -c 'import json, sys; print(json.load(sys.stdin)["danu"])')
+          [ "$got" = "${{ needs.version.outputs.version }}" ] || { echo "the window says danu $got"; exit 1; }
+          kill $! || true
+      # when it does not start: what it said, its own crash files, macOS's
+      # report of the process, and the same started with the fault handler
+      # on from the first line, through the launcher and through the app's
+      # python3 alone
+      - name: why the editor did not start
+        if: failure()
+        run: |
+          A="$RUNNER_TEMP/vol/Danu.app"
+          echo '--- what it said'; cat "$RUNNER_TEMP/out.txt" || true
+          echo '--- its crash files'; cat ~/"Library/Application Support/danu/crashes"/* 2>/dev/null || true
+          echo '--- macOS'; for f in ~/Library/Logs/DiagnosticReports/*Danu* ~/Library/Logs/DiagnosticReports/*python*; do
+            [ -f "$f" ] && { echo "== $f"; head -c 20000 "$f"; }; done
+          # macOS has no timeout(1); perl's alarm is the same
+          echo '--- through the launcher, fault handler on'
+          env -i HOME="$RUNNER_TEMP/home3" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
+            perl -e 'alarm 60; exec @ARGV' "$A/Contents/MacOS/Danu" --python packaging/macos/start.py 2>&1 | tail -40 || true
+          echo '--- through its python3, fault handler on'
+          env -i HOME="$RUNNER_TEMP/home4" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
+            GDAL_DATA="$A/Contents/Resources/share/gdal" PROJ_DATA="$A/Contents/Resources/share/proj" \
+            perl -e 'alarm 60; exec @ARGV' "$A/Contents/Resources/bin/python3" -X faulthandler packaging/macos/start.py 2>&1 | tail -40 || true
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, wheel, deb, windows, windows-run, windows-msix-run, appimage, appimage-run]
+    needs: [version, wheel, deb, windows, windows-run, windows-msix-run, appimage, appimage-run, macos, macos-run]
     runs-on: ubuntu-latest
     permissions:
       contents: write

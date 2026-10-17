@@ -1,0 +1,8 @@
+# What the AppImage and the macOS app are made of, from conda-forge: the
+# versions the Windows tree has from MSYS2, so every platform runs one stack.
+# conda-forge builds against glibc 2.17, and everything here asks for no
+# newer; on macOS, Qt 6.11.2's MoltenVK asks for macOS 14.
+python=3.14
+pyside6=6.11.2
+gdal=3.13.3
+numpy=2.5.4

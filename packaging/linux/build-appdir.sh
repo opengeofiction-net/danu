@@ -36,7 +36,7 @@ mkdir -p "$OUT"
 export MAMBA_ROOT_PREFIX=$OUT/mamba
 
 # the stack, and beside it the compiler isofill is built with, which stays out
-spec=$(grep -v '^#' "$HERE/stack.txt")
+spec=$(grep -v '^#' "$ROOT/packaging/stack.txt")
 # shellcheck disable=SC2086
 "$MM" create -q -y -p "$U" -c conda-forge --override-channels $spec
 # conda-forge's compiler defaults to a newer sysroot than its packages are
