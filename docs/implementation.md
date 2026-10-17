@@ -5615,3 +5615,34 @@ Left as it is: the `.deb`s install on Debian 13 and Ubuntu 25.10, but not on
 Ubuntu 26.04 LTS, whose GDAL 3.12 is `libgdal38` to the `libgdal36` isofill
 is built against - an isofill built there is all it needs, measured - nor on
 24.04, which has no PySide6. The AppImage covers both.
+
+## After 1.0.0: building on Windows (#196, #197, #198)
+
+The first reports from Windows mappers were two faults CI could not have
+seen, both in how the editor's builds use the disk.
+
+**A symlink, refused.** Staging a build symlinked each clean square into the
+build's zone directory. Windows refuses a symlink to anyone not an
+administrator and without Developer Mode, WinError 1314, and GitHub's
+Windows runners are administrators; run as one, the mapper's first build
+worked. Staging now copies where the link is refused - the build only reads
+the squares, and a copy is the squares as they were when it started, which a
+link was not. A build that cannot be staged now says so in the panel: it
+raised out of the request, and since the crash dialog shows a repeated fault
+once, every later Rebuild failed the same way and seemed to do nothing.
+
+**An open file, kept.** One working directory served the session. The last
+build delivered is open while the next is written - the preview's grids, the
+1" view's inputs - and Windows will not remove or replace a file something
+has open, where Linux will: `build.water_mask` removing the last build's
+`water-mask.tif` failed with WinError 32 at every rebuild after the first,
+the idle one after an import among them. The surface and DEM had been copied
+aside for the preview for the same reason; the constraints, the drawn mask and
+the water mask were not. Each build now has a directory of its own,
+`build-<serial>`, and when one is delivered the ones before it are removed -
+on Windows, those still open stay until the window closes.
+
+`tests/golden/test_builds_in_a_row.py` builds the golden square twice, the
+first's grids open, with a small island added so the build makes a water
+mask - the golden square has no coastline. Run on `windows-stack` without the
+fix it failed as the reports did, and the symlink test with WinError 1314.

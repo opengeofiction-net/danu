@@ -308,3 +308,84 @@ def test_building_the_panel_does_not_ask_for_a_build(qtbot):
     panel.rebuild.connect(lambda: asked.append(True))
     qtbot.addWidget(panel)
     assert asked == [], 'building the panel asked for a surface'
+
+
+# ------------------------------------------------- Windows (#196, #197, #198)
+def test_each_build_has_a_directory_of_its_own(qtbot):
+    """The last build delivered is open while the next is written - the
+    preview's grids, the 1" view's inputs - and Windows will not remove or
+    replace a file something has open: `water-mask.tif`, WinError 32, at
+    every rebuild after the first (#197, #198)."""
+    held = []
+
+    def build(zone_dir, names, params, work):
+        out = work / 'water-mask.tif'       # as build.water_mask does it
+        if out.exists():
+            out.unlink()
+        out.write_bytes(b'mask')
+        held.append(open(out, 'rb'))        # open, as the preview holds it
+        return Built(shaded=object())
+
+    h = Harness(build)
+    try:
+        h.ask(3.0)
+        h.finish()
+        first = h.builder._delivered
+        h.ask(3.0)
+        h.finish()
+        assert not h.failures, h.failures
+        second = h.builder._delivered
+        assert first != second and second.parent == h.builder.work
+        for f in held:
+            f.close()
+        h.ask(3.0)
+        h.finish()
+        third = h.builder._delivered
+        assert not first.exists() and not second.exists(), 'a build no longer open was left behind'
+        assert (third / 'water-mask.tif').exists(), 'the build delivered was removed'
+    finally:
+        for f in held:
+            f.close()
+
+
+def test_a_failed_build_takes_its_directory_and_leaves_the_last_good_one(qtbot):
+    calls = []
+
+    def build(zone_dir, names, params, work):
+        calls.append(work)
+        if len(calls) == 2:
+            raise RuntimeError('the fill gave up')
+        return Built(shaded=object())
+
+    h = Harness(build)
+    h.ask(3.0)
+    h.finish()
+    h.ask(3.0)
+    h.finish()
+    assert h.failures and 'the fill gave up' in h.failures[0]
+    assert calls[0].exists(), 'the surface on screen lost its files'
+    assert not calls[1].exists()
+
+
+def test_a_build_that_cannot_be_staged_says_so_and_the_next_still_runs(qtbot, monkeypatch):
+    """It raised out of request: the crash dialog, and every later Rebuild
+    failing the same way while the dialog, having said it once, said nothing
+    - "the Rebuild surface button does nothing" (#196)."""
+    import danu.core.save as save
+    real = save.stage_zone
+    calls = []
+
+    def refuse_once(squares, dirty, into):
+        calls.append(into)
+        if len(calls) == 1:
+            raise OSError(1314, 'A required privilege is not held by the client')
+        return real(squares, dirty, into)
+    monkeypatch.setattr(save, 'stage_zone', refuse_once)
+    h = Harness()
+    h.ask(3.0)                                  # does not raise
+    assert h.failures and 'required privilege' in h.failures[0]
+    assert not h.builder.busy and not h.jobs
+    assert not calls[0].parent.exists(), "the failed start's directory was left"
+    h.ask(3.0)
+    h.finish()
+    assert len(h.results) == 1
