@@ -495,6 +495,26 @@ jobs:
           got=$(head -1 "$log" | python3 -c 'import json, sys; print(json.load(sys.stdin)["danu"])')
           [ "$got" = "${{ needs.version.outputs.version }}" ] || { echo "the window says danu $got"; exit 1; }
           kill $! || true
+      # when it does not start: what it said, its own crash files, macOS's
+      # report of the process, and the same started with the fault handler
+      # on from the first line, through the launcher and through the app's
+      # python3 alone
+      - name: why the editor did not start
+        if: failure()
+        run: |
+          h="$RUNNER_TEMP/home2"
+          A="$RUNNER_TEMP/vol/Danu.app"
+          echo '--- what it said'; cat "$RUNNER_TEMP/out.txt" || true
+          echo '--- its crash files'; cat "$h/Library/Application Support/danu/crashes"/* 2>/dev/null || true
+          echo '--- macOS'; for f in ~/Library/Logs/DiagnosticReports/*Danu* ~/Library/Logs/DiagnosticReports/*python*; do
+            [ -f "$f" ] && { echo "== $f"; head -c 20000 "$f"; }; done
+          echo '--- through the launcher, fault handler on'
+          env -i HOME="$RUNNER_TEMP/home3" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
+            timeout 60 "$A/Contents/MacOS/Danu" --python packaging/macos/start.py 2>&1 | tail -40 || true
+          echo '--- through its python3, fault handler on'
+          env -i HOME="$RUNNER_TEMP/home4" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
+            GDAL_DATA="$A/Contents/Resources/share/gdal" PROJ_DATA="$A/Contents/Resources/share/proj" \
+            timeout 60 "$A/Contents/Resources/bin/python3" -X faulthandler packaging/macos/start.py 2>&1 | tail -40 || true
 
   release:
     if: github.ref_type == 'tag'
