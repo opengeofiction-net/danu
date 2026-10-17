@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     uint32_t n = sizeof self;
     PyConfig config;
     PyStatus st;
-    int first = 1;
+    int prog = 0;                   /* sys.argv[0]: the editor's, or the script */
 
     if (_NSGetExecutablePath(self, &n) != 0 || !realpath(self, real)) {
         fprintf(stderr, "Danu could not start: it cannot find itself\n");
@@ -90,7 +90,7 @@ int main(int argc, char **argv)
     if (argc >= 3 && strcmp(argv[1], "--python") == 0) {
         st = PyConfig_SetBytesString(&config, &config.run_filename, argv[2]);
         if (PyStatus_Exception(st)) return fail("the script", st);
-        first = 2;
+        prog = 2;
     } else {
         st = PyConfig_SetString(&config, &config.run_module, L"danu.ui");
         if (PyStatus_Exception(st)) return fail("the editor", st);
@@ -101,8 +101,8 @@ int main(int argc, char **argv)
         char **args = calloc((size_t) argc + 1, sizeof *args);
         int m = 0;
         if (!args) { fprintf(stderr, "Danu could not start: out of memory\n"); return 1; }
-        args[m++] = argv[first];
-        for (int i = first + 1; i < argc; i++)
+        args[m++] = argv[prog];
+        for (int i = prog + 1; i < argc; i++)
             if (strncmp(argv[i], "-psn_", 5) != 0)
                 args[m++] = argv[i];
         st = PyConfig_SetBytesArgv(&config, m, args);

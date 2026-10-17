@@ -508,13 +508,14 @@ jobs:
           echo '--- its crash files'; cat "$h/Library/Application Support/danu/crashes"/* 2>/dev/null || true
           echo '--- macOS'; for f in ~/Library/Logs/DiagnosticReports/*Danu* ~/Library/Logs/DiagnosticReports/*python*; do
             [ -f "$f" ] && { echo "== $f"; head -c 20000 "$f"; }; done
+          # macOS has no timeout(1); perl's alarm is the same
           echo '--- through the launcher, fault handler on'
           env -i HOME="$RUNNER_TEMP/home3" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
-            timeout 60 "$A/Contents/MacOS/Danu" --python packaging/macos/start.py 2>&1 | tail -40 || true
+            perl -e 'alarm 60; exec @ARGV' "$A/Contents/MacOS/Danu" --python packaging/macos/start.py 2>&1 | tail -40 || true
           echo '--- through its python3, fault handler on'
           env -i HOME="$RUNNER_TEMP/home4" PATH=/usr/bin:/bin QT_QPA_PLATFORM=offscreen \
             GDAL_DATA="$A/Contents/Resources/share/gdal" PROJ_DATA="$A/Contents/Resources/share/proj" \
-            timeout 60 "$A/Contents/Resources/bin/python3" -X faulthandler packaging/macos/start.py 2>&1 | tail -40 || true
+            perl -e 'alarm 60; exec @ARGV' "$A/Contents/Resources/bin/python3" -X faulthandler packaging/macos/start.py 2>&1 | tail -40 || true
 
   release:
     if: github.ref_type == 'tag'
