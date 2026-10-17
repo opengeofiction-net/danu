@@ -1,3 +1,14 @@
+danu (1.0.1-1) unstable; urgency=medium
+
+  * Windows: a surface builds without administrator rights; the squares are
+    copied where Windows refuses a symbolic link (#196).
+  * Windows: a rebuild no longer fails on the last build's files, which
+    Windows will not remove while they are open; each build has a directory
+    of its own (#197, #198).
+  * A build that cannot start says why in the surface panel.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sat, 17 Oct 2026 12:00:00 +0100
+
 danu (1.0.0-1) unstable; urgency=medium
 
   * The first release for mappers: the editor installed without a terminal,
