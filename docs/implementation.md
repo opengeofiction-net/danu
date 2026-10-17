@@ -5835,3 +5835,17 @@ the other moving contours where *they* will be, pairwise - measured against
 the layer alone, two neighbours moved north together each crossed where the
 other had been. Rivers' points and spot heights move with the rest; R16 is a
 contour's, and a river crossing the contours is ordinary.
+
+**The keys mid-drag, as JOSM's.** Asked on #210: the keys held are read at
+every move of the mouse, and at every press or let-go of shift, ctrl or alt
+with the mouse still, so a drag can go from a move to a turn to a scale. Each
+change carries on from where things are then - the turn about the middle of
+what is picked *there*, not where it began - and what is put down is the
+whole drag, from where it began, as one step and one question of crossings;
+the status names each of them, "moved and turned". Keys that say none of the
+three, ctrl alone, leave the drag as it was. The pointer says which: four
+arrows to move, a turning arrow to turn - drawn, Qt having none - and a
+corner's to scale; over a picked node, before the press, it says what a drag
+from there would do. A key event's own modifiers are those before it, so the
+key itself is added or taken off; the map view now hands the tool key
+releases as well as presses.

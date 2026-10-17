@@ -61,9 +61,11 @@ page back over whatever is open.
   map. The right button moves the map.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
-  **Alt** it scales it there. Contours that crossed nothing are not put down
-  crossing another; ones that already crossed move, and the status bar says
-  how the crossings changed.
+  **Alt** it scales it there. The keys can be pressed or let go during the
+  drag, which carries on as what they now say - a move, then a turn, then a
+  scale, in one drag, as in JOSM - and the pointer shows which. Contours that
+  crossed nothing are not put down crossing another; ones that already
+  crossed move, and the status bar says how the crossings changed.
 
 Every key can be changed in **File › Preferences…**; **Help › Keys** lists
 them as they are set now.

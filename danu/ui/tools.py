@@ -25,7 +25,7 @@ from itertools import pairwise
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
@@ -79,6 +79,56 @@ def _transform_of(kind: str, start, end, pivot):
         return lambda x, y: (px + (x - px) * c - (y - py) * s, py + (x - px) * s + (y - py) * c)
     k = max(0.01, math.hypot(ex - px, ey - py) / max(1e-9, math.hypot(sx - px, sy - py)))
     return lambda x, y: (px + (x - px) * k, py + (y - py) * k)
+
+
+_KEYS = {Qt.Key.Key_Shift: Qt.KeyboardModifier.ShiftModifier, Qt.Key.Key_Control: Qt.KeyboardModifier.ControlModifier,
+         Qt.Key.Key_Alt: Qt.KeyboardModifier.AltModifier, Qt.Key.Key_Meta: Qt.KeyboardModifier.MetaModifier}
+_VERBS = {'move': 'moved', 'rotate': 'turned', 'scale': 'scaled'}
+
+
+def _kind_of(mods) -> str | None:
+    """What a drag from a picked node does with these keys held, as JOSM
+    has it: nothing held moves, shift and ctrl turn, ctrl and alt scale."""
+    C, S, A = (Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier,
+               Qt.KeyboardModifier.AltModifier)
+    held = mods & (C | S | A)
+    return 'move' if not held else 'rotate' if held == (C | S) else 'scale' if held == (C | A) else None
+
+
+_ROTATE_CURSOR = None
+
+
+def _cursor(kind: str | None) -> QCursor:
+    """The pointer for a transform: four arrows to move, a turning arrow to
+    turn - Qt has none, so it is drawn - and a corner's to scale."""
+    global _ROTATE_CURSOR
+    if kind == 'move':
+        return QCursor(Qt.CursorShape.SizeAllCursor)
+    if kind == 'scale':
+        return QCursor(Qt.CursorShape.SizeFDiagCursor)
+    if kind == 'rotate':
+        if _ROTATE_CURSOR is None:
+            pix = QPixmap(24, 24)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            for colour, width in ((Qt.GlobalColor.white, 4.0), (Qt.GlobalColor.black, 2.0)):
+                pen = QPen(colour, width); pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                p.setPen(pen)
+                p.drawArc(QRectF(4, 4, 16, 16), 90 * 16, 270 * 16)        # three quarters round
+                p.drawLine(QPointF(12, 4), QPointF(16, 1))                # the arrow's head, at the top
+                p.drawLine(QPointF(12, 4), QPointF(16, 7))
+            p.end()
+            _ROTATE_CURSOR = QCursor(pix, 12, 12)
+        return _ROTATE_CURSOR
+    return QCursor(Qt.CursorShape.ArrowCursor)
+
+
+def _middle(points: dict) -> tuple[float, float]:
+    """The middle of the box round some scene points: what a turn or a
+    scale goes about."""
+    xy = np.array(list(points.values()))
+    return tuple((xy.min(axis=0) + xy.max(axis=0)) / 2)
 
 
 def _transformed(kind: str, start, end, pivot) -> tuple[str, str]:
@@ -346,10 +396,13 @@ class EditController(QObject):
         # rectangle being drawn: shape, what it does, the points so far
         self.picked: dict = {}
         self.marquee: tuple[str, str, list[QPointF]] | None = None
-        # what is picked being moved, turned or scaled (#201): the kind, where
-        # the press was, the pivot, and every picked node's scene point then;
-        # and the picked as they would be, while the button is held
+        # what is picked being moved, turned or scaled (#201): the kind now,
+        # where it began, the pivot, every picked node's scene point when it
+        # began, those when the drag began, and the kinds the drag has been -
+        # keys pressed or let go mid-drag change it, as JOSM's; and the picked
+        # as they would be, while the button is held
         self._transform: tuple | None = None
+        self.pointer: str | None = None       # which transform the pointer says
         self.transform_ghost: dict | None = None
         self.measure = None                  # H3b's tool, the window's to give
         view.tool = self
@@ -403,6 +456,7 @@ class EditController(QObject):
                 self.measure.clear()
             self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor if name == 'select'
                                            else Qt.CursorShape.CrossCursor)
+            self.pointer = None
             self.toolChanged.emit(name)
             self.overlay.update()
 
@@ -647,13 +701,16 @@ class EditController(QObject):
             self.overlay.update()
             return True
         if self._transform is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            kind, start, pivot, orig = self._transform
+            self._retransform(event.modifiers(), pos)
+            kind, start, pivot, base, _orig0, _kinds = self._transform
             if self.transform_ghost is None and (pos - start).manhattanLength() < self._px(DRAG_PX):
                 return True
             f = _transform_of(kind, (start.x(), start.y()), (pos.x(), pos.y()), pivot)
-            self.transform_ghost = {k: f(*xy) for k, xy in orig.items()}
+            self.transform_ghost = {k: f(*xy) for k, xy in base.items()}
             self.overlay.update()
             return True
+        if self.tool == 'select' and not event.buttons():
+            self._hover(event.modifiers(), pos)
         if self.marquee is not None and event.buttons() & Qt.MouseButton.LeftButton:
             shape, op, pts = self.marquee
             if shape == 'rect':
@@ -688,11 +745,15 @@ class EditController(QObject):
         if self.tool == 'measure' and self.measure is not None:
             return self.measure.mouse_release(event, pos)
         if self._transform is not None:
-            kind, start, pivot, orig = self._transform
+            kind, start, pivot, _base, orig0, kinds = self._transform
             self._transform = None
             ghost, self.transform_ghost = self.transform_ghost, None
             if ghost is not None:
-                self._put_picked(kind, orig, ghost, (start.x(), start.y()), (pos.x(), pos.y()), pivot)
+                done = list(dict.fromkeys(kinds))
+                what = (_transformed(kind, (start.x(), start.y()), (pos.x(), pos.y()), pivot) if len(done) == 1
+                        else (' and '.join(_VERBS[k] for k in done), ''))
+                self._put_picked(orig0, ghost, what)
+            self._hover(event.modifiers(), pos)
             self.overlay.update()
             return True
         if self.marquee is not None:
@@ -740,26 +801,56 @@ class EditController(QObject):
         shift and ctrl it turns it about its middle, with ctrl and alt it
         scales it there (#201). Any other keys, or a press elsewhere, is not
         this."""
-        mods = event.modifiers()
-        C, S, A = (Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier,
-                   Qt.KeyboardModifier.AltModifier)
-        held = mods & (C | S | A)
-        kind = ('move' if not held else 'rotate' if held == (C | S) else 'scale' if held == (C | A) else None)
+        kind = _kind_of(event.modifiers())
         if kind is None:
             return False
-        orig = {(name, i): self.layer.node_xy(self.working_set.squares[name], i)
-                for name, ids in self.picked.items() if name in self.working_set.squares
-                for i in ids if i in self.working_set.squares[name].nodes}
-        near = self._px(SNAP_PX)
-        if not orig or not any(abs(x - pos.x()) <= near and abs(y - pos.y()) <= near for x, y in orig.values()):
+        orig = self._picked_points()
+        if not self._near_picked(orig, pos):
             return False
-        xy = np.array(list(orig.values()))
-        pivot = tuple((xy.min(axis=0) + xy.max(axis=0)) / 2)        # the middle of what is picked
-        self._transform = (kind, QPointF(pos), pivot, orig)
+        self._transform = (kind, QPointF(pos), _middle(orig), orig, orig, [kind])
         self.transform_ghost = None
+        self._set_pointer(kind)
         return True
 
-    def _put_picked(self, kind: str, orig: dict, moved: dict, start, end, pivot) -> None:
+    def _picked_points(self) -> dict:
+        return {(name, i): self.layer.node_xy(self.working_set.squares[name], i)
+                for name, ids in self.picked.items() if name in self.working_set.squares
+                for i in ids if i in self.working_set.squares[name].nodes}
+
+    def _near_picked(self, points: dict, pos: QPointF) -> bool:
+        near = self._px(SNAP_PX)
+        return any(abs(x - pos.x()) <= near and abs(y - pos.y()) <= near for x, y in points.values())
+
+    def _set_pointer(self, kind: str | None) -> None:
+        """The pointer, saying which transform a drag is, or would be."""
+        if kind != self.pointer:
+            self.pointer = kind
+            self.view.viewport().setCursor(_cursor(kind))
+
+    def _retransform(self, mods, pos: QPointF) -> None:
+        """The keys held changed mid-drag: the drag goes on as what they now
+        say, from where things are - so a move, a turn and a scale can follow
+        one another in one drag, as JOSM's. Keys that say none of them leave
+        it as it was."""
+        kind, start, pivot, base, orig0, kinds = self._transform
+        now = _kind_of(mods)
+        if now is None or now == kind:
+            return
+        here = self.transform_ghost or base
+        self._transform = (now, QPointF(pos), _middle(here), dict(here), orig0, [*kinds, now])
+        self._set_pointer(now)
+
+    def _hover(self, mods, pos: QPointF) -> None:
+        """Over a picked node, the pointer says what a drag from it would do;
+        anywhere else, it is the select tool's."""
+        if self.tool != 'select':
+            return                               # the other tools' pointers are their own
+        if self.picked and self._near_picked(self._picked_points(), pos):
+            self._set_pointer(_kind_of(mods))
+        else:
+            self._set_pointer(None)
+
+    def _put_picked(self, orig: dict, moved: dict, what: tuple[str, str]) -> None:
         """The picked put where the drag left them, as one step across the
         squares - under the rule a carried contour keeps (G8b): contours that
         crossed nothing may not be put down crossing something; ones that
@@ -783,7 +874,6 @@ class EditController(QObject):
         old = {k: course(k, w, {}) for k, w in ways.items()}
         new = {k: course(k, w, moved) for k, w in ways.items()}
         before, after = self._crossed(old, keys), self._crossed(new, keys)
-        what = _transformed(kind, start, end, pivot)
         n = len(moved)
         if after and not before:
             outside = sorted((k for k in after if k not in keys), key=str)
@@ -807,7 +897,7 @@ class EditController(QObject):
             if cmds:
                 steps.append((sq, edits.Compound(cmds, f'{what[0]} {len(cmds)} nodes')))
         self.do_across(steps)
-        said = f'{what[0]} {n:,} node{"s" * (n != 1)} {what[1]}'
+        said = f'{what[0]} {n:,} node{"s" * (n != 1)}' + (f' {what[1]}' if what[1] else '')
         if keys:
             c = f'{len(after)} contour{"s" * (len(after) != 1)}'
             said += ('; they cross nothing now' if not after else
@@ -1154,7 +1244,29 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
+    def key_release(self, event) -> bool:
+        return self._keys_changed(event, pressed=False)
+
+    def _keys_changed(self, event, pressed: bool) -> bool:
+        """A modifier pressed or let go: mid-drag it changes what the drag
+        does; hovering, what the pointer says. A key event's own modifiers
+        are those before it, so the key itself is added or taken off."""
+        mod = _KEYS.get(event.key())
+        if mod is None or self.working_set is None:
+            return False
+        mods = event.modifiers() | mod if pressed else event.modifiers() & ~mod
+        if self.cursor is None:
+            return False
+        pos = QPointF(*self.cursor)
+        if self._transform is not None:
+            self._retransform(mods, pos)
+            return True
+        self._hover(mods, pos)
+        return False
+
     def key_press(self, event) -> bool:
+        if self._keys_changed(event, pressed=True):
+            return True
         key = event.key()
         if self.proposal is not None and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept_proposal()

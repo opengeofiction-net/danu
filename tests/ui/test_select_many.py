@@ -335,3 +335,89 @@ def test_a_moving_contour_may_go_where_another_moving_one_was(w, north):
     gesture(w, [start, (start[0], start[1] + d)])
     assert lonlat(sq, an[3])[1] == pytest.approx(start[1] + d, abs=PX), w.statusBar().currentMessage()
     assert 'cross nothing now' in w.statusBar().currentMessage()
+
+
+# ------------------------------- the keys change a drag as it goes, as JOSM's
+def send(w, kind, lonlat_or_pos, buttons, mods=NONE, button=NB):
+    vp = w.map.viewport()
+    p = lonlat_or_pos if isinstance(lonlat_or_pos, QPointF) else at(w, *lonlat_or_pos)
+    QApplication.sendEvent(vp, QMouseEvent(kind, p, vp.mapToGlobal(p.toPoint()), button, buttons, mods))
+
+
+def keyev(w, kind, key, mods):
+    ev = QKeyEvent(kind, key, mods)
+    (w.map.keyPressEvent if kind == QEvent.Type.KeyPress else w.map.keyReleaseEvent)(ev)
+
+
+def test_a_move_turned_into_a_turn_mid_drag_is_one_step_from_where_it_began(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.317, LAT + 0.001)
+    before = {i: lonlat(sq, i) for i in an}
+    end = lonlat(sq, an[4])
+    send(w, QEvent.Type.MouseButtonPress, end, L, button=L)
+    north = (end[0], end[1] + 0.003)
+    send(w, QEvent.Type.MouseMove, north, L)                     # a move, north
+    assert w.editor.pointer == 'move'
+    moved = {k: v for k, v in w.editor.transform_ghost.items()}
+    # shift and ctrl, still dragging: from here it turns, about where it now is
+    send(w, QEvent.Type.MouseMove, north, L, SHIFT | CTRL)
+    assert w.editor.pointer == 'rotate'
+    mid = moved[(NORTH, an[2])]
+    r = moved[(NORTH, an[4])][0] - mid[0]
+    send(w, QEvent.Type.MouseMove, QPointF(w.map.mapFromScene(QPointF(mid[0], mid[1] + r))), L, SHIFT | CTRL)
+    send(w, QEvent.Type.MouseButtonRelease, QPointF(w.map.mapFromScene(QPointF(mid[0], mid[1] + r))), NB,
+         SHIFT | CTRL, button=L)
+    nx, ny = xy(w, sq, an[4])
+    assert nx == pytest.approx(mid[0], abs=r * 0.03) and ny == pytest.approx(mid[1] + r, abs=r * 0.03)
+    assert w.statusBar().currentMessage().startswith('moved and turned 5 nodes'), w.statusBar().currentMessage()
+    w.editor.undo()                                              # the whole drag, one step
+    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before)
+
+
+def test_a_key_pressed_mid_drag_changes_it_without_the_mouse_moving(w):
+    from danu.ui.tools import _cursor
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.317, LAT + 0.001)
+    end = lonlat(sq, an[4])
+    send(w, QEvent.Type.MouseMove, end, NB)
+    send(w, QEvent.Type.MouseButtonPress, end, L, button=L)
+    send(w, QEvent.Type.MouseMove, (end[0], end[1] + 0.002), L)
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Control, NONE)
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Alt, CTRL)
+    assert w.editor.pointer == 'scale'
+    assert w.map.viewport().cursor().shape() == Qt.CursorShape.SizeFDiagCursor
+    keyev(w, QEvent.Type.KeyRelease, Qt.Key.Key_Alt, CTRL | ALT)            # ctrl alone says nothing
+    assert w.editor.pointer == 'scale', 'ctrl alone is no transform: it should stay as it was'
+    keyev(w, QEvent.Type.KeyRelease, Qt.Key.Key_Control, CTRL)              # nothing held: a move
+    assert w.editor.pointer == 'move'
+    assert w.map.viewport().cursor().shape() == Qt.CursorShape.SizeAllCursor
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Shift, NONE)
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Control, SHIFT)
+    assert w.editor.pointer == 'rotate'
+    assert w.map.viewport().cursor().shape() == _cursor('rotate').shape() == Qt.CursorShape.BitmapCursor
+    send(w, QEvent.Type.MouseButtonRelease, (end[0], end[1] + 0.002), NB, SHIFT | CTRL, button=L)
+
+
+def test_over_a_picked_node_the_pointer_says_what_a_drag_would_do(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.309, LAT + 0.001)                  # 0-2
+    on = lonlat(sq, an[1])
+    send(w, QEvent.Type.MouseMove, on, NB)
+    assert w.editor.pointer == 'move'
+    send(w, QEvent.Type.MouseMove, on, NB, CTRL | ALT)
+    assert w.editor.pointer == 'scale'
+    keyev(w, QEvent.Type.KeyRelease, Qt.Key.Key_Alt, CTRL | ALT)
+    assert w.editor.pointer is None, 'ctrl alone over it: no transform, the plain pointer'
+    send(w, QEvent.Type.MouseMove, lonlat(sq, an[4]), NB)                 # not picked
+    assert w.editor.pointer is None
+    assert w.map.viewport().cursor().shape() == Qt.CursorShape.ArrowCursor
+
+
+def test_other_tools_keep_their_own_pointer(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.309, LAT + 0.001)
+    send(w, QEvent.Type.MouseMove, lonlat(sq, an[1]), NB)
+    w.editor.set_tool('draw')
+    assert w.editor.pointer is None
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Shift, NONE)
+    assert w.map.viewport().cursor().shape() == Qt.CursorShape.CrossCursor
