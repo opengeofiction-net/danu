@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Danu.app's: build-app.sh fills @VERSION@. The minimum is Qt 6.11.2's,
+     whose MoltenVK on conda-forge asks for macOS 14. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Danu</string>
+	<key>CFBundleDisplayName</key>
+	<string>Danu</string>
+	<key>CFBundleIdentifier</key>
+	<string>net.opengeofiction.danu</string>
+	<key>CFBundleExecutable</key>
+	<string>Danu</string>
+	<key>CFBundleIconFile</key>
+	<string>danu.icns</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>OpenGeofiction contributors. GPL-3.0-or-later.</string>
+</dict>
+</plist>
