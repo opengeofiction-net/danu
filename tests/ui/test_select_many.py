@@ -75,6 +75,10 @@ def test_a_lasso_on_nothing_picks_the_nodes_inside_it_and_does_not_move_the_map(
     lasso(w, 125.303, LAT - 0.002, 125.313, LAT + 0.006)      # round nodes 1-3 of both
     assert picked(w) == {an[1], an[2], an[3], bn[1], bn[2], bn[3]}
     assert w.map.center_lonlat() == pytest.approx(centre), 'the left button moved the map'
+    from danu.ui.mapview import MapView
+    for tool in ('select', 'draw', 'select'):                # nor would it, a press no tool takes
+        w.editor.set_tool(tool)
+        assert w.map.dragMode() == MapView.DragMode.NoDrag
     assert w.editor.selection is None
     assert '6 nodes picked' in w.statusBar().currentMessage()
 
