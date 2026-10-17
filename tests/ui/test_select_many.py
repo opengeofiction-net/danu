@@ -419,5 +419,6 @@ def test_other_tools_keep_their_own_pointer(w):
     send(w, QEvent.Type.MouseMove, lonlat(sq, an[1]), NB)
     w.editor.set_tool('draw')
     assert w.editor.pointer is None
-    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Shift, NONE)
+    keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Alt, CTRL)          # ctrl and alt: a scale, in select
+    assert w.editor.pointer is None
     assert w.map.viewport().cursor().shape() == Qt.CursorShape.CrossCursor

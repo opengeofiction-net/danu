@@ -5846,6 +5846,5 @@ the status names each of them, "moved and turned". Keys that say none of the
 three, ctrl alone, leave the drag as it was. The pointer says which: four
 arrows to move, a turning arrow to turn - drawn, Qt having none - and a
 corner's to scale; over a picked node, before the press, it says what a drag
-from there would do. A key event's own modifiers are those before it, so the
-key itself is added or taken off; the map view now hands the tool key
-releases as well as presses.
+from there would do. The map view now hands the tool key releases as well as
+presses.

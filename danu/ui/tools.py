@@ -1249,8 +1249,10 @@ class EditController(QObject):
 
     def _keys_changed(self, event, pressed: bool) -> bool:
         """A modifier pressed or let go: mid-drag it changes what the drag
-        does; hovering, what the pointer says. A key event's own modifiers
-        are those before it, so the key itself is added or taken off."""
+        does; hovering, what the pointer says. Qt 6 gives a modifier key's
+        event the state after it; the key is added or taken off all the same,
+        which is the same answer there and the right one where a platform's
+        event says the state before."""
         mod = _KEYS.get(event.key())
         if mod is None or self.working_set is None:
             return False
