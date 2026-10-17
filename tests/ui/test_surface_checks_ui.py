@@ -36,7 +36,9 @@ def test_a_build_asks_the_checks_of_its_own_grids_before_it_is_handed_back(monke
     assert builder.checking
     jobs.pop().run()
     (built,) = got
-    assert built.checks == [CLIMB] and asked == [('the snapshot', builder.work)]
+    # the build's own directory, which each build has (#197)
+    assert built.checks == [CLIMB] and asked == [('the snapshot', builder._delivered)]
+    assert builder._delivered.parent == builder.work
     # nobody looking: no snapshot, no checks, and a check that fails costs its list
     builder.checks_snapshot = lambda ws: None
     builder.request(FakeSet(), surface_params.load())
