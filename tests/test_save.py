@@ -138,3 +138,28 @@ def test_staging_a_zone_writes_what_is_in_memory_and_links_what_is_clean(tmp_pat
     (stage / 'sub').mkdir()
     with pytest.raises(FileExistsError):
         save.stage_zone([clean], [], stage)
+
+
+def test_a_square_is_copied_where_symlinks_are_refused(tmp_path, monkeypatch):
+    """Windows refuses a symlink to anyone not an administrator and without
+    Developer Mode, WinError 1314 - and CI's Windows runners are
+    administrators (#196)."""
+    import shutil
+    from pathlib import Path
+
+    from danu.core import save
+    from danu.core.square import Square, SquareName
+    src = tmp_path / 'mine' / 'N34E064.osm.xz'
+    src.parent.mkdir()
+    shutil.copy(Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz', src)
+    sq = Square(SquareName(64, 34))
+    sq.path, sq.present = src, True
+    sq.ways = {1: object()}
+
+    def refused(self, target, target_is_directory=False):
+        raise OSError(1314, 'A required privilege is not held by the client')
+    monkeypatch.setattr(Path, 'symlink_to', refused)
+    into = save.stage_zone([sq], [], tmp_path / 'stage')
+    staged = into / 'N34E064.osm.xz'
+    assert staged.exists() and not staged.is_symlink()
+    assert staged.read_bytes() == src.read_bytes()
