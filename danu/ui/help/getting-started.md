@@ -59,6 +59,13 @@ page back over whatever is open.
   **Ctrl** takes away, and **Delete** deletes them - on contours, water and
   spot heights alike, though a river's points stay: they come from the main
   map. The right button moves the map.
+- **Pick by level** with **Pick** in the Selected panel: *At the active
+  elevation* picks only the nodes of contours at the level shown in the
+  Elevation panel - lasso a hillside for its 150 m, press **W** for the next
+  level and **Shift**-lasso to add it - and *From - to* those in a range,
+  spot heights by their own level and a flattened lake at its level. Rivers
+  have no one level and are left out.
+  The status bar says when a filter is on.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
   **Alt** it scales it there. The keys can be pressed or let go during the

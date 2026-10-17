@@ -256,6 +256,24 @@ class Settings:
         return v if isinstance(v, bool) else str(v).lower() in ('true', '1', 'yes')
 
     @property
+    def pick_filter(self) -> tuple[str, float, float]:
+        """What a lasso picks (#201): 'all', 'active' - on contours at the
+        active elevation - or 'range', with its two ends."""
+        kind = str(self.q.value('pick/filter', 'all'))
+        try:
+            lo, hi = float(self.q.value('pick/from', 0.0)), float(self.q.value('pick/to', 0.0))
+        except (TypeError, ValueError):
+            lo = hi = 0.0
+        return (kind if kind in ('all', 'active', 'range') else 'all'), lo, hi
+
+    @pick_filter.setter
+    def pick_filter(self, v: tuple[str, float, float]):
+        kind, lo, hi = v
+        self.q.setValue('pick/filter', kind)
+        self.q.setValue('pick/from', float(lo))
+        self.q.setValue('pick/to', float(hi))
+
+    @property
     def start_always(self) -> bool:
         """The start page shown at every start (J5c), over the squares that
         open, rather than only when none do."""

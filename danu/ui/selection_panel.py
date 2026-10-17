@@ -27,7 +27,9 @@ from dataclasses import dataclass, replace
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QDockWidget,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -401,6 +403,30 @@ class SelectionPanel(QDockWidget):
         form.addRow('', self.why)
         form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
+        # what a lasso picks (#201): everything, or nodes on contours at the
+        # active elevation, or in a range - remembered
+        self.pick = QComboBox()
+        for label, kind in (('All', 'all'), ('At the active elevation', 'active'), ('From - to', 'range')):
+            self.pick.addItem(label, kind)
+        self.pick.setToolTip('What dragging round nodes picks: everything, or only nodes on contours at a level')
+        self.pick_from, self.pick_to = QDoubleSpinBox(), QDoubleSpinBox()
+        for box in (self.pick_from, self.pick_to):
+            box.setRange(-500.0, 9000.0)
+            box.setDecimals(1)
+            box.setKeyboardTracking(False)
+        self.pick_range = QWidget()
+        span = QHBoxLayout(self.pick_range)
+        span.setContentsMargins(0, 0, 0, 0)
+        span.addWidget(unit(self.pick_from)); span.addWidget(QLabel('to')); span.addWidget(unit(self.pick_to))
+        kind, lo, hi = self.settings.pick_filter if self.settings is not None else ('all', 0.0, 0.0)
+        self.pick.setCurrentIndex(self.pick.findData(kind))
+        self.pick_from.setValue(lo); self.pick_to.setValue(hi)
+        form.addRow('Pick', self.pick)
+        form.addRow('', self.pick_range)
+        self.pick.currentIndexChanged.connect(self._pick_changed)
+        self.pick_from.valueChanged.connect(self._pick_changed)
+        self.pick_to.valueChanged.connect(self._pick_changed)
+        self._pick_changed()
         # grading, for water - G6b: the action, findable without its key, and
         # the proposal it makes, shown before it lands
         self.grade_btn = QPushButton('Grade from the contours (G)')
@@ -494,6 +520,13 @@ class SelectionPanel(QDockWidget):
         """The server an id's page is on - read as it is copied, so one set
         in the preferences holds at once."""
         return self.settings.server_url if self.settings is not None else 'https://opengeofiction.net'
+
+    def _pick_changed(self, *_args) -> None:
+        f = (self.pick.currentData(), self.pick_from.value(), self.pick_to.value())
+        self.pick_range.setVisible(f[0] == 'range')
+        self.editor.pick_filter = f
+        if self.settings is not None:
+            self.settings.pick_filter = f
 
     def refresh(self) -> None:
         if self.editor.picked:
