@@ -5848,3 +5848,18 @@ arrows to move, a turning arrow to turn - drawn, Qt having none - and a
 corner's to scale; over a picked node, before the press, it says what a drag
 from there would do. The map view now hands the tool key releases as well as
 presses.
+
+## Picking by level (#201)
+
+The last of #201: **Pick** in the Selected panel - *All*, as before; *At
+the active elevation*; or *From - to*, a range, both ends in - remembered in
+the settings. With a filter on, a lasso or a rectangle picks only the nodes
+of contours whose level passes it: a node two contours share passes if
+either does, a coastline is level 0, a spot height is judged by its own
+level, and water, which has no one level, is left out. The status bar says
+the filter after what was picked - "5 nodes picked, at 125 m" - so one left
+on is not taken for an odd lasso.
+
+At the active elevation is the one that goes with drawing's keys: a lasso
+round a hillside for its 150 m, W, and a shift-lasso for the 175 m. Changing
+the filter does not change what is already picked; a ctrl-lasso narrows it.

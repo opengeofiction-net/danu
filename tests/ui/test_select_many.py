@@ -422,3 +422,86 @@ def test_other_tools_keep_their_own_pointer(w):
     keyev(w, QEvent.Type.KeyPress, Qt.Key.Key_Alt, CTRL)          # ctrl and alt: a scale, in select
     assert w.editor.pointer is None
     assert w.map.viewport().cursor().shape() == Qt.CursorShape.CrossCursor
+
+
+# ------------------------------------------- picking by level (#201, the filter)
+def three_levels(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(4)], {'ele': '100'})
+    _, b, bn = way(w, [(125.300 + 0.004 * k, LAT + 0.002) for k in range(4)], {'ele': '125'})
+    _, c, cn = way(w, [(125.300 + 0.004 * k, LAT + 0.004) for k in range(4)], {'ele': '150'})
+    _, r, rn = way(w, [(125.302 + 0.004 * k, LAT + 0.001) for k in range(3)], {'waterway': 'stream'})
+    alloc = w.editor.history.alloc(sq)
+    spot = alloc.take()
+    w.editor.do(sq, edits.AddNode(spot, (125.306, LAT + 0.003), {'ele': '125', 'natural': 'peak'}))
+    return sq, an, bn, cn, rn, spot
+
+
+def everything(w, mods=NONE):
+    lasso(w, 125.299, LAT - 0.001, 125.313, LAT + 0.005, mods)
+
+
+def test_at_the_active_elevation_only_that_contours_nodes_and_its_spot_heights(w):
+    sq, an, bn, cn, rn, spot = three_levels(w)
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    w.elevation.set(125)
+    everything(w)
+    assert picked(w) == set(bn) | {spot}, 'water, other levels, or the spot height wrongly'
+    assert w.statusBar().currentMessage() == '5 nodes picked, at 125 m'
+
+
+def test_the_active_elevation_followed_as_it_changes_and_shift_adds_the_next(w):
+    sq, an, bn, cn, rn, spot = three_levels(w)
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    w.elevation.set(100)
+    everything(w)
+    w.elevation.set(150)
+    everything(w, SHIFT)
+    assert picked(w) == set(an) | set(cn)
+
+
+def test_a_range_picks_the_levels_in_it_both_ends_included(w):
+    sq, an, bn, cn, rn, spot = three_levels(w)
+    p = w.selection_panel
+    p.pick.setCurrentIndex(p.pick.findData('range'))
+    p.pick_from.setValue(125); p.pick_to.setValue(100)                    # either way round
+    everything(w)
+    assert picked(w) == set(an) | set(bn) | {spot}
+    assert w.statusBar().currentMessage().endswith(', 100-125 m')
+
+
+def test_a_node_shared_with_a_contour_of_another_level_counts_if_either_passes(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(4)], {'ele': '100'})
+    _, b, bn = way(w, [(125.304, LAT + 0.003), (125.306, LAT + 0.002)], {'ele': '150'})
+    w.editor.do(sq, edits.ExtendWayWithExisting(b, True, an[1]))         # the 150 m ends on a 100 m node
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    w.elevation.set(150)
+    everything(w)
+    assert picked(w) == set(bn) | {an[1]}
+
+
+def test_a_coastline_is_level_0(w):
+    sq, c, cn = way(w, [(125.300 + 0.004 * k, LAT) for k in range(4)], {'natural': 'coastline'})
+    way(w, [(125.300 + 0.004 * k, LAT + 0.002) for k in range(4)], {'ele': '100'})
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    w.elevation.set(0)
+    everything(w)
+    assert picked(w) == set(cn)
+
+
+def test_the_filter_is_remembered_and_the_range_shown_only_for_a_range(w):
+    from danu.ui.settings import Settings
+    p = w.selection_panel
+    assert p.pick.currentData() == 'all' and not p.pick_range.isVisibleTo(p)
+    p.pick.setCurrentIndex(p.pick.findData('range'))
+    p.pick_from.setValue(200); p.pick_to.setValue(350)
+    assert p.pick_range.isVisibleTo(p)
+    assert w.editor.pick_filter == ('range', 200.0, 350.0)
+    assert Settings(w.settings.q.fileName()).pick_filter == ('range', 200.0, 350.0)
+
+
+def test_changing_the_filter_leaves_what_is_picked_alone(w):
+    sq, an, bn, cn, rn, spot = three_levels(w)
+    everything(w)
+    before = set(picked(w))
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    assert picked(w) == before

@@ -396,6 +396,9 @@ class EditController(QObject):
         # rectangle being drawn: shape, what it does, the points so far
         self.picked: dict = {}
         self.marquee: tuple[str, str, list[QPointF]] | None = None
+        # what a lasso picks: 'all', or only nodes on contours at the active
+        # elevation, or in a range - (kind, from, to); the panel sets it
+        self.pick_filter: tuple[str, float, float] = ('all', 0.0, 0.0)
         # what is picked being moved, turned or scaled (#201): the kind now,
         # where it began, the pivot, every picked node's scene point when it
         # began, those when the drag began, and the kinds the drag has been -
@@ -951,7 +954,30 @@ class EditController(QObject):
                     picked[n] = picked.get(n, set()) - ids
         self.set_picked(picked)
         n = self.picked_count()
-        self.message.emit(f'{n:,} node{"s" * (n != 1)} picked' if n else 'nothing picked')
+        said = self._filter_said()
+        self.message.emit((f'{n:,} node{"s" * (n != 1)} picked' if n else 'nothing picked') + said)
+
+    def _level_passes(self, ele: float | None) -> bool:
+        kind, lo, hi = self.pick_filter
+        if kind == 'all':
+            return True
+        if ele is None:
+            return False
+        if kind == 'active':
+            return abs(ele - self.elevation.value) < 1e-6
+        a, b = sorted((lo, hi))
+        return a - 1e-9 <= ele <= b + 1e-9
+
+    def _filter_said(self) -> str:
+        """What the filter is, after what was picked - so one left on is not
+        mistaken for an odd lasso."""
+        kind, lo, hi = self.pick_filter
+        if kind == 'active':
+            return f', at {format_ele(self.elevation.value)} m'
+        if kind == 'range':
+            a, b = sorted((lo, hi))
+            return f', {format_ele(a)}-{format_ele(b)} m'
+        return ''
 
     def _nodes_in(self, poly: list[tuple[float, float]]) -> dict:
         """The nodes inside a polygon of scene points, by square: every way's,
@@ -962,8 +988,21 @@ class EditController(QObject):
         east, south = m.scene_to_lonlat(x1, y1)
         out = {}
         for name, sq in self.working_set.squares.items():
-            ids = {r for w in sq.ways.values() for r in w.refs}
-            ids |= {nid for (sn, nid) in self.layer.spots if sn == name}
+            if self.pick_filter[0] == 'all':
+                ids = {r for w in sq.ways.values() for r in w.refs}
+                ids |= {nid for (sn, nid) in self.layer.spots if sn == name}
+            else:
+                # by level: a contour's, a coastline's 0, a spot height's own;
+                # water has no one level and is left out
+                ids = set()
+                for wid, way in sq.ways.items():
+                    if (name, wid) in self.layer.water:
+                        continue
+                    ele = way.ele if way.ele is not None else (0.0 if is_coastline(way) else None)
+                    if self._level_passes(ele):
+                        ids.update(way.refs)
+                ids |= {nid for (sn, nid), spot in self.layer.spots.items()
+                        if sn == name and self._level_passes(spot.ele)}
             cand = [i for i in ids if (n := sq.nodes.get(i)) is not None
                     and west <= n.lon <= east and south <= n.lat <= north]
             if not cand:
