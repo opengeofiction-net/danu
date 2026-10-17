@@ -367,3 +367,11 @@ class MapView(QGraphicsView):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        # a key let go mid-drag changes what the drag does (#201)
+        release = getattr(self.tool, 'key_release', None)
+        if release is not None and release(event):
+            event.accept()
+            return
+        super().keyReleaseEvent(event)

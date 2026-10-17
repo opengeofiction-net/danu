@@ -5814,3 +5814,37 @@ undo that takes picked nodes away takes them from the picked too.
 The test of what is inside is even-odd, edge by edge over all the candidate
 nodes at once, those in the lasso's box: a lasso drawn over itself picks what
 it went round once.
+
+## M3, moving what is picked (#201)
+
+A drag from a picked node moves everything picked; with shift and ctrl it
+turns it about its middle - the middle of the box round it - by the angle the
+drag sweeps there, and with ctrl and alt it scales it about the middle by how
+much farther from it, or nearer, the drag ends. While the button is held
+every way holding a picked node is drawn dashed where it would go; let go, the
+move is one step across the squares, and what was picked stays picked, where
+it now is.
+
+It keeps the rule a carried contour keeps (G8b): contours that crossed
+nothing may not be put down crossing something, which is refused and the
+crossings ringed; ones that already crossed move freely, and the status says
+whether they cross more, fewer or none. With many ways moving together the
+question has two halves. Each contour's new course is held to everything not
+moving by the layer's grid, `crossed_by` skipping all the moving ways; and to
+the other moving contours where *they* will be, pairwise - measured against
+the layer alone, two neighbours moved north together each crossed where the
+other had been. Rivers' points and spot heights move with the rest; R16 is a
+contour's, and a river crossing the contours is ordinary.
+
+**The keys mid-drag, as JOSM's.** Asked on #210: the keys held are read at
+every move of the mouse, and at every press or let-go of shift, ctrl or alt
+with the mouse still, so a drag can go from a move to a turn to a scale. Each
+change carries on from where things are then - the turn about the middle of
+what is picked *there*, not where it began - and what is put down is the
+whole drag, from where it began, as one step and one question of crossings;
+the status names each of them, "moved and turned". Keys that say none of the
+three, ctrl alone, leave the drag as it was. The pointer says which: four
+arrows to move, a turning arrow to turn - drawn, Qt having none - and a
+corner's to scale; over a picked node, before the press, it says what a drag
+from there would do. The map view now hands the tool key releases as well as
+presses.
