@@ -294,3 +294,79 @@ def test_the_import_check_leaves_the_modules_it_borrowed_as_it_found_them():
             f'{name} on the package is not the one in sys.modules - something '
             f're-imported it and did not put the attribute back')
     assert danu.ui.preview.shade is sys.modules['danu.surface.shade']
+
+
+# ------------------------------------------- a trackpad, macOS's way (#194)
+def touch(view, pos, dx=0, dy=-40, mods=Qt.KeyboardModifier.NoModifier) -> QWheelEvent:
+    """Two fingers on a trackpad: a pixel delta, a phase, and a sliver of a
+    notch to go with them."""
+    return QWheelEvent(pos, view.mapToGlobal(pos), QPoint(dx, dy), QPoint(dx // 2, dy // 2),
+                       Qt.MouseButton.NoButton, mods, Qt.ScrollPhase.ScrollUpdate, False)
+
+
+def test_on_macos_two_fingers_move_the_map_and_do_not_zoom(view, qtbot):
+    view.trackpad_pans = True
+    view.set_zoom(10)
+    view.center_on_lonlat(87.0, 20.5)
+    before = view.mapToScene(view.viewport().rect().center())
+    pos = QPointF(view.viewport().rect().center())
+    for _ in range(5):
+        view.wheelEvent(touch(view, pos, dx=12, dy=-40))
+    after = view.mapToScene(view.viewport().rect().center())
+    assert view.zoom == 10
+    px = view.mapToScene(QPoint(1, 0)).x() - view.mapToScene(QPoint(0, 0)).x()    # scene units a screen pixel
+    assert (after.y() - before.y()) / px == pytest.approx(200, abs=2), 'fingers up, the map up: the view down'
+    assert (after.x() - before.x()) / px == pytest.approx(-60, abs=2)
+
+
+def test_with_a_key_held_two_fingers_are_still_the_keys_wheel(view, qtbot):
+    view.trackpad_pans = True
+    said = []
+    view.elevationWheel.connect(lambda big, down: said.append(down))
+    pos = QPointF(view.viewport().rect().center())
+    for _ in range(4):                          # a quarter-notch each: one notch
+        view.wheelEvent(touch(view, pos, dy=60, mods=Qt.KeyboardModifier.ControlModifier))
+    assert said == [False]
+
+
+def test_elsewhere_a_touchpad_zooms_as_a_wheel_does_a_notch_at_a_time(view, qtbot):
+    view.trackpad_pans = False
+    view.set_zoom(10)
+    pos = QPointF(view.viewport().rect().center())
+    for _ in range(3):
+        view.wheelEvent(touch(view, pos, dy=60))   # 30 eighths each: not yet a notch
+    assert view.zoom == 10
+    view.wheelEvent(touch(view, pos, dy=60))
+    assert view.zoom == 11, 'four slivers make one notch'
+
+
+def pinch(view, pos, value, kind=Qt.NativeGestureType.ZoomNativeGesture):
+    from PySide6.QtGui import QNativeGestureEvent, QPointingDevice
+    ev = QNativeGestureEvent(kind, QPointingDevice.primaryPointingDevice(), 2, pos, pos,
+                             QPointF(view.viewport().mapToGlobal(pos.toPoint())), value, QPointF(), 0)
+    return view.viewportEvent(ev)
+
+
+def test_a_pinch_zooms_a_level_for_each_doubling_about_the_fingers(view, qtbot):
+    view.set_zoom(10)
+    view.center_on_lonlat(87.0, 20.5)
+    pos = QPointF(80, 60)
+    under = view.mapToScene(pos.toPoint())
+    assert pinch(view, pos, 0, Qt.NativeGestureType.BeginNativeGesture)
+    for _ in range(10):
+        assert pinch(view, pos, 0.04)          # 1.04**10, 1.48: not a doubling
+    assert view.zoom == 11, 'past half a doubling, a level'
+    assert view.mapToScene(pos.toPoint()).x() == pytest.approx(under.x(), abs=1)
+    for _ in range(40):
+        pinch(view, pos, -0.04)
+    assert view.zoom < 11
+    pinch(view, pos, 0, Qt.NativeGestureType.EndNativeGesture)
+
+
+@pytest.mark.parametrize('levels', [0.5, 1.5, -0.5])
+def test_a_pinch_on_the_half_level_ends_a_level_at_most_past_it(view, qtbot, levels):
+    """Not a see-saw - half a level in, a level, back half a level out, a
+    level back - which >= 0.5 would have been, at a half exactly."""
+    view.set_zoom(10)
+    pinch(view, QPointF(50, 50), 2 ** levels - 1)
+    assert abs(view.zoom - 10 - levels) <= 0.5

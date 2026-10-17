@@ -91,3 +91,29 @@ def test_the_layers_page_names_every_way_the_surface_is_shown_and_every_base_map
         assert f'**{mode}**' in text, mode
     for layer in load_layers():
         assert f'**{layer.title}**' in text, layer.title
+
+
+# ------------------------------------------------------------- macOS (#194)
+def test_on_macos_the_mouse_is_written_as_it_writes_it_and_the_trackpad_is_there():
+    rows = dict(help_ui.mouse(mac=True))
+    assert rows['⌘Wheel'] and rows['⇧⌘Wheel'] and rows['⌥Wheel'] and rows['⇧Wheel']
+    assert rows['Two-finger scroll'] == 'move the map' and 'Pinch' in rows
+    assert 'Two-finger scroll' not in dict(help_ui.mouse(mac=False))
+    assert dict(help_ui.mouse(mac=False))['Ctrl+Shift+Wheel']
+
+
+def test_a_pages_keys_are_written_as_the_platform_writes_them(monkeypatch):
+    text = '**Ctrl+S** saves; **Ctrl+R** builds; **Shift+Wheel** is the mouse; Ctrl+X is prose'
+    assert help_ui.native(text) == text.replace('**Ctrl+S**', f'**{help_ui._key("Ctrl+S")}**') \
+        .replace('**Ctrl+R**', f'**{help_ui._key("Ctrl+R")}**')
+    monkeypatch.setattr(help_ui, '_key', lambda seq: {'Ctrl+S': '⌘S', 'Ctrl+R': '⌘R'}.get(seq, seq))
+    assert help_ui.native(text).startswith('**⌘S** saves; **⌘R** builds')
+    assert 'Ctrl+X is prose' in help_ui.native(text)
+
+
+def test_preferences_and_quit_are_where_macos_looks_for_them(window):
+    from PySide6.QtGui import QAction
+    assert window.preferences_action.menuRole() == QAction.MenuRole.PreferencesRole
+    quit_ = next(a for a in menu(window.menuBar(), 'File').actions() if a.text() == '&Quit')
+    assert quit_.menuRole() == QAction.MenuRole.QuitRole
+    assert window.about_action.menuRole() == QAction.MenuRole.AboutRole

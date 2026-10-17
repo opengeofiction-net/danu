@@ -14,6 +14,8 @@ Help links to it rather than repeating it.
 
 from __future__ import annotations
 
+import re
+import sys
 from importlib import resources
 
 from PySide6.QtCore import QUrl
@@ -33,6 +35,11 @@ MOUSE = (('Wheel', 'zoom in and out, about the cursor'),
          ('Alt+Wheel', "the surface's opacity"),
          ('Shift+Wheel', "the magnifier's power, while it is on"),
          ('Right drag', 'move the map, whatever the tool'))
+# and on macOS, a trackpad's own (#194): mapview moves the map for two
+# fingers and zooms for a pinch, where a mouse's wheel still zooms
+TRACKPAD = (('Two-finger scroll', 'move the map'),
+            ('Pinch', 'zoom in and out, about the fingers'))
+MAC = sys.platform == 'darwin'
 DRAWING = (('Enter', 'finish the contour being drawn; accept a proposal'),
            ('Backspace', 'take back the last node drawn'),
            ('Escape', 'stop drawing; drop a proposal; back to select'))
@@ -68,8 +75,34 @@ def keys(labels: dict[str, str], key_of) -> str:
     out += ['', '## While drawing', '', '| Key | What |', '|---|---|']
     out += [f'| {k} | {what} |' for k, what in DRAWING]
     out += ['', '## The mouse', '', '| Mouse | What |', '|---|---|']
-    out += [f'| {k} | {what} |' for k, what in MOUSE]
+    out += [f'| {k} | {what} |' for k, what in mouse()]
     return '\n'.join(out) + '\n'
+
+
+def mouse(mac: bool | None = None) -> list[tuple[str, str]]:
+    """The mouse table's rows, as the platform writes them: on macOS the
+    modifiers as its symbols, in its order, and the trackpad's two."""
+    if not (MAC if mac is None else mac):
+        return list(MOUSE)
+    return [(_mac_modifiers(k), what) for k, what in MOUSE] + list(TRACKPAD)
+
+
+# the modifiers as macOS writes them and in the order it does: Qt's Ctrl is ⌘
+_MAC_ORDER = (('Meta', '⌃'), ('Alt', '⌥'), ('Shift', '⇧'), ('Ctrl', '⌘'))
+
+
+def _mac_modifiers(text: str) -> str:
+    *mods, rest = text.split('+')
+    return ''.join(sym for name, sym in _MAC_ORDER if name in mods) + rest
+
+
+_BOLD_KEY = re.compile(r'\*\*((?:(?:Ctrl|Alt|Shift|Meta)\+)+[A-Za-z0-9]+)\*\*')
+
+
+def native(markdown: str) -> str:
+    """A page's keys, written **Ctrl+S**, as the platform writes them: the
+    same on Linux and Windows, **⌘S** on macOS."""
+    return _BOLD_KEY.sub(lambda m: f'**{_key(m.group(1))}**', markdown)
 
 
 class HelpWindow(QDialog):
@@ -90,7 +123,7 @@ class HelpWindow(QDialog):
         self.current = ''
 
     def show_page(self, name: str) -> None:
-        body = keys(self.labels(), self.key_of) if name == 'keys' else page(name)
+        body = keys(self.labels(), self.key_of) if name == 'keys' else native(page(name))
         nav = ' · '.join(f'**{title}**' if n == name else f'[{title}](help:{n})' for n, title in PAGES.items())
         self.text.setMarkdown(f'{nav} · [Danu on the OGF wiki]({WIKI})\n\n{body}')
         self.current = name

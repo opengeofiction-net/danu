@@ -26,12 +26,15 @@ mapper which degree they are looking at.
 from __future__ import annotations
 
 import math
+import sys
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
 
 from . import mercator as m
+
+NOTCH = 120          # a wheel's click, in angleDelta's eighths of a degree
 
 
 def visible_rect(painter: QPainter, option, bounding: QRectF) -> QRectF:
@@ -130,6 +133,13 @@ class MapView(QGraphicsView):
         self.setScene(self._scene)
         self._scene.addItem(Graticule())
         self._zoom = 2
+        # macOS's own way with a trackpad (#194): two fingers move the map and
+        # a pinch zooms it, as Apple's Maps does. Elsewhere a touchpad's
+        # scroll zooms, as a wheel does, which is what Linux and Windows
+        # mappers have had
+        self.trackpad_pans = sys.platform == 'darwin'
+        self._notches = 0               # wheel turned, not yet a whole notch
+        self._pinch = 0.0               # pinched, in zoom levels, not yet a whole one
         self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         # anchoring is done by hand in zoom_about, not by AnchorUnderMouse:
@@ -196,22 +206,56 @@ class MapView(QGraphicsView):
         self.translate(residual.x(), residual.y())
 
     def wheelEvent(self, event):
+        mods = event.modifiers()
+        held = mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+                       | Qt.KeyboardModifier.ShiftModifier)
+        touch = not event.pixelDelta().isNull() or event.phase() != Qt.ScrollPhase.NoScrollPhase
+        if self.trackpad_pans and touch and not held:
+            p = event.pixelDelta()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - p.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - p.y())
+            event.accept()
+            return
         # with alt held, Qt on X11 and Wayland reports the wheel as a horizontal
         # delta, so the y alone read as no movement and alt-wheel did nothing
         d = event.angleDelta()
         delta = d.y() or d.x()
         if delta == 0:
             return
-        mods = event.modifiers()
-        if mods & Qt.KeyboardModifier.ControlModifier:
-            self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), delta < 0)
-        elif mods & Qt.KeyboardModifier.AltModifier:
-            self.opacityWheel.emit(delta < 0)
-        elif mods & Qt.KeyboardModifier.ShiftModifier and self.loupe is not None and self.loupe.on:
-            self.loupe.step(delta < 0)
-        else:
-            self.zoom_about(self._zoom + (1 if delta > 0 else -1), event.position())
+        # in whole notches: a fine wheel, or a trackpad, sends a sliver of one
+        # at a time, and a step for each raced through the zoom levels
+        self._notches += delta
+        steps = int(self._notches / NOTCH)
+        self._notches -= steps * NOTCH
+        for _ in range(abs(steps)):
+            self._wheel_step(mods, steps < 0, event.position())
         event.accept()
+
+    def _wheel_step(self, mods, down: bool, pos: QPointF) -> None:
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            self.elevationWheel.emit(bool(mods & Qt.KeyboardModifier.ShiftModifier), down)
+        elif mods & Qt.KeyboardModifier.AltModifier:
+            self.opacityWheel.emit(down)
+        elif mods & Qt.KeyboardModifier.ShiftModifier and self.loupe is not None and self.loupe.on:
+            self.loupe.step(down)
+        else:
+            self.zoom_about(self._zoom + (-1 if down else 1), pos)
+
+    def _pinched(self, event) -> bool:
+        """A trackpad's pinch: a zoom level for each doubling, about where the
+        fingers are - the map's zooms are tile levels, so whole ones."""
+        kind = event.gestureType()
+        if kind in (Qt.NativeGestureType.BeginNativeGesture, Qt.NativeGestureType.EndNativeGesture):
+            self._pinch = 0.0
+            return True
+        if kind != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        self._pinch += math.log2(max(1e-6, 1 + event.value()))
+        while abs(self._pinch) > 0.5:            # strictly: at a half exactly it would see-saw
+            step = 1 if self._pinch > 0 else -1
+            self.zoom_about(self._zoom + step, event.position())
+            self._pinch -= step
+        return True
 
     # --------------------------------------------------------- position
     def center_lonlat(self) -> tuple[float, float]:
@@ -314,6 +358,8 @@ class MapView(QGraphicsView):
     def viewportEvent(self, event):
         if event.type() == QEvent.Type.Leave:
             self.pointerLeft.emit()
+        elif event.type() == QEvent.Type.NativeGesture and self._pinched(event):
+            return True
         return super().viewportEvent(event)
 
     def keyPressEvent(self, event):
