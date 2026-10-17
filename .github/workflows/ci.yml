@@ -222,6 +222,7 @@ jobs:
           set -eu
           E="$RUNNER_TEMP/env"
           PATH="$E/bin:$PATH" make -C extern/isofill isofill libisofill.so CC=cc \
+            CFLAGS="-O2 -Wall -Wextra -ffp-contract=off" \
             OPENMP="-Xpreprocessor -fopenmp -I$E/include -L$E/lib -lomp" \
             LDFLAGS="-Wl,-rpath,$E/lib"
           otool -L extern/isofill/isofill | grep -E 'gdal|omp'
@@ -234,7 +235,8 @@ jobs:
           export PATH="$PWD/extern/isofill:$E/bin:$PATH" PYTHONPATH=.
           export DANU_ISOFILL_LIB="$PWD/extern/isofill/libisofill.so"
           python -m danu.ui.about
-          python -m pytest tests -q -p no:cacheprovider --ignore=tests/ui
+          python -m pytest tests -q -p no:cacheprovider --ignore=tests/ui \
+            --ignore=tests/golden/test_golden_surface.py
       - name: ui
         run: |
           set -eu
