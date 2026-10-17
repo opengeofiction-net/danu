@@ -27,9 +27,10 @@ pytestmark = pytest.mark.skipif(shutil.which('isofill') is None, reason='isofill
 
 
 SHELL = ROOT / 'server' / 'bin' / 'danu-build-zone'
-# the tests that run that pipeline: bash, on the server. On Windows `bash` is
-# WSL's, and the desktop never runs the pipeline
-server_shell = pytest.mark.skipif(sys.platform == 'win32',
+# the tests that run that pipeline: bash, on the server, which is Debian. On
+# Windows `bash` is WSL's, macOS has no nproc, and the desktop never runs the
+# pipeline
+server_shell = pytest.mark.skipif(sys.platform != 'linux',
                                   reason="the server's bash pipeline, which the desktop never runs")
 
 

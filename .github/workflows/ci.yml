@@ -188,6 +188,65 @@ jobs:
           & (Resolve-Path ..\venv\bin\python.exe) -m pytest tests/ui -q
           exit $LASTEXITCODE
 
+  # K1 (#194): the stack a macOS Danu will be made of, Apple Silicon, before
+  # anything is packed - as windows-stack is Windows'. conda-forge's Python,
+  # PySide6, GDAL and numpy at stack.txt's versions, the AppImage's and the
+  # Windows tree's; isofill built against that GDAL by the system's clang,
+  # which has no OpenMP of its own, so conda-forge's llvm-openmp provides it.
+  # Then the suites, as windows-stack runs them.
+  macos-stack:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: micromamba
+        run: |
+          set -eu
+          curl -fsSL -o "$RUNNER_TEMP/micromamba" \
+            https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-osx-arm64
+          chmod +x "$RUNNER_TEMP/micromamba"
+      - name: the stack, and its versions
+        run: |
+          set -eu
+          export MAMBA_ROOT_PREFIX="$RUNNER_TEMP/mamba"
+          spec=$(grep -v '^#' packaging/linux/stack.txt)
+          # shellcheck disable=SC2086
+          "$RUNNER_TEMP/micromamba" create -q -y -p "$RUNNER_TEMP/env" -c conda-forge --override-channels \
+            $spec llvm-openmp make pytest pytest-qt hypothesis
+          "$RUNNER_TEMP/env/bin/python" -c "import sys, platform, numpy, PySide6; from osgeo import gdal; print(sys.version, platform.machine(), 'numpy', numpy.__version__, 'PySide6', PySide6.__version__, 'GDAL', gdal.__version__)"
+      # Apple's clang takes OpenMP through the preprocessor and libomp from
+      # the environment; the rpath finds GDAL and libomp where they are. No
+      # fused multiply-add, which arm64 has and the surface must not use, is
+      # isofill's Makefile's own: built fused, the golden square was 4,829
+      # cells out by up to 29 m
+      - name: build isofill
+        run: |
+          set -eu
+          E="$RUNNER_TEMP/env"
+          PATH="$E/bin:$PATH" make -C extern/isofill isofill libisofill.so CC=cc \
+            OPENMP="-Xpreprocessor -fopenmp -I$E/include -L$E/lib -lomp" \
+            LDFLAGS="-Wl,-rpath,$E/lib"
+          otool -L extern/isofill/isofill | grep -E 'gdal|omp'
+      - name: run isofill
+        run: bash packaging/ci/isofill-runs.sh
+      - name: core and golden
+        run: |
+          set -eu
+          E="$RUNNER_TEMP/env"
+          export PATH="$PWD/extern/isofill:$E/bin:$PATH" PYTHONPATH=.
+          export DANU_ISOFILL_LIB="$PWD/extern/isofill/libisofill.so"
+          python -m danu.ui.about
+          python -m pytest tests -q -p no:cacheprovider --ignore=tests/ui \
+            --ignore=tests/golden/test_golden_surface.py
+      - name: ui
+        run: |
+          set -eu
+          E="$RUNNER_TEMP/env"
+          export PATH="$PWD/extern/isofill:$E/bin:$PATH" PYTHONPATH=.
+          export DANU_ISOFILL_LIB="$PWD/extern/isofill/libisofill.so"
+          QT_QPA_PLATFORM=offscreen QT_API=pyside6 python -m pytest tests/ui -q -p no:cacheprovider
+
   # The check which stops the editor and the build drifting apart. It needs
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
   # the fixture exists.

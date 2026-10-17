@@ -5646,3 +5646,37 @@ on Windows, those still open stay until the window closes.
 first's grids open, with a small island added so the build makes a water
 mask - the golden square has no coastline. Run on `windows-stack` without the
 fix it failed as the reports did, and the symlink test with WinError 1314.
+
+## K1, the macOS stack (#194)
+
+macOS was left under R34, "if it is free"; mappers on it asked, and an
+unsigned app was agreed to, so it follows Windows and Linux - Apple Silicon
+only, in three steps: the stack in CI, the app, the desktop.
+
+`macos-stack` is `windows-stack`'s counterpart: conda-forge's Python 3.14,
+PySide6 6.11.2, GDAL 3.13.3 and numpy at `stack.txt`'s versions, the
+AppImage's, on `macos-latest`, which is macOS 26 on arm64; isofill built
+against that GDAL by the system's clang, which has no OpenMP of its own,
+with conda-forge's `llvm-openmp` through `-Xpreprocessor -fopenmp`; then the
+core, golden and UI suites.
+
+**The surface came out different.** The golden square's DEM, built on Apple
+Silicon, differed from the reference in 4,829 of 1,442,401 cells, by up to
+29.1 m, where Linux and Windows agree with it to the bit - and the AppImage
+too, on the same conda-forge GDAL, so the difference was the processor.
+Clang, like GCC, fuses `a*b + c` into one instruction that rounds once rather
+than twice wherever the target has one, which arm64 always does and baseline
+x86-64 never does; the fill's decisions turn on its arithmetic to the last
+bit. Built with `-ffp-contract=off` the surface is the reference's, cell for
+cell. isofill's Makefile now sets it on every compile, as `:=` beside
+`OPENMP`, so nothing in the environment drops it (isofill #14), and at 0.12.0
+still: on x86-64 nothing changes, the golden suite and the release's
+packages built with it agree as before. GCC under `-march=native` on x86-64
+would have fused too.
+
+The rest was the platform's: the server's bash pipeline wants `nproc`, which
+macOS has not, so its tests are Linux's, as the server is; macOS's maths
+library and PROJ part by some 36 units in the last place of a near-polar
+Mercator y, and the canvas projection test is held to micrometres rather than
+nanometres; and Help's keys page already writes keys as macOS does, ⌘R for
+Ctrl+R, which its tests now expect of whichever platform runs them.

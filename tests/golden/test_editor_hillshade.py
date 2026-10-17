@@ -49,9 +49,10 @@ def test_every_shade_stage_names_the_shell_command_it_stands_for():
 @pytest.fixture(scope='module')
 def shell_run(tmp_path_factory):
     """One shell build of the fixture; its DEM and its published hillshade.
-    The server's pipeline is bash and runs on the server; on Windows there is
-    none to compare with, and `bash` there is WSL's."""
-    if sys.platform == 'win32':
+    The server's pipeline is bash and runs on the server, which is Debian; on
+    Windows there is none to compare with, `bash` there is WSL's, and macOS
+    has no nproc."""
+    if sys.platform != 'linux':
         pytest.skip("the server's bash pipeline, which the desktop never runs")
     tmp = tmp_path_factory.mktemp('shell')
     with (HERE / 'params.lock').open('rb') as fh:

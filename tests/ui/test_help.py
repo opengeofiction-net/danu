@@ -56,14 +56,16 @@ def test_the_keys_are_the_bindings_as_they_are_now(window):
     assert 'Edit › Water › Grade' in text and 'Elevation › Big step up' in text
     window.settings.set_key('edit.grade', 'Ctrl+Alt+G')
     window.show_help('keys')
-    assert re.search(r'Edit › Water › Grade\s+Ctrl\+Alt\+G', window.help_window.text.toPlainText())
+    # as the platform writes it: Ctrl+Alt+G, and on macOS ⌥⌘G
+    shown = help_ui._key('Ctrl+Alt+G')
+    assert re.search(r'Edit › Water › Grade\s+' + re.escape(shown), window.help_window.text.toPlainText())
 
 
 def test_every_binding_is_on_the_keys_page():
     page = help_ui.keys({}, DEFAULT_KEYS.get)
     for name in DEFAULT_KEYS:
         assert f'| {name} |' in page, name
-    assert REBUILD_KEY in page
+    assert help_ui._key(REBUILD_KEY) in page            # Ctrl+R, and on macOS ⌘R
 
 
 # the keys getting-started names, and the bindings they must be

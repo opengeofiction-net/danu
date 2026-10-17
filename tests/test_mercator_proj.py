@@ -63,7 +63,11 @@ def test_the_canvas_projection_is_the_servers_projection(to_merc, lon, lat):
     px = (mx + HALF) / (2 * HALF) * m.WORLD
     py = (HALF - my) / (2 * HALF) * m.WORLD
     x, y = m.lonlat_to_scene(lon, lat)
-    assert abs(x - px) < 1e-6 and abs(y - py) < 1e-6, f'{(x, y)} vs PROJ {(px, py)}'
+    # 1e-5 of a pixel, of a 2**27 pixel world: micrometres. macOS's maths
+    # library and PROJ part by 1.07e-6 at 84.9 degrees south, some 36 units in
+    # the last place of a y of 1.3e8, where the logarithm of the tangent is
+    # least well conditioned; Linux's and Windows' agreed to 1e-6
+    assert abs(x - px) < 1e-5 and abs(y - py) < 1e-5, f'{(x, y)} vs PROJ {(px, py)}'
 
 
 def test_the_string_read_from_the_build_is_the_one_expected():
