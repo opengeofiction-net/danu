@@ -216,13 +216,15 @@ jobs:
             $spec llvm-openmp make pytest pytest-qt hypothesis
           "$RUNNER_TEMP/env/bin/python" -c "import sys, platform, numpy, PySide6; from osgeo import gdal; print(sys.version, platform.machine(), 'numpy', numpy.__version__, 'PySide6', PySide6.__version__, 'GDAL', gdal.__version__)"
       # Apple's clang takes OpenMP through the preprocessor and libomp from
-      # the environment; the rpath finds GDAL and libomp where they are
+      # the environment; the rpath finds GDAL and libomp where they are. No
+      # fused multiply-add, which arm64 has and the surface must not use, is
+      # isofill's Makefile's own: built fused, the golden square was 4,829
+      # cells out by up to 29 m
       - name: build isofill
         run: |
           set -eu
           E="$RUNNER_TEMP/env"
           PATH="$E/bin:$PATH" make -C extern/isofill isofill libisofill.so CC=cc \
-            CFLAGS="-O2 -Wall -Wextra -ffp-contract=off" \
             OPENMP="-Xpreprocessor -fopenmp -I$E/include -L$E/lib -lomp" \
             LDFLAGS="-Wl,-rpath,$E/lib"
           otool -L extern/isofill/isofill | grep -E 'gdal|omp'
