@@ -119,6 +119,42 @@ def describe(sel, layer) -> Info:
     return replace(info, osm=osm)
 
 
+def describe_picked(picked: dict, working_set, layer) -> Info:
+    """Many nodes picked (#201): how many, and what they are on - the
+    contours, with their levels, the rivers and the coastlines, and the spot
+    heights among them."""
+    n = sum(len(ids) for ids in picked.values())
+    contours, levels, rivers, coasts, spots = set(), set(), set(), set(), 0
+    for name, ids in picked.items():
+        sq = working_set.squares.get(name) if working_set is not None else None
+        if sq is None:
+            continue
+        spots += sum((name, i) in layer.spots for i in ids)
+        for wid, way in sq.ways.items():
+            if not ids.intersection(way.refs):
+                continue
+            if (name, wid) in layer.water:
+                rivers.add((name, wid))
+            elif is_coastline(way):
+                coasts.add((name, wid))
+            elif way.ele is not None:
+                contours.add((name, wid))
+                levels.add(way.ele)
+    parts = []
+    if contours:
+        span = (f'{format_ele(min(levels))} m' if len(levels) == 1
+                else f'{format_ele(min(levels))}-{format_ele(max(levels))} m')
+        parts.append(f'{len(contours):,} contour{"s" * (len(contours) != 1)}, {span}')
+    if rivers:
+        parts.append(f'{len(rivers):,} water way{"s" * (len(rivers) != 1)}')
+    if coasts:
+        parts.append(f'{len(coasts):,} coastline{"s" * (len(coasts) != 1)}')
+    if spots:
+        parts.append(f'{spots:,} spot height{"s" * (spots != 1)}')
+    return Info(f'{n:,} node{"s" * (n != 1)} picked', where='on ' + '; '.join(parts) if parts else '',
+                why_not='Delete deletes them; shift adds to them, ctrl takes away')
+
+
 def _describe(sel, layer) -> Info:
     """The rest of it. No widgets - so every case is a test of a function
     rather than of a form."""
@@ -460,7 +496,10 @@ class SelectionPanel(QDockWidget):
         return self.settings.server_url if self.settings is not None else 'https://opengeofiction.net'
 
     def refresh(self) -> None:
-        self.info = info = describe(self.editor.selection, self.editor.layer)
+        if self.editor.picked:
+            self.info = info = describe_picked(self.editor.picked, self.editor.working_set, self.editor.layer)
+        else:
+            self.info = info = describe(self.editor.selection, self.editor.layer)
         self.kind.setText(info.kind)
         self.name.setText(info.name or '—')
         self.ele.setText(format_ele(info.ele) if info.ele is not None else '')

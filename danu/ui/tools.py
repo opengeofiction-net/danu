@@ -46,6 +46,23 @@ DRAG_PX = 3.0                   # a press that moves less is a click
 CYCLE_PX = 3.0                  # a click again this near the last is the next thing there
 FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
 SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within this of itself on release
+MARQUEE_PX = 3.0                # a lasso takes a point each time the cursor has gone this far
+
+
+def _inside(xy: np.ndarray, poly: np.ndarray) -> np.ndarray:
+    """Which of the points ``xy`` (n by 2) lie inside the polygon - even-odd,
+    so a lasso drawn over itself picks what it went round once. Edge by edge,
+    every point at a time: a lasso has hundreds of edges, a square tens of
+    thousands of nodes."""
+    x, y = xy[:, 0], xy[:, 1]
+    inside = np.zeros(len(xy), dtype=bool)
+    xj, yj = poly[-1]
+    for xi, yi in poly:
+        if yi != yj:
+            crosses = (yi > y) != (yj > y)
+            inside ^= crosses & (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+        xj, yj = xi, yi
+    return inside
 
 
 @dataclass
@@ -291,8 +308,17 @@ class EditController(QObject):
         # the press was, and the contour as it would be, in scene points
         self._carry: tuple[Square, Way, QPointF] | None = None
         self.ghost: list | None = None
+        # many nodes picked at once (#201): by square, the node ids - on
+        # contours, rivers, coastlines, and spot heights - beside the one
+        # selection, which picking clears and which clears it. A lasso or a
+        # rectangle being drawn: shape, what it does, the points so far
+        self.picked: dict = {}
+        self.marquee: tuple[str, str, list[QPointF]] | None = None
         self.measure = None                  # H3b's tool, the window's to give
         view.tool = self
+        # the left button selects in every tool now; the right moves the map,
+        # and a trackpad's two fingers on macOS
+        view.setDragMode(MapView.DragMode.NoDrag)
 
     @property
     def selection(self) -> Selection | None:
@@ -303,7 +329,20 @@ class EditController(QObject):
         # a property so that the twenty-odd places that set it say so without
         # each having to remember to
         self._selection = value
+        if value is not None:
+            self.picked = {}                     # one thing selected, or many: not both
         self.selectionChanged.emit()
+
+    def set_picked(self, picked: dict) -> None:
+        """Many nodes picked, by square name: the one selection goes."""
+        self.picked = {name: set(ids) for name, ids in picked.items() if ids}
+        if self.picked:
+            self._selection = None
+        self.selectionChanged.emit()
+        self.overlay.update()
+
+    def picked_count(self) -> int:
+        return sum(len(ids) for ids in self.picked.values())
 
     # ------------------------------------------------------------ setup
     def set_working_set(self, ws: WorkingSet | None):
@@ -320,7 +359,7 @@ class EditController(QObject):
             self._stop_drawing()
             self._cycle = None                       # a click after another tool's is a first one
             self.tool = name
-            self.view.setDragMode(MapView.DragMode.ScrollHandDrag if name == 'select' else MapView.DragMode.NoDrag)
+            self.view.setDragMode(MapView.DragMode.NoDrag)
             if self.measure is not None and name != 'measure' and not self.measure.done:
                 # a line half drawn goes; one ended stays, with its profile,
                 # measured again as the edits made against it land
@@ -400,6 +439,11 @@ class EditController(QObject):
             # a spot height undone away is nothing at all; a node of a way is
             # the way with no node picked
             self.selection = None if self.selection.spot else replace(self.selection, node=None)
+        if self.picked and self.working_set is not None:
+            kept = {n: {i for i in ids if n in self.working_set.squares and i in self.working_set.squares[n].nodes}
+                    for n, ids in self.picked.items()}
+            if kept != self.picked:
+                self.set_picked(kept)
         self.overlay.update()
         self.edited.emit()
 
@@ -441,11 +485,16 @@ class EditController(QObject):
             return True
         choices = self._choices(pos, whole)
         if not choices:
+            # nothing here: a lasso, or with alt a rectangle, picks the nodes
+            # in it - shift adding to what is picked, ctrl taking away (#201).
+            # The left button no longer moves the map; the right does
             self._cycle = None
-            if self.selection is not None:
-                self.selection = None
-                self.overlay.update()
-            return False                                 # the view pans
+            mods = event.modifiers()
+            op = ('remove' if mods & Qt.KeyboardModifier.ControlModifier else
+                  'add' if mods & Qt.KeyboardModifier.ShiftModifier else 'set')
+            shape = 'rect' if mods & Qt.KeyboardModifier.AltModifier else 'lasso'
+            self.marquee = (shape, op, [QPointF(pos)])
+            return True
         # a click again where the last was, with nothing dragged between, is
         # the next of what is there - as JOSM's, though JOSM asks for alt
         keys = [key for key, _ in choices]
@@ -558,6 +607,14 @@ class EditController(QObject):
             self._update_crossing()
             self.overlay.update()
             return True
+        if self.marquee is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            shape, op, pts = self.marquee
+            if shape == 'rect':
+                self.marquee = (shape, op, [pts[0], QPointF(pos)])
+            elif (pos - pts[-1]).manhattanLength() >= self._px(MARQUEE_PX):
+                pts.append(QPointF(pos))
+            self.overlay.update()
+            return True
         if self._carry is not None and event.buttons() & Qt.MouseButton.LeftButton:
             square, way, start = self._carry
             if self.ghost is None and (pos - start).manhattanLength() < self._px(DRAG_PX):
@@ -583,6 +640,12 @@ class EditController(QObject):
     def mouse_release(self, event, pos: QPointF) -> bool:
         if self.tool == 'measure' and self.measure is not None:
             return self.measure.mouse_release(event, pos)
+        if self.marquee is not None:
+            shape, op, pts = self.marquee
+            self.marquee = None
+            self._pick_within(shape, op, [*pts, QPointF(pos)])
+            self.overlay.update()
+            return True
         if self._carry is not None:
             carry, self._carry = self._carry, None
             ghost, self.ghost = self.ghost, None
@@ -616,6 +679,57 @@ class EditController(QObject):
         self.do(square, edits.MoveNode(nid, before, after))
         self.message.emit(self._moved_what())
         return True
+
+    def _pick_within(self, shape: str, op: str, pts: list[QPointF]) -> None:
+        """The lasso or rectangle let go: the nodes inside it picked, added
+        or taken away. Hardly moved, it was a click on nothing - which clears,
+        as it always has, unless it was to add or take away."""
+        xs, ys = [p.x() for p in pts], [p.y() for p in pts]
+        if max(xs) - min(xs) < self._px(DRAG_PX) and max(ys) - min(ys) < self._px(DRAG_PX):
+            if op == 'set':
+                self.selection = None
+                self.set_picked({})
+            return
+        if shape == 'rect':
+            (x0, y0), (x1, y1) = (xs[0], ys[0]), (xs[-1], ys[-1])
+            poly = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        else:
+            poly = list(zip(xs, ys, strict=True))
+        found = self._nodes_in(poly)
+        if op == 'set':
+            picked = found
+        else:
+            picked = {n: set(ids) for n, ids in self.picked.items()}
+            for n, ids in found.items():
+                if op == 'add':
+                    picked.setdefault(n, set()).update(ids)
+                else:
+                    picked[n] = picked.get(n, set()) - ids
+        self.set_picked(picked)
+        n = self.picked_count()
+        self.message.emit(f'{n:,} node{"s" * (n != 1)} picked' if n else 'nothing picked')
+
+    def _nodes_in(self, poly: list[tuple[float, float]]) -> dict:
+        """The nodes inside a polygon of scene points, by square: every way's,
+        contours and water alike, and the spot heights."""
+        P = np.asarray(poly, dtype=float)
+        (x0, y0), (x1, y1) = P.min(axis=0), P.max(axis=0)
+        west, north = m.scene_to_lonlat(x0, y0)
+        east, south = m.scene_to_lonlat(x1, y1)
+        out = {}
+        for name, sq in self.working_set.squares.items():
+            ids = {r for w in sq.ways.values() for r in w.refs}
+            ids |= {nid for (sn, nid) in self.layer.spots if sn == name}
+            cand = [i for i in ids if (n := sq.nodes.get(i)) is not None
+                    and west <= n.lon <= east and south <= n.lat <= north]
+            if not cand:
+                continue
+            xy = np.array([self.layer.node_xy(sq, i) for i in cand], dtype=float)
+            inside = _inside(xy, P)
+            got = {cand[k] for k in np.flatnonzero(inside)}
+            if got:
+                out[name] = got
+        return out
 
     def _join(self, square: Square, nid: int, before, pos: QPointF) -> bool:
         """Ctrl and a drag of a contour's end onto another's: the two joined
@@ -901,6 +1015,7 @@ class EditController(QObject):
                 self._stop_drawing()
             else:
                 self.selection = None
+                self.set_picked({})
                 self.set_tool('select')
                 self.overlay.update()
             return True
@@ -1390,6 +1505,9 @@ class EditController(QObject):
             kind='loop'))
 
     def delete_selected(self):
+        if self.picked:
+            self._delete_picked()
+            return
         sel = self.selection
         if sel is None:
             self.message.emit('nothing selected')
@@ -1432,6 +1550,32 @@ class EditController(QObject):
             self.do(sel.square, edits.DeleteWay(sel.way.id))
             self.selection = None
             self.message.emit(f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None else 'deleted a way')
+        self.overlay.update()
+
+    def _delete_picked(self) -> None:
+        """Every node picked deleted, as one step across the squares - but a
+        river's: its vertices are upstream's and come back on the next import
+        (G5a), so they stay, and are said."""
+        steps, gone, kept = [], 0, 0
+        for name, ids in self.picked.items():
+            sq = self.working_set.squares.get(name)
+            if sq is None:
+                continue
+            river = {r for (sn, wid) in self.layer.water if sn == name and wid in sq.ways
+                     for r in sq.ways[wid].refs}
+            ids = [i for i in sorted(ids) if i in sq.nodes]
+            mine = [i for i in ids if i not in river]
+            kept += len(ids) - len(mine)
+            if mine:
+                steps.append((sq, edits.Compound([edits.DeleteNode(i) for i in mine],
+                                                 f'delete {len(mine)} nodes')))
+                gone += len(mine)
+        self.do_across(steps)
+        self.set_picked({})
+        said = f'deleted {gone:,} node{"s" * (gone != 1)}'
+        if kept:
+            said += f"; {kept:,} on rivers kept - a river's vertices are upstream's"
+        self.message.emit(said)
         self.overlay.update()
 
     def set_level(self):
@@ -2366,12 +2510,43 @@ class EditOverlay(QGraphicsItem):
                 if rect.contains(QPointF(x, y)):
                     painter.drawEllipse(QPointF(x, y), 7 * px, 7 * px)
 
+    def _paint_picked(self, painter: QPainter, ctl, px: float) -> None:
+        """The nodes picked, as the one selected node is drawn; and the lasso
+        or rectangle being drawn."""
+        if ctl.picked and ctl.working_set is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 140, 0))
+            h = 2.5 * px                         # smaller than the one selected node's: there are hundreds
+            for name, ids in ctl.picked.items():
+                sq = ctl.working_set.squares.get(name)
+                if sq is None:
+                    continue
+                for i in ids:
+                    if i in sq.nodes:
+                        x, y = ctl.layer.node_xy(sq, i)
+                        painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if ctl.marquee is not None:
+            shape, op, pts = ctl.marquee
+            pen = QPen(QColor(255, 140, 0) if op != 'remove' else QColor(200, 30, 30), 1.5)
+            pen.setCosmetic(True); pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(QColor(255, 140, 0, 30))
+            if shape == 'rect' and len(pts) == 2:
+                painter.drawRect(QRectF(pts[0], pts[1]).normalized())
+            elif len(pts) >= 2:
+                path = QPainterPath(pts[0])
+                for p in pts[1:]:
+                    path.lineTo(p)
+                path.closeSubpath()
+                painter.drawPath(path)
+
     def paint(self, painter: QPainter, option, widget=None):
         ctl = self.ctl
         scale = painter.worldTransform().m11()
         px = 1.0 / scale
         rect = visible_rect(painter, option, self.boundingRect())
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_picked(painter, ctl, px)
         sel = ctl.selection
         if sel is not None and sel.spot and sel.node in sel.square.nodes:
             node = sel.square.nodes[sel.node]

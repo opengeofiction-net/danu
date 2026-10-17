@@ -5792,3 +5792,25 @@ Getting started has a section on changing a contour - the redraw, a node
 dragged and Ctrl-dragged to join, Shift-drag for the whole contour, a double
 click to insert a node, a click again for what else is there - and Help ›
 Keys' mouse table the same.
+
+## M2, picking many (#201)
+
+In select mode the left button no longer moves the map. Dragged on nothing,
+it draws a lasso - with alt, a rectangle - and the nodes inside are picked:
+every way's, contours, rivers and coastlines alike, and the spot heights,
+across the squares of the set. Shift adds to what is picked and ctrl takes
+away; a click on nothing still clears. The right button moves the map in
+every tool, as it already did, and on macOS two fingers.
+
+What is picked is a set of nodes by square on the editor, beside the one
+selection, and the two are one or the other: picking clears the selection and
+selecting clears what is picked. The overlay draws the picked nodes as it
+draws a selected one, and the selection panel says how many, and on what - so
+many contours and their levels, the water, the spot heights. Delete deletes
+them, one step across the squares - but a river's points, which are
+upstream's and come back on the next import (G5a), and are said kept. An
+undo that takes picked nodes away takes them from the picked too.
+
+The test of what is inside is even-odd, edge by edge over all the candidate
+nodes at once, those in the lasso's box: a lasso drawn over itself picks what
+it went round once.
