@@ -34,7 +34,12 @@ MOUSE = (('Wheel', 'zoom in and out, about the cursor'),
          ('Ctrl+Shift+Wheel', 'the active elevation, by the big step'),
          ('Alt+Wheel', "the surface's opacity"),
          ('Shift+Wheel', "the magnifier's power, while it is on"),
-         ('Right drag', 'move the map, whatever the tool'))
+         ('Right drag', 'move the map, whatever the tool'),
+         ('Drag a node', 'move it'),
+         ('Ctrl+Drag a node', 'onto another node: join the two'),
+         ('Shift+Drag a contour', 'move the whole contour'),
+         ('Double click a line', 'insert a node'),
+         ('Click again', 'the next of what lies there'))
 # and on macOS, a trackpad's own (#194): mapview moves the map for two
 # fingers and zooms for a pinch, where a mouse's wheel still zooms
 TRACKPAD = (('Two-finger scroll', 'move the map'),
@@ -42,7 +47,8 @@ TRACKPAD = (('Two-finger scroll', 'move the map'),
 MAC = sys.platform == 'darwin'
 DRAWING = (('Enter', 'finish the contour being drawn; accept a proposal'),
            ('Backspace', 'take back the last node drawn'),
-           ('Escape', 'stop drawing; drop a proposal; back to select'))
+           ('Escape', 'stop drawing - a redraw not brought back is dropped; drop a proposal; '
+                      'back to select'))
 
 
 def page(name: str) -> str:

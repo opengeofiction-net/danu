@@ -597,7 +597,12 @@ def test_a_redraw_that_would_leave_a_crossing_is_refused_and_taken_back(w):
     click(w, *hook[2]); key(w, Qt.Key.Key_Return)
     assert w.statusBar().currentMessage().startswith('not redrawn'), w.statusBar().currentMessage()
     assert square.ways[wid].refs == ids and all(i in square.nodes for i in ids)
-    assert w.editor.drawing is None                          # and the line is over
+    # the line stays open, not left hanging off the contour as a fork (#201);
+    # Escape takes it away
+    assert w.editor.drawing is not None
+    key(w, Qt.Key.Key_Escape)
+    assert w.editor.drawing is None and set(square.ways) == {wid} | (set(square.ways) - {w.editor.drawing})
+    assert not [x for x in square.ways.values() if ids[1] in x.refs and x.id != wid], 'a fork was left'
 
 
 @pytest.mark.parametrize('what,first,last,drawn,replaced', [
@@ -1024,3 +1029,93 @@ def test_a_line_drawn_from_a_coastline_back_to_it_never_redraws_it(w):
     key(w, Qt.Key.Key_Return)
     assert square.ways[wid].refs == ids, 'the coastline was redrawn'
     assert 'redrew' not in w.statusBar().currentMessage()
+
+
+
+# --------------------------------------------- a redraw never forks (#201)
+def forks(square, ele) -> list:
+    from danu.checks import touches
+    return [t for t in touches.find_in(square) if t.kind == 'fork']
+
+
+def test_a_redraw_finished_away_from_the_contour_stays_open(w):
+    """qhfreddy's screenshots: begun partway along the 200 m, finished in the
+    open, and kept - three branches of one contour at one node."""
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
+    wid = contour(w, square, 200, pts)
+    before = set(square.ways)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *pts[2])                                         # partway along: a redraw
+    click(w, 126.30, -23.20)
+    click(w, 126.25, -23.15)                                  # and away
+    key(w, Qt.Key.Key_Return)
+    assert w.editor.drawing is not None, 'finished, as a fork'
+    assert 'ends back on the 200 m contour' in w.statusBar().currentMessage()
+    click(w, 126.40, -23.29)
+    click(w, *pts[4]); key(w, Qt.Key.Key_Return)             # brought back: a redraw
+    assert 'redrew' in w.statusBar().currentMessage(), w.statusBar().currentMessage()
+    assert set(square.ways) == before and not forks(square, 200)
+    assert wid in square.ways
+
+
+@pytest.mark.parametrize('leave', ['escape', 'another tool'])
+def test_a_redraw_left_unfinished_is_taken_back(w, leave):
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
+    wid = contour(w, square, 200, pts)
+    ids = list(square.ways[wid].refs)
+    before = set(square.ways)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *pts[2]); click(w, 126.30, -23.20); click(w, 126.25, -23.15)
+    if leave == 'escape':
+        key(w, Qt.Key.Key_Escape)
+    else:
+        w.editor.set_tool('select')
+    assert w.editor.drawing is None
+    assert set(square.ways) == before and square.ways[wid].refs == ids and not forks(square, 200)
+    assert 'redraw was dropped' in w.statusBar().currentMessage()
+
+
+def test_a_dropped_redraw_is_not_left_selected(w):
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
+    contour(w, square, 200, pts)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *pts[2]); click(w, 126.30, -23.20); click(w, 126.25, -23.15)
+    _, line, _ = w.editor.drawing
+    w.editor.selection = Selection(square, square.ways[line])
+    key(w, Qt.Key.Key_Escape)
+    assert line not in square.ways and w.editor.selection is None
+
+
+def test_a_redraw_ended_on_another_contour_of_its_level_is_refused(w):
+    square = w.working_set.squares[TEN]
+    a = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
+    b = [(126.2 + 0.08 * k, -23.10) for k in range(6)]
+    contour(w, square, 200, a)
+    other = contour(w, square, 200, b)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *a[2]); click(w, 126.37, -23.20)
+    click(w, *b[3])                                           # onto the other 200 m
+    assert 'not another' in w.statusBar().currentMessage(), w.statusBar().currentMessage()
+    assert w.editor.drawing is not None
+    assert not [x for x in square.ways.values() if square.ways[other].refs[3] in x.refs and x.id != other]
+    key(w, Qt.Key.Key_Escape)
+    assert not forks(square, 200)
+
+
+def test_a_line_begun_at_a_contours_end_continues_it_as_ever(w):
+    """Not a redraw, so none of this: from an end, a contour goes on."""
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(3)]
+    wid = contour(w, square, 200, pts)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *pts[-1]); click(w, 126.50, -23.25)
+    key(w, Qt.Key.Key_Return)
+    assert w.editor.drawing is None and len(square.ways[wid].refs) == 4

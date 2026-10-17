@@ -14,9 +14,17 @@ check (G8a) finds proper crossings, and these are the rest of it:
   levels in one cell and whichever way the file holds last wins it - the
   surface then depends on the order of the ways (measured on gobras).
 
-Contours of one level meeting at a node are not one: that is two ways of a
-contour joined. A shared node inside a coincident stretch of the same two is
-said once, as the stretch.
+- **fork** - contours of one level meeting at a node with an odd number of
+  branches, three or more: a contour that splits, which no ground does. A
+  level line meets itself only in pairs - four branches is an X, the level of
+  a saddle exactly, as a ring hung off a contour's node is - so an odd count is
+  always a fault. A line begun partway along a contour and not brought back
+  to it was left as one (#201). Counted across ways: a contour meeting
+  itself at a node, one way, is a loop, which the loops check finds.
+
+Two ways of one level meeting at a node, two branches between them, are not a
+fork: that is a contour in two ways, joined. A shared node inside a coincident
+stretch of the same two is said once, as the stretch.
 
 No Qt and no GDAL. Within a square - a square's file is what holds the node
 ids - by cell, every vertex measured against the segments sharing its cell.
@@ -37,7 +45,7 @@ NEAR_M = 1.0
 
 @dataclass(frozen=True)
 class Touch:
-    kind: str                   # 'shared' or 'coincident'
+    kind: str                   # 'shared', 'coincident' or 'fork'
     a: tuple                    # (square name, way id, elevation)
     b: tuple
     lon: float
@@ -50,6 +58,8 @@ class Touch:
         (_, wa, ea), (_, wb, eb) = self.a, self.b
         if self.kind == 'shared':
             return f'{ea:g} m way {wa} and {eb:g} m way {wb} share node {self.node}'
+        if self.kind == 'fork':
+            return f'{ea:g} m ways {wa} and {wb} fork at node {self.node}'
         what = 'a duplicate of' if ea == eb else 'on top of'
         return f'{ea:g} m way {wa} runs {self.metres:,.0f} m {what} {eb:g} m way {wb}'
 
@@ -59,6 +69,10 @@ class Touch:
             return (f'in {sq}, the {self.a[2]:g} m contour (way {self.a[1]}) and the {self.b[2]:g} m '
                     f'(way {self.b[1]}) share node {self.node} - contours of two levels may not meet '
                     '(R16); U unglues it')
+        if self.kind == 'fork':
+            return (f'in {sq}, the {self.a[2]:g} m contour forks at node {self.node}: ways '
+                    f'{self.a[1]} and {self.b[1]} meet there with an odd number of branches - a contour '
+                    'is one line; delete the branch that should not be there, or redraw it')
         if self.a[2] == self.b[2]:
             return (f'in {sq}, the {self.a[2]:g} m contour (way {self.a[1]}) runs {self.metres:,.0f} m '
                     f'on top of another at its level (way {self.b[1]}) - a duplicate; delete the '
@@ -115,6 +129,18 @@ def _scan(square, held, only) -> list[Touch]:
                     continue                        # a pair the edit did not touch
                 if by_id[hs[i]].ele != by_id[hs[j]].ele:
                     shared.setdefault((hs[i], hs[j]), []).append(r)
+    # forks: ways of one level at a node, three branches or more among them
+    forks = []
+    for r, hs in holders.items():
+        if len(hs) < 2 or (only is not None and not hs & only):
+            continue
+        level: dict = defaultdict(list)
+        for h in hs:
+            level[by_id[h].ele].append(h)
+        for at in level.values():
+            n = sum(_branches(by_id[h].refs, r) for h in at)
+            if len(at) > 1 and n >= 3 and n % 2:
+                forks.append((r, sorted(at)))
     # coincident stretches: a vertex within NEAR_M of another way's segment,
     # two of them next to each other - a segment lying along the other
     pts, owner, pos, a, b, seg_owner = [], [], [], [], [], []
@@ -215,8 +241,23 @@ def _scan(square, held, only) -> list[Touch]:
                 continue                            # said as the stretch
             n = square.nodes[r]
             out.append(Touch('shared', key[x], key[y], n.lon, n.lat, node=r))
+    for r, (x, y, *_rest) in forks:
+        n = square.nodes[r]
+        out.append(Touch('fork', key[x], key[y], n.lon, n.lat, node=r))
     out.sort(key=lambda t: (t.kind, t.lat, t.lon))
     return out
+
+
+def _branches(refs: list, r: int) -> int:
+    """How many of a way's segments end at node ``r``: one at an open way's
+    end, two along it or at a ring's join."""
+    closed = len(refs) > 2 and refs[0] == refs[-1]
+    body = refs[:-1] if closed else refs
+    n = 0
+    for i, x in enumerate(body):
+        if x == r:
+            n += 2 if closed else (i > 0) + (i < len(body) - 1)
+    return n
 
 
 def find(working_set) -> list[Touch]:

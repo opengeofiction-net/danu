@@ -262,9 +262,12 @@ class ChecksDock(QDockWidget):
 
     def show_touches(self, found: list) -> None:
         shared = sum(t.kind == 'shared' for t in found)
+        forks = sum(t.kind == 'fork' for t in found)
         dupes = sum(t.kind == 'coincident' and t.a[2] == t.b[2] for t in found)
-        on_top = len(found) - shared - dupes
+        on_top = len(found) - shared - forks - dupes
         parts = [f'{shared:,} node{"s" * (shared != 1)} two levels share'] if shared else []
+        if forks:
+            parts.append(f'{forks:,} fork{"s" * (forks != 1)}')
         if on_top:
             parts.append(f'{on_top:,} stretch{"es" * (on_top != 1)} of one level on another')
         if dupes:

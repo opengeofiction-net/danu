@@ -41,6 +41,20 @@ page back over whatever is open.
 - **Q** selects: click a contour or a node to move, delete or split it.
 - **Z** places a spot height; **M** measures a line and the ground along it.
 
+### Changing a contour
+
+- **Redraw a stretch:** at the contour's elevation, start a line on one of
+  its nodes, draw the new course, and finish it with **Enter** or a right
+  click near another of its nodes. The stretch between the two is replaced.
+  A redraw has to come back to the contour it began on; **Escape** drops it.
+- **Continue a contour** by starting a line on its end.
+- **Move a node** by dragging it; drag it onto another node with **Ctrl**
+  held to join the two.
+- **Move a whole contour** by dragging it with **Shift** held.
+- **Insert a node** with a double click on a line.
+- Where lines and nodes lie together, **click again** in the same place for
+  the next of them.
+
 Every key can be changed in **File › Preferences…**; **Help › Keys** lists
 them as they are set now.
 
