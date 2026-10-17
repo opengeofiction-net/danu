@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char res[PATH_MAX];
+static char res[PATH_MAX + 16];     /* the app's Contents, and /Resources */
 
 static void under(const char *name, const char *rel, int only_if_unset)
 {
@@ -87,7 +87,12 @@ int main(int argc, char **argv)
         if (PyStatus_Exception(st)) return fail("its Python", st);
     }
 
-    if (argc >= 3 && strcmp(argv[1], "--python") == 0) {
+    if (argc >= 2 && strcmp(argv[1], "--python") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Danu: --python wants a script to run\n");
+            PyConfig_Clear(&config);
+            return 2;
+        }
         st = PyConfig_SetBytesString(&config, &config.run_filename, argv[2]);
         if (PyStatus_Exception(st)) return fail("the script", st);
         prog = 2;

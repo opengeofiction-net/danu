@@ -71,3 +71,59 @@ def test_what_a_file_loads_is_read_from_its_load_commands(tmp_path):
     p = macho(tmp_path / 'x', '@rpath/a.dylib', '/usr/lib/libz.1.dylib', '@rpath/b.dylib')
     assert closure.is_macho(p) and not closure.is_macho(tmp_path)
     assert closure.loads(p) == ['@rpath/a.dylib', '/usr/lib/libz.1.dylib', '@rpath/b.dylib']
+
+
+def test_a_chain_of_links_is_kept_whole(app, monkeypatch):
+    """Loaded as libfoo.dylib, a link to libfoo.1.dylib, a link to the file:
+    the middle link removed, the other two would point at nothing."""
+    lib = app / 'lib'
+    macho(lib / 'libfoo.1.2.3.dylib')
+    (lib / 'libfoo.1.dylib').symlink_to('libfoo.1.2.3.dylib')
+    (lib / 'libfoo.dylib').symlink_to('libfoo.1.dylib')
+    macho(lib / 'libisofill.so', '@rpath/libgdal.39.dylib', '@rpath/libfoo.dylib')
+    monkeypatch.setattr('sys.argv', ['closure.py', str(app), 'libisofill.so'])
+    assert closure.main() == 0
+    assert (lib / 'libfoo.dylib').resolve() == (lib / 'libfoo.1.2.3.dylib').resolve()
+    assert (lib / 'libfoo.1.dylib').is_symlink()
+
+
+def universal(path: Path, *slices: tuple[int, bytes]) -> Path:
+    """A universal file of (cputype, thin Mach-O bytes) slices."""
+    head = struct.pack('>2I', 0xcafebabe, len(slices))
+    off, body, archs = 4096, b'', b''
+    for cpu, thin in slices:
+        archs += struct.pack('>5I', cpu, 0, off + len(body), len(thin), 12)
+        body += thin
+    path.write_bytes((head + archs).ljust(4096, b'\0') + body)
+    return path
+
+
+def test_a_universal_file_is_read_by_its_arm64_slice(app, monkeypatch, tmp_path):
+    """conda-forge's libgcc_s is one: read as thin, its loads were nothing."""
+    lib = app / 'lib'
+    x86 = macho(tmp_path / 'x86', '@rpath/libtk8.6.dylib').read_bytes()
+    arm = macho(tmp_path / 'arm', '@rpath/libcrypto.3.dylib', '@rpath/libgcc_s.1.1.dylib').read_bytes()
+    universal(lib / 'libssl.3.dylib', (0x01000007, x86), (0x0100000c, arm))
+    macho(lib / 'libgcc_s.1.1.dylib')
+    assert closure.loads(lib / 'libssl.3.dylib') == ['@rpath/libcrypto.3.dylib', '@rpath/libgcc_s.1.1.dylib']
+    monkeypatch.setattr('sys.argv', ['closure.py', str(app), 'libisofill.so'])
+    assert closure.main() == 0
+    assert (lib / 'libgcc_s.1.1.dylib').exists() and not (lib / 'libtk8.6.dylib').exists()
+
+
+@pytest.mark.parametrize('spoil', ['no arm64', 'short', 'not there'])
+def test_what_it_cannot_follow_stops_the_build(app, monkeypatch, capsys, spoil):
+    """Rather than drop, unseen, the libraries a file it could not read loads."""
+    lib = app / 'lib'
+    if spoil == 'no arm64':
+        universal(lib / 'libssl.3.dylib', (0x01000007, (lib / 'libssl.3.dylib').read_bytes()))
+        name = 'libisofill.so'
+    elif spoil == 'short':
+        (lib / 'libssl.3.dylib').write_bytes((lib / 'libssl.3.dylib').read_bytes()[:40])
+        name = 'libisofill.so'
+    else:
+        name = 'libnothere.so'
+    monkeypatch.setattr('sys.argv', ['closure.py', str(app), name])
+    assert closure.main() == 1
+    assert capsys.readouterr().err
+    assert (lib / 'libtk8.6.dylib').exists(), 'removed anything after failing'
