@@ -1008,8 +1008,11 @@ class EditController(QObject):
             bad = self._crossings_along(square, target, cmd.commands[-2].refs)
             if bad:
                 self.undo()
-                self.message.emit('not redrawn: the result ' + self._describe_crossing(bad))
-                self._stop_drawing()
+                # the line stays open: stopped, it would hang off the contour
+                # as a fork (#201)
+                self.message.emit('not redrawn: the result ' + self._describe_crossing(bad)
+                                  + ' - bring the line back elsewhere, or Escape drops it')
+                self.overlay.update()
                 return
             self.message.emit(f'redrew {len(cmd.commands[-2].old) - 2} nodes of the '
                               f'{format_ele(ele)} m contour as {drawn}')
@@ -1018,9 +1021,18 @@ class EditController(QObject):
             self.selection = Selection(square, target)
             self.overlay.update()
             return
+        if self.redraw_origin is not None and node not in square.ways[wid].refs:
+            # begun partway along one contour and ended on another: joined, the
+            # one it began on would fork where it began (#201). Back to its own
+            # first node is a ring hung there, as it always was
+            self.message.emit(f'a redraw ends back on the {format_ele(ele)} m contour it began on, '
+                              'not another - or Escape drops it')
+            self.overlay.update()
+            return
         self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
         if square.ways[wid].closed:
             self.message.emit(f'closed the {format_ele(ele)} m contour')
+            self.redraw_origin = None            # finished, a ring: nothing to take back
             self._stop_drawing()
             return
         self.overlay.update()
@@ -1174,6 +1186,13 @@ class EditController(QObject):
                 if node is not None and node != last:
                     self._close_onto(square, wid, at_end, node, way.ele)
                     return
+                # not back on it. Ended here, the line would be left hanging off
+                # the node it began on - a contour of three branches, which
+                # qhfreddy found two of (#201). It stays open instead
+                self.message.emit(f'a redraw ends back on the {format_ele(way.ele)} m contour it began on - '
+                                  'bring the line back near one of its nodes, or Escape drops it')
+                self.overlay.update()
+                return
         self._stop_drawing()
 
     def _nearest_of(self, square: Square, way: Way, point: tuple[float, float], within: float) -> int | None:
@@ -1254,6 +1273,15 @@ class EditController(QObject):
         return [c for c in self.crossing if not (c[0] is sq and c[1].id == wid)]
 
     def _stop_drawing(self):
+        if self.drawing is not None and self.redraw_origin is not None:
+            # a redraw not brought back - Escape, another tool, another set:
+            # taken back, not left as a fork (#201). One step, which undo
+            # puts back
+            square, wid, _ = self.drawing
+            if wid in square.ways:
+                self.drawing = None
+                self.do(square, edits.DeleteWay(wid))
+                self.message.emit('the redraw was dropped: it did not come back to the contour')
         self.drawing = None
         self.pending = None
         self.crossing = []

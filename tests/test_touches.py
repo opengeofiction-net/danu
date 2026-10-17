@@ -183,3 +183,61 @@ def test_a_deleted_contour_is_not_found_again_by_its_neighbours_next_edit():
     index.update(sq, move.ways(sq))
     assert index.touches() == []
     assert line.id in sq.ways
+
+
+# --------------------------------------------------------------- forks (#201)
+def test_a_contour_that_forks_is_found():
+    """A line begun partway along the 200 m and not brought back to it, left
+    hanging off its node: three branches of one level at one node."""
+    w, sq = ws()
+    a, b, c = nodes(sq, [(125.30, LAT), (125.31, LAT), (125.32, LAT)])
+    main = way(sq, [a, b, c], 200)
+    branch = way(sq, [b, *nodes(sq, [(125.31, LAT + 0.01)])], 200)
+    (t,) = touches.find(w)
+    assert t.kind == 'fork' and t.node == b
+    assert {t.a[1], t.b[1]} == {main.id, branch.id}
+    assert 'fork at node' in t.describe() and 'one line' in t.explain()
+
+
+def test_three_ends_at_a_node_fork_and_two_do_not():
+    w, sq = ws()
+    hub = nodes(sq, [(125.31, LAT)])[0]
+    way(sq, [*nodes(sq, [(125.30, LAT)]), hub], 200)
+    way(sq, [hub, *nodes(sq, [(125.32, LAT)])], 200)
+    assert touches.find(w) == [], 'two ways of one contour, joined'
+    way(sq, [hub, *nodes(sq, [(125.31, LAT - 0.01)])], 200)
+    assert [t.kind for t in touches.find(w)] == ['fork']
+
+
+def test_a_ring_joined_at_its_seam_is_not_a_fork():
+    w, sq = ws()
+    a, b, c = nodes(sq, [(125.30, LAT), (125.31, LAT + 0.01), (125.32, LAT)])
+    way(sq, [a, b, c, a], 200)                          # the ring: two branches at a
+    way(sq, [a, *nodes(sq, [(125.29, LAT)])], 200)      # a third
+    assert [t.kind for t in touches.find(w)] == ['fork']
+    sq.ways.popitem()
+    assert touches.find(w) == []
+
+
+def test_an_edit_asks_only_of_its_own_ways():
+    w, sq = ws()
+    a, b, c = nodes(sq, [(125.30, LAT), (125.31, LAT), (125.32, LAT)])
+    main = way(sq, [a, b, c], 200)
+    branch = way(sq, [b, *nodes(sq, [(125.31, LAT + 0.01)])], 200)
+    other = way(sq, nodes(sq, [(125.40, LAT), (125.41, LAT)]), 200)
+    assert touches.find_in(sq, only={other.id}) == []
+    assert [t.kind for t in touches.find_in(sq, only={branch.id})] == ['fork']
+    assert main
+
+
+
+def test_an_x_is_a_saddles_level_and_not_a_fork():
+    """Four branches at a node: a contour exactly at a saddle's level, or a
+    ring hung off a contour's node. A level line meets itself in pairs."""
+    w, sq = ws()
+    hub = nodes(sq, [(125.31, LAT)])[0]
+    way(sq, [*nodes(sq, [(125.30, LAT)]), hub, *nodes(sq, [(125.32, LAT)])], 200)
+    way(sq, [*nodes(sq, [(125.31, LAT + 0.01)]), hub, *nodes(sq, [(125.31, LAT - 0.01)])], 200)
+    assert touches.find(w) == []
+    way(sq, [hub, *nodes(sq, [(125.305, LAT + 0.01)])], 200)       # a fifth: a fork again
+    assert [t.kind for t in touches.find(w)] == ['fork']

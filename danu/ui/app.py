@@ -1871,7 +1871,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f'way {touch.a[1]} is no longer in {touch.a[0]}')
             return
         self.editor.set_tool('select')
-        node = touch.node if touch.kind == 'shared' and touch.node in way.refs else None
+        node = touch.node if touch.kind in ('shared', 'fork') and touch.node in way.refs else None
         self.editor.selection = Selection(square, way, node)
         self.editor.marks_focus = [m.lonlat_to_scene(touch.lon, touch.lat)]
         self._show_place(touch.lon, touch.lat, touch.lon, touch.lat)

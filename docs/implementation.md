@@ -5763,3 +5763,32 @@ the Store was told of it - the check those installs run counts prereleases,
 and nothing now can change what they do. From 1.1.0 the check takes the
 newest *full* release: a prerelease is shared with whoever is trying it,
 not offered to everyone.
+
+## M1, a redraw never forks (#201)
+
+qhfreddy's two screenshots on #201 were the 200 m contour forking: three
+branches of one level meeting at a node. A line begun on a node partway
+along a contour, at its elevation, is a *redraw* of a stretch of it (R13),
+and it rejoins when it is finished - Enter or a right click - within a few
+pixels of one of the contour's nodes; clicks on those nodes on the way are
+ordinary points, by design, so that a redraw can run alongside the old line.
+Finished anywhere else, the line was kept, still holding the node it began
+on. So were two other endings: a redraw the crossing check refused, which
+undid the splice and then stopped drawing, and one ended on a different
+contour of the same level, which joined it.
+
+Now a redraw that has not come back stays open, and says so: brought back,
+it is a redraw; Escape, another tool or another working set take it back, as
+one step undo puts back. A line looping back to the node it began from still
+closes, a ring hung there, as it always has.
+
+The contours touching check (G8e) gains forks, so the ones already in the
+squares are found: ways of one level at a node with an odd number of
+branches, three or more. A level line meets itself in pairs - four branches
+is an X, the level of a saddle exactly, as a ring hung off a contour is - so
+an odd count is a fault and an even one is not.
+
+Getting started has a section on changing a contour - the redraw, a node
+dragged and Ctrl-dragged to join, Shift-drag for the whole contour, a double
+click to insert a node, a click again for what else is there - and Help ›
+Keys' mouse table the same.
