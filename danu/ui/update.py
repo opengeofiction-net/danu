@@ -2,11 +2,13 @@
 Danu's releases, and one newer than this is said in the status line with a
 link to it.
 
-GitHub's ``releases/latest`` leaves out a prerelease, and every release so
-far is one, so the list is read instead and the newest that is not a draft
-taken: a mapper on 0.2.0 is told of 0.3.0 whether or not it is marked a
-prerelease. The answer is kept, so the starts on the day after the asking
-still say it, and a release installed since says nothing.
+The list is read and the newest full release taken - neither a draft nor
+a prerelease. A prerelease is shared with the mappers trying it, not
+offered to everyone: 1.1.0, the first macOS build, was one. Before 1.0
+every release was a prerelease, and they were counted then, which is why
+1.0.0 and 1.0.1 still offer one. The answer is kept, so the starts on the
+day after the asking still say it, and a release installed since says
+nothing.
 
 It can be turned off in the preferences. Installed from the Microsoft Store
 it never asks: the Store updates it. A Store install is a packaged process,
@@ -45,11 +47,11 @@ def parse(tag: str) -> tuple[int, ...] | None:
 
 
 def newest(releases: list) -> tuple[str, str] | None:
-    """The newest release that is not a draft, as (tag, its page); a page
-    not on GitHub's Danu is not linked to."""
+    """The newest full release, as (tag, its page) - not a draft, not a
+    prerelease; a page not on GitHub's Danu is not linked to."""
     best = None
     for r in releases:
-        if not isinstance(r, dict) or r.get('draft'):
+        if not isinstance(r, dict) or r.get('draft') or r.get('prerelease'):
             continue
         tag, url = str(r.get('tag_name', '')), str(r.get('html_url', ''))
         v = parse(tag)

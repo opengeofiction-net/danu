@@ -76,11 +76,14 @@ def test_versions_compare_as_releases_do():
     assert not update.is_newer('nightly', '0.2.0')
 
 
-def test_the_newest_not_a_draft_prereleases_and_all():
-    got = update.newest([release('v0.2.0', prerelease=True), release('v0.4.0', draft=True),
-                         release('v0.3.0', prerelease=True), release('v0.9.0', url='https://example.com/x'),
-                         release('banana'), 'not a dict'])
-    assert got == ('v0.3.0', PAGE + 'v0.3.0')
+def test_the_newest_full_release_neither_a_draft_nor_a_prerelease():
+    """A prerelease is for the mappers trying it, as 1.1.0, the first macOS
+    build, was: not offered to everyone."""
+    got = update.newest([release('v1.0.1'), release('v1.2.0', draft=True),
+                         release('v1.1.0', prerelease=True), release('v1.0.0'),
+                         release('v9.0.0', url='https://example.com/x'), release('banana'), 'not a dict'])
+    assert got == ('v1.0.1', PAGE + 'v1.0.1')
+    assert update.newest([release('v1.1.0', prerelease=True)]) is None
     assert update.newest([]) is None
 
 

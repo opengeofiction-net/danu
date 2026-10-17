@@ -5753,3 +5753,13 @@ its order, ⇧⌘, and adds the trackpad's two.
 The "Sans Serif" the K2 runs reported missing is not Danu's: nothing asks
 for it. It is the offscreen platform's default, which CI runs on, and which
 has no fonts configured; a Mac's Cocoa gives the system's.
+
+## The update check, full releases only
+
+J7 counted prereleases, because before 1.0 every release was one and
+`releases/latest` skips them. 1.1.0, the first macOS build, was published
+as a prerelease for a few mappers to try, and every 1.0.x install outside
+the Store was told of it - the check those installs run counts prereleases,
+and nothing now can change what they do. From 1.1.0 the check takes the
+newest *full* release: a prerelease is shared with whoever is trying it,
+not offered to everyone.
