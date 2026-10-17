@@ -65,6 +65,38 @@ def _inside(xy: np.ndarray, poly: np.ndarray) -> np.ndarray:
     return inside
 
 
+def _transform_of(kind: str, start, end, pivot):
+    """A drag from ``start`` to ``end`` as a function of a scene point: moved
+    by it, turned about the pivot by the angle it swept, or scaled about the
+    pivot by how much farther from it, or nearer, it ended (#201)."""
+    sx, sy = start; ex, ey = end; px, py = pivot
+    if kind == 'move':
+        dx, dy = ex - sx, ey - sy
+        return lambda x, y: (x + dx, y + dy)
+    if kind == 'rotate':
+        a = math.atan2(ey - py, ex - px) - math.atan2(sy - py, sx - px)
+        c, s = math.cos(a), math.sin(a)
+        return lambda x, y: (px + (x - px) * c - (y - py) * s, py + (x - px) * s + (y - py) * c)
+    k = max(0.01, math.hypot(ex - px, ey - py) / max(1e-9, math.hypot(sx - px, sy - py)))
+    return lambda x, y: (px + (x - px) * k, py + (y - py) * k)
+
+
+def _transformed(kind: str, start, end, pivot) -> tuple[str, str]:
+    """How a transform is said: the verb, and by how much."""
+    sx, sy = start; ex, ey = end; px, py = pivot
+    if kind == 'move':
+        (lon0, lat0), (lon1, lat1) = m.scene_to_lonlat(sx, sy), m.scene_to_lonlat(ex, ey)
+        metres = math.hypot((lon1 - lon0) * 111320 * math.cos(math.radians(lat0)), (lat1 - lat0) * 110540)
+        return 'moved', f'{metres:,.0f} m'
+    if kind == 'rotate':
+        a = math.degrees(math.atan2(ey - py, ex - px) - math.atan2(sy - py, sx - px))
+        a = (a + 180) % 360 - 180
+        # the scene's y runs down, so a positive angle there is clockwise on the map
+        return 'turned', f'{abs(a):.0f}° {"clockwise" if a > 0 else "anticlockwise"}'
+    k = max(0.01, math.hypot(ex - px, ey - py) / max(1e-9, math.hypot(sx - px, sy - py)))
+    return 'scaled', f'×{k:.2f}'
+
+
 @dataclass
 class Selection:
     """What is selected: a way, a node of one, a spot height, or a relation.
@@ -314,6 +346,11 @@ class EditController(QObject):
         # rectangle being drawn: shape, what it does, the points so far
         self.picked: dict = {}
         self.marquee: tuple[str, str, list[QPointF]] | None = None
+        # what is picked being moved, turned or scaled (#201): the kind, where
+        # the press was, the pivot, and every picked node's scene point then;
+        # and the picked as they would be, while the button is held
+        self._transform: tuple | None = None
+        self.transform_ghost: dict | None = None
         self.measure = None                  # H3b's tool, the window's to give
         view.tool = self
         # the left button selects in every tool now; the right moves the map,
@@ -473,6 +510,8 @@ class EditController(QObject):
         if self.tool == 'spot':
             self._place_spot(pos)
             return True
+        if self.picked and self._start_transform(event, pos):
+            return True
         whole = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if whole and self._on_selected_contour(pos):
             # the contour already selected - from the checks panel, as a rule
@@ -607,6 +646,14 @@ class EditController(QObject):
             self._update_crossing()
             self.overlay.update()
             return True
+        if self._transform is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            kind, start, pivot, orig = self._transform
+            if self.transform_ghost is None and (pos - start).manhattanLength() < self._px(DRAG_PX):
+                return True
+            f = _transform_of(kind, (start.x(), start.y()), (pos.x(), pos.y()), pivot)
+            self.transform_ghost = {k: f(*xy) for k, xy in orig.items()}
+            self.overlay.update()
+            return True
         if self.marquee is not None and event.buttons() & Qt.MouseButton.LeftButton:
             shape, op, pts = self.marquee
             if shape == 'rect':
@@ -640,6 +687,14 @@ class EditController(QObject):
     def mouse_release(self, event, pos: QPointF) -> bool:
         if self.tool == 'measure' and self.measure is not None:
             return self.measure.mouse_release(event, pos)
+        if self._transform is not None:
+            kind, start, pivot, orig = self._transform
+            self._transform = None
+            ghost, self.transform_ghost = self.transform_ghost, None
+            if ghost is not None:
+                self._put_picked(kind, orig, ghost, (start.x(), start.y()), (pos.x(), pos.y()), pivot)
+            self.overlay.update()
+            return True
         if self.marquee is not None:
             shape, op, pts = self.marquee
             self.marquee = None
@@ -679,6 +734,105 @@ class EditController(QObject):
         self.do(square, edits.MoveNode(nid, before, after))
         self.message.emit(self._moved_what())
         return True
+
+    def _start_transform(self, event, pos: QPointF) -> bool:
+        """A press on a picked node: dragged, it moves what is picked - with
+        shift and ctrl it turns it about its middle, with ctrl and alt it
+        scales it there (#201). Any other keys, or a press elsewhere, is not
+        this."""
+        mods = event.modifiers()
+        C, S, A = (Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier,
+                   Qt.KeyboardModifier.AltModifier)
+        held = mods & (C | S | A)
+        kind = ('move' if not held else 'rotate' if held == (C | S) else 'scale' if held == (C | A) else None)
+        if kind is None:
+            return False
+        orig = {(name, i): self.layer.node_xy(self.working_set.squares[name], i)
+                for name, ids in self.picked.items() if name in self.working_set.squares
+                for i in ids if i in self.working_set.squares[name].nodes}
+        near = self._px(SNAP_PX)
+        if not orig or not any(abs(x - pos.x()) <= near and abs(y - pos.y()) <= near for x, y in orig.values()):
+            return False
+        xy = np.array(list(orig.values()))
+        pivot = tuple((xy.min(axis=0) + xy.max(axis=0)) / 2)        # the middle of what is picked
+        self._transform = (kind, QPointF(pos), pivot, orig)
+        self.transform_ghost = None
+        return True
+
+    def _put_picked(self, kind: str, orig: dict, moved: dict, start, end, pivot) -> None:
+        """The picked put where the drag left them, as one step across the
+        squares - under the rule a carried contour keeps (G8b): contours that
+        crossed nothing may not be put down crossing something; ones that
+        already crossed move freely, and the status says how it went."""
+        ws = self.working_set
+        squares = {name for name, _ in moved}
+        ways = {}                                         # the contours whose course changes
+        for name in squares:
+            sq = ws.squares[name]
+            ids = {i for (n, i) in moved if n == name}
+            for wid, way in sq.ways.items():
+                if way.ele is not None and (name, wid) not in self.layer.water and ids.intersection(way.refs):
+                    ways[(name, wid)] = way
+        keys = set(ways)
+
+        def course(key, way, where):
+            name = key[0]
+            sq = ws.squares[name]
+            return [where.get((name, r)) or self.layer.node_xy(sq, r) for r in way.refs if r in sq.nodes]
+
+        old = {k: course(k, w, {}) for k, w in ways.items()}
+        new = {k: course(k, w, moved) for k, w in ways.items()}
+        before, after = self._crossed(old, keys), self._crossed(new, keys)
+        what = _transformed(kind, start, end, pivot)
+        n = len(moved)
+        if after and not before:
+            outside = sorted((k for k in after if k not in keys), key=str)
+            self.marks_focus = []
+            for k in keys:
+                for o in outside[:3]:
+                    self.marks_focus += self.layer.crossing_points(new[k], o)
+            self.message.emit(f'not {what[0]}: the {len(keys)} contour{"s" * (len(keys) != 1)} picked '
+                              f'cross nothing now, and would cross {len(after)} - ringed')
+            return
+        self.marks_focus = []
+        steps = []
+        for name in sorted(squares, key=str):
+            sq = ws.squares[name]
+            cmds = []
+            for (nn, i), (x, y) in moved.items():
+                if nn != name or i not in sq.nodes:
+                    continue
+                node = sq.nodes[i]
+                cmds.append(edits.MoveNode(i, (node.lon, node.lat), m.scene_to_lonlat(x, y)))
+            if cmds:
+                steps.append((sq, edits.Compound(cmds, f'{what[0]} {len(cmds)} nodes')))
+        self.do_across(steps)
+        said = f'{what[0]} {n:,} node{"s" * (n != 1)} {what[1]}'
+        if keys:
+            c = f'{len(after)} contour{"s" * (len(after) != 1)}'
+            said += ('; they cross nothing now' if not after else
+                     f'; they still cross {c}' if len(after) == len(before) else
+                     f'; they cross {c}, were {len(before)}')
+        self.message.emit(said)
+        self.overlay.update()
+
+    def _crossed(self, courses: dict, keys: set) -> set:
+        """What a set of contour courses crosses: the contours not among them,
+        by the layer, and each other, as they are given here - two moving
+        together are measured where they will be, not where one of them was."""
+        out = set()
+        for pts in courses.values():
+            if len(pts) >= 2:
+                out |= self.layer.crossed_by(pts, skip=keys)
+        items = [(k, np.asarray(p, dtype=float)) for k, p in courses.items() if len(p) >= 2]
+        for a in range(len(items)):
+            ka, pa = items[a]
+            for b in range(a + 1, len(items)):
+                kb, pb = items[b]
+                sa, sb = pb[:-1], pb[1:]
+                if any(geometry.crossings(p, q, sa, sb).any() for p, q in zip(pa[:-1], pa[1:], strict=True)):
+                    out |= {ka, kb}
+        return out
 
     def _pick_within(self, shape: str, op: str, pts: list[QPointF]) -> None:
         """The lasso or rectangle let go: the nodes inside it picked, added
@@ -2525,6 +2679,31 @@ class EditOverlay(QGraphicsItem):
                     if i in sq.nodes:
                         x, y = ctl.layer.node_xy(sq, i)
                         painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if ctl.transform_ghost is not None and ctl.working_set is not None:
+            # where what is picked would go: the segments with a picked end,
+            # dashed - what changes, and where it meets what does not - and
+            # the picked as marks there
+            ghost = ctl.transform_ghost
+            pen = QPen(QColor(255, 140, 0), 1.5); pen.setCosmetic(True); pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
+            path = QPainterPath()
+            for name, ids in ctl.picked.items():
+                sq = ctl.working_set.squares.get(name)
+                if sq is None:
+                    continue
+                for way in sq.ways.values():
+                    if not ids.intersection(way.refs):
+                        continue
+                    refs = [r for r in way.refs if r in sq.nodes]
+                    for r0, r1 in pairwise(refs):
+                        if r0 in ids or r1 in ids:
+                            path.moveTo(*(ghost.get((name, r0)) or ctl.layer.node_xy(sq, r0)))
+                            path.lineTo(*(ghost.get((name, r1)) or ctl.layer.node_xy(sq, r1)))
+            painter.drawPath(path)
+            painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(255, 140, 0, 160))
+            h = 2.5 * px
+            for x, y in ghost.values():
+                painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
         if ctl.marquee is not None:
             shape, op, pts = ctl.marquee
             pen = QPen(QColor(255, 140, 0) if op != 'remove' else QColor(200, 30, 30), 1.5)

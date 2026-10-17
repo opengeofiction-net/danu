@@ -967,10 +967,12 @@ class ContourLayer(QGraphicsItem):
         ``crossings_of`` reads rather than every segment for every segment:
         the 425 m rogue's 613 segments against all 420,000 is seconds.
         ``skip`` is the (square name, way id) of the way being moved, which
-        its own old place does not cross."""
+        its own old place does not cross - or a set of them, when several
+        move together (#201)."""
         self._ensure_arrays()
         grid, _ = self._graded_index()
         out = set()
+        skips = skip if isinstance(skip, (set, frozenset)) else {skip}
         if not len(self._seg_ele):
             return out
         pts = np.asarray(pts, dtype=float)
@@ -986,7 +988,7 @@ class ContourLayer(QGraphicsItem):
             for i in cand[hit]:
                 g = self._ways[int(self._seg_way[i])]
                 key = (g.square.name, g.way.id)
-                if key != skip:
+                if key not in skips:
                     out.add(key)
         return out
 

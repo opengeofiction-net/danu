@@ -177,3 +177,122 @@ def test_a_lasso_drawn_over_itself_picks_what_it_went_round_once():
     bow = np.array([(0, 0), (4, 4), (4, 0), (0, 4)], dtype=float)        # a bow tie
     pts = np.array([(1, 2), (3, 2), (2, 0.5), (2, 3.5), (5, 2)], dtype=float)
     assert list(_inside(pts, bow)) == [True, True, False, False, False]
+
+
+# ---------------------------------------- moving what is picked (#201, M3)
+PX = 1.5e-4                     # a gesture lands on whole pixels: at zoom 14, 8.6e-5 degrees each
+
+
+def xy(w, sq, nid):
+    return w.editor.layer.node_xy(sq, nid)
+
+
+def lonlat(sq, nid):
+    n = sq.nodes[nid]
+    return (n.lon, n.lat)
+
+
+def test_a_drag_from_a_picked_node_moves_what_is_picked_in_one_step(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    lasso(w, 125.303, LAT - 0.002, 125.313, LAT + 0.002)                  # 1-3
+    before = {i: lonlat(sq, i) for i in an}
+    gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0], LAT + 0.002)])  # north
+    for k, i in enumerate(an):
+        lon, lat = lonlat(sq, i)
+        assert lon == pytest.approx(before[i][0], abs=1e-6)
+        assert lat == pytest.approx(before[i][1] + (0.002 if k in (1, 2, 3) else 0), abs=PX)
+    assert picked(w) == {an[1], an[2], an[3]}, 'what was moved is still picked'
+    assert w.statusBar().currentMessage().startswith('moved 3 nodes')
+    w.editor.undo()
+    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before)
+
+
+def test_the_picked_are_shown_where_they_would_go_while_the_button_is_held(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    lasso(w, 125.303, LAT - 0.002, 125.313, LAT + 0.002)
+    vp = w.map.viewport()
+    p0 = at(w, *lonlat(sq, an[2])); p1 = at(w, lonlat(sq, an[2])[0], LAT + 0.002)
+    QApplication.sendEvent(vp, QMouseEvent(QEvent.Type.MouseButtonPress, p0, vp.mapToGlobal(p0.toPoint()), L, L, NONE))
+    QApplication.sendEvent(vp, QMouseEvent(QEvent.Type.MouseMove, p1, vp.mapToGlobal(p1.toPoint()), NB, L, NONE))
+    ghost = w.editor.transform_ghost
+    assert ghost is not None and set(ghost) == {(NORTH, an[1]), (NORTH, an[2]), (NORTH, an[3])}
+    assert lonlat(sq, an[2])[1] == pytest.approx(LAT), 'moved before the button was let go'
+    QApplication.sendEvent(vp, QMouseEvent(QEvent.Type.MouseButtonRelease, p1, vp.mapToGlobal(p1.toPoint()), L, NB, NONE))
+    assert w.editor.transform_ghost is None
+
+
+def test_two_contours_moved_together_do_not_cross_where_the_other_was(w):
+    """The 100 m moved north over where the 125 m was: but the 125 m moves too."""
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    _, b, bn = way(w, [(125.300 + 0.004 * k, LAT + 0.002) for k in range(6)], {'ele': '125'})
+    lasso(w, 125.299, LAT - 0.001, 125.321, LAT + 0.003)                  # both, whole
+    gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0], LAT + 0.003)])
+    assert lonlat(sq, an[2])[1] == pytest.approx(LAT + 0.003, abs=PX), w.statusBar().currentMessage()
+    assert 'cross nothing now' in w.statusBar().currentMessage()
+
+
+def test_contours_that_crossed_nothing_may_not_be_put_down_crossing(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    _, c, cn = way(w, [(125.310, LAT + 0.001), (125.310, LAT + 0.005)], {'ele': '150'})   # a wall north
+    lasso(w, 125.303, LAT - 0.002, 125.309, LAT + 0.0008)                 # 1, 2: west of the wall
+    before = {i: lonlat(sq, i) for i in an}
+    gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0] + 0.006, LAT + 0.003)])   # over it
+    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before), 'moved into a crossing'
+    assert w.statusBar().currentMessage().startswith('not moved'), w.statusBar().currentMessage()
+    assert w.editor.marks_focus, 'the crossing ringed'
+
+
+def test_contours_already_crossing_move_freely_and_it_is_said(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    way(w, [(125.310, LAT - 0.003), (125.310, LAT + 0.003)], {'ele': '150'})      # through it already
+    lasso(w, 125.299, LAT - 0.001, 125.321, LAT + 0.001)
+    gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0], LAT + 0.001)])
+    assert lonlat(sq, an[2])[1] == pytest.approx(LAT + 0.001, abs=PX)
+    assert 'they still cross 1 contour' in w.statusBar().currentMessage()
+
+
+def test_shift_ctrl_turns_what_is_picked_about_its_middle(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})   # 0-4
+    lasso(w, 125.299, LAT - 0.001, 125.317, LAT + 0.001)
+    mid = xy(w, sq, an[2])
+    end = xy(w, sq, an[4])
+    r = end[0] - mid[0]
+    # from the east end round a quarter, to straight below the middle
+    target = m.scene_to_lonlat(mid[0], mid[1] + r)
+    gesture(w, [lonlat(sq, an[4]), target], SHIFT | CTRL)
+    nx, ny = xy(w, sq, an[4])
+    assert nx == pytest.approx(mid[0], abs=r * 0.02) and ny == pytest.approx(mid[1] + r, abs=r * 0.02)
+    assert xy(w, sq, an[2]) == pytest.approx(mid, abs=r * 0.01), 'the middle moved'
+    assert 'turned 5 nodes 90° clockwise' in w.statusBar().currentMessage(), w.statusBar().currentMessage()
+
+
+def test_ctrl_alt_scales_what_is_picked_about_its_middle(w):
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.317, LAT + 0.001)
+    mid = xy(w, sq, an[2])
+    end = xy(w, sq, an[4])
+    r = end[0] - mid[0]
+    gesture(w, [lonlat(sq, an[4]), m.scene_to_lonlat(mid[0] + 2 * r, mid[1])], CTRL | ALT)
+    assert xy(w, sq, an[4])[0] - mid[0] == pytest.approx(2 * r, rel=0.02)
+    assert xy(w, sq, an[3])[0] - mid[0] == pytest.approx(r, rel=0.02)     # was r/2
+    assert '×2.00' in w.statusBar().currentMessage()
+
+
+def test_other_keys_on_a_picked_node_are_not_a_transform(w):
+    """Shift on a contour is the whole contour, as ever."""
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(5)], {'ele': '100'})
+    lasso(w, 125.299, LAT - 0.001, 125.317, LAT + 0.001)
+    gesture(w, [lonlat(sq, an[2]), lonlat(sq, an[2])], SHIFT)
+    assert w.editor.selection is not None and w.editor.selection.way.id == a
+    assert not w.editor.picked
+
+
+def test_rivers_and_spot_heights_go_with_the_rest(w):
+    sq, s, sn = way(w, [(125.300 + 0.004 * k, LAT) for k in range(4)], {'waterway': 'stream'})
+    alloc = w.editor.history.alloc(sq)
+    spot = alloc.take()
+    w.editor.do(sq, edits.AddNode(spot, (125.306, LAT + 0.002), {'ele': '150', 'natural': 'peak'}))
+    lasso(w, 125.299, LAT - 0.001, 125.313, LAT + 0.003)
+    gesture(w, [lonlat(sq, sn[1]), (lonlat(sq, sn[1])[0] + 0.001, LAT)])
+    assert lonlat(sq, sn[1])[0] == pytest.approx(125.305, abs=PX)
+    assert lonlat(sq, spot)[0] == pytest.approx(125.307, abs=PX)
