@@ -2516,7 +2516,7 @@ class EditOverlay(QGraphicsItem):
         if ctl.picked and ctl.working_set is not None:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(255, 140, 0))
-            h = 3.5 * px
+            h = 2.5 * px                         # smaller than the one selected node's: there are hundreds
             for name, ids in ctl.picked.items():
                 sq = ctl.working_set.squares.get(name)
                 if sq is None:
