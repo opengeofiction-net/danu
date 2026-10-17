@@ -5856,7 +5856,10 @@ the active elevation*; or *From - to*, a range, both ends in - remembered in
 the settings. With a filter on, a lasso or a rectangle picks only the nodes
 of contours whose level passes it: a node two contours share passes if
 either does, a coastline is level 0, a spot height is judged by its own
-level, and water, which has no one level, is left out. The status bar says
+level and a lake flattened to one (G7a) by its outline's. A river has no one
+level, and none on its way, so is left out - by its level, not for being
+water: the first version left all water out, and a flattened lake's shore,
+a 125 m contour in all but name, with it. The status bar says
 the filter after what was picked - "5 nodes picked, at 125 m" - so one left
 on is not taken for an odd lasso.
 

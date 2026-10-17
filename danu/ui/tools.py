@@ -992,12 +992,11 @@ class EditController(QObject):
                 ids = {r for w in sq.ways.values() for r in w.refs}
                 ids |= {nid for (sn, nid) in self.layer.spots if sn == name}
             else:
-                # by level: a contour's, a coastline's 0, a spot height's own;
-                # water has no one level and is left out
+                # by level: a contour's, a coastline's 0, a lake flattened to
+                # one its outline's (G7a), a spot height's own. A river has no
+                # one level, and none of its own on the way, so is left out
                 ids = set()
-                for wid, way in sq.ways.items():
-                    if (name, wid) in self.layer.water:
-                        continue
+                for way in sq.ways.values():
                     ele = way.ele if way.ele is not None else (0.0 if is_coastline(way) else None)
                     if self._level_passes(ele):
                         ids.update(way.refs)

@@ -505,3 +505,17 @@ def test_changing_the_filter_leaves_what_is_picked_alone(w):
     before = set(picked(w))
     w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
     assert picked(w) == before
+
+
+
+def test_a_lake_flattened_to_a_level_counts_at_it(w):
+    """Its shore is a contour at that level in all but name (G7a)."""
+    import math
+    sq, lake, ln = way(w, [(125.306 + 0.002 * math.cos(2 * math.pi * k / 8), LAT + 0.002 + 0.0015 * math.sin(2 * math.pi * k / 8))
+                           for k in range(8)], {'natural': 'water', 'ele': '125'})
+    w.editor.do(sq, edits.ExtendWayWithExisting(lake, True, ln[0]))
+    _, a, an = way(w, [(125.300 + 0.004 * k, LAT + 0.004) for k in range(4)], {'ele': '150'})
+    w.selection_panel.pick.setCurrentIndex(w.selection_panel.pick.findData('active'))
+    w.elevation.set(125)
+    everything(w)
+    assert picked(w) == set(ln)

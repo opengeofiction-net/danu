@@ -63,7 +63,8 @@ page back over whatever is open.
   elevation* picks only the nodes of contours at the level shown in the
   Elevation panel - lasso a hillside for its 150 m, press **W** for the next
   level and **Shift**-lasso to add it - and *From - to* those in a range,
-  spot heights by their own level. Rivers have no one level and are left out.
+  spot heights by their own level and a flattened lake at its level. Rivers
+  have no one level and are left out.
   The status bar says when a filter is on.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
