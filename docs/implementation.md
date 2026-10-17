@@ -5680,3 +5680,50 @@ library and PROJ part by some 36 units in the last place of a near-polar
 Mercator y, and the canvas projection test is held to micrometres rather than
 nanometres; and Help's keys page already writes keys as macOS does, ⌘R for
 Ctrl+R, which its tests now expect of whichever platform runs them.
+
+## K2, the app (#194)
+
+`packaging/macos/build-app.sh` makes `Danu.app` and packs it in a `.dmg`,
+`danu-<version>-macos-arm64.dmg`, which the release workflow builds as the
+`macos` job and attaches to the release beside the AppImage and the
+installer. `stack.txt` moved to `packaging/`, which both read.
+
+**The layout.** `Contents/Resources` is the conda-forge environment as it
+lays itself out - `bin`, `lib`, `share` - cut as the AppImage's is, and every
+library in it names the others `@rpath/NAME` and finds them by an rpath of
+`@loader_path`, so it runs wherever the app is. What made it more than the
+AppImage again is how macOS names an application: in the menu bar and the
+Dock, after the bundle its *executable* sits in. Started as the bundled
+`python3`, it would have been "python3". So `Contents/MacOS/Danu` is
+`launcher.c`, which embeds the app's own `libpython` with `Resources` as its
+home and runs the editor in its own process, with `sys.executable` still the
+bundled interpreter, which multiprocessing spawns the sea mask's workers
+with. `whoami.py`, run through it on a clean runner, asks NSBundle which app
+the process is: `net.opengeofiction.danu`.
+
+**The closure.** `closure.py` reads the Mach-O load commands itself, rather
+than through `otool`, so it runs and is tested anywhere: 1.1 GB of
+environment to 271 MB of app, 138 libraries kept of 630, the `.dmg` 123 MB.
+Two things it found on the way. conda-forge's ncurses names its libraries by
+the path it was built at, which no mapper's Mac has - only Python's `curses`
+and `readline` load it, a terminal's, and they are left out. And
+conda-forge's `libgcc_s` is universal: read as thin it loaded nothing, so it
+is read by its arm64 slice, and a file it cannot read, a chain of links, or a
+library named and not there stops the build rather than leaving an app that
+does not start.
+
+**Signed ad hoc.** Apple Silicon runs no code that is not signed, and an
+unsigned app was agreed (#194), so `codesign --sign -`. Gatekeeper refuses
+it on first opening until the mapper allows it - K3 says how.
+
+The `macos-run` job mounts the `.dmg` read-only on a runner that did not
+build it and runs the app from there: signature valid, taken for Danu, the
+golden square built by the app's Python, GDAL and isofill - all 1,442,401
+cells the reference's, as a library and as the binary - a fault in C found at
+the next start, and the editor started until its usage log says it is up.
+Two of its own faults along the way: the launcher named the editor by
+`argv[1]`, NULL when it was given nothing, and Qt on macOS finds the home
+directory from the system, not from `HOME`, so the usage log is in the
+account's own `Library/Application Support`. When the editor does not start,
+the job says why: what it printed, its crash files, macOS's own report of
+the process, and the editor started again with the fault handler on.
