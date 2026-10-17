@@ -54,6 +54,11 @@ page back over whatever is open.
 - **Insert a node** with a double click on a line.
 - Where lines and nodes lie together, **click again** in the same place for
   the next of them.
+- **Pick many nodes** by dragging round them on empty ground with **Q**:
+  a lasso, or with **Alt** a rectangle. **Shift** adds to what is picked,
+  **Ctrl** takes away, and **Delete** deletes them - on contours, water and
+  spot heights alike, though a river's points stay: they come from the main
+  map. The right button moves the map.
 
 Every key can be changed in **File › Preferences…**; **Help › Keys** lists
 them as they are set now.
