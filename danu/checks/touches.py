@@ -19,7 +19,8 @@ check (G8a) finds proper crossings, and these are the rest of it:
   level line meets itself only in pairs - four branches is an X, the level of
   a saddle exactly, as a ring hung off a contour's node is - so an odd count is
   always a fault. A line begun partway along a contour and not brought back
-  to it was left as one (#201).
+  to it was left as one (#201). Counted across ways: a contour meeting
+  itself at a node, one way, is a loop, which the loops check finds.
 
 Two ways of one level meeting at a node, two branches between them, are not a
 fork: that is a contour in two ways, joined. A shared node inside a coincident

@@ -1281,6 +1281,9 @@ class EditController(QObject):
             if wid in square.ways:
                 self.drawing = None
                 self.do(square, edits.DeleteWay(wid))
+                sel = self.selection
+                if sel is not None and sel.square is square and sel.way is not None and sel.way.id == wid:
+                    self.selection = None            # not a way that is gone
                 self.message.emit('the redraw was dropped: it did not come back to the contour')
         self.drawing = None
         self.pending = None

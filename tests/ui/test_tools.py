@@ -1079,6 +1079,19 @@ def test_a_redraw_left_unfinished_is_taken_back(w, leave):
     assert 'redraw was dropped' in w.statusBar().currentMessage()
 
 
+def test_a_dropped_redraw_is_not_left_selected(w):
+    square = w.working_set.squares[TEN]
+    pts = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
+    contour(w, square, 200, pts)
+    w.elevation.set(200)
+    w.editor.set_tool('draw')
+    click(w, *pts[2]); click(w, 126.30, -23.20); click(w, 126.25, -23.15)
+    _, line, _ = w.editor.drawing
+    w.editor.selection = Selection(square, square.ways[line])
+    key(w, Qt.Key.Key_Escape)
+    assert line not in square.ways and w.editor.selection is None
+
+
 def test_a_redraw_ended_on_another_contour_of_its_level_is_refused(w):
     square = w.working_set.squares[TEN]
     a = [(126.2 + 0.08 * k, -23.30) for k in range(6)]
