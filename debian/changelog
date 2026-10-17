@@ -1,3 +1,16 @@
+danu (1.1.0-1) unstable; urgency=medium
+
+  * macOS: Danu.app for Apple Silicon, macOS 14 or later, in a .dmg (#194).
+  * On macOS two fingers on a trackpad move the map and a pinch zooms it;
+    Preferences, About and Quit are in the application menu; keys are
+    written as macOS writes them.
+  * The wheel steps once a whole notch, so a fine wheel or a touchpad no
+    longer races through the zoom levels.
+  * isofill is built without fused multiply-add, which arm64 would use: the
+    surface is the same, to the bit, on every machine. Unchanged on x86-64.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sat, 17 Oct 2026 22:00:00 +0100
+
 danu (1.0.1-1) unstable; urgency=medium
 
   * Windows: a surface builds without administrator rights; the squares are
