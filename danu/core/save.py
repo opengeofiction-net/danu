@@ -17,6 +17,7 @@ the model do not quietly differ.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,8 +138,20 @@ def stage_zone(squares, dirty, into: str | os.PathLike) -> Path:
         if id(sq) in dirty_ids or sq.path is None:
             write_square(sq, into / f'{sq.name.name}.osm')
         else:
-            (into / f'{sq.name.name}.osm.xz').symlink_to(sq.path.resolve())
+            _link_or_copy(sq.path.resolve(), into / f'{sq.name.name}.osm.xz')
     return into
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+    """``dst`` a symlink to ``src`` - or, where symlinks are refused, a copy.
+    Windows refuses them to anyone not an administrator and without Developer
+    Mode, WinError 1314 (#196); CI's Windows runners are administrators, which
+    is how it shipped. A square is kilobytes to a few megabytes, and the build
+    only reads it."""
+    try:
+        dst.symlink_to(src)
+    except OSError:
+        shutil.copy2(src, dst)
 
 
 @dataclass

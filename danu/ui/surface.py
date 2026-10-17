@@ -282,6 +282,13 @@ class SurfaceBuilder(QObject):
         self._signals = None
         self._job = None
         self.work = Path(tempfile.mkdtemp(prefix='danu-surface-'))
+        # each build in a directory of its own under work, build-<serial>: the
+        # last one delivered is still open - the preview's grids, the 1" view's
+        # inputs - while the next is written, and Windows will not remove or
+        # replace a file something has open (#197, #198). Linux would, which
+        # is how one directory for the session shipped
+        self._building: Path | None = None
+        self._delivered: Path | None = None
         # set by the window: what the surface checks need of a working set,
         # taken as a build starts - or None, when nobody is looking at them
         self.checks_snapshot = None
@@ -312,8 +319,18 @@ class SurfaceBuilder(QObject):
         # staged from memory on this thread: the worker must not read squares
         # the tools are editing
         from ..core.save import stage_zone
-        zone_dir = stage_zone(ws.squares.values(), dirty, self.work / 'zone')
+        here = self.work / f'build-{self._started}'
+        try:
+            here.mkdir(parents=True)
+            zone_dir = stage_zone(ws.squares.values(), dirty, here / 'zone')
+        except OSError as e:
+            # said, and not raised out of request: raised, it left every later
+            # request failing the same way and the panel saying nothing (#196)
+            shutil.rmtree(here, ignore_errors=True)
+            self.failed.emit(f'the squares could not be put where the build reads them: {e}')
+            return
         names = [sq.name for sq in ws.squares.values() if sq.present or sq.ways]
+        self._building = here
         self._running = True
         sig = _Signals()
         sig.finished.connect(self._done)
@@ -324,7 +341,7 @@ class SurfaceBuilder(QObject):
         if snap is not None:
             from ..checks import surface as surface_checks
             after = lambda work: surface_checks.find(snap, work)      # noqa: E731
-        job = _Job(self._build_fn, zone_dir, names, params, self.work, sig, after)
+        job = _Job(self._build_fn, zone_dir, names, params, here, sig, after)
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit()
@@ -332,14 +349,25 @@ class SurfaceBuilder(QObject):
 
     def _done(self, built):
         self._running = False
+        self._delivered = self._building
         stale = self._wanted is not None
         self.finished.emit(built, stale, time.monotonic() - self._started_at)
+        self._forget_builds()
         self._next()
 
     def _fail(self, text):
         self._running = False
+        if self._building is not None and self._building != self._delivered:
+            shutil.rmtree(self._building, ignore_errors=True)
         self.failed.emit(text)
         self._next()
+
+    def _forget_builds(self) -> None:
+        """Every build's directory but the one just delivered, which is what
+        is open now. One Windows still has open stays until cleanup()."""
+        for d in self.work.glob('build-*'):
+            if d != self._delivered:
+                shutil.rmtree(d, ignore_errors=True)
 
     def _next(self):
         if self._wanted is not None and not self._running:
