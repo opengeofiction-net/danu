@@ -60,7 +60,9 @@ All of this stays on your computer. Danu never sends any of it.
 - **A cache** of map tiles and the data fetched above.
 
 On Linux these are under `~/.config/danu`, `~/.local/share/danu` and
-`~/.cache/danu`. On Windows they are under your `AppData` folder.
+`~/.cache/danu`. On Windows they are under your `AppData` folder. On macOS
+they are under `~/.config/danu`, and `danu` in your `Library`'s
+`Preferences`, `Application Support` and `Caches`.
 Uninstalling Danu from the Microsoft Store removes them. Otherwise you can
 delete them yourself at any time.
 
