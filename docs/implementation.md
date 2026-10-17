@@ -5727,3 +5727,29 @@ directory from the system, not from `HOME`, so the usage log is in the
 account's own `Library/Application Support`. When the editor does not start,
 the job says why: what it printed, its crash files, macOS's own report of
 the process, and the editor started again with the fault handler on.
+
+## K3, macOS as a desktop (#194)
+
+**The trackpad.** The map zoomed a level for every wheel event, and a
+trackpad's two fingers send a stream of small ones: on a MacBook any scroll
+raced through the zoom levels. On macOS two fingers now move the map and a
+pinch zooms it, a level for each doubling of the pinch, about the fingers -
+Apple's own Maps does both, and the map's zooms are tile levels, so whole
+ones. A pinch of exactly half a level would have see-sawed, in and out
+again, had the step been taken at half rather than past it. With a key held,
+two fingers are still that key's wheel. Elsewhere a touchpad's scroll still
+zooms, as Linux and Windows mappers have had it; but on every platform the
+wheel now counts whole notches, 120 eighths of a degree, so a fine wheel or
+a touchpad steps once a notch rather than once a sliver.
+
+**The menus.** Preferences and Quit take their roles beside About's, so
+macOS puts the three in the Danu menu, where its users look.
+
+**The keys.** Help › Keys already wrote each binding as the platform does -
+⌘R on macOS. Getting started now does too: its **Ctrl+S** is the same
+rendering, and the mouse table writes its modifiers as macOS writes them, in
+its order, ⇧⌘, and adds the trackpad's two.
+
+The "Sans Serif" the K2 runs reported missing is not Danu's: nothing asks
+for it. It is the offscreen platform's default, which CI runs on, and which
+has no fonts configured; a Mac's Cocoa gives the system's.
