@@ -296,3 +296,42 @@ def test_rivers_and_spot_heights_go_with_the_rest(w):
     gesture(w, [lonlat(sq, sn[1]), (lonlat(sq, sn[1])[0] + 0.001, LAT)])
     assert lonlat(sq, sn[1])[0] == pytest.approx(125.305, abs=PX)
     assert lonlat(sq, spot)[0] == pytest.approx(125.307, abs=PX)
+
+
+def test_two_moving_contours_put_down_crossing_each_other_are_refused(w):
+    """Both moving, so the layer's check skips both: only measuring them
+    against each other, where they will be, sees the 100 m's middle pushed
+    up through the 125 m's unpicked east."""
+    sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
+    _, b, bn = way(w, [(125.300 + 0.004 * k, LAT + 0.002) for k in range(6)], {'ele': '125'})
+    lasso(w, 125.307, LAT - 0.001, 125.313, LAT + 0.001)                  # the 100 m's 2, 3
+    lasso(w, 125.299, LAT + 0.001, 125.305, LAT + 0.003, SHIFT)          # and the 125 m's 0, 1
+    assert picked(w) == {an[2], an[3], bn[0], bn[1]}
+    before = {i: lonlat(sq, i) for i in an + bn}
+    gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0], LAT + 0.004)])
+    assert {i: lonlat(sq, i) for i in an + bn} == pytest.approx(before), w.statusBar().currentMessage()
+    assert w.statusBar().currentMessage().startswith('not moved')
+
+
+def ring_of(w, cx, cy, r, ele, n=12):
+    import math
+    sq, wid, ids = way(w, [(cx + r * math.cos(2 * math.pi * k / n), cy + r * math.sin(2 * math.pi * k / n))
+                           for k in range(n)], {'ele': str(ele)})
+    w.editor.do(sq, edits.ExtendWayWithExisting(wid, True, ids[0]))
+    return sq, wid, ids
+
+
+@pytest.mark.parametrize('north', [True, False])
+def test_a_moving_contour_may_go_where_another_moving_one_was(w, north):
+    """Two rings one above the other, moved together a ring's height: one goes
+    through where the other was, which has gone too - measured against every
+    moving way, not one of them."""
+    sq, a, an = ring_of(w, 125.310, LAT, 0.001, 100)
+    _, b, bn = ring_of(w, 125.310, LAT + 0.003, 0.001, 125)
+    lasso(w, 125.308, LAT - 0.0015, 125.312, LAT + 0.0045)
+    assert picked(w) == set(an) | set(bn)
+    d = 0.0025 if north else -0.0025
+    start = lonlat(sq, an[3])
+    gesture(w, [start, (start[0], start[1] + d)])
+    assert lonlat(sq, an[3])[1] == pytest.approx(start[1] + d, abs=PX), w.statusBar().currentMessage()
+    assert 'cross nothing now' in w.statusBar().currentMessage()
