@@ -992,7 +992,7 @@ class EditController(QObject):
                 ids = {r for w in sq.ways.values() for r in w.refs}
                 ids |= {nid for (sn, nid) in self.layer.spots if sn == name}
             else:
-                # by level: a contour's, a coastline's 0, a lake flattened to
+                # by level: a contour's, a coastline's own or else 0, a lake flattened to
                 # one its outline's (G7a), a spot height's own. A river has no
                 # one level, and none of its own on the way, so is left out
                 ids = set()

@@ -5855,7 +5855,8 @@ The last of #201: **Pick** in the Selected panel - *All*, as before; *At
 the active elevation*; or *From - to*, a range, both ends in - remembered in
 the settings. With a filter on, a lasso or a rectangle picks only the nodes
 of contours whose level passes it: a node two contours share passes if
-either does, a coastline is level 0, a spot height is judged by its own
+either does, a coastline with no level of its own is 0 - marked from a 0 m
+contour, it has one, and that - a spot height is judged by its own
 level and a lake flattened to one (G7a) by its outline's. A river has no one
 level, and none on its way, so is left out - by its level, not for being
 water: the first version left all water out, and a flattened lake's shore,
@@ -5865,4 +5866,5 @@ on is not taken for an odd lasso.
 
 At the active elevation is the one that goes with drawing's keys: a lasso
 round a hillside for its 150 m, W, and a shift-lasso for the 175 m. Changing
-the filter does not change what is already picked; a ctrl-lasso narrows it.
+the filter does not change what is already picked; a ctrl-lasso takes nodes
+away from what is picked.
