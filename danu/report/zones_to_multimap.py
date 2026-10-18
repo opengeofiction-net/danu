@@ -214,10 +214,9 @@ def main():
     # Styling is the wiki's, not this script's. The MultiMaps page draws each
     # class as its own toggleable overlay and filters on the class name, so the
     # four names here are what its overlaydef refers to and cannot be renamed
-    # without editing the page too. Everything else - weights, opacities - was
-    # set on the published file by hand and is copied back here, because this
-    # rewrites the file every run and would otherwise undo it each Wednesday.
-    # The colours are danu.core.topo_style's, which the editor draws with too
+    # without editing the page too. The styles - colours, weights, opacities,
+    # first set on the published file by hand - are danu.core.topo_style's,
+    # which the editor draws with too; only each class's text is this file's
     template = {
         CLASS_ZONE_ACTIVE: {
             **STYLES[CLASS_ZONE_ACTIVE],

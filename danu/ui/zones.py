@@ -77,28 +77,18 @@ class ZonesItem(QGraphicsItem):
         self.editing: set[SquareName] | None = None
         self.refused: set[SquareName] = set()
         self._paths: dict[str, QPainterPath] = {}
-        self._rect = QRectF()
 
     def set_zones(self, zones: list[dict]) -> None:
         self.prepareGeometryChange()
         self.zones = zones
         self._paths = {z['name']: _outline(cells_of(z)) for z in zones}
-        self._update_rect()
-
-    def _update_rect(self) -> None:
-        r = QRectF()
-        for p in self._paths.values():
-            r = r.united(p.controlPointRect())
-        for c in self.editing or ():
-            r = r.united(_cell_rect(c))
-        self._rect = r
         self.update()
 
     def set_editing(self, cells: set[SquareName] | None, refused: set[SquareName] = frozenset()) -> None:
         self.prepareGeometryChange()
         self.editing = None if cells is None else set(cells)
         self.refused = set(refused)
-        self._update_rect()
+        self.update()
 
     def boundingRect(self) -> QRectF:
         # the world, as the graticule's: a name is drawn at a size in pixels,

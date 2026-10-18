@@ -143,8 +143,9 @@ def test_inactive_and_active_again(w):
     assert (w.server_base / 'inactive').read_text() == '# hand comments\n'
 
 
-def test_not_an_administrator_the_server_says_no(w):
-    w.settings.user, w.settings.token, w.settings.roles = 'wangi', 't-wangi', ['administrator']   # says so here
+def test_the_server_refuses_one_it_does_not_take_for_an_administrator(w):
+    # the roles here say administrator; the server's answer for the token does not
+    w.settings.user, w.settings.token, w.settings.roles = 'wangi', 't-wangi', ['administrator']
     z = w.zone_editor
     z.update_buttons()
     w.view_actions['view.zones'].setChecked(True)

@@ -27,7 +27,8 @@ as the wiki's map does: **blue**, and an inactive zone - built, but not on
 the tile servers - **grey**. The **Zones** panel lists them. An
 administrator edits them there: **New zone…**, and **Edit squares**, which
 makes a click or a drag add squares to the zone and ctrl and a drag take
-them away, until **Save**; **Inactive…** and **Active** set whether it is
+them away, until **Save** - squares another zone holds show red, and are
+not taken; **Inactive…** and **Active** set whether it is
 drawn on the tile servers.
 
 ## The surface

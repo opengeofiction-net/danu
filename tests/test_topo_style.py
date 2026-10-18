@@ -26,3 +26,14 @@ def test_the_wikis_template_is_drawn_from_these():
     from danu.report import zones_to_multimap as Z
     assert Z.STYLES is TS.STYLES and Z.CLASS_ZONE_INACTIVE == 'zone-inactive' == TS.ZONE_INACTIVE
     assert set(TS.STYLES) == {'zone', 'zone-inactive', 'square', 'square-coastline', 'square-blank'}
+
+
+def test_the_editor_and_the_report_class_the_same_squares_alike(tmp_path):
+    """Two implementations of one rule: the report's scans the file."""
+    from danu.core.square import write_square
+    from danu.report.zones_to_multimap import classify_square
+    word = {TS.SQUARE: 'contour', TS.SQUARE_COASTLINE: 'coastline', TS.SQUARE_BLANK: 'blank'}
+    for i, sq in enumerate((square('0', '125'), square('0', '0'), square('TBD', '169s'), square(),
+                            square('0', node_ele='312'), square('-0.0'), square(' 12 '))):
+        path = write_square(sq, tmp_path / f'N20E086_{i}.osm.xz')
+        assert classify_square(path) == word[TS.square_class(sq)], (i, sq.ways)

@@ -4,10 +4,14 @@ template ``danu.report.zones_to_multimap`` publishes) and in the editor's.
 One set of colours, so a zone or a square looks the same in both. Leaflet's
 terms: ``weight`` is a line's width in pixels, the opacities 0 to 1.
 
-The class names are the wiki page's - it filters its overlays on them - and
-``square_class`` is the report's test for a square, asked of one the editor
-holds: drawn if any elevation is non-zero, coastline only if the only
-elevations are 0, blank otherwise.
+The class names are the wiki page's - it filters its overlays on them. And
+``square_class`` is the report's rule for a square - drawn if any elevation
+is non-zero, coastline only if the only elevations are 0, blank otherwise,
+an elevation that is not a number counting for nothing - asked of a square
+the editor holds. The report asks it of the file, scanning the raw XML
+(``zones_to_multimap.classify_square``): two implementations of one rule,
+kept in step by ``tests/test_topo_style.py``, which puts the same squares to
+both.
 """
 
 from __future__ import annotations

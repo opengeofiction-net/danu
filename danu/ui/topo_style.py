@@ -31,4 +31,4 @@ def brush(cls: str) -> QBrush:
 
 def colour(cls: str) -> QColor:
     s = STYLES[cls]
-    return _colour(s['color'], max(float(s['opacity']), 0.8))
+    return _colour(s['color'], s['opacity'])
