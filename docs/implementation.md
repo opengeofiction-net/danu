@@ -5868,3 +5868,50 @@ At the active elevation is the one that goes with drawing's keys: a lasso
 round a hillside for its 150 m, W, and a shift-lasso for the 175 m. Changing
 the filter does not change what is already picked; a ctrl-lasso takes nodes
 away from what is picked.
+
+## N1, who may upload a square (#190)
+
+The data drop's first part, pure and in `danu.core`, so the service and the
+editor ask the same questions of the same code (`docs/data-drop.md`).
+
+**Permission.** `TerritoryIndex.permission(bounds, user)` - yes where all
+the territory in a square is the user's, partial where some is, no where
+none is - with the territories that are theirs and those that are another's.
+Theirs is `Territory.editors`: the `;` separated owners and the delegates of
+a `dem:` constraint, trimmed, matched exactly. Status is not asked. An
+administrator is the caller's to know. A square with no territory at all,
+open sea, is no for everyone, so admins only: 14 of today's squares, recovered
+sea in roantra and tekan.
+
+**Under, exactly.** `under` sampled nine points and looked for a vertex; a
+permission can't be a sample. `shares` now cuts each territory's rings to
+the box (Sutherland-Hodgman) and sums the areas, holes taken out by the
+rings' nesting - judged at an edge's middle, as a hole often shares a
+vertex with its outer ring - and `under` is the territories with a share, the one under
+the centre first and then by share - so the status bar and the server agree.
+A share has to be over `MIN_SHARE`, 1e-5 of the square, to count: a
+neighbour's polygon reaching a few metres over a border that runs along a
+degree line is not a claim. On 2026-10-18's 806 squares - 807 files, less
+trent's, which the square pattern doesn't read - two shares fell
+under it (2e-7 and 5e-6) and the next was 7e-5; the whole run took 0.06 s.
+The best any owner gets is yes on 277 squares, partial on 305 and no on 224,
+most of those under territories still available.
+
+**Zones.** `danu.core.zones`. `Zones` reads the `zones` file - a zone, its
+rectangles of squares from south-west to north-east, a note after a `#` -
+answers `zone_of(square)`, refuses an overlap, and `put` changes one zone's
+line and leaves every other line as it was. A zone across the antimeridian is a
+rectangle each side: one written east to west is refused, a typing slip far
+more often than a zone round most of the world. No zone crosses it today. `seed` draws one
+rectangle round each zone's squares: today's bounding boxes don't overlap,
+and `python -m danu.core.zones seed <osm-squares>` writes 31 zones -
+trent's one square has dots in its label, which the square pattern refuses,
+so it seeds empty until that file is renamed. `Inactive` is danu-build's
+`inactive`: an entry set or cleared, and a changed reason changed in place,
+the indented comments running on after an entry kept with it - checked on
+the live file.
+
+**Labels.** `LABEL`, `SquareName.filename(label)` and `label_of(file)`:
+letters, digits, `_` and `-`, up to 64. `N20E086_Gobras_City.mine.osm.xz`,
+the copy kept beside a refused upload, isn't a square file by the existing
+pattern, so nothing lists or opens it as one.

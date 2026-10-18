@@ -35,6 +35,9 @@ def imports_without_gdal(module: str) -> None:
 def test_profile_imports_without_gdal():
     imports_without_gdal('danu.core.profile')
     imports_without_gdal('danu.core.square')
+    # the data drop's (#190): the service asks them on every upload
+    imports_without_gdal('danu.core.territory')
+    imports_without_gdal('danu.core.zones')
 
 
 def test_the_1_arcsecond_view_imports_without_gdal():
