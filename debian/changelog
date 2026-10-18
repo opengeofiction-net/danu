@@ -1,3 +1,25 @@
+danu (1.3.0-1) unstable; urgency=medium
+
+  * The data drop (#190): signed in to OpenGeofiction, a square is uploaded
+    from Danu - File › Upload square - instead of sent by email, and built
+    into the elevation the night after. Rename and Delete square too.
+  * Each upload is made from the version last imported. If somebody else's
+    went in since, yours is refused: your version is kept beside the square
+    as .mine.osm.xz and drawn over the server's, which is imported in its
+    place, for you to redo your changes on.
+  * The status bar says which zone the open square is in and whether it is
+    yours to upload. A square shared with a neighbour shows their ground:
+    amber within 10 km of yours, red beyond (View › Whose ground).
+  * Import reads the server's working copy, follows a square renamed there,
+    and fetches only what has changed.
+  * View › Zones draws the zones; administrators edit them in the Zones
+    panel. Zones and squares in the topo layer map's colours.
+  * Territories from the least simplified outlines.
+  * Server: danu-drop.service, the data drop's API under gunicorn -
+    installed, not enabled.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sun, 18 Oct 2026 23:00:00 +0100
+
 danu (1.2.0-1) unstable; urgency=medium
 
   * Picking many nodes (#201): drag a lasso round them, or Alt-drag a
