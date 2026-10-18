@@ -6012,3 +6012,36 @@ gone.
 
 The API not reached - until N3 deploys it, or whenever it is down - the
 published copy's index is read as before. Nothing asks the mapper which.
+
+## N5b, sending a square (#190)
+
+**File › Upload square…, Rename square…, Delete square from server…** act on
+the open square, signed in, on a worker (`danu/ui/send.py`), through
+`danu.core.dropclient` - urllib, no Qt, tested against the drop's own WSGI
+app in-process. Unsaved edits are saved first, if the mapper says so, and
+the upload waits for the save to land: the file is what goes. Upload and
+delete ask first.
+
+**The version** an upload is made from is the mirror's: the manifest's
+SHA-256 for the file, as imported, sent as `If-Match`. A square the server
+doesn't hold goes with `If-None-Match: *`; one it holds that was never
+imported here has no version to say, and is refused before anything is sent.
+After a change the manifest says what the server holds - the bytes sent,
+under the name the server gave - so the next upload is made from it and the
+next import fetches nothing. A rename renames the file here as there, and
+keeps the manifest's version, the server's bytes being as they were. A
+delete leaves the copy here, the mapper's own, and the manifest forgets it.
+
+**Refused** - 412 - the mapper's file is copied beside it as
+`<square>.mine.osm.xz`, which no listing reads as a square, and
+`Importer.refresh` fetches the zone without a question, putting the server's
+version of that square in place. The set opens again and `ReferenceItem`
+draws the copy's ways over it, dashed magenta, not to be edited - shown
+whenever the open square has a copy, until **File › Discard refused
+version…**; **View › Refused version** hides it for a while.
+
+An import that renames a square in place (N5a) now opens the set again too:
+its file for the square was under the old name.
+
+Help's getting started says how to upload in place of the email address;
+Help:Danu on the wiki changes when the drop goes live (N3).

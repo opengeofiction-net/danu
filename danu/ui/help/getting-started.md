@@ -16,7 +16,8 @@ and opening squares work without it.
 squares to this machine - into the folder Preferences names under *where an
 import goes*. Import again later to bring in what others have sent since: a
 square that differs from the server's is overwritten only if you say so, and
-the squares open with unsaved edits are kept.
+the squares open with unsaved edits are kept. A square renamed on the server
+comes in under its new name.
 
 ## 3. Open a square
 
@@ -93,8 +94,21 @@ checks panel's findings - crossings, loops, contours touching.
 also autosaved as you work, and offered back if Danu is closed before they
 are saved.
 
-For now, finished squares are sent by email to info@opengeofiction.net:
-the wiki page, **Help › Danu on the OGF wiki**, says how.
+**File › Upload square…** sends the open square to OpenGeofiction, where
+it is built into the elevation the night after. The status bar says first
+whether it is yours to upload: a square of your territory, or one you share
+with a neighbour - keep to your ground there, and within 10 km of it in
+theirs. A square in no zone can't be uploaded yet; its status line links to
+message admin to set one up. **File › Rename square…** changes its name on
+the server and here, and **File › Delete square from server…** takes it off
+the server, leaving your copy.
+
+An upload is made from the version you last imported. If somebody else's
+upload has gone in since, yours is refused: your version is kept beside the
+square as `.mine.osm.xz` and drawn dashed over it, and theirs is imported in
+its place. Redo your changes on theirs, upload again, and then
+**File › Discard refused version…**. Mappers sharing a square sort this out
+between themselves.
 
 ## If something goes wrong
 

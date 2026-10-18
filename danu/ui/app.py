@@ -30,9 +30,9 @@ from PySide6.QtWidgets import (
 
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
-from ..core import edits, make_square, save, territory
+from ..core import dropclient, edits, make_square, save, territory
 from ..core.autosave import Store
-from ..core.square import Square, SquareName, WorkingSet, list_squares
+from ..core.square import Square, SquareName, WorkingSet, list_squares, read_square
 from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
@@ -62,7 +62,9 @@ from .mirror import Importer
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
 from .published import PublishedDem
+from .reference import ReferenceItem
 from .selection_panel import SelectionPanel
+from .send import Sender
 from .settings import REBUILD_KEY, Settings
 from .squares import SquaresItem
 from .start import StartCard
@@ -413,6 +415,11 @@ class MainWindow(QMainWindow):
         self.importer = Importer(self, self)
         self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
         self.importer.finished.connect(self._imported)
+        # the open square to the data drop (#190, N5b), and a refused one's copy over it
+        self.sender = Sender(self, self)
+        self.sender.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
+        self.reference = ReferenceItem()
+        self.map.scene().addItem(self.reference)
         self._menus()
         # the start page (J5a), shown by update_start once it is known that
         # nothing is being opened - or over what is, when asked for (J5c)
@@ -594,6 +601,36 @@ class MainWindow(QMainWindow):
             self._drop.setText('upload: asking…')
             self._drop.setStyleSheet('')
             self.drop.ask(ws.centre, self.settings.token)
+
+    def show_reference(self) -> None:
+        """The open square's refused copy, if one is kept beside it, read on
+        a worker and drawn over the square (#190, N5b)."""
+        ws = self.working_set
+        mine = dropclient.mine_for(self.zone_dir, ws.centre) if ws is not None and self.zone_dir else None
+        if mine is None:
+            self.reference.set_square(None)
+            self.update_reference_actions()
+            return
+        centre = ws.centre
+
+        def read(sq):
+            if self.working_set is not None and self.working_set.centre == centre:
+                self.reference.set_square(sq)
+                self.update_reference_actions()
+                # after whatever opened the set has said so
+                QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+                    f'{mine.name}, your refused version, is drawn dashed over the square: '
+                    'redo your changes, upload again, then discard it'))
+        job = Job(lambda: read_square(mine, centre), read,
+                  lambda why: self.statusBar().showMessage(f'{mine.name} not read: {why.splitlines()[0]}'))
+        self._reference_job = job
+        self._checks_runner(job)
+
+    def update_reference_actions(self) -> None:
+        on = self.reference.square is not None
+        if hasattr(self, 'drop_actions'):
+            self.drop_actions['drop.discard'].setEnabled(on)
+            self.view_actions['view.refused'].setEnabled(on)
 
     def _drop_answered(self, square: str, line: str, warn: bool) -> None:
         if self.working_set is None or self.working_set.centre.name != square:
@@ -967,6 +1004,17 @@ class MainWindow(QMainWindow):
         self.new_square_action.triggered.connect(self.new_blank_square)
         file.addAction(self.new_square_action)
         file.addSeparator()
+        # the open square to the data drop (#190)
+        self.drop_actions: dict[str, QAction] = {}
+        for name, text, slot in (('drop.upload', '&Upload square…', self.sender.upload),
+                                 ('drop.rename', 'Re&name square…', self.sender.rename),
+                                 ('drop.delete', '&Delete square from server…', self.sender.delete),
+                                 ('drop.discard', 'Discard re&fused version…', self.sender.discard)):
+            a = QAction(text, self)
+            a.triggered.connect(slot)
+            file.addAction(a)
+            self.drop_actions[name] = a
+        file.addSeparator()
         self.account_action = QAction(self)
         self.account_action.triggered.connect(self.account)
         file.addAction(self.account_action)
@@ -1022,6 +1070,14 @@ class MainWindow(QMainWindow):
         unknown = self.view_actions['view.unknown']
         unknown.toggled.connect(self.view_actions['view.single_level'].setEnabled)
         p.show_ground.toggled.connect(lambda _: self.show_ground())
+        refused = QAction('&Refused version', self)
+        refused.setCheckable(True)
+        refused.setChecked(True)
+        refused.setToolTip('your version of the open square, kept when its upload was refused')
+        refused.toggled.connect(self.reference.setVisible)
+        view.addAction(refused)
+        self.view_actions['view.refused'] = refused
+        self.update_reference_actions()
         view.addSeparator()
         for dock in self.docks():
             view.addAction(dock.toggleViewAction())
@@ -1249,7 +1305,9 @@ class MainWindow(QMainWindow):
         if ws is None or self.zone_dir is None or Path(self.zone_dir) != Path(zone_dir):
             return
         # a file is its square's name and a place: N20E086_Gobras_City.osm.xz
-        replaced = {n.split('_')[0].split('.')[0] for n in (*done['new'], *done['updated'], *done['overwritten'])}
+        # renamed among them: the set's file for it is under the old name, gone (#190)
+        replaced = {n.split('_')[0].split('.')[0]
+                    for n in (*done['new'], *done['updated'], *done['overwritten'], *done.get('renamed', ()))}
         if any(str(name) in replaced for name in ws.squares):
             said = self.statusBar().currentMessage()
 
@@ -1355,6 +1413,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(about.title(ws.centre))
         self._territory.setText('territory: looking…')
         self.territory.refresh()
+        self.show_reference()
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
         self.measure.clear()
