@@ -91,19 +91,20 @@ class Store:
         self.squares = self.base / 'osm-squares'
         self.published = Path(pubroot) / 'osm-squares' if pubroot else None
         self.drop = self.base / 'drop'
-        self._hashes: dict[tuple[str, int, int], str] = {}
+        self._hashes: dict[str, tuple[int, int, str]] = {}    # path -> size, time, hash
 
     # ---------------------------------------------------------------- reading
 
     def _sha256(self, path: Path, st: os.stat_result) -> str:
-        key = (str(path), st.st_size, st.st_mtime_ns)
-        if key not in self._hashes:
-            h = hashlib.sha256()
-            with open(path, 'rb') as f:
-                while chunk := f.read(1 << 20):
-                    h.update(chunk)
-            self._hashes[key] = h.hexdigest()
-        return self._hashes[key]
+        hit = self._hashes.get(str(path))
+        if hit and hit[:2] == (st.st_size, st.st_mtime_ns):
+            return hit[2]
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            while chunk := f.read(1 << 20):
+                h.update(chunk)
+        self._hashes[str(path)] = (st.st_size, st.st_mtime_ns, h.hexdigest())
+        return h.hexdigest()
 
     def zone_dir(self, zone: str) -> Path:
         return self.squares / zone
@@ -226,11 +227,13 @@ class Store:
                 if current is not None and current.path.name != name:
                     current.path.unlink()
                 self._place(spooled, dest, move=True)
-                self._publish(zone, current, dest)
                 st = dest.stat()
                 done = Held(square, dest, st.st_size, st.st_mtime, self._sha256(dest, st))
+                # logged before publishing: a published copy that fails to
+                # write is put right by the nightly copy, the change still told
                 self._log(user=user, action='put', zone=zone, square=square.name, file=name,
                           sha256=done.sha256, was=current and current.sha256, kept=kept)
+                self._publish(zone, current, dest)
                 return done
         finally:
             spooled.unlink(missing_ok=True)
@@ -246,11 +249,11 @@ class Store:
                 return current
             dest = self.zone_dir(zone) / name
             os.replace(current.path, dest)
-            self._publish(zone, current, dest)
             st = dest.stat()
             done = Held(square, dest, st.st_size, st.st_mtime, current.sha256)
             self._log(user=user, action='rename', zone=zone, square=square.name, file=name,
                       was_file=current.path.name, sha256=current.sha256)
+            self._publish(zone, current, dest)
             return done
 
     def delete(self, zone: str, square: SquareName, if_match: str | None, user: str) -> None:
@@ -261,9 +264,9 @@ class Store:
             self.check_version(current, if_match, None)
             kept = self._keep(zone, current)
             current.path.unlink()
-            self._publish(zone, current, None)
             self._log(user=user, action='delete', zone=zone, square=square.name,
                       file=current.path.name, sha256=current.sha256, kept=kept)
+            self._publish(zone, current, None)
 
     def log_admin(self, user: str, action: str, **what) -> None:
         self._log(user=user, action=action, **what)

@@ -267,6 +267,7 @@ class DropApp:
     def delete(self, environ, start, text: str):
         user = self.user(environ)
         square, zone = self.square_and_zone(text)
+        # yes only: a partial square's deletion would take a neighbour's ground
         self.allowed(user, square, (T.YES,))
         self.store.delete(zone, square, environ.get('HTTP_IF_MATCH'), user.name)
         start('204 No Content', [])
@@ -283,8 +284,9 @@ class DropApp:
                 after = before.put(zone, squares)
             except Z.ZoneError as e:
                 raise Refused(422, str(e)) from e
-            _write(self.config.zones_file, after.text)
+            # its directory first: a zone named is a zone that can be listed
             self.store.zone_dir(zone).mkdir(parents=True, exist_ok=True)
+            _write(self.config.zones_file, after.text)
             self.store.log_admin(user.name, 'zone', zone=zone, squares=[str(r) for r in after.zones[zone].rects])
         created = zone not in before.zones
         return _json(start, 201 if created else 200, {'name': zone, 'squares': [str(r) for r in after.zones[zone].rects]})
@@ -295,6 +297,7 @@ class DropApp:
         body = self.body_json(environ) if method == 'PUT' else {}
         with self.store.locked():
             now = Z.Inactive.read(self.config.inactive_file)
+            was = now.reasons().get(zone)
             try:
                 after = (now.set(zone, str(body.get('reason', '')), str(body.get('note', '')))
                          if method == 'PUT' else now.clear(zone))
@@ -302,7 +305,7 @@ class DropApp:
                 raise Refused(422, str(e)) from e
             _write(self.config.inactive_file, after.text)
             self.store.log_admin(user.name, 'inactive' if method == 'PUT' else 'active', zone=zone,
-                                 reason=body.get('reason'))
+                                 reason=body.get('reason'), was=was)
         return _json(start, 200, {'name': zone, 'inactive': after.reasons().get(zone)})
 
 

@@ -25,6 +25,7 @@ from ..core import territory as T
 
 WHO_FOR = 300            # seconds a token's answer is kept
 ATTRIBUTES_EVERY = 600   # seconds between fetches of the wiki's attributes
+RETRY = 60               # seconds after a failed fetch before another
 
 
 @dataclass(frozen=True)
@@ -103,8 +104,11 @@ class Territories:
         if src.startswith(('http://', 'https://')):
             if now - self._geometry_at < ATTRIBUTES_EVERY:
                 return False
-            self._geometry_at = now
+            # a failure is tried again in a minute, not at once - each try
+            # holds a request up - and not in ten, with nothing to answer from
+            self._geometry_at = now - ATTRIBUTES_EVERY + RETRY
             self._geometry = T.parse_geometry(self.fetch(src).decode())
+            self._geometry_at = now
             return True
         mtime = os.stat(src).st_mtime
         if mtime == self._geometry_mtime:
@@ -117,8 +121,9 @@ class Territories:
     def _read_attributes(self, now: float) -> bool:
         if now - self._attributes_at < ATTRIBUTES_EVERY:
             return False
-        self._attributes_at = now
+        self._attributes_at = now - ATTRIBUTES_EVERY + RETRY
         self._attributes = T.parse_attributes(self.fetch(self.attributes_src).decode())
+        self._attributes_at = now
         return True
 
     def index(self) -> T.TerritoryIndex:

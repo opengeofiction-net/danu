@@ -322,6 +322,17 @@ def test_territories_reread_as_they_change_and_survive_a_failed_fetch(tmp_path):
     attrs[0] = json.dumps([{**ATTRIBUTES[0], 'owner': 'Luciano'}, ATTRIBUTES[1]]).encode()
     now[0] = 2000
     assert t.index().permission((86.2, 20, 87.2, 21), 'wangi').level == T.NO
+    # a first fetch that fails is tried again in a minute, not ten
+    attrs[0] = OSError('wiki down at start')
+    t3 = Territories(str(geo), 'https://wiki.example/attrs', fetch, clock=lambda: now[0])
+    with pytest.raises(Unknown):
+        t3.index()
+    attrs[0] = json.dumps(ATTRIBUTES).encode()
+    now[0] += 30
+    with pytest.raises(Unknown):
+        t3.index()
+    now[0] += 31
+    assert t3.index().permission((86.2, 20, 87.2, 21), 'wangi').level == T.YES
     t2 = Territories(str(tmp_path / 'missing.json'), 'https://wiki.example/attrs', fetch)
     with pytest.raises(Unknown) as e:
         t2.index()
