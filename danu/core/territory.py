@@ -36,6 +36,10 @@ from dataclasses import dataclass, field
 Point = tuple[float, float]
 Ring = list[Point]
 
+# where the two files are published - the editor's and the data drop's
+GEOMETRY_URL = 'https://data.opengeofiction.net/utility/territory.json'
+ATTRIBUTES_URL = 'https://wiki.opengeofiction.net/index.php?title=OpenGeofiction:Territory_administration&action=raw'
+
 # statuses under which the ground is somebody's to draw
 CLAIMED = {'owned', 'reserved', 'marked for withdrawal'}
 

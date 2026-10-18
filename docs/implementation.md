@@ -5915,3 +5915,44 @@ the live file.
 letters, digits, `_` and `-`, up to 64. `N20E086_Gobras_City.mine.osm.xz`,
 the copy kept beside a refused upload, isn't a square file by the existing
 pattern, so nothing lists or opens it as one.
+
+## N2, the service (#190)
+
+`danu.drop`, run by gunicorn from danu-server's `danu-drop.service` -
+installed, not enabled, until N3 sets it up. Plain WSGI: ten calls, no
+framework to package, and gunicorn is in Debian. The calls are listed at the
+head of `danu/drop/app.py`.
+
+**Who.** A token is asked of OGF's `user/details`, the editor's own call at
+sign-in, and the answer kept five minutes under the token's hash. OGF
+refusing it is 401; OGF not answering, 502. An administrator is the
+`administrator` role.
+
+**Whose.** The geometry is read from a path when it changes - on util,
+`sync-to-ogf/utility/territory.json`, which util makes - or fetched from a
+URL; the owners are fetched from the wiki every ten minutes. A failed read
+keeps what was had, and with nothing ever had a permission is 503.
+
+**The two copies.** `Store` reads the working copy, hashing each file once
+for its size and time, and changes it under one `flock`, so two workers
+can't both pass the version check: four uploads from one version at once,
+one is taken and three are 412. A file is spooled under a name the build
+doesn't read, read through - xz, then OSM XML, streamed: liberian's
+N03E058, 24 MB and 271 MB of XML, in 6.5 s - outside the lock, and renamed
+into place inside it. The published copy gets the same file with the same
+time, so the nightly copy, which takes what is newer, leaves it alone. A
+renamed square loses its old file first: the build may for a moment find no
+file for it, never two. What a change replaces is kept under `drop/kept/`,
+and each change is a line of `drop/log.jsonl`.
+
+**The cap** is 64 MB, `DROP_MAX_MB`. The plan said 20 MB with the largest
+square 1.7 MB; that was gobras' largest, and liberian's is 24 MB.
+
+**Backup.** danu-backup takes `zones` and `drop/log.jsonl` with `inactive`,
+each if it exists - before the drop is set up neither does, and a member
+missing would fail the archive.
+
+Checked with gunicorn 23 on the real liberian square: the listing, the
+square's bytes with its hash as the ETag, an upload with no token refused,
+and a forged token refused by the real OGF. The release workflow's deb job
+runs the packaged app under the packaged gunicorn.

@@ -149,6 +149,24 @@ jobs:
           print('danu', danu.__version__, 'isofill', isofill_lib.Isofill.load().version)
           PY
           danu-build-zone 2>&1 | grep -q 'usage: danu-build-zone <zone>'
+          # the data drop as its unit runs it: the packaged gunicorn on the
+          # packaged app, answering from a zone on disk
+          mkdir -p /tmp/drop/osm-squares/gobras
+          echo 'gobras  N20E086-N21E087' > /tmp/drop/zones
+          BASE=/tmp/drop PUBROOT=/tmp/drop/publish gunicorn --bind 127.0.0.1:8337 --daemon --pid /tmp/drop/pid \
+            'danu.drop.app:create()'
+          python3 - <<'PY'
+          import json, time, urllib.request
+          for _ in range(30):
+              try:
+                  z = json.load(urllib.request.urlopen('http://127.0.0.1:8337/zones'))
+                  break
+              except OSError:
+                  time.sleep(1)
+          assert z == {'zones': [{'name': 'gobras', 'squares': ['N20E086-N21E087'], 'inactive': None}]}, z
+          print('data drop', json.load(urllib.request.urlopen('http://127.0.0.1:8337/')))
+          PY
+          kill "$(cat /tmp/drop/pid)"
           mkdir -p /tmp/h
           HOME=/tmp/h QT_QPA_PLATFORM=offscreen danu > /tmp/editor.txt 2>&1 &
           t=0

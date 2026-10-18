@@ -1,0 +1,31 @@
+#
+#  Systemd service file for the data drop (#190): the API Danu uploads squares
+#  to, run by gunicorn - see Admin:Elevation process
+#
+#  Installed and not enabled: it is set up by hand, the zones seeded and nginx
+#  on data.opengeofiction.net pointed at it, and then enabled. DROP_BIND is
+#  where it listens; the VPN address nginx reaches it on, in danu.conf.
+#
+
+[Unit]
+Description=OpenGeofiction data drop: squares uploaded from Danu
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/danu
+
+[Service]
+Environment=DROP_BIND=127.0.0.1:8337
+# defaults the operator can change without editing the unit; absent is fine.
+# Its values win over Environment= above
+EnvironmentFile=-/etc/danu/danu.conf
+User=ogf
+Group=ogf
+# Uploads are read through before they are taken. The largest square -
+# liberian's N03E058, 24 MB of xz holding 271 MB of XML - took 6.5 s on a
+# desktop; the workers are given five minutes
+ExecStart=/usr/bin/gunicorn --bind ${DROP_BIND} --workers 3 --timeout 300 \
+	--access-logfile - danu.drop.app:create()
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

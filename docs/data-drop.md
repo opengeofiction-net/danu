@@ -59,7 +59,7 @@ Reading needs no sign-in. Every other call carries the user's OGF token. The ser
 
 - The unit is the `.osm.xz` file as a whole.
 - An upload names the version it was edited from: the hash of the square as it was read, sent as `If-Match`. If the square has changed since, the upload is refused (`412`), and Danu offers to import the square again. The first upload of a new square says there is none (`If-None-Match: *`).
-- The server refuses a file that isn't a readable `.osm.xz`, whose name isn't a degree square, or that is over 20 MB - the largest square on 2026-10-18 was 1.7 MB. The contour checks - crossings and the rest - stay in the editor.
+- The server refuses a file that isn't a readable `.osm.xz`, whose name isn't a degree square, or that is over 64 MB - the largest square on 2026-10-18 was 24 MB, liberian's N03E058. The contour checks - crossings and the rest - stay in the editor.
 - Each upload and deletion is logged: who, when, which square, its hash. The file it replaced is kept on util for an admin to recover by hand, outside `osm-squares/`: the build looks for squares in a zone's subdirectories too. None of that is exposed through the API.
 
 ### Excluded
