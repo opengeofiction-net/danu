@@ -628,7 +628,8 @@ class MainWindow(QMainWindow):
 
     def update_reference_actions(self) -> None:
         on = self.reference.square is not None
-        if hasattr(self, 'drop_actions'):
+        # both menus built: File's action first, View's after it
+        if 'view.refused' in getattr(self, 'view_actions', {}):
             self.drop_actions['drop.discard'].setEnabled(on)
             self.view_actions['view.refused'].setEnabled(on)
 
