@@ -15,14 +15,15 @@ given to anyone.
 Danu talks only to OpenGeofiction's own servers, and to GitHub, where Danu is
 published. Each request carries your IP address, as any request on the
 internet does. Each also tells the server it comes from Danu and which
-version, as `Danu/1.2.0 (+https://github.com/opengeofiction-net/danu)` for this one.
+version, as `Danu/1.3.0 (+https://github.com/opengeofiction-net/danu)` for this one.
 
 - **Signing in** (optional, File › Sign in to OGF). Your browser opens
   opengeofiction.net, where you sign in. OpenGeofiction gives Danu a token
   that can only read who you are. Danu never sees your password. Danu uses
   the token to ask for your user name, so it can tell which territories
-  are yours. Signing out forgets the token and asks OpenGeofiction to
-  revoke it.
+  are yours, and sends it to OpenGeofiction's data drop on
+  data.opengeofiction.net, which asks opengeofiction.net who it belongs to.
+  Signing out forgets the token and asks OpenGeofiction to revoke it.
 - **The map.** Danu fetches map tiles from tile.opengeofiction.net and
   tiles06.opengeofiction.net for the area on screen.
 - **Territories.** Danu fetches the list of territories and their owners
@@ -32,6 +33,15 @@ version, as `Danu/1.2.0 (+https://github.com/opengeofiction-net/danu)` for this 
 - **Importing squares, and comparing elevation.** When you ask, Danu
   fetches contour squares and a zone's published elevation model from
   data.opengeofiction.net.
+- **The data drop.** For the square you open, Danu asks
+  data.opengeofiction.net which zone it is in and, signed in, whether it
+  is yours to upload; it can also fetch the list of zones. When you ask -
+  File › Upload, Rename or Delete square - Danu sends the square's file, or
+  its new name, with your token. The server keeps a record of the change -
+  your user name, the time, the square - and a copy of the file the change
+  replaced, so an administrator can recover it. An uploaded square is
+  published, and built into OpenGeofiction's elevation, as squares always
+  have been.
 - **Checking for a newer Danu.** At start, at most once a day, Danu asks
   GitHub (api.github.com) for the list of Danu's releases. Nothing about
   you or your work is sent. You can turn this off in File › Preferences ›
