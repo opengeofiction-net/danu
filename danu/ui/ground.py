@@ -1,5 +1,5 @@
 """Whose ground, shaded (#190, N4): over each square of the working set that
-is shared with a neighbour, their ground within 2 km of the mapper's in
+is shared with a neighbour, their ground within 10 km of the mapper's in
 amber - in reach - and beyond it in red - not to be drawn. The mapper's own
 ground and the sea are left clear. Drawn from the territories the editor
 already holds (``danu.core.ground``), for the signed-in mapper -

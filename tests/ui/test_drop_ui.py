@@ -26,7 +26,7 @@ def test_the_line_for_each_answer():
     base = {'square': 'N20E086', 'zone': 'gobras', 'user': 'wangi', 'admin': False}
     assert d(200, {**base, 'permission': perm('yes')}) == ('zone gobras - yours to upload', False)
     line, warn = d(200, {**base, 'permission': perm('partial', ['Elsewhere', 'Beyond'])})
-    assert not warn and 'shared with Elsewhere, Beyond' in line and '2 km' in line
+    assert not warn and 'shared with Elsewhere, Beyond' in line and '10 km' in line
     assert d(200, {**base, 'permission': perm('no', ['Elsewhere'])}) == ('zone gobras - not yours to upload: Elsewhere', True)
     assert d(200, {**base, 'admin': True, 'permission': perm('no')})[0] == 'zone gobras - yours to upload, as an administrator'
     assert d(200, {**base, 'zone': '<b>', 'permission': perm('yes')})[0] == 'zone &lt;b&gt; - yours to upload'

@@ -52,8 +52,8 @@ View has the same switches, and a toggle for each panel.
 ## Whose ground
 
 Signed in, a square you share with a neighbour shows their ground: **amber**
-within 2 km of yours, **red** beyond it. You may upload the whole square, and
-are asked to keep to your own ground, reaching 2 km into theirs at most.
+within 10 km of yours, **red** beyond it. You may upload the whole square, and
+are asked to keep to your own ground, reaching 10 km into theirs at most.
 Your own ground and the sea are left clear. An administrator sees it as
 anyone does. **Whose ground** in the Surface panel, or in View, turns it off.
 

@@ -9,7 +9,7 @@ neighbour's ground within reach, and ``far``, the neighbour's ground beyond
 it. Their own ground, and the sea under no territory, are left alone.
 
 Worked in metres about the square's centre, which over one degree is close
-enough for a 2 km band, with OGR for the buffer and the overlaps. Rings in
+enough for a 10 km band, with OGR for the buffer and the overlaps. Rings in
 the territory file are even-odd, so a territory is the symmetric difference
 of its rings.
 """
