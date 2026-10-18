@@ -144,3 +144,20 @@ def test_the_import_root_defaults_under_documents(tmp_path):
     assert s.import_root.parts[-2:] == ('danu', 'osm-squares')
     s.import_root = tmp_path / 'elsewhere'
     assert s.import_root == tmp_path / 'elsewhere'
+
+
+def test_from_the_drop_a_square_renamed_there_is_imported_under_its_new_name(w, zone):
+    """The drop's API answering (#190, N5a): its working copy, the square
+    renamed there replacing the old name here."""
+    from tests.test_mirror import API, Drop
+    drop = Drop(w.server.zones)
+    w.importer.opener = drop
+    w.settings.set_url('drop/url', API)
+    files = drop.zones[zone.name]
+    files['S24E126_Tenmetre_Hills.osm.xz'] = files.pop(TEN_FILE)
+    messages = []
+    w.importer.message.connect(messages.append)
+    w.import_action.trigger()
+    assert f'{API}/zones' in drop.asked
+    assert (zone / 'S24E126_Tenmetre_Hills.osm.xz').exists() and not (zone / TEN_FILE).exists()
+    assert 'renamed' in messages[-1]

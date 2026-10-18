@@ -5992,3 +5992,23 @@ simplified least. Measured on 2026-10-18's squares, 218k points to 64k: the
 permissions of all 806 squares in 0.37 s against 0.15 s, the slowest
 shading 14 ms against 5 ms, and five squares answered differently. The reach
 into a neighbour's ground is 10 km, `REACH_M`, not 2.
+
+## N5a, Import from the drop (#190)
+
+File › Import reads the drop's API when it answers - `GET /zones`, and a
+zone's `held` squares with each one's SHA-256 - and fetches the files from
+it: the working copy, which the published copy can be a day behind. That is
+what makes a refused upload's re-import (N5b) fetch what the server holds
+now. The hash comes with the listing, so a square whose bytes are here
+already - mirrored, or not - is not fetched at all.
+
+A square is matched by its cell. Renamed on the server, the copy here under
+the old name is replaced by the new, or, the bytes the same, renamed to it;
+the old name leaves the manifest, and the summary counts it renamed rather
+than gone. Changed here, it is asked about as any changed square is, and
+kept, the old name stays. Open with unsaved edits, it is held, by either
+name. The zone's `EMPTY.osm.xz`, which the drop doesn't list, is not said
+gone.
+
+The API not reached - until N3 deploys it, or whenever it is down - the
+published copy's index is read as before. Nothing asks the mapper which.
