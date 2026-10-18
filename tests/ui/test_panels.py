@@ -34,9 +34,9 @@ def test_the_keys_are_behind_an_i_not_written_out(window):
 
 def test_the_overlays_are_short_and_explained_on_hover(window):
     p = window.surface_panel
-    assert [b.text() for b in (p.show_unreached, p.show_one_level, p.show_envelope)] == \
-        ['Unknown ground', 'Single-level ground', 'Envelope']
-    assert all(len(b.toolTip()) > 30 for b in (p.show_unreached, p.show_one_level, p.show_envelope))
+    boxes = (p.show_unreached, p.show_one_level, p.show_envelope, p.show_ground)
+    assert [b.text() for b in boxes] == ['Unknown ground', 'Single-level ground', 'Envelope', 'Whose ground']
+    assert all(len(b.toolTip()) > 30 for b in boxes)
 
 
 def test_single_level_ground_is_greyed_without_unknown_ground(window):

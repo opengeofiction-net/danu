@@ -1032,6 +1032,10 @@ class SurfacePanel(QDockWidget):
         self.show_envelope.setToolTip('The outline of the ground the contours describe: '
                                       'the fill does not reach beyond it (R21)')
         self.show_envelope.setChecked(True)
+        self.show_ground = QCheckBox('Whose ground')
+        self.show_ground.setToolTip("A neighbour's ground in a square you share: amber within 2 km "
+                                    'of yours, red beyond (#190)')
+        self.show_ground.setChecked(True)
         self.reading = QLabel('')
         self.reading.setWordWrap(True)
         self.status = QLabel('no surface built yet')
@@ -1057,6 +1061,7 @@ class SurfacePanel(QDockWidget):
         form.addRow(indented)
         form.addRow(self.reading)
         form.addRow(self.show_envelope)
+        form.addRow(self.show_ground)
         form.addRow(self.status)
         # the surface in JOSM (H5), from the panel as well as Shift+J
         self.josm_btn = QPushButton('Show in JOSM')

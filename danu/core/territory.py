@@ -53,6 +53,10 @@ MIN_SHARE = 1e-5
 
 YES, PARTIAL, NO = 'yes', 'partial', 'no'
 
+# how far into a neighbour's ground a partial square's mapper may reach: the
+# social contract, which the editor shades (danu.core.ground) and says
+REACH_M = 2000.0
+
 
 @dataclass(frozen=True)
 class Territory:

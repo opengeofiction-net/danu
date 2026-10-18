@@ -45,8 +45,10 @@ from .autosave import AutoSaver
 from .background import Job
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
+from .drop import DropClient
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .gone_dock import GoneDock
+from .ground import GroundItem
 from .josm import JosmRemote
 from .layers import LayersChooser
 from .legend import Legend
@@ -186,6 +188,12 @@ class MainWindow(QMainWindow):
         self.map.scene().addItem(self.unreached)
         self.envelope = EnvelopeItem()
         self.map.scene().addItem(self.envelope)
+        # whose ground each square is, shaded, and the drop's word on it (#190)
+        self.ground = GroundItem()
+        self.map.scene().addItem(self.ground)
+        self.drop = DropClient(self.settings.url('drop/url'), self.settings.server_url, parent=self)
+        self.drop.answered.connect(self._drop_answered)
+        self._drop_asked = None             # (square, token) last asked about
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         # slope or elevation: the reading under a still cursor follows the mode
         self.surface_panel.styleChanged.connect(self._cursor_reading_again)
@@ -428,6 +436,10 @@ class MainWindow(QMainWindow):
         self._territory = QLabel('')
         self._territory.setToolTip('the territory and owner under the working set, from the wiki and territory.json')
         self.statusBar().addPermanentWidget(self._territory)
+        self._drop = QLabel('')
+        self._drop.setOpenExternalLinks(True)
+        self._drop.setToolTip('whether the open square is yours to upload, from the data drop')
+        self.statusBar().addPermanentWidget(self._drop)
         self._status = QLabel()
         self.statusBar().addPermanentWidget(self._status)
         # a newer release (J7), first of the permanent ones when there is one
@@ -554,6 +566,40 @@ class MainWindow(QMainWindow):
         self._territory.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
         if warn:
             self.statusBar().showMessage(f'{self.working_set.centre} is {line} - opening it anyway')
+        self.show_ground()
+
+    def show_ground(self) -> None:
+        """Each square's ground shaded for the mapper signed in (#190), and
+        the drop asked about the open one."""
+        ws, index = self.working_set, self.territory.index
+        user = self.settings.user if self.settings.token else ''
+        on = self.surface_panel.show_ground.isChecked()
+        if ws is None or index is None or not user or not on:
+            self.ground.set_ground([])
+        else:
+            try:
+                # OGR's buffer, so GDAL, which the editor's import must not need
+                from ..core.ground import ground as whose_ground
+            except ImportError:
+                whose_ground = None
+            grounds = []
+            for sq in ws.squares if whose_ground else ():
+                try:
+                    grounds.append(whose_ground(index, sq.bounds, user))
+                except RuntimeError as e:       # OGR's, on a territory it can't make whole
+                    self.statusBar().showMessage(f'{sq}: whose ground not shaded - {e}')
+            self.ground.set_ground(grounds)
+        if ws is not None and self._drop_asked != (ws.centre, self.settings.token):
+            self._drop_asked = (ws.centre, self.settings.token)
+            self._drop.setText('upload: asking…')
+            self._drop.setStyleSheet('')
+            self.drop.ask(ws.centre, self.settings.token)
+
+    def _drop_answered(self, square: str, line: str, warn: bool) -> None:
+        if self.working_set is None or self.working_set.centre.name != square:
+            return
+        self._drop.setText(line)
+        self._drop.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
 
     # ---------------------------------------------------------- signing in
     def account(self) -> None:
@@ -963,7 +1009,8 @@ class MainWindow(QMainWindow):
         self.view_actions: dict[str, QAction] = {}
         for name, text, box in (('view.unknown', '&Unknown ground', p.show_unreached),
                                 ('view.single_level', 'Single-&level ground', p.show_one_level),
-                                ('view.envelope', '&Envelope', p.show_envelope)):
+                                ('view.envelope', '&Envelope', p.show_envelope),
+                                ('view.ground', 'Whose &ground', p.show_ground)):
             a = QAction(text, self)
             a.setCheckable(True)
             a.setChecked(box.isChecked())
@@ -974,6 +1021,7 @@ class MainWindow(QMainWindow):
         # single-level ground is a part of the unknown, and nothing without it
         unknown = self.view_actions['view.unknown']
         unknown.toggled.connect(self.view_actions['view.single_level'].setEnabled)
+        p.show_ground.toggled.connect(lambda _: self.show_ground())
         view.addSeparator()
         for dock in self.docks():
             view.addAction(dock.toggleViewAction())
@@ -1149,6 +1197,10 @@ class MainWindow(QMainWindow):
         self.elevation_panel.big.setValue(big)
         self.josm.base = s.josm_url
         self.territory.urls = {'geometry': s.url('territory/geometry'), 'attributes': s.url('territory/owners')}
+        if (s.url('drop/url'), s.server_url) != (self.drop.base_url, self.drop.server):
+            self.drop.base_url, self.drop.server = s.url('drop/url').rstrip('/'), s.server_url
+            self._drop_asked = None
+            self.show_ground()
         self.published.url = s.url('published/dem')
         if self.checks_dock.bare_min_ha != s.bare_min_hectares and self.crossing_index is not None:
             # the rings reported from another area: found again. The indexes
