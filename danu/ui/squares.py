@@ -1,14 +1,18 @@
 """The working set's squares, drawn as squares.
 
 An outline round each degree in the set, the centre one heavier, and the
-squares nobody has drawn hatched, outlined in the wiki's colours for a
-square (``danu.core.topo_style``, as OpenGeofiction:Topo layer draws them):
-green with contours, orange a coastline only, grey blank. Its outlines, not
-its fills: a wash over every square would colour the ground and the
-contours drawn in their level's colour, so the grid is always the full grid and a
-gap in it is visible as a gap rather than as nothing. Names are written in
-each square while a degree is small enough on screen to need naming, and
-move to the corner once it is not.
+squares nobody has drawn hatched, so the grid is always the full grid and a
+gap in it is visible as a gap rather than as nothing.
+
+The outlines are in the wiki's colours for a square (``danu.core.topo_style``,
+drawn as ``danu.ui.topo_style``'s pens, as OpenGeofiction:Topo layer has
+them): green with contours, orange a coastline only, grey blank - and an
+absent square grey and hatched. The wiki's outlines, not its fills: a wash
+over every square would colour the ground and the contours drawn in their
+level's colour.
+
+Names are written in each square while a degree is small enough on screen
+to need naming, and move to the corner once it is not.
 
 Pattern brushes in Qt are drawn in device pixels regardless of the view
 transform, which is what makes hatching usable at every zoom.

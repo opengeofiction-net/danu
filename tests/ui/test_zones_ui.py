@@ -76,6 +76,7 @@ def test_an_administrator_paints_squares_onto_a_zone(w):
     editor_tool = w.map.tool
     z.dock.edit.click()
     assert w.map.tool is z.painter and z.dock.save.isEnabled() and not z.dock.list.isEnabled()
+    assert not z.dock.reload.isEnabled(), 'the squares refused are as editing began'
     click(z.painter, 90.5, 18.5, 91.5, 21.5)                           # two columns east
     click(z.painter, 86.5, 21.5, ctrl=True)                            # one square away
     click(z.painter, 124.5, -23.5)                                     # pizarrales': refused

@@ -342,6 +342,8 @@ class ZoneEditor(QObject):
         d.inactive.setEnabled(admin and not editing and z is not None and not z.get('inactive'))
         d.active.setEnabled(admin and not editing and z is not None and bool(z.get('inactive')))
         d.list.setEnabled(not editing)
+        # the squares refused are the other zones' as editing began
+        d.reload.setEnabled(not editing)
 
     # ------------------------------------------------------------ showing
     def show(self, on: bool) -> None:
