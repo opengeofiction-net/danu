@@ -17,9 +17,9 @@
 # zones are not rendered and why, and id-blocks.conf is the contour id block
 # assigned to each zone on its first build - losing that would renumber every
 # zone's contours on the next run. `zones` is the data drop's record of which
-# squares each zone holds, and drop/log.jsonl who uploaded what (#190); the
-# copies the drop keeps of what it replaced, drop/kept, are not - a week of
-# them is in the archive before, as the squares they were.
+# squares each zone holds, and drop/log.jsonl who uploaded what (#190). The
+# copies the drop keeps of what an upload replaced, drop/kept, are not: each
+# was in osm-squares, and so in an earlier week's archive, as the square it was.
 #
 # Thursday, tagged monthly on the last Thursday of the month and yearly on the
 # last Thursday of December, which is what backupPlanet.sh and backupWiki.sh do.

@@ -9,6 +9,9 @@ import threading
 
 import pytest
 
+# the drop runs on the server, which is Linux, and locks with fcntl
+pytest.importorskip('fcntl', reason='the data drop is the server\'s: no fcntl here')
+
 from danu.core import territory as T
 from danu.drop import app as A
 from danu.drop.sources import OgfUsers, Territories, Unknown, User

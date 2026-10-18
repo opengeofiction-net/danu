@@ -38,7 +38,8 @@ def test_profile_imports_without_gdal():
     # the data drop's (#190): the service asks them on every upload
     imports_without_gdal('danu.core.territory')
     imports_without_gdal('danu.core.zones')
-    imports_without_gdal('danu.drop.app')
+    if sys.platform != 'win32':          # the server's, and it locks with fcntl
+        imports_without_gdal('danu.drop.app')
 
 
 def test_the_1_arcsecond_view_imports_without_gdal():
