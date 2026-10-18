@@ -92,6 +92,7 @@ def parse_attributes(text: str) -> dict[int, Territory]:
         except (KeyError, TypeError, ValueError):
             continue
         cons = rec.get('constraints')
+        cons = [cons] if isinstance(cons, str) else cons
         out[rel] = Territory(rel, str(rec.get('ogfId', '')), str(rec.get('name', '')),
                              str(rec.get('status', '')), str(rec.get('owner', '')),
                              tuple(c for c in cons if isinstance(c, str)) if isinstance(cons, list) else ())
@@ -217,12 +218,16 @@ class TerritoryIndex:
 
     def _ring_signs(self, rel: int) -> list[int]:
         """+1 for an outer ring, -1 for a hole - one inside an odd number of
-        the others - so that areas sum as even-odd fills."""
+        the others - so that areas sum as even-odd fills. Judged by the
+        middle of a ring's first edge, not a vertex: a hole often shares a
+        vertex with the ring round it, and a point on a ring falls either
+        way."""
         if rel not in self._signs:
             rings = self.geometry[rel]
+            mid = [((r[0][0] + r[1][0]) / 2, (r[0][1] + r[1][1]) / 2) for r in rings]
             self._signs[rel] = [
-                -1 if sum(_inside(r[0], o) for j, o in enumerate(rings) if j != i) % 2 else 1
-                for i, r in enumerate(rings)]
+                -1 if sum(_inside(mid[i], o) for j, o in enumerate(rings) if j != i) % 2 else 1
+                for i in range(len(rings))]
         return self._signs[rel]
 
     def shares(self, bounds: tuple[float, float, float, float]) -> dict[int, float]:
@@ -261,8 +266,10 @@ class TerritoryIndex:
     def permission(self, bounds: tuple[float, float, float, float], user: str) -> Permission:
         """May ``user`` upload the square at ``bounds`` (#190): yes where all
         the territory in it is theirs - ground under no territory, the sea,
-        counts for nobody - partial where some is, no where none is. An
-        administrator may upload anything; that is the caller's to know."""
+        counts against nobody - partial where some is, no where none is. A
+        square of open sea, with no territory in it, is no: an
+        administrator's. An administrator may upload anything; that is the
+        caller's to know."""
         found = self.under(bounds)
         mine = tuple(t for t in found if user and user in t.editors)
         others = tuple(t for t in found if t not in mine)

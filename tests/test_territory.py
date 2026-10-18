@@ -105,11 +105,13 @@ def test_editors_are_the_owners_and_the_dem_delegates_trimmed():
     a = T.parse_attributes(json.dumps([
         {'rel': 1, 'owner': 'lankusiek; Mie; Poissott', 'constraints': ['Desert', 'dem:Alice; Bob', 'DEM:Carol']},
         {'rel': 2, 'owner': 'Kevin J', 'constraints': ['Mountains-S', 7, None]},
-        {'rel': 3, 'owner': '', 'constraints': 'not a list'},
+        {'rel': 3, 'owner': '', 'constraints': 'dem:Dave'},
+        {'rel': 4, 'owner': '', 'constraints': {'not': 'a list'}},
     ]))
     assert a[1].editors == {'lankusiek', 'Mie', 'Poissott', 'Alice', 'Bob', 'Carol'}
     assert a[2].editors == {'Kevin J'} and a[2].constraints == ('Mountains-S',)
-    assert a[3].editors == frozenset() and a[3].constraints == ()
+    assert a[3].editors == {'Dave'}, 'one constraint, not in a list'
+    assert a[4].editors == frozenset() and a[4].constraints == ()
     # describe's warning goes by them too
     t = T.Territory(9, 'X1', 'Ex', 'owned', 'Luciano', ('dem:wangi',))
     assert T.describe([t], 'wangi')[1] is False and T.describe([t], 'Wangi')[1] is True
@@ -144,6 +146,15 @@ def test_permission_yes_partial_no():
     assert idx.permission((2, 2, 3, 3), '').level == T.NO
     assert idx.permission((40, 40, 41, 41), 'Luciano').level == T.NO, 'no territory at all: admins only'
     assert idx.permission((21, 21, 29, 29), 'Leowezy').level == T.YES, 'one of several owners'
+
+
+def test_a_hole_sharing_a_vertex_with_its_outer_ring_is_still_a_hole():
+    # the hole's first vertex is the outer ring's corner (0, 0)
+    geometry = T.parse_geometry(json.dumps({'1': [[[0, 0], [0, 10], [10, 10], [10, 0]],
+                                                  [[0, 0], [0, 4], [4, 4], [4, 0]]]}))
+    idx = T.TerritoryIndex(geometry, {1: T.Territory(1, 'A', 'A', 'owned', 'wangi')})
+    assert idx.shares((0, 0, 4, 4)) == {}
+    assert idx.shares((0, 0, 10, 10)) == {1: pytest.approx(84 / 100)}
 
 
 def test_permission_ignores_status():

@@ -361,7 +361,8 @@ def xml_version(elem) -> int | None:
 
 def label_of(filename: str | os.PathLike) -> str:
     """``N18E088_Katyapura.osm.xz`` -> ``Katyapura``; no label, ''. Raises
-    on anything that is not a square file, as ``SquareName.from_filename``."""
+    on anything that is not a square file, as ``SquareName.from_filename``.
+    It reads any label a square file has; LABEL is what a new one must be."""
     base = os.path.basename(os.fspath(filename))
     m = _FILE.match(base)
     if not m:

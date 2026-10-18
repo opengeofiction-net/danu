@@ -5886,7 +5886,8 @@ sea in roantra and tekan.
 **Under, exactly.** `under` sampled nine points and looked for a vertex; a
 permission can't be a sample. `shares` now cuts each territory's rings to
 the box (Sutherland-Hodgman) and sums the areas, holes taken out by the
-rings' nesting, and `under` is the territories with a share, the one under
+rings' nesting - judged at an edge's middle, as a hole often shares a
+vertex with its outer ring - and `under` is the territories with a share, the one under
 the centre first and then by share - so the status bar and the server agree.
 A share has to be over `MIN_SHARE`, 1e-5 of the square, to count: a
 neighbour's polygon reaching a few metres over a border that runs along a
@@ -5898,8 +5899,9 @@ most of those under territories still available.
 **Zones.** `danu.core.zones`. `Zones` reads the `zones` file - a zone, its
 rectangles of squares from south-west to north-east, a note after a `#` -
 answers `zone_of(square)`, refuses an overlap, and `put` changes one zone's
-line and leaves every other line as it was. A rectangle whose west is east of
-its east crosses the antimeridian; no zone does today. `seed` draws one
+line and leaves every other line as it was. A zone across the antimeridian is a
+rectangle each side: one written east to west is refused, a typing slip far
+more often than a zone round most of the world. No zone crosses it today. `seed` draws one
 rectangle round each zone's squares: today's bounding boxes don't overlap,
 and `python -m danu.core.zones seed <osm-squares>` writes 31 zones -
 trent's one square has dots in its label, which the square pattern refuses,

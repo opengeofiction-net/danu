@@ -10,7 +10,7 @@ ZONES = """\
 gobras         N18E086-N21E089
 kofuku         S59E064-S48E079 S47E070   # a note, kept
 
-wrap           N10E179-N11W179
+wrap           N10E179-N11E179 N10W180-N11W179
 """
 
 INACTIVE = """\
@@ -34,7 +34,7 @@ def test_a_square_is_in_the_one_zone_whose_rectangles_hold_it():
     assert z.zone_of(S.parse('S47E071')) is None
 
 
-def test_a_rectangle_west_of_its_east_crosses_the_antimeridian():
+def test_across_the_antimeridian_is_a_rectangle_each_side():
     z = Z.Zones(ZONES)
     assert {c.name for c in z.zones['wrap'].cells()} == {
         'N10E179', 'N10W180', 'N10W179', 'N11E179', 'N11W180', 'N11W179'}
@@ -56,6 +56,7 @@ def test_zones_never_overlap():
     ('gobras  N18E086\ngobras  N30E086\n', 'again'),
     ('gobras  N21E086-N18E089\n', 'south of'),
     ('gobras  N18E086-X\n', 'not a rectangle'),
+    ('gobras  N18E089-N21E086\n', 'west of'),
 ])
 def test_a_bad_line_is_refused_saying_why(text, why):
     with pytest.raises(Z.ZoneError, match=why):
@@ -115,6 +116,13 @@ def test_setting_adds_an_entry_or_changes_its_reason_in_place():
         i.set('gobras', 'bored')
     with pytest.raises(Z.ZoneError, match='one line'):
         i.set('gobras', 'wip', 'two\nlines')
+
+
+def test_the_reasons_are_danu_builds():
+    from pathlib import Path
+    build = (Path(__file__).parents[1] / 'server' / 'bin' / 'danu-build').read_text()
+    (line,) = [x for x in build.splitlines() if x.startswith('INACTIVE_REASONS=')]
+    assert tuple(line.split('"')[1].split()) == Z.REASONS
 
 
 def test_a_file_not_there_is_empty(tmp_path):

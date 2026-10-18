@@ -6,7 +6,9 @@ A zone is a lowercase name and one or more rectangles of whole degree
 squares, ``N18E086-N21E089`` from its south-west square to its north-east
 one, or one square alone. Zones never overlap, so a square is in at most
 one, and that is where its upload goes - one nobody has drawn yet too. A
-rectangle whose west is east of its east crosses the antimeridian.
+zone across the antimeridian is two rectangles, one each side: a rectangle
+whose east is west of its west is refused, being far likelier a typing slip
+than the world less a few degrees.
 
 ``zones`` is one zone a line::
 
@@ -53,15 +55,17 @@ class Rect:
             raise ZoneError(f'{text!r}: not a rectangle of squares, want N18E086-N21E089') from e
         if ne.lat < sw.lat:
             raise ZoneError(f'{text!r}: its north-east square is south of its south-west one')
+        if ne.lon < sw.lon:
+            raise ZoneError(f'{text!r}: its north-east square is west of its south-west one'
+                            ' - across the antimeridian, give a rectangle each side')
         return cls(sw, ne)
 
     def __str__(self) -> str:
         return self.sw.name if self.sw == self.ne else f'{self.sw.name}-{self.ne.name}'
 
     def cells(self) -> set[SquareName]:
-        width = (self.ne.lon - self.sw.lon) % 360 + 1
-        return {SquareName((self.sw.lon + dx + 180) % 360 - 180, lat)
-                for dx in range(width) for lat in range(self.sw.lat, self.ne.lat + 1)}
+        return {SquareName(lon, lat) for lon in range(self.sw.lon, self.ne.lon + 1)
+                for lat in range(self.sw.lat, self.ne.lat + 1)}
 
 
 @dataclass(frozen=True)
