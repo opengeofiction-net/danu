@@ -21,8 +21,8 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from .. import USER_AGENT
 from ..core import territory as T
 
-GEOMETRY_URL = 'https://data.opengeofiction.net/utility/territory.json'
-ATTRIBUTES_URL = 'https://wiki.opengeofiction.net/index.php?title=OpenGeofiction:Territory_administration&action=raw'
+GEOMETRY_URL = T.GEOMETRY_URL
+ATTRIBUTES_URL = T.ATTRIBUTES_URL
 GEOMETRY_MAX_AGE = 24 * 3600.0
 ATTRIBUTES_MAX_AGE = 600.0
 

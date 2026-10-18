@@ -6,7 +6,8 @@ export PYBUILD_NAME=danu
 # danu-soak forces zones to rebuild, which is a soak test and not something a
 # fresh install should start doing on its own. Installed but left alone; it is
 # enabled by hand for as long as a soak is wanted, and does nothing until the
-# night count in /var/lib/danu/soak-remaining is seeded either way.
+# night count in /var/lib/danu/soak-remaining is seeded either way. danu-drop
+# too: the data drop is enabled once its zones are seeded and nginx reaches it.
 # The other four units are re-listed rather than left to a bare second
 # dh_installsystemd call. A bare call takes every unit in the package, soak
 # included, and emits a second maintscript block enabling any of them that
@@ -24,7 +25,7 @@ export PYBUILD_NAME=danu
 # deb-systemd-invoke will not start a unit that is disabled or static, so a
 # fresh install still leaves both soak units alone.
 override_dh_installsystemd:
-	dh_installsystemd -pdanu-server --no-enable danu-soak.service danu-soak.timer
+	dh_installsystemd -pdanu-server --no-enable danu-soak.service danu-soak.timer danu-drop.service
 	dh_installsystemd -pdanu-server danu-build.service danu-build.timer \
 		danu-backup.service danu-backup.timer
 

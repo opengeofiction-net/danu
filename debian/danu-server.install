@@ -10,4 +10,5 @@ server/systemd/danu-backup.service   usr/lib/systemd/system
 server/systemd/danu-backup.timer     usr/lib/systemd/system
 server/systemd/danu-soak.service     usr/lib/systemd/system
 server/systemd/danu-soak.timer       usr/lib/systemd/system
+server/systemd/danu-drop.service     usr/lib/systemd/system
 server/etc/danu.conf            etc/danu

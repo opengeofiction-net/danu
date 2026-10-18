@@ -16,7 +16,10 @@
 # The configuration goes with them. `inactive` is a hand-written record of which
 # zones are not rendered and why, and id-blocks.conf is the contour id block
 # assigned to each zone on its first build - losing that would renumber every
-# zone's contours on the next run.
+# zone's contours on the next run. `zones` is the data drop's record of which
+# squares each zone holds, and drop/log.jsonl who uploaded what (#190); the
+# copies the drop keeps of what it replaced, drop/kept, are not - a week of
+# them is in the archive before, as the squares they were.
 #
 # Thursday, tagged monthly on the last Thursday of the month and yearly on the
 # last Thursday of December, which is what backupPlanet.sh and backupWiki.sh do.
@@ -70,9 +73,15 @@ echo "Timeframe: ${timeframe}"
 # The squares are .osm.xz already, so gzip buys nothing on them and is not being
 # asked to; it is here for the water files, which are plain XML
 echo "Archiving squares, water and configuration"
+# those not there yet - zones and the log, before the drop is set up - left
+# out, rather than failing the archive
+members=()
+for m in osm-squares water inactive id-blocks.conf zones drop/log.jsonl; do
+	[ -e "${BASE}/${m}" ] && members+=("${m}")
+done
 tar -C "${BASE}" -czf "${DEST}/${archive}" \
-	--exclude='*.tmp' \
-	osm-squares water inactive id-blocks.conf 2>/dev/null
+	--exclude='*.tmp' --exclude='.drop-*' \
+	"${members[@]}" 2>/dev/null
 status=$?
 if [ ${status} -ne 0 ] || [ ! -s "${DEST}/${archive}" ]; then
 	echo "ERROR: tar failed (${status})" >&2
