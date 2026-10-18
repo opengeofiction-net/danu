@@ -5,7 +5,7 @@ Two published files join on a relation id. The wiki's
 ``OpenGeofiction:Territory_administration`` (``action=raw``) is the
 attributes: ``ogfId``, ``name``, ``status``, ``owner``, ``rel`` and
 ``constraints``. The daily
-``data.opengeofiction.net/utility/territory.json`` is the geometry: relation
+``data.opengeofiction.net/utility/territory_1.json`` is the geometry: relation
 id to rings of ``[lat, lon]`` - the spec said ``[lon, lat]`` until the file
 was measured on 2026-09-19 (longitudes run to 179, latitudes to 80) and now
 says what the file does - one ring as a list of points, or several as a list
@@ -36,8 +36,10 @@ from dataclasses import dataclass, field
 Point = tuple[float, float]
 Ring = list[Point]
 
-# where the two files are published - the editor's and the data drop's
-GEOMETRY_URL = 'https://data.opengeofiction.net/utility/territory.json'
+# where the two files are published - the editor's and the data drop's. The
+# geometry simplified least: territory.json is _50's, too coarse to say whose
+# ground a square's corner is (#190)
+GEOMETRY_URL = 'https://data.opengeofiction.net/utility/territory_1.json'
 ATTRIBUTES_URL = 'https://wiki.opengeofiction.net/index.php?title=OpenGeofiction:Territory_administration&action=raw'
 
 # statuses under which the ground is somebody's to draw
@@ -55,7 +57,7 @@ YES, PARTIAL, NO = 'yes', 'partial', 'no'
 
 # how far into a neighbour's ground a partial square's mapper may reach: the
 # social contract, which the editor shades (danu.core.ground) and says
-REACH_M = 2000.0
+REACH_M = 10000.0
 
 
 @dataclass(frozen=True)

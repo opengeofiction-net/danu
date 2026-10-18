@@ -12,6 +12,7 @@ and the index take twenty milliseconds.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from pathlib import Path
 
@@ -57,7 +58,13 @@ class TerritoryFetcher(QObject):
 
     # ------------------------------------------------------------ cache
     def _file(self, which: str) -> Path | None:
-        return None if self.cache_dir is None else self.cache_dir / f'territory-{which}.json'
+        """The copy on disk, named for the address it came from: a new
+        address - territory.json to territory_1.json (#190) - is not served
+        the old one's copy for the day it stays fresh."""
+        if self.cache_dir is None:
+            return None
+        tag = hashlib.sha256(self.urls[which].encode()).hexdigest()[:12]
+        return self.cache_dir / f'territory-{which}-{tag}.json'
 
     def _fresh(self, which: str) -> bool:
         f = self._file(which)
@@ -78,6 +85,10 @@ class TerritoryFetcher(QObject):
         tmp = f.with_suffix('.tmp')
         tmp.write_text(text, encoding='utf-8')
         tmp.replace(f)
+        # copies from other addresses, and from before copies were named for theirs
+        for old in f.parent.glob(f'territory-{which}*.json'):
+            if old != f:
+                old.unlink(missing_ok=True)
 
     # ------------------------------------------------------------ fetch
     def refresh(self, force: bool = False):

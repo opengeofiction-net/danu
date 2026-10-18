@@ -15,10 +15,15 @@ def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fre
     with qtbot.waitSignal(f.ready, timeout=5000):
         f.refresh()
     qtbot.waitUntil(lambda: f.complete, timeout=5000)
-    assert (cache / 'territory-geometry.json').exists() and (cache / 'territory-attributes.json').exists()
+    assert len(list(cache.glob('territory-geometry-*.json'))) == 1 and len(list(cache.glob('territory-attributes-*.json'))) == 1
     assert [t.name for t in f.index.under(SquareName(125, -24).bounds)] == ['Pizarrales']
-    # fresh on disk: a second fetcher serves it without the network
-    g = TerritoryFetcher(cache, geometry_url='file:///nowhere/geometry.json', attributes_url='file:///nowhere/admin.json', parent=qapp)
+    # fresh on disk: a second fetcher serves it without the network - the
+    # published files gone, so a fetch could not have
+    urls = {'geometry_url': (territory_files / 'territory.json').as_uri(),
+            'attributes_url': (territory_files / 'admin.json').as_uri()}
+    for p in territory_files.iterdir():
+        p.rename(p.with_suffix('.gone'))
+    g = TerritoryFetcher(cache, parent=qapp, **urls)
     with qtbot.waitSignal(g.ready, timeout=5000):
         g.refresh()
     assert g.complete and not g._inflight
@@ -28,7 +33,7 @@ def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fre
     old = time.time() - 10 * 24 * 3600
     for p in cache.iterdir():
         os.utime(p, (old, old))
-    h = TerritoryFetcher(cache, geometry_url='file:///nowhere/geometry.json', attributes_url='file:///nowhere/admin.json', parent=qapp)
+    h = TerritoryFetcher(cache, parent=qapp, **urls)
     failures = []
     h.failed.connect(failures.append)
     with qtbot.waitSignal(h.ready, timeout=5000):
@@ -36,6 +41,26 @@ def test_the_fetcher_reads_both_files_caches_them_and_serves_the_cache_while_fre
     qtbot.waitUntil(lambda: len(failures) == 2, timeout=5000)
     assert all('using the copy on disk' in t for t in failures) and h.complete
     assert set(h.stale) == {'geometry', 'attributes'} and h.stale['attributes'] == pytest.approx(old, abs=2)
+
+
+def test_a_new_address_is_not_served_the_old_ones_copy(qtbot, tmp_path, territory_files, qapp):
+    """territory.json to territory_1.json (#190): the fresh copy of the old
+    was served for a day under the new."""
+    cache = tmp_path / 'tcache'
+    (territory_files / 'finer.json').write_text('{}')
+    old = (territory_files / 'territory.json').as_uri()
+    admin = (territory_files / 'admin.json').as_uri()
+    f = TerritoryFetcher(cache, geometry_url=old, attributes_url=admin, parent=qapp)
+    with qtbot.waitSignal(f.ready, timeout=5000):
+        f.refresh()
+    qtbot.waitUntil(lambda: f.complete, timeout=5000)
+    assert f.index.under(SquareName(125, -24).bounds)
+    g = TerritoryFetcher(cache, geometry_url=(territory_files / 'finer.json').as_uri(), attributes_url=admin, parent=qapp)
+    g.refresh()
+    assert 'geometry' in g._inflight, 'fetched, not served the other address\'s copy'
+    qtbot.waitUntil(lambda: not g._inflight, timeout=5000)
+    assert g.text['geometry'] == '{}'
+    assert len(list(cache.glob('territory-geometry-*.json'))) == 1, 'the old copy gone'
 
 
 def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window, qtbot):

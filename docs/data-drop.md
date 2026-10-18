@@ -16,7 +16,7 @@ Goes with locking. Once uploads are authenticated, the server knows who may edit
 - The nightly build rebuilds a zone when its squares change. A square that arrives is picked up the next night.
 - The elevation process - danu-server - runs on `util.ogf`, which is not publicly accessible.
 - A zone today is only a directory: 32 of them, 1 to 103 squares each, no square in two.
-- Territories: attributes from the wiki's `OpenGeofiction:Territory_administration` (`action=raw`), geometry from `data.opengeofiction.net/utility/territory.json`, joined on the relation id (`danu/core/territory.py`).
+- Territories: attributes from the wiki's `OpenGeofiction:Territory_administration` (`action=raw`), geometry from `data.opengeofiction.net/utility/territory_1.json` - the least simplified - joined on the relation id (`danu/core/territory.py`).
 
 ## The API
 
@@ -82,7 +82,7 @@ The API runs alongside danu-server on `util.ogf`: a small WSGI service from `pyt
   - `partial`: some of the territory in the square is the user's, and some is another's.
   - `no`: none of it is the user's.
 - `yes` and `partial` may upload. Only `yes` and admins may delete.
-- Where permission is "partial" the user can edit anywhere within the square but has a social contract to focus within their own territory, with latitude to map up to 2km within the neighbouring one. The server doesn't look at where the changes are.
+- Where permission is "partial" the user can edit anywhere within the square but has a social contract to focus within their own territory, with latitude to map up to 10 km within the neighbouring one. The server doesn't look at where the changes are.
 
 ## Danu editor
 
@@ -90,7 +90,7 @@ The editor needs to:
 
 - Allow users to edit outside of the zones, but make it plain that such a square can't be uploaded. They should contact an admin, via OGF message, to set up a zone
 - Query the API for the square's zone and permission
-- Show where in the square the user may edit, from the territory polygons: their own territory (may edit), a 2km buffer around it (permissive) and outwith (should not edit)
+- Show where in the square the user may edit, from the territory polygons: their own territory (may edit), a 10 km buffer around it (permissive) and outwith (should not edit)
 - Show a square's name beside its cell, and let it be set, changed or removed
 - Import from the API, by cell, so a square renamed on the server replaces the local copy under its old name
 - Upload via the API. On a refusal because the square changed, keep the mapper's version beside it as `<square>.mine.osm.xz`, import the server's, and open it with the `.mine` copy as a reference layer, so they can redo their changes where the other mapper didn't draw. The `.mine` copy is never listed as a square, opened as one, or uploaded. Mappers sharing a square coordinate between themselves; admins don't settle it for them
@@ -105,7 +105,7 @@ Six PRs. N1 and N2 first; N4 and N5 can be built against N2 run locally while N3
 - **N1, permissions:** pure, in `danu.core`. The zones config: read, write, the overlap check, and the seed from `osm-squares`. The owner and `dem:` parsing, and `yes`/`partial`/`no` for a square from the territory geometry. Tests.
 - **N2, the service:** the WSGI app - token check, permission, the zone listing and reads from the working copy, upload with `If-Match`, rename, delete, each written to the published copy too, the zone admin calls, the log and the kept files. The systemd unit in the `.deb`. Tests against a fake OGF.
 - **N3, deployment:** util and the `data.opengeofiction.net` nginx, the zones seeded, the runbook in docs-internal. Done with the user, on the servers.
-- **N4, the editor sees:** the square's zone and permission, the territory shading with the 2 km buffer, and the not-in-a-zone notice with its link to message an admin.
+- **N4, the editor sees:** the square's zone and permission, the territory shading with the 10 km buffer, and the not-in-a-zone notice with its link to message an admin.
 - **N5, the editor sends:** Import from the API, upload, rename and delete, the manifest after an upload, the refusal with its `.mine` copy and reference layer, and Help and Help:Danu changed from email to upload.
 - **N6, the zone map:** for admins, the zones drawn on the map and edited there.
 

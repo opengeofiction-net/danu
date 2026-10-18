@@ -27,6 +27,7 @@ ATTRIBUTES = [{'rel': 1, 'ogfId': 'A1', 'name': 'One', 'owner': 'wangi'},
               {'rel': 5, 'ogfId': 'A5', 'name': 'Five', 'owner': 'wangi'},
               {'rel': 6, 'ogfId': 'A6', 'name': 'Six', 'owner': 'Luciano'}]
 KX = 111320.0                     # metres a degree of longitude at the equator
+R = G.REACH_M
 
 
 def index():
@@ -49,10 +50,10 @@ def east(polys):
 def test_a_shared_square_shades_the_neighbour_near_and_far():
     g = G.ground(index(), (0, 0, 1, 1), 'wangi')
     assert area(g.mine) == pytest.approx(0.5, abs=1e-6)
-    assert east(g.near) == pytest.approx(0.5 + 2000 / KX, abs=1e-4), 'the band reaches 2 km into Two'
-    assert area(g.near) == pytest.approx(2000 / KX, rel=0.01)
+    assert east(g.near) == pytest.approx(0.5 + R / KX, abs=1e-4), 'the band reaches R into Two'
+    assert area(g.near) == pytest.approx(R / KX, rel=0.01)
     assert area(g.near) + area(g.far) == pytest.approx(0.5, abs=1e-6)
-    assert min(x for rings in g.far for r in rings for x, _ in r) == pytest.approx(0.5 + 2000 / KX, abs=1e-4)
+    assert min(x for rings in g.far for r in rings for x, _ in r) == pytest.approx(0.5 + R / KX, abs=1e-4)
 
 
 def test_where_they_overlap_it_is_yours_and_a_degree_east_is_shorter_north():
@@ -60,7 +61,7 @@ def test_where_they_overlap_it_is_yours_and_a_degree_east_is_shorter_north():
     assert area(g.mine) == pytest.approx(0.6, abs=1e-6)
     assert area(g.near) + area(g.far) == pytest.approx(0.4, abs=1e-6), 'the overlap is not shaded'
     import math
-    reach = 2000 / (KX * math.cos(math.radians(60.5)))
+    reach = R / (KX * math.cos(math.radians(60.5)))
     assert east(g.near) == pytest.approx(0.6 + reach, abs=1e-4)
 
 
@@ -88,7 +89,7 @@ def test_an_enclave_is_the_hole_in_its_neighbour():
     assert area(g.near) + area(g.far) == pytest.approx(0.96, abs=1e-6)
     # a band round all four sides, its corners rounded: in degrees at 10.5 N
     import math
-    dx, dy = 2000 / (KX * math.cos(math.radians(10.5))), 2000 / 110574
+    dx, dy = R / (KX * math.cos(math.radians(10.5))), R / 110574
     assert area(g.near) == pytest.approx(0.4 * dx + 0.4 * dy + math.pi * dx * dy, rel=0.01)
     g = G.ground(index(), (10, 10, 11, 11), 'Luciano')
     assert area(g.mine) == pytest.approx(0.96, abs=1e-6), 'Four, its hole out'

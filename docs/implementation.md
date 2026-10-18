@@ -5984,3 +5984,11 @@ square.
 
 GDAL is imported where the shading is drawn, not with the window: the `ui`
 CI job has no GDAL, and the editor's import doesn't need it.
+
+**After N4: the finer polygons, and 10 km.** `territory.json` is the
+territories simplified at 50 m, `_50`'s, and too coarse to say whose ground
+a square's corner is; the editor and the drop read `territory_1.json` now,
+simplified least. Measured on 2026-10-18's squares, 218k points to 64k: the
+permissions of all 806 squares in 0.37 s against 0.15 s, the slowest
+shading 14 ms against 5 ms, and five squares answered differently. The reach
+into a neighbour's ground is 10 km, `REACH_M`, not 2.

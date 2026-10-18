@@ -1033,7 +1033,7 @@ class SurfacePanel(QDockWidget):
                                       'the fill does not reach beyond it (R21)')
         self.show_envelope.setChecked(True)
         self.show_ground = QCheckBox('Whose ground')
-        self.show_ground.setToolTip("A neighbour's ground in a square you share: amber within 2 km "
+        self.show_ground.setToolTip("A neighbour's ground in a square you share: amber within 10 km "
                                     'of yours, red beyond (#190)')
         self.show_ground.setChecked(True)
         self.reading = QLabel('')
