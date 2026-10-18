@@ -47,7 +47,9 @@ class Rect:
 
     @classmethod
     def parse(cls, text: str) -> 'Rect':
-        a, _, b = text.partition('-')
+        a, dash, b = text.partition('-')
+        if dash and not b:
+            raise ZoneError(f'{text!r}: a - and no square after it')
         try:
             sw = SquareName.parse(a)
             ne = SquareName.parse(b) if b else sw
@@ -125,18 +127,22 @@ class Zones:
 
     def put(self, zone: str, rects: list[str]) -> 'Zones':
         """A new ``zones`` with ``zone`` set to ``rects`` - created, or its
-        squares changed, its line's note kept. Raises if it would overlap."""
+        squares changed, its line's spacing and note kept. Raises if it would
+        overlap."""
         _check_name(zone)
         if not rects:
             raise ZoneError(f'{zone}: a zone needs squares')
         parsed = [Rect.parse(r) for r in rects]
-        body = f'{zone:<15} {" ".join(str(r) for r in parsed)}'
+        squares = ' '.join(str(r) for r in parsed)
+        body = f'{zone:<15} {squares}'
         lines, done = [], False
         for line in self.lines:
             words = line.split('#', 1)[0].split()
             if words and words[0] == zone:
+                # the zone and the gap after it as they were
+                lead = re.match(r'\s*\S+\s+', line).group(0)
                 note = line.partition('#')[2]
-                lines.append(f'{body}   #{note}' if note else body)
+                lines.append(f'{lead}{squares}   #{note}' if note else f'{lead}{squares}')
                 done = True
             else:
                 lines.append(line)
@@ -145,16 +151,19 @@ class Zones:
         return Zones('\n'.join(lines))
 
 
-def seed(squares_dir: str | Path) -> Zones:
+def seed(squares_dir: str | Path, report=None) -> Zones:
     """``zones`` for the zones that exist: one rectangle each, round the
     squares each holds. Raises where two would overlap - an admin draws
-    those."""
+    those. A directory with no square file the pattern reads is left out,
+    and told to ``report``."""
     lines = ['# The data drop\'s zones (#190): a zone, then its rectangles of squares,',
              '# from the south-west square to the north-east one. Zones never overlap.',
              '# Written by the API as admins change them; comments are kept.']
     for d in sorted(p for p in Path(squares_dir).iterdir() if p.is_dir()):
         cells = list(list_squares(d, compressed_only=True))
         if not cells:
+            if report:
+                report(f'{d.name}: no square file, so no zone - a label with a dot is not read')
             continue
         sw = SquareName(min(c.lon for c in cells), min(c.lat for c in cells))
         ne = SquareName(max(c.lon for c in cells), max(c.lat for c in cells))
@@ -199,7 +208,10 @@ class Inactive:
         return out
 
     def set(self, zone: str, reason: str, note: str = '') -> 'Inactive':
-        """A new ``inactive`` with ``zone`` in it for ``reason``."""
+        """A new ``inactive`` with ``zone`` in it for ``reason``. An entry
+        already there has its reason changed in place, and its note if one is
+        given; no note keeps the old one, so a note is cleared by ``clear``
+        and ``set`` again."""
         _check_name(zone)
         if reason not in REASONS:
             raise ZoneError(f'{reason!r}: the reason is one of {", ".join(REASONS)}')
@@ -210,16 +222,22 @@ class Inactive:
         if span is None:
             lines.append(f'{zone:<11} {reason:<10} # {note}' if note else f'{zone:<11} {reason}')
         else:
-            # the reason changed in place, and the note with it if one is
-            # given; the comments running on after it are kept either way
+            # the reason replaced where it stands, the spacing kept; the
+            # comments running on after it are kept either way
             old = lines[span[0]]
-            kept = old.partition('#')[2].strip()
-            note = note or kept
-            lines[span[0]] = f'{zone:<11} {reason:<10} # {note}' if note else f'{zone:<11} {reason}'
+            lead, was, gap, comment = re.match(r'(\s*\S+\s+)(\S*)(\s*)(#.*)?$', old).groups()
+            comment = f'# {note}' if note else comment
+            if not comment:
+                lines[span[0]] = f'{lead}{reason}'
+            else:
+                # the # where it was, or a space after a longer reason
+                at = len(lead) + len(was) + len(gap) if was and gap else len(lead) + 11
+                lines[span[0]] = f'{lead}{reason}'.ljust(at - 1) + ' ' + comment
         return Inactive('\n'.join(lines))
 
     def clear(self, zone: str) -> 'Inactive':
         """A new ``inactive`` without ``zone``: its line and its comments."""
+        _check_name(zone)
         span = self._entry(zone)
         if span is None:
             return Inactive('\n'.join(self.lines))
@@ -237,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser('seed', help="write zones for the zones that exist").add_argument('squares')
     a = ap.parse_args(argv)
     try:
-        sys.stdout.write(seed(a.squares).text)
+        sys.stdout.write(seed(a.squares, report=lambda m: print(f'zones: {m}', file=sys.stderr)).text)
     except ZoneError as e:
         print(f'zones: {e}', file=sys.stderr)
         return 1

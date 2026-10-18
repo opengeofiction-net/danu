@@ -288,7 +288,8 @@ def describe(found: list[Territory], user: str = '', admin: bool = False) -> tup
     if admin and user:
         line += ' (administrator)'
     # not somebody else's to the owners, 'Alessa;Leowezy', nor to a dem:
-    # delegate (#190) - Territory.editors
+    # delegate (#190) - Territory.editors. The CLAIMED gate stays, unlike in
+    # permission: this is a warning while drawing, not who may upload
     others = [t for t in found if t.known and t.status in CLAIMED and t.owner
               and user not in t.editors]
     if user and others:

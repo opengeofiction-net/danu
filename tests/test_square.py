@@ -595,7 +595,7 @@ def test_a_square_file_with_and_without_a_label():
         with pytest.raises(ValueError):
             n.filename(bad)
     assert label_of('zone/N18E088_Katyapura.osm.xz') == 'Katyapura' and label_of('N18E088.osm.xz') == ''
-    assert label_of('S42E142_Bishop-Bureau.osm.xz') == 'Bishop-Bureau'
+    assert label_of('S42E142_Bishop-Bureau.osm.xz') == 'Bishop-Bureau' and label_of('N18E088_K.osm') == 'K'
     for not_square in ('EMPTY.osm.xz', 'N18E088_Katyapura.mine.osm.xz', 'S01W145_lon-145.00_x.osm.xz'):
         with pytest.raises(ValueError):
             label_of(not_square)

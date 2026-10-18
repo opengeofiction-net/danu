@@ -5891,7 +5891,8 @@ vertex with its outer ring - and `under` is the territories with a share, the on
 the centre first and then by share - so the status bar and the server agree.
 A share has to be over `MIN_SHARE`, 1e-5 of the square, to count: a
 neighbour's polygon reaching a few metres over a border that runs along a
-degree line is not a claim. On 2026-10-18's 806 squares, two shares fell
+degree line is not a claim. On 2026-10-18's 806 squares - 807 files, less
+trent's, which the square pattern doesn't read - two shares fell
 under it (2e-7 and 5e-6) and the next was 7e-5; the whole run took 0.06 s.
 The best any owner gets is yes on 277 squares, partial on 305 and no on 224,
 most of those under territories still available.

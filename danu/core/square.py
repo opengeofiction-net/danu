@@ -32,7 +32,7 @@ from xml.etree import ElementTree
 # longitude three, always signed by letter. A file may carry a label after the
 # name - N18E088_Katyapura - which is for people; only the name is data
 _NAME = re.compile(r'^([NS])(\d{2})([EW])(\d{3})$')
-_FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_[^.]+)?\.osm(?:\.xz)?$')
+_FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_([^.]+))?\.osm(?:\.xz)?$')
 # a label the data drop (#190) accepts: no dot, which would end it early, and
 # short enough to read in a list. Shown with its underscores as spaces
 LABEL = re.compile(r'[A-Za-z0-9_-]{1,64}')
@@ -367,7 +367,7 @@ def label_of(filename: str | os.PathLike) -> str:
     m = _FILE.match(base)
     if not m:
         raise ValueError(f'{base!r}: not a square file, want N42E017[_Label].osm.xz')
-    return base[len(m.group(1)):].split('.', 1)[0].removeprefix('_')
+    return m.group(2) or ''
 
 
 def list_squares(zone_dir: str | os.PathLike, compressed_only: bool = False) -> dict[SquareName, Path]:

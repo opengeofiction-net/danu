@@ -1,5 +1,7 @@
 """danu.core.zones: the data drop's zones (#190), and danu-build's inactive."""
 
+import re
+
 import pytest
 
 from danu.core import zones as Z
@@ -57,6 +59,7 @@ def test_zones_never_overlap():
     ('gobras  N21E086-N18E089\n', 'south of'),
     ('gobras  N18E086-X\n', 'not a rectangle'),
     ('gobras  N18E089-N21E086\n', 'west of'),
+    ('gobras  N18E086-\n', 'no square after'),
 ])
 def test_a_bad_line_is_refused_saying_why(text, why):
     with pytest.raises(Z.ZoneError, match=why):
@@ -66,8 +69,8 @@ def test_a_bad_line_is_refused_saying_why(text, why):
 def test_put_changes_one_line_and_keeps_the_rest_and_its_note():
     z = Z.Zones(ZONES)
     k = z.put('kofuku', ['S59E064-S47E079'])
-    assert k.text == ZONES.replace('S59E064-S48E079 S47E070   # a note, kept',
-                                   'S59E064-S47E079   # a note, kept').replace('kofuku         ', 'kofuku          ')
+    assert k.text == ZONES.replace('S59E064-S48E079 S47E070   # a note, kept', 'S59E064-S47E079   # a note, kept'), \
+        'the line keeps its spacing'
     n = z.put('newzone', ['n40e010'])
     assert n.text == ZONES + 'newzone         N40E010\n' and n.zone_of(S.parse('N40E010')) == 'newzone'
     with pytest.raises(Z.ZoneError):
@@ -83,7 +86,9 @@ def test_seed_draws_a_rectangle_round_each_zones_squares(tmp_path):
         (tmp_path / zone).mkdir()
         for f in files:
             (tmp_path / zone / f).write_bytes(b'')
-    z = Z.seed(tmp_path)
+    told = []
+    z = Z.seed(tmp_path, report=told.append)
+    assert told == ['trent: no square file, so no zone - a label with a dot is not read']
     assert {n: [str(r) for r in v.rects] for n, v in z.zones.items()} == {
         'gobras': ['N18E086-N21E088'], 'sangria': ['N20E066']}, 'trent: no square a name the drop takes'
     (tmp_path / 'other').mkdir()
@@ -103,6 +108,8 @@ def test_clearing_takes_the_entry_and_its_comments_and_nothing_else():
         INACTIVE[INACTIVE.index('teirolask'):INACTIVE.index('deodeca')], '')
     assert Z.Inactive(INACTIVE).clear('urksivo').text == INACTIVE.replace('urksivo     wip\n', '')
     assert Z.Inactive(INACTIVE).clear('gobras').text == INACTIVE
+    with pytest.raises(Z.ZoneError):
+        Z.Inactive(INACTIVE).clear('# a comment')
 
 
 def test_setting_adds_an_entry_or_changes_its_reason_in_place():
@@ -112,6 +119,9 @@ def test_setting_adds_an_entry_or_changes_its_reason_in_place():
     t = i.set('teirolask', 'duplicate').text
     assert t == INACTIVE.replace('teirolask   wip        #', 'teirolask   duplicate  #'), 'note and comments kept'
     assert i.set('deodeca', 'withdrawn', 'gone').lines[6] == 'deodeca     withdrawn  # gone'
+    assert i.set('deodeca', 'wip').text == INACTIVE, 'the same reason: the file as it was'
+    assert i.set('urksivo', 'quality').lines[-1] == 'urksivo     quality'
+    assert i.set('urksivo', 'quality', 'see #12').lines[-1] == 'urksivo     quality    # see #12'
     with pytest.raises(Z.ZoneError, match='one of'):
         i.set('gobras', 'bored')
     with pytest.raises(Z.ZoneError, match='one line'):
@@ -121,8 +131,9 @@ def test_setting_adds_an_entry_or_changes_its_reason_in_place():
 def test_the_reasons_are_danu_builds():
     from pathlib import Path
     build = (Path(__file__).parents[1] / 'server' / 'bin' / 'danu-build').read_text()
-    (line,) = [x for x in build.splitlines() if x.startswith('INACTIVE_REASONS=')]
-    assert tuple(line.split('"')[1].split()) == Z.REASONS
+    m = re.search(r'^INACTIVE_REASONS="([a-z ]+)"$', build, re.MULTILINE)
+    assert m, 'INACTIVE_REASONS="..." in danu-build'
+    assert tuple(m.group(1).split()) == Z.REASONS
 
 
 def test_a_file_not_there_is_empty(tmp_path):
