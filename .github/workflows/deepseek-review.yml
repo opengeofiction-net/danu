@@ -4,8 +4,10 @@ name: Code Review
 # secrets no matter who opened the pull request - which is the standard way
 # CHAT_TOKEN gets exfiltrated. With pull_request, a branch in this repository
 # still gets the secret and a fork does not, so a fork's pull request goes
-# unreviewed rather than trusted. That is the safer half of the trade, and
-# there are no forks.
+# unreviewed rather than trusted. That is the safer half of the trade. The
+# first fork's pull request (#212) ran this with no token and failed, which
+# read as the key gone; the job now skips a fork's instead, and its review
+# is run locally - packaging/ci/cr on the fetched branch - when wanted.
 on:
   pull_request:
     types:
@@ -22,6 +24,9 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     name: Code Review
+    # a fork's pull request has no secrets to review it with: skipped, said
+    # as skipped, rather than failing on an empty token
+    if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       # The model does not know what day it is and reasons from its training
       # cutoff, so it has twice flagged correct 2026 dates as being in the
