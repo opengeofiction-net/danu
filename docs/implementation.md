@@ -5977,8 +5977,9 @@ mapper's ground by 2 km - `near`, the neighbour's ground in reach, amber, and
 `far`, beyond, red. `GroundItem` draws it over each square of the working
 set, under the contours. An enclave works, the rings being even-odd. Shown
 to an administrator as to anyone - their own ground clear - though they may
-upload it all; nothing for nobody signed in, and **View › Whose ground**
-turns it off. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
+upload it all; nothing for nobody signed in. **Whose ground** in the
+Surface panel turns it off, with the other overlays' boxes, in View as well,
+and kept with the session. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
 square.
 
 GDAL is imported where the shading is drawn, not with the window: the `ui`

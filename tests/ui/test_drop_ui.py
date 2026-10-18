@@ -122,12 +122,22 @@ def test_the_window_shades_a_shared_square_for_its_mapper(window, qtbot):
     w.show_ground()
     assert w.ground.shaded()
     w.view_actions['view.ground'].setChecked(False)
-    assert not w.ground.shaded()
-    w.view_actions['view.ground'].setChecked(True)
-    assert w.ground.shaded()
+    assert not w.ground.shaded() and not w.surface_panel.show_ground.isChecked()
+    w.surface_panel.show_ground.setChecked(True)
+    assert w.ground.shaded() and w.view_actions['view.ground'].isChecked()
     w.settings.roles = ['administrator']
     w.show_ground()
     assert w.ground.shaded(), 'an administrator is shown whose ground it is too'
     w.settings.token = ''
     w.show_ground()
     assert not w.ground.shaded(), 'signed out'
+
+
+def test_whose_ground_off_is_kept_with_the_session(window):
+    from danu.ui import session
+    window.surface_panel.show_ground.setChecked(False)
+    data = session.capture(window)
+    assert data['surface']['ground'] is False
+    window.surface_panel.show_ground.setChecked(True)
+    session.restore(window, {**data, 'set': None})
+    assert not window.surface_panel.show_ground.isChecked()

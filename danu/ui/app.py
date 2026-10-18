@@ -573,8 +573,7 @@ class MainWindow(QMainWindow):
         the drop asked about the open one."""
         ws, index = self.working_set, self.territory.index
         user = self.settings.user if self.settings.token else ''
-        whose = getattr(self, 'view_actions', {}).get('view.ground')
-        on = whose is None or whose.isChecked()
+        on = self.surface_panel.show_ground.isChecked()
         if ws is None or index is None or not user or not on:
             self.ground.set_ground([])
         else:
@@ -1010,7 +1009,8 @@ class MainWindow(QMainWindow):
         self.view_actions: dict[str, QAction] = {}
         for name, text, box in (('view.unknown', '&Unknown ground', p.show_unreached),
                                 ('view.single_level', 'Single-&level ground', p.show_one_level),
-                                ('view.envelope', '&Envelope', p.show_envelope)):
+                                ('view.envelope', '&Envelope', p.show_envelope),
+                                ('view.ground', 'Whose &ground', p.show_ground)):
             a = QAction(text, self)
             a.setCheckable(True)
             a.setChecked(box.isChecked())
@@ -1021,13 +1021,7 @@ class MainWindow(QMainWindow):
         # single-level ground is a part of the unknown, and nothing without it
         unknown = self.view_actions['view.unknown']
         unknown.toggled.connect(self.view_actions['view.single_level'].setEnabled)
-        whose = QAction('Whose &ground', self)
-        whose.setCheckable(True)
-        whose.setChecked(True)
-        whose.setToolTip('a neighbour\'s ground in a shared square: amber within 2 km of yours, red beyond')
-        whose.toggled.connect(lambda _: self.show_ground())
-        view.addAction(whose)
-        self.view_actions['view.ground'] = whose
+        p.show_ground.toggled.connect(lambda _: self.show_ground())
         view.addSeparator()
         for dock in self.docks():
             view.addAction(dock.toggleViewAction())

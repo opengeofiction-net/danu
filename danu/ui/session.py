@@ -50,6 +50,7 @@ def capture(win) -> dict:
                       'lo': p.lo.value(), 'hi': p.hi.value(), 'centre': p.centre.value(), 'width': p.width.value(),
                       'opacity': p.opacity.value(), 'unreached': p.show_unreached.isChecked(),
                       'one_level': p.show_one_level.isChecked(), 'envelope': p.show_envelope.isChecked(),
+                      'ground': p.show_ground.isChecked(),
                       'contours': p.contour_style}
     out['tool'] = win.editor.tool
     out['magnify'] = win.loupe.on
@@ -111,7 +112,7 @@ def restore(win, data: dict) -> bool:
     if s.get('opacity') is not None:
         p.opacity.setValue(int(s['opacity']))
     for box, key in ((p.show_unreached, 'unreached'), (p.show_one_level, 'one_level'),
-                     (p.show_envelope, 'envelope')):
+                     (p.show_envelope, 'envelope'), (p.show_ground, 'ground')):
         if s.get(key) is not None:
             box.setChecked(bool(s[key]))
     if s.get('contours') in ('dark', 'height'):

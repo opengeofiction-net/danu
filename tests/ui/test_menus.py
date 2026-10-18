@@ -98,7 +98,7 @@ def test_a_session_layout_is_restored_docked(window, qtbot, tmp_path):
 
 
 @pytest.mark.parametrize('name, box', [('view.unknown', 'show_unreached'), ('view.single_level', 'show_one_level'),
-                                       ('view.envelope', 'show_envelope')])
+                                       ('view.envelope', 'show_envelope'), ('view.ground', 'show_ground')])
 def test_the_view_toggles_are_the_surface_panels_boxes(window, name, box):
     a, b = window.view_actions[name], getattr(window.surface_panel, box)
     window.surface_panel.show_unreached.setChecked(True)

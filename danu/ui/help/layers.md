@@ -55,7 +55,7 @@ Signed in, a square you share with a neighbour shows their ground: **amber**
 within 2 km of yours, **red** beyond it. You may upload the whole square, and
 are asked to keep to your own ground, reaching 2 km into theirs at most.
 Your own ground and the sea are left clear. An administrator sees it as
-anyone does. **View › Whose ground** turns it off.
+anyone does. **Whose ground** in the Surface panel, or in View, turns it off.
 
 The status bar says which zone the open square is in and whether it is yours
 to upload. A square in no zone can't be uploaded: its line has a link to
