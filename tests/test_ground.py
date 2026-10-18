@@ -64,6 +64,14 @@ def test_where_they_overlap_it_is_yours_and_a_degree_east_is_shorter_north():
     assert east(g.near) == pytest.approx(0.6 + reach, abs=1e-4)
 
 
+def test_a_collection_from_an_overlay_is_unpacked_to_its_polygons():
+    from osgeo import ogr
+    local = G._Local(0, 0)
+    gc = ogr.CreateGeometryFromWkt('GEOMETRYCOLLECTION(LINESTRING(0 0,1 1),'
+                                   'MULTIPOLYGON(((0 0,100 0,100 100,0 0)),((200 0,300 0,300 100,200 0))))')
+    assert len(local.back(gc)) == 2
+
+
 def test_a_square_all_yours_or_nobody_elses_is_not_shaded():
     g = G.ground(index(), (0.05, 0.05, 0.45, 0.95), 'wangi')
     assert g.near == [] and g.far == [] and area(g.mine) == pytest.approx(0.36)

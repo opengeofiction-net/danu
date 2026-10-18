@@ -19,6 +19,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 
 from .. import USER_AGENT
 from ..core.square import SquareName
+from ..core.territory import REACH_M
 
 URL = 'https://data.opengeofiction.net/dem/api'
 # whom a mapper asks for a zone: OGF's message page for the account
@@ -49,7 +50,7 @@ def describe(status: int, body: dict, server: str) -> tuple[str, bool]:
         return f'zone {zone} - yours to upload', False
     if p.get('level') == 'partial':
         return (f'zone {zone} - yours to upload, shared with {others}: keep to your own ground, '
-                f'and within 2 km of it in theirs'), False
+                f'and within {REACH_M / 1000:g} km of it in theirs'), False
     return f'zone {zone} - not yours to upload' + (f': {others}' if others else ''), True
 
 

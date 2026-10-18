@@ -21,9 +21,7 @@ from dataclasses import dataclass, field
 
 from osgeo import ogr
 
-from .territory import Ring, Territory, TerritoryIndex
-
-REACH_M = 2000.0
+from .territory import REACH_M, Ring, Territory, TerritoryIndex
 
 ogr.UseExceptions()
 
@@ -57,21 +55,19 @@ class _Local:
         return p
 
     def back(self, geom: ogr.Geometry | None) -> list[list[Ring]]:
+        """Every polygon in it, however deep: an overlay can come back a
+        collection holding a multipolygon. Lines and points, the slivers an
+        overlay leaves along a shared edge, have no ground to shade."""
         if geom is None or geom.IsEmpty():
             return []
-        out = []
-        polys = [geom] if geom.GetGeometryType() == ogr.wkbPolygon else \
-            [geom.GetGeometryRef(i) for i in range(geom.GetGeometryCount())]
-        for p in polys:
-            if p.GetGeometryType() != ogr.wkbPolygon:
-                continue
-            rings = []
-            for i in range(p.GetGeometryCount()):
-                r = p.GetGeometryRef(i)
-                rings.append([(self.lon0 + r.GetX(j) / self.kx, self.lat0 + r.GetY(j) / self.ky)
-                              for j in range(r.GetPointCount())])
-            out.append(rings)
-        return out
+        if ogr.GT_Flatten(geom.GetGeometryType()) != ogr.wkbPolygon:
+            return [p for i in range(geom.GetGeometryCount()) for p in self.back(geom.GetGeometryRef(i))]
+        rings = []
+        for i in range(geom.GetGeometryCount()):
+            r = geom.GetGeometryRef(i)
+            rings.append([(self.lon0 + r.GetX(j) / self.kx, self.lat0 + r.GetY(j) / self.ky)
+                          for j in range(r.GetPointCount())])
+        return [rings]
 
 
 def _union(geoms: list[ogr.Geometry]) -> ogr.Geometry | None:

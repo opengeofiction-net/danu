@@ -581,9 +581,15 @@ class MainWindow(QMainWindow):
             try:
                 # OGR's buffer, so GDAL, which the editor's import must not need
                 from ..core.ground import ground as whose_ground
-                self.ground.set_ground([whose_ground(index, sq.bounds, user) for sq in ws.squares])
             except ImportError:
-                self.ground.set_ground([])
+                whose_ground = None
+            grounds = []
+            for sq in ws.squares if whose_ground else ():
+                try:
+                    grounds.append(whose_ground(index, sq.bounds, user))
+                except RuntimeError as e:       # OGR's, on a territory it can't make whole
+                    self.statusBar().showMessage(f'{sq}: whose ground not shaded - {e}')
+            self.ground.set_ground(grounds)
         if ws is not None and self._drop_asked != (ws.centre, self.settings.token):
             self._drop_asked = (ws.centre, self.settings.token)
             self._drop.setText('upload: asking…')
