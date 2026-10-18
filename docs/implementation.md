@@ -5956,3 +5956,29 @@ Checked with gunicorn 23 on the real liberian square: the listing, the
 square's bytes with its hash as the ETag, an upload with no token refused,
 and a forged token refused by the real OGF. The release workflow's deb job
 runs the packaged app under the packaged gunicorn.
+
+## N4, the editor sees (#190)
+
+**The zone and the permission** come from the drop's API: `DropClient`
+(`danu/ui/drop.py`) asks `GET /squares/<square>` for the open square, with
+the token when signed in, when a square is opened, the territories arrive,
+or the account changes - not again for the same square and token. The
+answer is a line of its own in the status bar: the zone and yes, partial,
+no, or as an administrator; signed out, the zone alone; in no zone, a
+warning with a link to message the project's `admin` account on OGF. The API
+not reached - it is not deployed until N3 - is said quietly, and nothing is
+in the way. Its address is `drop/url` in the INI, by default
+`https://data.opengeofiction.net/dem/api`.
+
+**Whose ground** is drawn here from the territories the editor already
+holds: `danu.core.ground` takes the square, the mapper's territories in it
+and everyone else's, in metres about its centre, and with OGR buffers the
+mapper's ground by 2 km - `near`, the neighbour's ground in reach, amber, and
+`far`, beyond, red. `GroundItem` draws it over each square of the working
+set, under the contours. An enclave works, the rings being even-odd. Nothing
+for nobody signed in or an administrator, and **View › Whose ground** turns
+it off. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
+square.
+
+GDAL is imported where the shading is drawn, not with the window: the `ui`
+CI job has no GDAL, and the editor's import doesn't need it.

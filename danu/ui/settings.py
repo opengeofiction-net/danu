@@ -87,7 +87,8 @@ URLS = {'ogf/server': 'OGF server',
         'territory/owners': 'Territory owners',
         'published/dem': 'Published DEM',
         'josm/url': 'JOSM remote control',
-        'squares/mirror': 'Squares to import'}
+        'squares/mirror': 'Squares to import',
+        'drop/url': 'Data drop'}
 
 
 def default_url(key: str) -> str:
@@ -95,14 +96,15 @@ def default_url(key: str) -> str:
     as it is asked for, so a test pointing a module elsewhere is heeded."""
     from ..core import mirror, published
     from ..water import overpass
-    from . import josm, territory
+    from . import drop, josm, territory
     return {'ogf/server': 'https://opengeofiction.net',
             'overpass/url': overpass.OVERPASS_URL,
             'territory/geometry': territory.GEOMETRY_URL,
             'territory/owners': territory.ATTRIBUTES_URL,
             'published/dem': published.URL,
             'josm/url': josm.DEFAULT_URL,
-            'squares/mirror': mirror.URL}[key]
+            'squares/mirror': mirror.URL,
+            'drop/url': drop.URL}[key]
 
 
 class Settings:

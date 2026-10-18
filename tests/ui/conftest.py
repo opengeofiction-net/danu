@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QMenu
 
 from danu.core import edits
 from danu.core.square import Square, SquareName, write_square
+from danu.ui import drop as _drop
 from danu.ui import territory as _territory
 from danu.ui import tiles as _tiles
 from danu.ui.app import MainWindow
@@ -47,6 +48,7 @@ from danu.ui.territory import TerritoryFetcher
 # and the tile tests replace it in their own subclass, which this leaves alone.
 _territory.GEOMETRY_URL = 'file:///nonexistent/territory.json'
 _territory.ATTRIBUTES_URL = 'file:///nonexistent/territory-admin.json'
+_drop.URL = 'file:///nonexistent/drop'
 _tiles.TileFetcher._send = lambda self, req: None
 
 GOLDEN = Path(__file__).parents[1] / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
