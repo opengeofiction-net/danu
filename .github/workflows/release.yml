@@ -117,11 +117,14 @@ jobs:
           mkdir -p prev
           python3 - "$GITHUB_REPOSITORY" <<'PY'
           import json, sys, urllib.request
-          # the newest published release, pre-releases included: releases/latest
-          # skips those, and v0.2.0 is one. python3-danu too: since 0.2.0-2
-          # danu-server depends on it, at its own version
+          # the newest published release that has the packages, pre-releases
+          # included: releases/latest skips those, and v0.2.0 is one. One
+          # without them, as v1.1.0 (macOS only) is, is passed over.
+          # python3-danu too: since 0.2.0-2 danu-server depends on it, at its
+          # own version
           rels = json.load(urllib.request.urlopen(f'https://api.github.com/repos/{sys.argv[1]}/releases'))
-          rel = next(r for r in rels if not r['draft'])
+          rel = next(r for r in rels if not r['draft']
+                     and any(a['name'].startswith('danu-server_') for a in r['assets']))
           for a in rel['assets']:
               if a['name'].startswith(('danu-server_', 'python3-danu_', 'isofill_')) and a['name'].endswith('.deb'):
                   print(rel['tag_name'], a['name'])
