@@ -84,6 +84,7 @@ from .water import (
     heights_work,
 )
 from .water import commands as water_commands
+from .zones import ZoneEditor
 
 APP_NAME = 'danu'
 # No organisation name, deliberately. Qt puts an organisation into the paths -
@@ -365,6 +366,13 @@ class MainWindow(QMainWindow):
         self.profile_dock = ProfileDock(self.measure, self)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.profile_dock)
         self.profile_dock.hide()
+        # the data drop's zones (#190, N6): on the map for anyone, edited by administrators
+        self.zone_editor = ZoneEditor(self, self)
+        self.zone_editor.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
+        self.map.scene().addItem(self.zone_editor.item)
+        self.zones_dock = self.zone_editor.dock
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.zones_dock)
+        self.zones_dock.hide()
         self.profile_dock.placeChosen.connect(lambda lon, lat: self._show_place(lon, lat, lon, lat))
         # filled under its line in the map's colours, and again when they change
         self.profile_dock.plot.colourer = self._profile_colours
@@ -699,6 +707,7 @@ class MainWindow(QMainWindow):
         user = self.settings.user if self.settings.token else ''
         self.account_action.setText(f'Sign &out ({user})' if user else 'Sign &in to OGF…')
         self.start.set_account(user)
+        self.zone_editor.update_buttons()
         self.show_territory()
 
     # -------------------------------------------------------------- save
@@ -1078,6 +1087,12 @@ class MainWindow(QMainWindow):
         refused.toggled.connect(self.reference.setVisible)
         view.addAction(refused)
         self.view_actions['view.refused'] = refused
+        zones = QAction('&Zones', self)
+        zones.setCheckable(True)
+        zones.setToolTip('the data drop\'s zones and their names, as the wiki\'s topo layer map draws them')
+        zones.toggled.connect(self.zone_editor.show)
+        view.addAction(zones)
+        self.view_actions['view.zones'] = zones
         self.update_reference_actions()
         view.addSeparator()
         for dock in self.docks():
@@ -1269,7 +1284,7 @@ class MainWindow(QMainWindow):
     def docks(self) -> list[QDockWidget]:
         """The panels, in the order the View menu lists them."""
         return [self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,
-                self.profile_dock, self.selection_panel]
+                self.profile_dock, self.selection_panel, self.zones_dock]
 
     def _docked_only(self) -> None:
         """Every panel docked, never floating: under Wayland a floating panel
@@ -1415,6 +1430,7 @@ class MainWindow(QMainWindow):
         self._territory.setText('territory: looking…')
         self.territory.refresh()
         self.show_reference()
+        self.zone_editor.show_here()
         # a surface is of a set; a new set makes the old one wrong
         self.surface.set_shaded(None)
         self.measure.clear()

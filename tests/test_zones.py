@@ -3,6 +3,8 @@
 import re
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from danu.core import zones as Z
 from danu.core.square import SquareName as S
@@ -138,3 +140,23 @@ def test_the_reasons_are_danu_builds():
 
 def test_a_file_not_there_is_empty(tmp_path):
     assert Z.Zones.read(tmp_path / 'zones').zones == {} and Z.Inactive.read(tmp_path / 'inactive').text == ''
+
+
+# ------------------------------------------------------------------ squares as rectangles (N6)
+
+
+@given(st.sets(st.tuples(st.integers(-4, 4), st.integers(-3, 3)), min_size=1, max_size=40))
+def test_rects_for_covers_exactly_the_squares_without_overlap(pairs):
+    cells = {S(lon, lat) for lon, lat in pairs}
+    rects = Z.rects_for(cells)
+    seen = [c for r in rects for c in r.cells()]
+    assert set(seen) == cells and len(seen) == len(cells), 'every square once'
+
+
+def test_rects_for_a_block_is_one_and_a_shape_is_few():
+    block = {S(lon, lat) for lon in range(86, 90) for lat in range(18, 22)}
+    assert [str(r) for r in Z.rects_for(block)] == ['N18E086-N21E089']
+    ell = block | {S(90, 18), S(91, 18)}
+    assert [str(r) for r in Z.rects_for(ell)] == ['N18E086-N18E091', 'N19E086-N21E089']
+    across = {S(179, 10), S(-180, 10)}
+    assert sorted(str(r) for r in Z.rects_for(across)) == ['N10E179', 'N10W180'], 'a rectangle each side'

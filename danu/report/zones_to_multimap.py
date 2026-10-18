@@ -38,14 +38,18 @@ import re
 import sys
 import time
 
+from danu.core import topo_style
+
 NAME = re.compile(r'([NS])(\d{2})([EW])(\d{3})')
 ELE_TAG = re.compile(rb"""k=["']ele["']\s+v=["']([^"']*)["']""")
 
-CLASS_ZONE_ACTIVE = 'zone'
-CLASS_ZONE_INACTIVE = 'zone-inactive'
-CLASS_SQUARE = 'square'
-CLASS_SQUARE_COASTLINE = 'square-coastline'
-CLASS_SQUARE_BLANK = 'square-blank'
+# the wiki page's class names, and their look - the editor's as well
+CLASS_ZONE_ACTIVE = topo_style.ZONE
+CLASS_ZONE_INACTIVE = topo_style.ZONE_INACTIVE
+CLASS_SQUARE = topo_style.SQUARE
+CLASS_SQUARE_COASTLINE = topo_style.SQUARE_COASTLINE
+CLASS_SQUARE_BLANK = topo_style.SQUARE_BLANK
+STYLES = topo_style.STYLES
 
 
 def classify_square(path, chunk=1 << 20):
@@ -210,13 +214,12 @@ def main():
     # Styling is the wiki's, not this script's. The MultiMaps page draws each
     # class as its own toggleable overlay and filters on the class name, so the
     # four names here are what its overlaydef refers to and cannot be renamed
-    # without editing the page too. Everything else - weights, opacities - was
-    # set on the published file by hand and is copied back here, because this
-    # rewrites the file every run and would otherwise undo it each Wednesday.
+    # without editing the page too. The styles - colours, weights, opacities,
+    # first set on the published file by hand - are danu.core.topo_style's,
+    # which the editor draws with too; only each class's text is this file's
     template = {
         CLASS_ZONE_ACTIVE: {
-            'color': '#1f78b4', 'opacity': 1, 'weight': 5,
-            'fillColor': '#1f78b4', 'fillOpacity': 0,
+            **STYLES[CLASS_ZONE_ACTIVE],
             'text': ['Elevation zone: <b>%zone%</b><br/>',
                      '%drawn% squares with contours, %shore% coastline only, %blank% blank<br/>',
                      'Extent: %degrees% square degrees<br/>',
@@ -224,8 +227,7 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/%zone%/">Published data</a>'],
         },
         CLASS_ZONE_INACTIVE: {
-            'color': '#999999', 'opacity': 1, 'weight': 5,
-            'fillColor': '#999999', 'fillOpacity': 0.5,
+            **STYLES[CLASS_ZONE_INACTIVE],
             'text': ['Elevation zone: <b>%zone%</b><br/>',
                      '%drawn% squares with contours, %shore% coastline only, %blank% blank<br/>',
                      'Extent: %degrees% square degrees<br/>',
@@ -234,8 +236,7 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/%zone%/">Published data</a>'],
         },
         CLASS_SQUARE: {
-            'color': '#33a02c', 'opacity': 1, 'weight': 3,
-            'fillColor': '#33a02c', 'fillOpacity': 0.10,
+            **STYLES[CLASS_SQUARE],
             'text': ['Square: <b>%square%</b><br/>',
                      '%title%<br/>',
                      'Zone: %zone%<br/>',
@@ -243,8 +244,7 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/osm-squares/%zone%/%square%.osm.xz">Download</a>'],
         },
         CLASS_SQUARE_COASTLINE: {
-            'color': '#ff7f00', 'opacity': 0.5, 'weight': 1,
-            'fillColor': '#ff7f00', 'fillOpacity': 0.10,
+            **STYLES[CLASS_SQUARE_COASTLINE],
             'text': ['Square: <b>%square%</b><br/>',
                      '%title%<br/>',
                      'Zone: %zone%<br/>',
@@ -252,8 +252,7 @@ def main():
                      '<a href="https://data.opengeofiction.net/dem/osm-squares/%zone%/%square%.osm.xz">Download</a>'],
         },
         CLASS_SQUARE_BLANK: {
-            'color': '#b2b2b2', 'opacity': 0.5, 'weight': 1,
-            'fillColor': '#ffffff', 'fillOpacity': 0.5,
+            **STYLES[CLASS_SQUARE_BLANK],
             'text': ['Square: <b>%square%</b><br/>',
                      'Zone: %zone%<br/>',
                      '<b>Blank</b> - a template, nothing drawn yet<br/>',

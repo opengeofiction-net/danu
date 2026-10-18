@@ -51,7 +51,7 @@ def test_the_surface_in_josm_is_under_surface(window):
 def test_every_panel_is_in_the_view_menu(window):
     view = menu(window, 'View').actions()
     docks = window.findChildren(QDockWidget)
-    assert len(docks) == 6 and all(d.toggleViewAction() in view for d in docks)
+    assert len(docks) == 7 and all(d.toggleViewAction() in view for d in docks)
 
 
 def test_a_closed_panel_is_opened_again_from_view(window):

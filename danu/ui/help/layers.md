@@ -13,9 +13,23 @@ the top left of the map:
 
 ## The squares
 
-An outline round each square of the working set, the centre one heavier.
-A square that has no file yet is hatched: the grid is always the whole grid,
-so a gap shows as a gap. Names are written in the squares while there is room.
+An outline round each square of the working set, the centre one heavier,
+in the colours of the wiki's map of the topo layer: **green** for a square
+with contours, **orange** for one holding only a coastline, **grey** for a
+blank one. A square that has no file yet is hatched: the grid is always the
+whole grid, so a gap shows as a gap. Names are written in the squares while
+there is room.
+
+## Zones
+
+**View › Zones** draws the zones squares are uploaded to, with their names,
+as the wiki's map does: **blue**, and an inactive zone - built, but not on
+the tile servers - **grey**. The **Zones** panel lists them. An
+administrator edits them there: **New zone…**, and **Edit squares**, which
+makes a click or a drag add squares to the zone and ctrl and a drag take
+them away, until **Save** - squares another zone holds show red, and are
+not taken; **Inactive…** and **Active** set whether it is
+drawn on the tile servers.
 
 ## The surface
 

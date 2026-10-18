@@ -1,0 +1,494 @@
+"""The zones on the map, and for administrators their editing (#190, N6).
+
+**View › Zones** draws each zone's squares outlined, with its name, in the
+wiki's colours (``danu.core.topo_style``, OpenGeofiction:Topo layer) - blue,
+an inactive one grey and filled - the one chosen in the panel thicker, from
+the drop's ``GET /zones``. Anyone can look.
+
+The **Zones** panel lists them. An administrator signed in gets its buttons:
+**New zone…** asks a name and starts it empty; **Edit squares** makes the
+map a painter of whole degree squares - a click or a drag adds the squares
+under it, ctrl and a drag takes them away, and squares another zone holds
+show red and are never taken - until **Save**, which sends the squares as
+the fewest rectangles (``zones.rects_for``), or **Cancel**. **Inactive…**
+asks a reason and a note, as danu-build's ``inactive`` takes them, and
+**Active** clears it. The server checks everything again: an overlap, a bad
+name, a reason it doesn't know, are refused there with the reason said.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QThreadPool, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
+    QFormLayout,
+    QGraphicsItem,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..core import dropclient
+from ..core import zones as Z
+from ..core.square import SquareName
+from ..core.topo_style import ZONE, ZONE_INACTIVE
+from . import mercator as m
+from . import topo_style as style
+from .background import Job
+
+# while a zone is edited: its squares as they will be, and those the drag can't have
+ADDED = QColor(31, 120, 180, 90)
+TAKEN = QColor(210, 30, 30, 110)
+
+
+def _cell_rect(c: SquareName) -> QRectF:
+    x0, y0 = m.lonlat_to_scene(c.lon, c.lat + 1)
+    x1, y1 = m.lonlat_to_scene(c.lon + 1, c.lat)
+    return QRectF(x0, y0, x1 - x0, y1 - y0)
+
+
+def _outline(cells) -> QPainterPath:
+    path = QPainterPath()
+    for c in cells:
+        path.addRect(_cell_rect(c))
+    return path.simplified()
+
+
+class ZonesItem(QGraphicsItem):
+    """Every zone's outline and name; while one is edited, its squares as
+    they will be, and the squares the drag can't have."""
+
+    def __init__(self):
+        super().__init__()
+        self.setZValue(97)              # over the surface's overlays, under the squares' frames
+        self.zones: list[dict] = []
+        self.chosen: str | None = None
+        self.here: str | None = None
+        self.editing: set[SquareName] | None = None
+        self.refused: set[SquareName] = set()
+        self._paths: dict[str, QPainterPath] = {}
+
+    def set_zones(self, zones: list[dict]) -> None:
+        self.prepareGeometryChange()
+        self.zones = zones
+        self._paths = {z['name']: _outline(cells_of(z)) for z in zones}
+        self.update()
+
+    def set_editing(self, cells: set[SquareName] | None, refused: set[SquareName] = frozenset()) -> None:
+        self.prepareGeometryChange()
+        self.editing = None if cells is None else set(cells)
+        self.refused = set(refused)
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        # the world, as the graticule's: a name is drawn at a size in pixels,
+        # and reaches past a small zone's squares - Qt clips and repaints an
+        # item by its rect, and cut the name short
+        return QRectF(0, 0, m.WORLD, m.WORLD) if self.zones or self.editing is not None else QRectF()
+
+    def paint(self, painter: QPainter, option, widget=None):
+        for z in self.zones:
+            path = self._paths.get(z['name'])
+            if path is None or path.isEmpty():
+                continue
+            cls = ZONE_INACTIVE if z.get('inactive') else ZONE
+            painter.setPen(style.pen(cls, 3.0 if z['name'] == self.chosen else 0.0))
+            painter.setBrush(style.brush(cls))
+            painter.drawPath(path)
+            self._label(painter, z['name'], path.boundingRect(), style.colour(cls))
+        if self.editing is not None:
+            painter.setPen(QPen(Qt.PenStyle.NoPen))
+            for cells, colour in ((self.editing, ADDED), (self.refused, TAKEN)):
+                for c in cells:
+                    painter.fillRect(_cell_rect(c), QBrush(colour))
+
+    @staticmethod
+    def _label(painter: QPainter, text: str, rect: QRectF, colour: QColor) -> None:
+        """The name at the zone's middle, the same size at any zoom."""
+        t = painter.worldTransform()
+        centre = t.map(rect.center())
+        painter.save()
+        painter.resetTransform()
+        f = QFont()
+        f.setBold(True)
+        painter.setFont(f)
+        painter.setPen(QPen(colour))
+        painter.drawText(QRectF(centre.x() - 100, centre.y() - 10, 200, 20), Qt.AlignmentFlag.AlignCenter, text)
+        painter.restore()
+
+
+def cells_of(zone: dict) -> set[SquareName]:
+    out: set[SquareName] = set()
+    for r in zone.get('squares', []):
+        out |= Z.Rect.parse(r).cells()
+    return out
+
+
+class ZonePainter:
+    """The map's tool while a zone's squares are edited: a press and a drag
+    mark a rectangle of whole squares, added - or with ctrl taken away - as
+    the button lets go. Squares another zone holds are refused. Anything but
+    the left button is left to the map."""
+
+    def __init__(self, item: ZonesItem, cells: set[SquareName], others: set[SquareName], changed):
+        self.item, self.cells, self.others, self.changed = item, set(cells), set(others), changed
+        self._from: SquareName | None = None
+        self._remove = False
+        self.item.set_editing(self.cells)
+
+    @staticmethod
+    def _cell(p: QPointF) -> SquareName | None:
+        lon, lat = m.scene_to_lonlat(p.x(), p.y())
+        try:
+            return SquareName(int(lon // 1), int(lat // 1))
+        except ValueError:
+            return None
+
+    def _span(self, to: SquareName) -> set[SquareName]:
+        a = self._from
+        return {SquareName(lon, lat) for lon in range(min(a.lon, to.lon), max(a.lon, to.lon) + 1)
+                for lat in range(min(a.lat, to.lat), max(a.lat, to.lat) + 1)}
+
+    def _preview(self, to: SquareName | None) -> None:
+        if self._from is None or to is None:
+            self.item.set_editing(self.cells)
+            return
+        span = self._span(to)
+        if self._remove:
+            self.item.set_editing(self.cells - span)
+        else:
+            self.item.set_editing((self.cells | span) - self.others, span & self.others)
+
+    def mouse_press(self, event, p) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        self._from = self._cell(p)
+        self._remove = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        self._preview(self._from)
+        return True
+
+    def mouse_move(self, event, p) -> bool:
+        if self._from is None:
+            return False
+        self._preview(self._cell(p))
+        return True
+
+    def mouse_release(self, event, p) -> bool:
+        if self._from is None or event.button() != Qt.MouseButton.LeftButton:
+            return False
+        to = self._cell(p)
+        if to is not None:
+            span = self._span(to)
+            self.cells = self.cells - span if self._remove else (self.cells | span) - self.others
+        self._from = None
+        self.item.set_editing(self.cells)
+        self.changed(self.cells)
+        return True
+
+    def mouse_double_click(self, event, p) -> bool:
+        return event.button() == Qt.MouseButton.LeftButton
+
+    def key_press(self, event) -> bool:
+        return False
+
+
+class InactiveDialog(QDialog):
+    def __init__(self, zone: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f'{zone} inactive')
+        self.reason = QComboBox()
+        self.reason.addItems(Z.REASONS)
+        self.note = QLineEdit()
+        self.note.setPlaceholderText('why, for whoever reads the inactive file next')
+        form = QFormLayout(self)
+        form.addRow(QLabel(f'{zone} stays built, published and uploaded to, and off the tile servers.'))
+        form.addRow('Reason', self.reason)
+        form.addRow('Note', self.note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+
+class ZonesDock(QDockWidget):
+    def __init__(self, parent=None):
+        super().__init__('Zones', parent)
+        self.setObjectName('zones')
+        body = QWidget()
+        box = QVBoxLayout(body)
+        self.list = QListWidget()
+        self.list.setToolTip('the zones on the server; choose one to see it on the map')
+        box.addWidget(self.list)
+        self.status = QLabel('')
+        self.status.setWordWrap(True)
+        box.addWidget(self.status)
+        self.reload = QPushButton('Reload')
+        self.new = QPushButton('New zone…')
+        self.edit = QPushButton('Edit squares')
+        self.save = QPushButton('Save')
+        self.cancel = QPushButton('Cancel')
+        self.inactive = QPushButton('Inactive…')
+        self.active = QPushButton('Active')
+        row1, row2 = QHBoxLayout(), QHBoxLayout()
+        for b in (self.reload, self.new, self.edit):
+            row1.addWidget(b)
+        for b in (self.save, self.cancel, self.inactive, self.active):
+            row2.addWidget(b)
+        box.addLayout(row1)
+        box.addLayout(row2)
+        self.setWidget(body)
+
+
+class ZoneEditor(QObject):
+    """The panel, the map item and the drop, for the window. ``ask_name``,
+    ``ask_inactive`` and ``runner`` are the tests' to replace."""
+
+    message = Signal(str)
+
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
+        self.window = window
+        self.item = ZonesItem()
+        self.item.setVisible(False)
+        self.dock = ZonesDock(window)
+        self.runner = QThreadPool.globalInstance().start
+        self.opener = None
+        self.ask_name = lambda: _ask_name(window)
+        self.ask_inactive = lambda zone: _ask_inactive(window, zone)
+        self.zones: list[dict] = []
+        self.painter: ZonePainter | None = None
+        self.editing: str | None = None
+        self._jobs: list[Job] = []
+        d = self.dock
+        d.reload.clicked.connect(self.load)
+        d.new.clicked.connect(self.new_zone)
+        d.edit.clicked.connect(lambda: self.start_edit(self.chosen()))
+        d.save.clicked.connect(self.save)
+        d.cancel.clicked.connect(self.stop_edit)
+        d.inactive.clicked.connect(self.make_inactive)
+        d.active.clicked.connect(self.make_active)
+        d.list.currentItemChanged.connect(lambda *_: self._chose())
+        d.visibilityChanged.connect(self._dock_shown)
+        self.update_buttons()
+
+    # ------------------------------------------------------------ plumbing
+    def _kw(self) -> dict:
+        return {} if self.opener is None else {'opener': self.opener}
+
+    def _api(self) -> str:
+        return self.window.settings.url('drop/url')
+
+    def _token(self) -> str:
+        return self.window.settings.token
+
+    @property
+    def admin(self) -> bool:
+        s = self.window.settings
+        return bool(s.token) and s.admin
+
+    def _run(self, fn, done) -> None:
+        job = None
+
+        def finished(answer):
+            self._jobs.remove(job)
+            done(answer)
+
+        def failed(why):
+            self._jobs.remove(job)
+            self.say(f'the drop not reached: {why.splitlines()[0]}')
+        job = Job(fn, finished, failed)
+        self._jobs.append(job)
+        self.runner(job)
+
+    def say(self, text: str) -> None:
+        self.dock.status.setText(text)
+        self.message.emit(text)
+
+    def chosen(self) -> str | None:
+        it = self.dock.list.currentItem()
+        return it.data(Qt.ItemDataRole.UserRole) if it is not None else None
+
+    def update_buttons(self) -> None:
+        d, admin, editing = self.dock, self.admin, self.editing is not None
+        chosen = self.chosen()
+        z = next((z for z in self.zones if z['name'] == chosen), None)
+        for b in (d.new, d.edit, d.save, d.cancel, d.inactive, d.active):
+            b.setVisible(admin)
+        # overlaps are judged against the zones: none read, nothing to judge
+        d.new.setEnabled(admin and not editing and bool(self.zones))
+        d.edit.setEnabled(admin and not editing and z is not None)
+        d.save.setEnabled(editing)
+        d.cancel.setEnabled(editing)
+        d.inactive.setEnabled(admin and not editing and z is not None and not z.get('inactive'))
+        d.active.setEnabled(admin and not editing and z is not None and bool(z.get('inactive')))
+        d.list.setEnabled(not editing)
+        # the squares refused are the other zones' as editing began
+        d.reload.setEnabled(not editing)
+
+    # ------------------------------------------------------------ showing
+    def show(self, on: bool) -> None:
+        self.item.setVisible(on)
+        if on and not self.zones:
+            self.load()
+
+    def _dock_shown(self, on: bool) -> None:
+        if on:
+            self.window.view_actions['view.zones'].setChecked(True)
+
+    def load(self, quiet: bool = False) -> None:
+        """The zones from the drop; ``quiet`` after a change, whose own word
+        stands."""
+        if not quiet:
+            self.say('asking the drop for its zones…')
+
+        def done(answer):
+            if not answer.ok:
+                self.say(f'zones: {answer.why}')
+                return
+            self.set_zones(answer.body.get('zones', []))
+            if not quiet:
+                self.say(f'{len(self.zones)} zones')
+        api = self._api()
+        self._run(lambda: dropclient.zones(api, **self._kw()), done)
+
+    def set_zones(self, zones: list[dict]) -> None:
+        keep = self.chosen()
+        self.zones = sorted(zones, key=lambda z: z['name'])
+        self.item.set_zones(self.zones)
+        lst = self.dock.list
+        lst.blockSignals(True)
+        lst.clear()
+        for z in self.zones:
+            n = len(cells_of(z))
+            text = f"{z['name']} - {n} square{'s' if n != 1 else ''}"
+            if z.get('inactive'):
+                text += f" (inactive: {z['inactive']})"
+            it = QListWidgetItem(text)
+            it.setData(Qt.ItemDataRole.UserRole, z['name'])
+            lst.addItem(it)
+            if z['name'] == keep:
+                lst.setCurrentItem(it)
+        lst.blockSignals(False)
+        self.show_here()
+        self.update_buttons()
+
+    def show_here(self) -> None:
+        ws = self.window.working_set
+        self.item.here = None
+        if ws is not None:
+            self.item.here = next((z['name'] for z in self.zones if ws.centre in cells_of(z)), None)
+        self.item.update()
+
+    def _chose(self) -> None:
+        self.item.chosen = self.chosen()
+        self.item.update()
+        self.update_buttons()
+        z = next((z for z in self.zones if z['name'] == self.item.chosen), None)
+        if z is not None and self.item.isVisible():
+            r = self.item._paths[z['name']].boundingRect()
+            w, n = m.scene_to_lonlat(r.left(), r.top())
+            e, s = m.scene_to_lonlat(r.right(), r.bottom())
+            self.window.map.fit_bounds(w, s, e, n)
+
+    # ------------------------------------------------------------ editing
+    def new_zone(self) -> None:
+        name = self.ask_name()
+        if not name:
+            return
+        if not Z.ZONE.fullmatch(name):
+            self.say(f'{name!r}: a zone is lowercase letters, digits, _ and -, starting with a letter')
+            return
+        if any(z['name'] == name for z in self.zones):
+            self.say(f'{name} is a zone already: choose it and edit its squares')
+            return
+        self.zones.append({'name': name, 'squares': [], 'inactive': None})
+        self.start_edit(name)
+
+    def start_edit(self, name: str | None) -> None:
+        if name is None or not self.admin:
+            return
+        z = next(z for z in self.zones if z['name'] == name)
+        others = set().union(*(cells_of(o) for o in self.zones if o['name'] != name))
+        self.editing = name
+        self.item.setVisible(True)
+        self.window.view_actions['view.zones'].setChecked(True)
+        self.painter = ZonePainter(self.item, cells_of(z), others,
+                                   lambda cells: self.say(f'{name}: {len(cells)} squares - Save to send them'))
+        self._tool, self.window.map.tool = self.window.map.tool, self.painter
+        self.say(f'{name}: click or drag to add squares, ctrl and drag to take them away; then Save')
+        self.update_buttons()
+
+    def stop_edit(self) -> None:
+        if self.editing is None:
+            return
+        if not any(cells_of(z) for z in self.zones if z['name'] == self.editing):
+            self.zones = [z for z in self.zones if z['name'] != self.editing or z['squares']]
+        self.window.map.tool = self._tool
+        self.editing, self.painter = None, None
+        self.item.set_editing(None)
+        self.say('')
+        self.update_buttons()
+
+    def save(self) -> None:
+        if self.editing is None or self.painter is None:
+            return
+        name, cells = self.editing, self.painter.cells
+        if not cells:
+            self.say(f'{name} needs at least one square')
+            return
+        rects = [str(r) for r in Z.rects_for(cells)]
+        api, token = self._api(), self._token()
+
+        def done(answer):
+            if not answer.ok:
+                self.say(f'{name} not saved: {answer.why}')
+                return
+            self.stop_edit()
+            self.say(f'{name} saved: {", ".join(rects)}')
+            self.load(quiet=True)
+        self._run(lambda: dropclient.put_zone(api, token, name, rects, **self._kw()), done)
+
+    def make_inactive(self) -> None:
+        name = self.chosen()
+        got = self.ask_inactive(name) if name else None
+        if got is None:
+            return
+        self._inactive(name, *got)
+
+    def make_active(self) -> None:
+        name = self.chosen()
+        if name:
+            self._inactive(name, None, '')
+
+    def _inactive(self, name: str, reason: str | None, note: str) -> None:
+        api, token = self._api(), self._token()
+
+        def done(answer):
+            if not answer.ok:
+                self.say(f'{name}: {answer.why}')
+                return
+            self.say(f'{name} inactive: {reason}' if reason else f'{name} active again')
+            self.load(quiet=True)
+        self._run(lambda: dropclient.set_inactive(api, token, name, reason, note, **self._kw()), done)
+
+
+def _ask_name(parent) -> str | None:
+    text, ok = QInputDialog.getText(parent, 'New zone', 'Its name - lowercase letters, digits, _ and -:')
+    return text.strip() if ok else None
+
+
+def _ask_inactive(parent, zone: str) -> tuple[str, str] | None:
+    dlg = InactiveDialog(zone, parent)
+    if not dlg.exec():
+        return None
+    return dlg.reason.currentText(), dlg.note.text().strip()
