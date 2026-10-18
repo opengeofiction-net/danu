@@ -163,7 +163,10 @@ def rename(api: str, token: str, path: Path, label: str,
         manifest = mirror.read_manifest(zone_dir)
         entry = manifest.pop(path.name, None)
         if entry is not None:
-            entry['stat'] = [new.stat().st_size, new.stat().st_mtime_ns]
+            # its stat as it was: a rename keeps a file's size and time, so an
+            # untouched file still matches it, and one with edits still
+            # doesn't - taking the edited file's would vouch for edits the
+            # version never had, and an import would overwrite them unasked
             manifest[new.name] = entry
         mirror.write_manifest(zone_dir, manifest)
         path = new

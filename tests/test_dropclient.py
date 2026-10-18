@@ -144,3 +144,17 @@ def test_not_signed_in_and_not_yours_say_why(world):
     assert answer.status == 401 and 'sign in' in answer.why
     answer, _ = C.upload(API, 't-luciano', mine, opener=opener)
     assert answer.status == 403 and 'not yours' in answer.why
+
+
+def test_a_rename_does_not_vouch_for_edits_the_server_never_had(world):
+    """The manifest's stat is what lets an import take a file as untouched:
+    after a rename it must still not match a file with edits."""
+    opener, here, there = world
+    mine = here / 'N20E086_Gobras_City.osm.xz'
+    mine.write_bytes(osm(5))                                            # edits, not sent
+    answer, path = C.rename(API, 't-wangi', mine, 'Gobras', opener=opener)
+    assert answer.ok
+    (there / 'N20E086_Gobras.osm.xz').write_bytes(osm(6))               # somebody else's, since
+    f = mirror.fetch('gobras', here.parent, 'https://unused.example', opener=opener, api=API)
+    assert list(f.changed) == ['N20E086_Gobras.osm.xz'], 'asked about, not overwritten as untouched'
+    f.discard()
