@@ -127,4 +127,7 @@ def test_the_window_shades_a_shared_square_for_its_mapper(window, qtbot):
     assert w.ground.shaded()
     w.settings.roles = ['administrator']
     w.show_ground()
-    assert not w.ground.shaded(), 'an administrator\'s every square is theirs'
+    assert w.ground.shaded(), 'an administrator is shown whose ground it is too'
+    w.settings.token = ''
+    w.show_ground()
+    assert not w.ground.shaded(), 'signed out'

@@ -2,8 +2,9 @@
 is shared with a neighbour, their ground within 2 km of the mapper's in
 amber - in reach - and beyond it in red - not to be drawn. The mapper's own
 ground and the sea are left clear. Drawn from the territories the editor
-already holds (``danu.core.ground``), for the signed-in mapper; nothing for
-an administrator, whose every square is theirs, or for nobody signed in.
+already holds (``danu.core.ground``), for the signed-in mapper -
+administrators too, who may upload anything but are shown whose it is -
+and nothing for nobody signed in.
 """
 
 from __future__ import annotations

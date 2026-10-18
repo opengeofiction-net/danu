@@ -575,7 +575,7 @@ class MainWindow(QMainWindow):
         user = self.settings.user if self.settings.token else ''
         whose = getattr(self, 'view_actions', {}).get('view.ground')
         on = whose is None or whose.isChecked()
-        if ws is None or index is None or not user or self.settings.admin or not on:
+        if ws is None or index is None or not user or not on:
             self.ground.set_ground([])
         else:
             try:

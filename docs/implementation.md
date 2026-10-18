@@ -5975,9 +5975,10 @@ holds: `danu.core.ground` takes the square, the mapper's territories in it
 and everyone else's, in metres about its centre, and with OGR buffers the
 mapper's ground by 2 km - `near`, the neighbour's ground in reach, amber, and
 `far`, beyond, red. `GroundItem` draws it over each square of the working
-set, under the contours. An enclave works, the rings being even-odd. Nothing
-for nobody signed in or an administrator, and **View › Whose ground** turns
-it off. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
+set, under the contours. An enclave works, the rings being even-odd. Shown
+to an administrator as to anyone - their own ground clear - though they may
+upload it all; nothing for nobody signed in, and **View › Whose ground**
+turns it off. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
 square.
 
 GDAL is imported where the shading is drawn, not with the window: the `ui`
