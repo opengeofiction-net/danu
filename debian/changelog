@@ -1,3 +1,21 @@
+danu (1.2.0-1) unstable; urgency=medium
+
+  * Picking many nodes (#201): drag a lasso round them, or Alt-drag a
+    rectangle; Shift adds to what is picked, Ctrl takes away, and Delete
+    deletes them. Nodes of any ways, contours and rivers alike.
+  * What is picked moves with a drag, turns with Shift+Ctrl and scales with
+    Ctrl+Alt, as JOSM does: the keys can change during the drag, and the
+    pointer shows which. A move that would make contours cross is refused.
+  * Picking by level: everything, only the active elevation, or a range.
+  * A redraw never leaves a contour forked, and the checks find forks.
+  * The check for a newer release offers full releases only.
+  * macOS: the hints in the dark theme can be read, and every key in Help
+    is shown with macOS's symbols, Control among them (#212, thanks to
+    patrickmeijer).
+  * macOS: tested on M1, M3 and M4 Macs, up to macOS 27.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sun, 18 Oct 2026 11:00:00 +0100
+
 danu (1.1.0-1) unstable; urgency=medium
 
   * macOS: Danu.app for Apple Silicon, macOS 14 or later, in a .dmg (#194).
