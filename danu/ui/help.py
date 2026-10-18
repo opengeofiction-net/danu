@@ -104,7 +104,7 @@ def mouse(mac: bool | None = None) -> list[tuple[str, str]]:
 _MAC_ORDER = (('Meta', '⌃'), ('Alt', '⌥'), ('Shift', '⇧'), ('Ctrl', '⌘'))
 
 _MOD_ALIASES = {
-    'Control': 'Ctrl',
+    'Control': 'Meta',
     'Cmd': 'Ctrl',
     'Command': 'Ctrl',
     'Option': 'Alt',
