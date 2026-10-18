@@ -104,9 +104,9 @@ class Importer(QObject):
         if self.busy:
             self.message.emit('an import is already running')
             return
-        base = self.window.settings.url('squares/mirror')
-        self.message.emit(f'asking {base} for its zones…')
-        self.job = Job(lambda: mirror.list_zones(base, **self._kw()), self._zones, self._failed)
+        base, api = self.window.settings.url('squares/mirror'), self.window.settings.url('drop/url')
+        self.message.emit('asking the server for its zones…')
+        self.job = Job(lambda: mirror.list_zones(base, api=api, **self._kw()), self._zones, self._failed)
         self.runner(self.job)
 
     def _zones(self, zones: list[str]) -> None:
@@ -117,11 +117,13 @@ class Importer(QObject):
             self.message.emit('' if zones else 'the server lists no zones')
             return
         root, base = self.window.settings.import_root, self.window.settings.url('squares/mirror')
+        api = self.window.settings.url('drop/url')
         job = None
 
         def report(step):
             job.report(step)
-        job = Job(lambda: mirror.fetch(zone, root, base, report=report, **self._kw()), self._fetched, self._failed,
+        job = Job(lambda: mirror.fetch(zone, root, base, report=report, api=api, **self._kw()), self._fetched,
+                  self._failed,
                   on_progress=lambda s: self.message.emit(
                       f'importing {zone}: {s[0]} of {s[1]} squares' + (f' - {s[2]}' if s[2] else '')))
         self.job = job
@@ -162,8 +164,8 @@ class Importer(QObject):
 def summary(zone: str, done: dict[str, list[str]]) -> str:
     parts = []
     for kind, word in (('new', 'new'), ('updated', 'updated'), ('overwritten', 'overwritten'),
-                       ('current', 'up to date'), ('kept', 'kept as here'), ('held', 'held back'),
-                       ('gone', 'no longer on the server')):
+                       ('current', 'up to date'), ('renamed', 'renamed'), ('kept', 'kept as here'),
+                       ('held', 'held back'), ('gone', 'no longer on the server')):
         if done.get(kind):
             parts.append(f'{len(done[kind])} {word}')
     line = f'imported {zone}: ' + (', '.join(parts) if parts else 'nothing listed')

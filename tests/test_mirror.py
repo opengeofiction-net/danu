@@ -197,3 +197,134 @@ def test_a_manifest_a_killed_write_left_is_cleared(server, tmp_path):
     (tmp_path / 'gobras' / '.manifest-xyz').write_text('{')
     run(server, tmp_path)
     assert not list((tmp_path / 'gobras').glob('.manifest-*'))
+
+
+# ------------------------------------------------------------------ from the drop (#190, N5a)
+
+API = 'https://data.example/dem/api'
+
+
+class Drop(Server):
+    """The drop's API in front of the same zones, and the published index
+    behind it - or, ``down``, the API not answering."""
+
+    def __init__(self, zones, down=False):
+        super().__init__(zones)
+        self.down = down
+
+    def __call__(self, req, timeout=None):
+        import hashlib
+        import json
+        url = req.full_url
+        if not url.startswith(API):
+            return super().__call__(req, timeout)
+        self.asked.append(url)
+        if self.down:
+            raise OSError('connection refused')
+        path = url[len(API) + 1:].split('/')
+        if path == ['zones']:
+            return io.BytesIO(json.dumps({'zones': [{'name': z} for z in self.zones]}).encode())
+        zone = path[1]
+        squares = {n: d for n, d in self.zones[zone].items() if n != 'EMPTY.osm.xz'}
+        if len(path) == 2:
+            held = [{'file': n, 'size': len(d), 'sha256': hashlib.sha256(d).hexdigest()} for n, d in squares.items()]
+            return io.BytesIO(json.dumps({'name': zone, 'held': held}).encode())
+        return io.BytesIO(squares[path[2]])
+
+
+def drop_run(server, root, overwrite=(), keep=()):
+    f = mirror.fetch('gobras', root, BASE, opener=server, api=API)
+    return f, mirror.settle(f, set(overwrite), set(keep))
+
+
+@pytest.fixture
+def drop(server):
+    return Drop(server.zones)
+
+
+def test_the_zones_are_the_drops_and_the_index_when_it_is_down(drop):
+    assert mirror.list_zones(BASE, opener=drop, api=API) == ['alved', 'gobras']
+    assert drop.asked == [f'{API}/zones']
+    drop.down = True
+    assert mirror.list_zones(BASE, opener=drop, api=API) == ['alved', 'gobras']
+    assert drop.asked[-1] == f'{BASE}/'
+
+
+def test_from_the_drop_the_squares_and_no_template(drop, tmp_path):
+    f, done = drop_run(drop, tmp_path)
+    assert f.via == 'drop' and sorted(done['new']) == ['N20E086_Gobras_City.osm.xz', 'N20E087_Artana.osm.xz']
+    assert (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').read_bytes() == b'artana v1'
+    assert f'{API}/zones/gobras/N20E087_Artana.osm.xz' in drop.asked, 'the working copy\'s file'
+
+
+def test_bytes_here_already_are_not_fetched(drop, tmp_path):
+    """No manifest, but the drop's hash matches: nothing to fetch, no question."""
+    (tmp_path / 'gobras').mkdir()
+    (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').write_bytes(b'artana v1')
+    f, done = drop_run(drop, tmp_path)
+    assert 'N20E087_Artana.osm.xz' in done['current']
+    assert f'{API}/zones/gobras/N20E087_Artana.osm.xz' not in drop.asked
+
+
+def test_a_square_renamed_there_replaces_the_old_name_here(drop, tmp_path):
+    drop_run(drop, tmp_path)
+    z = drop.zones['gobras']
+    z['N20E086_Gobras.osm.xz'] = z.pop('N20E086_Gobras_City.osm.xz')          # the same bytes, renamed
+    z['N20E087_Artana_Bay.osm.xz'] = b'artana v2'                              # renamed and changed
+    del z['N20E087_Artana.osm.xz']
+    drop.asked.clear()
+    f, done = drop_run(drop, tmp_path)
+    here = sorted(p.name for p in (tmp_path / 'gobras').glob('N*.osm.xz'))
+    assert here == ['N20E086_Gobras.osm.xz', 'N20E087_Artana_Bay.osm.xz']
+    assert (tmp_path / 'gobras' / 'N20E087_Artana_Bay.osm.xz').read_bytes() == b'artana v2'
+    assert sorted(done['renamed']) == ['N20E086_Gobras.osm.xz', 'N20E087_Artana_Bay.osm.xz'] and not done['gone']
+    assert f'{API}/zones/gobras/N20E086_Gobras.osm.xz' not in drop.asked, 'the same bytes: moved, not fetched'
+    m = mirror.read_manifest(tmp_path / 'gobras')
+    assert 'N20E086_Gobras_City.osm.xz' not in m and 'N20E087_Artana.osm.xz' not in m
+
+
+def test_a_square_renamed_there_and_changed_here_is_asked_about(drop, tmp_path):
+    drop_run(drop, tmp_path)
+    (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').write_bytes(b'my edits')
+    z = drop.zones['gobras']
+    z['N20E087_Artana_Bay.osm.xz'] = b'artana v2'
+    del z['N20E087_Artana.osm.xz']
+    f, done = drop_run(drop, tmp_path)
+    assert list(f.changed) == ['N20E087_Artana_Bay.osm.xz'] and done['kept'] == ['N20E087_Artana_Bay.osm.xz']
+    assert (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').read_bytes() == b'my edits'
+    assert not (tmp_path / 'gobras' / 'N20E087_Artana_Bay.osm.xz').exists()
+    f, done = drop_run(drop, tmp_path, overwrite={'N20E087_Artana_Bay.osm.xz'})
+    assert done['overwritten'] == ['N20E087_Artana_Bay.osm.xz']
+    assert not (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').exists()
+
+
+def test_a_renamed_square_open_with_edits_is_held(drop, tmp_path):
+    drop_run(drop, tmp_path)
+    z = drop.zones['gobras']
+    z['N20E086_Gobras.osm.xz'] = z.pop('N20E086_Gobras_City.osm.xz')
+    _f, done = drop_run(drop, tmp_path, keep={'N20E086_Gobras_City.osm.xz'})
+    assert done['held'] == ['N20E086_Gobras.osm.xz']
+    assert (tmp_path / 'gobras' / 'N20E086_Gobras_City.osm.xz').exists()
+    assert not (tmp_path / 'gobras' / 'N20E086_Gobras.osm.xz').exists()
+
+
+def test_the_drop_down_the_published_index_is_read(drop, tmp_path):
+    drop.down = True
+    f, done = drop_run(drop, tmp_path)
+    assert f.via == 'published' and 'EMPTY.osm.xz' in done['new']
+
+
+def test_the_template_mirrored_before_is_not_said_gone_from_the_drop(drop, tmp_path):
+    run(drop, tmp_path)                                    # from the index: EMPTY.osm.xz with it
+    _f, done = drop_run(drop, tmp_path)
+    assert done['gone'] == [] and (tmp_path / 'gobras' / 'EMPTY.osm.xz').exists()
+
+
+def test_a_square_renamed_and_changed_there_open_with_edits_is_held(drop, tmp_path):
+    drop_run(drop, tmp_path)
+    z = drop.zones['gobras']
+    del z['N20E087_Artana.osm.xz']
+    z['N20E087_Artana_Bay.osm.xz'] = b'artana v2'
+    _f, done = drop_run(drop, tmp_path, keep={'N20E087_Artana.osm.xz'})
+    assert done['held'] == ['N20E087_Artana_Bay.osm.xz'] and not done['updated']
+    assert (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').read_bytes() == b'artana v1'

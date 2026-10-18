@@ -18,6 +18,15 @@ was not touched here, and is replaced by a newer one without asking; one
 that does not, or that the manifest does not know, was - and a file the
 server has the same bytes of is no question at all. A file the server no
 longer has is left, and said. Nothing here is Qt's.
+
+**From the data drop** (#190, N5a): given its API, the listing and the
+files are the working copy's - the published copy can be a day behind it -
+each square listed with its SHA-256, so a square whose bytes are here
+already is not fetched at all. A square is matched by its cell: renamed on
+the server, ``N20E086_Gobras_City`` to ``N20E086_Gobras``, the copy here
+under the old name is replaced by - or, the same bytes, renamed to - the
+new, and the old name goes. The API not reached, the published copy's
+index is read as before, which is how Import works until the drop is up.
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import USER_AGENT
+from .square import SquareName
 
 URL = 'https://data.opengeofiction.net/dem/osm-squares'
 MANIFEST = '.danu-mirror.json'
@@ -59,6 +69,13 @@ def files(html: str) -> dict[str, tuple[int, str]]:
         if name.endswith('.osm.xz') and m.group(3) != '-':
             out[name] = (int(m.group(3)), m.group(2))
     return out
+
+
+def _cell(name: str) -> SquareName | None:
+    try:
+        return SquareName.from_filename(name)
+    except ValueError:
+        return None
 
 
 def sha256(path: Path) -> str:
@@ -93,7 +110,9 @@ class Fetched:
     """What the worker found and fetched for a zone."""
     zone: str
     zone_dir: Path
-    server: dict[str, tuple[int, str]]            # name: (size, date), as listed
+    server: dict[str, tuple[int, str]]            # name: (size, date - or sha256 from the drop), as listed
+    via: str = 'published'                         # 'drop' when the drop's API answered
+    renamed: dict[str, str] = field(default_factory=dict)     # name: the name here, for a square renamed there
     new: dict[str, Path] = field(default_factory=dict)        # not here: fetched, to put in place
     updated: dict[str, Path] = field(default_factory=dict)    # unchanged here, newer there
     changed: dict[str, Path] = field(default_factory=dict)    # changed here, and different there: asked
@@ -112,30 +131,58 @@ def _get(url: str, opener, timeout: float) -> bytes:
         return r.read()
 
 
-def list_zones(base: str = URL, opener=urllib.request.urlopen, timeout: float = TIMEOUT_S) -> list[str]:
+def list_zones(base: str = URL, opener=urllib.request.urlopen, timeout: float = TIMEOUT_S,
+               api: str | None = None) -> list[str]:
+    """The zones: the drop's, or not reached, the published index's."""
+    if api:
+        try:
+            data = json.loads(_get(f'{api.rstrip("/")}/zones', opener, timeout))
+            return sorted(str(z['name']) for z in data['zones'])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     return zones(_get(f'{base.rstrip("/")}/', opener, timeout).decode('utf-8', 'replace'))
 
 
+def _drop_listing(api: str, zone: str, opener, timeout: float) -> tuple[dict[str, tuple[int, str]], str] | None:
+    """A zone's squares from the drop - name: (size, sha256) - and where
+    their files are; None if it isn't reached, or doesn't know the zone."""
+    url = f'{api.rstrip("/")}/zones/{urllib.parse.quote(zone)}'
+    try:
+        held = json.loads(_get(url, opener, timeout))['held']
+        return {str(h['file']): (int(h['size']), str(h['sha256'])) for h in held}, url + '/'
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen, report=None,
-          timeout: float = TIMEOUT_S) -> Fetched:
-    """Phase one, on a worker: the zone's index, and what differs fetched
-    beside the copy here as ``.part-`` files. ``report((done, of, name))``
-    as it goes."""
-    zone_url = f'{base.rstrip("/")}/{urllib.parse.quote(zone)}/'
-    server = files(_get(zone_url, opener, timeout).decode('utf-8', 'replace'))
+          timeout: float = TIMEOUT_S, api: str | None = None) -> Fetched:
+    """Phase one, on a worker: the zone's listing - the drop's, or the
+    published index's - and what differs fetched beside the copy here as
+    ``.part-`` files. ``report((done, of, name))`` as it goes."""
+    listed = _drop_listing(api, zone, opener, timeout) if api else None
+    if listed is not None:
+        server, zone_url, via = *listed, 'drop'
+    else:
+        zone_url = f'{base.rstrip("/")}/{urllib.parse.quote(zone)}/'
+        server, via = files(_get(zone_url, opener, timeout).decode('utf-8', 'replace')), 'published'
     zone_dir = root / zone
     zone_dir.mkdir(parents=True, exist_ok=True)
     for stale in (*zone_dir.glob(PART + '*'), *zone_dir.glob('.manifest-*')):    # a mirror killed part way
         stale.unlink(missing_ok=True)
     manifest = read_manifest(zone_dir)
-    out = Fetched(zone, zone_dir, server)
+    out = Fetched(zone, zone_dir, server, via=via)
     try:
         _fetch_files(out, zone_url, manifest, opener, report, timeout)
     except BaseException:
         out.discard()
         raise
-    # only what a mirror put here: a square of the mapper's own is not the server's to have dropped
-    out.gone = sorted(p.name for p in zone_dir.glob('*.osm.xz') if p.name not in server and p.name in manifest)
+    # only what a mirror put here: a square of the mapper's own is not the
+    # server's to have dropped. Nor is one renamed there, nor - the drop
+    # listing squares alone - the zone's EMPTY.osm.xz
+    sources = set(out.renamed.values())
+    out.gone = sorted(p.name for p in zone_dir.glob('*.osm.xz')
+                      if p.name not in server and p.name in manifest and p.name not in sources
+                      and (via == 'published' or _cell(p.name) is not None))
     if report is not None:
         report((len(server), len(server), ''))
     return out
@@ -143,14 +190,21 @@ def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen,
 
 def _fetch_files(out: Fetched, zone_url: str, manifest: dict, opener, report, timeout: float) -> None:
     server, zone_dir = out.server, out.zone_dir
-    for k, (name, (size, date)) in enumerate(sorted(server.items())):
+    # the squares here by cell, for one renamed there
+    by_cell = {c: p.name for p in zone_dir.glob('*.osm.xz') if p.name not in server and (c := _cell(p.name))}
+    for k, (name, (size, stamp)) in enumerate(sorted(server.items())):
         if report is not None:
             report((k, len(server), name))
         here = zone_dir / name
-        known = manifest.get(name) or {}
+        if not here.exists() and (old := by_cell.get(_cell(name))) is not None:
+            out.renamed[name] = old
+            here = zone_dir / old
+        known = manifest.get(here.name) or {}
         mine = _hash_here(here, known)
         untouched = mine is not None and mine == known.get('sha256')
-        if untouched and known.get('server') == [size, date]:
+        # the drop says its hash: the same bytes here need nothing fetched
+        theirs = stamp if out.via == 'drop' else None
+        if (untouched and known.get('server') == [size, stamp]) or (theirs is not None and theirs == mine):
             out.current.append(name)                       # as it was mirrored, and the server's the same
             out.hashes[name] = mine
             continue
@@ -207,17 +261,36 @@ def settle(f: Fetched, overwrite: set[str], keep: set[str] = frozenset()) -> dic
     with its size and time here. Answers what was done, by kind."""
     manifest = read_manifest(f.zone_dir)
     done: dict[str, list[str]] = {'new': [], 'updated': [], 'overwritten': [], 'kept': [], 'held': [],
-                                  'current': [], 'gone': list(f.gone)}
+                                  'current': [], 'renamed': [], 'gone': list(f.gone)}
+
+    def drop_old(name: str) -> None:
+        """A square renamed there: its old name here goes."""
+        old = f.renamed.get(name)
+        if old is not None and old != name:
+            (f.zone_dir / old).unlink(missing_ok=True)
+            manifest.pop(old, None)
+            done['renamed'].append(name)
+
     for kind, parts in (('new', f.new), ('updated', f.updated), ('overwritten', f.changed)):
         for name, part in parts.items():
-            if name in keep or (kind == 'overwritten' and name not in overwrite):
+            held = name in keep or f.renamed.get(name) in keep
+            if held or (kind == 'overwritten' and name not in overwrite):
                 part.unlink(missing_ok=True)
-                done['held' if name in keep else 'kept'].append(name)
+                done['held' if held else 'kept'].append(name)
                 continue
             os.replace(part, f.zone_dir / name)
             manifest[name] = _entry(f, name)
+            drop_old(name)
             done[kind].append(name)
     for name in f.current:
+        old = f.renamed.get(name)
+        if old is not None:
+            if old in keep:
+                done['held'].append(name)
+                continue
+            os.replace(f.zone_dir / old, f.zone_dir / name)     # the same bytes, under the new name
+            manifest.pop(old, None)
+            done['renamed'].append(name)
         manifest[name] = _entry(f, name)
         done['current'].append(name)
     write_manifest(f.zone_dir, manifest)
