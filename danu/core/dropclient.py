@@ -111,6 +111,27 @@ def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int) -> Pa
     return new
 
 
+def zones(api: str, opener=urllib.request.urlopen) -> Answer:
+    """The zones, their rectangles, and the reason any is inactive."""
+    return _ask('GET', f'{api.rstrip("/")}/zones', '', opener, timeout=60)
+
+
+def put_zone(api: str, token: str, zone: str, rects: list[str], opener=urllib.request.urlopen) -> Answer:
+    """A zone made, or its squares changed - an administrator's."""
+    return _ask('PUT', f'{api.rstrip("/")}/zones/{urllib.parse.quote(zone)}', token, opener,
+                json.dumps({'squares': rects}).encode(), {'Content-Type': 'application/json'}, timeout=60)
+
+
+def set_inactive(api: str, token: str, zone: str, reason: str | None, note: str = '',
+                 opener=urllib.request.urlopen) -> Answer:
+    """A zone inactive for ``reason``, or with None active again."""
+    url = f'{api.rstrip("/")}/zones/{urllib.parse.quote(zone)}/inactive'
+    if reason is None:
+        return _ask('DELETE', url, token, opener, timeout=60)
+    return _ask('PUT', url, token, opener, json.dumps({'reason': reason, 'note': note}).encode(),
+                {'Content-Type': 'application/json'}, timeout=60)
+
+
 def square_info(api: str, square: SquareName, token: str = '', opener=urllib.request.urlopen) -> Answer:
     return _ask('GET', f'{api.rstrip("/")}/squares/{square.name}', token, opener, timeout=60)
 

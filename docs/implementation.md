@@ -6045,3 +6045,36 @@ its file for the square was under the old name.
 
 Help's getting started says how to upload in place of the email address;
 Help:Danu on the wiki changes when the drop goes live (N3).
+
+## N6, the zone map (#190)
+
+**View › Zones** draws the drop's zones (`GET /zones`) for anyone, each
+zone's squares outlined as one shape with its name at the middle; the
+**Zones** panel lists them, and choosing one frames it. `ZonesItem` takes
+the whole world as its rect, as the graticule does: a name is drawn at a
+size in pixels and reaches past a small zone, and Qt cut it short at the
+zone's own rect.
+
+**An administrator** signed in gets the panel's buttons. **Edit squares**
+puts a `ZonePainter` in the map's tool slot, the editor's put back after: a
+press and a drag mark a rectangle of whole squares, added as the button lets
+go - ctrl, taken away - and the squares another zone holds are shown red and
+never taken. **Save** sends the squares as `zones.rects_for` writes them:
+each row's runs, stacked where the rows above run alike, so a block is one
+rectangle and an L two - and a zone across the antimeridian a rectangle each
+side, as the file wants it. **New zone…** asks a name and starts it empty;
+**Inactive…** a reason, from danu-build's, and a note. The server checks it
+all again and its word is said. New zone waits for the zones to be read:
+without them there is no overlap to judge by.
+
+**The wiki's colours.** The topo layer's map on the wiki
+(OpenGeofiction:Topo layer) styles zones and squares from the template
+`danu.report.zones_to_multimap` writes; the styles are `danu.core.topo_style`
+now, which the template and the editor both draw with - the template
+checked the same as the one published. Zones as the wiki has them: blue, an
+inactive one grey and filled. The working set's square frames take a
+square's colour by the report's own test, `topo_style.square_class` - green
+drawn, orange a coastline only, grey blank - and its line's weight and
+opacity; not its fill, a 10% wash over every square colouring the ground and
+the contours in their level's colour under it. The class is kept per square
+and worked out again when its ways or nodes come or go.

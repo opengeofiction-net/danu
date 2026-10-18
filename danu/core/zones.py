@@ -151,6 +151,38 @@ class Zones:
         return Zones('\n'.join(lines))
 
 
+def rects_for(cells) -> list[Rect]:
+    """Squares as rectangles, few of them: each row's runs of squares side by
+    side, then runs alike in the rows above stacked onto them. What the zone
+    map draws becomes what the ``zones`` file says. A zone across the
+    antimeridian comes out a rectangle each side, as it must be written."""
+    rows: dict[int, list[int]] = {}
+    for c in cells:
+        rows.setdefault(c.lat, []).append(c.lon)
+    runs: list[tuple[int, int, int]] = []            # (lat, west, east)
+    for lat, lons in sorted(rows.items()):
+        lons.sort()
+        start = prev = lons[0]
+        for lon in lons[1:]:
+            if lon != prev + 1:
+                runs.append((lat, start, prev))
+                start = lon
+            prev = lon
+        runs.append((lat, start, prev))
+    open_: dict[tuple[int, int], list[int]] = {}     # (west, east) -> [south, north] still growing
+    done: list[tuple[int, int, int, int]] = []
+    for lat, w, e in runs:
+        grow = open_.get((w, e))
+        if grow is not None and grow[1] == lat - 1:
+            grow[1] = lat
+        else:
+            if grow is not None:
+                done.append((w, grow[0], e, grow[1]))
+            open_[(w, e)] = [lat, lat]
+    done += [(w, s, e, n) for (w, e), (s, n) in open_.items()]
+    return [Rect(SquareName(w, s), SquareName(e, n)) for w, s, e, n in sorted(done, key=lambda r: (r[1], r[0]))]
+
+
 def seed(squares_dir: str | Path, report=None) -> Zones:
     """``zones`` for the zones that exist: one rectangle each, round the
     squares each holds. Raises where two would overlap - an admin draws

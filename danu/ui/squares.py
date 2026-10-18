@@ -1,7 +1,11 @@
 """The working set's squares, drawn as squares.
 
 An outline round each degree in the set, the centre one heavier, and the
-squares nobody has drawn hatched, so the grid is always the full grid and a
+squares nobody has drawn hatched, outlined in the wiki's colours for a
+square (``danu.core.topo_style``, as OpenGeofiction:Topo layer draws them):
+green with contours, orange a coastline only, grey blank. Its outlines, not
+its fills: a wash over every square would colour the ground and the
+contours drawn in their level's colour, so the grid is always the full grid and a
 gap in it is visible as a gap rather than as nothing. Names are written in
 each square while a degree is small enough on screen to need naming, and
 move to the corner once it is not.
@@ -13,11 +17,13 @@ transform, which is what makes hatching usable at every zoom.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..core.square import WorkingSet
+from ..core.topo_style import SQUARE_BLANK, square_class
 from . import mercator as m
+from . import topo_style as style
 from .mapview import visible_rect
 
 NAME_CENTRED_BELOW_PX = 420.0     # a degree narrower than this gets its name in the middle
@@ -36,10 +42,12 @@ class SquaresItem(QGraphicsItem):
         self.working_set: WorkingSet | None = None
         self._bounds = QRectF()
         self.drawn_names = 0
+        self._classes: dict[int, tuple[tuple[int, int], str]] = {}
 
     def set_working_set(self, ws: WorkingSet | None):
         self.prepareGeometryChange()
         self.working_set = ws
+        self._classes.clear()                # ids are reused once a set's squares go
         if ws is None:
             self._bounds = QRectF()
         else:
@@ -71,10 +79,6 @@ class SquaresItem(QGraphicsItem):
             return
         scale = painter.worldTransform().m11()
         degree_px = m.WORLD / 360.0 * scale
-        outline = QPen(QColor(60, 60, 60, 160), 1.0)
-        outline.setCosmetic(True)
-        centre_pen = QPen(QColor(20, 20, 20, 220), 2.2)
-        centre_pen.setCosmetic(True)
         hatch = QBrush(QColor(120, 120, 120, 110), Qt.BrushStyle.BDiagPattern)
         font = QFont()
         font.setPointSize(10)
@@ -83,13 +87,26 @@ class SquaresItem(QGraphicsItem):
             r = self.square_rect(ws, name)
             if not r.intersects(rect):
                 continue
+            cls = self._class(sq)
             if not sq.present:
                 painter.fillRect(r, hatch)
-            painter.setPen(centre_pen if name == ws.centre else outline)
+            painter.setPen(style.pen(cls, 2.0 if name == ws.centre else 0.0))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(r)
             if degree_px >= NAME_MIN_PX:
                 self._name(painter, r, name, sq.present, scale, degree_px, font)
+
+    def _class(self, sq) -> str:
+        """The square's class, worked out again only when its ways or nodes
+        come or go: a coastline-only square is read to the end to know it."""
+        if not sq.present:
+            return SQUARE_BLANK
+        key = (len(sq.ways), len(sq.nodes))
+        hit = self._classes.get(id(sq))
+        if hit is None or hit[0] != key:
+            hit = (key, square_class(sq))
+            self._classes[id(sq)] = hit
+        return hit[1]
 
     def _name(self, painter, r: QRectF, name, present: bool, scale: float, degree_px: float, font: QFont):
         text = str(name) + ('' if present or degree_px < ABSENT_WORD_MIN_PX else '  (absent)')
