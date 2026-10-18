@@ -535,7 +535,7 @@ class ProfileDock(QDockWidget):
                            'ends it - or drag a straight one. Esc clears it. A click on the profile shows '
                            'the place on the map.')
         self.hint.setWordWrap(True)
-        self.hint.setStyleSheet('color: palette(mid);')
+        self.hint.setStyleSheet('color: palette(placeholderText);')
         box.addLayout(top)
         box.addWidget(self.plot, 1)
         box.addWidget(self.hint)

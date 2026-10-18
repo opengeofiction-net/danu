@@ -103,10 +103,20 @@ def mouse(mac: bool | None = None) -> list[tuple[str, str]]:
 # the modifiers as macOS writes them and in the order it does: Qt's Ctrl is ⌘
 _MAC_ORDER = (('Meta', '⌃'), ('Alt', '⌥'), ('Shift', '⇧'), ('Ctrl', '⌘'))
 
+_MOD_ALIASES = {
+    'Control': 'Ctrl',
+    'Cmd': 'Ctrl',
+    'Command': 'Ctrl',
+    'Option': 'Alt',
+}
 
 def _mac_modifiers(text: str) -> str:
+    if '+' not in text:
+        return text
     *mods, rest = text.split('+')
-    return ''.join(sym for name, sym in _MAC_ORDER if name in mods) + rest
+    # Normalize aliases, then let _MAC_ORDER do the heavy lifting cleanly
+    normalized_mods = {_MOD_ALIASES.get(m, m) for m in mods}
+    return ''.join(sym for name, sym in _MAC_ORDER if name in normalized_mods) + rest
 
 
 _BOLD_KEY = re.compile(r'\*\*((?:(?:Ctrl|Alt|Shift|Meta)\+)+[A-Za-z0-9]+)\*\*')

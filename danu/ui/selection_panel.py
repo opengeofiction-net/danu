@@ -379,7 +379,7 @@ class SelectionPanel(QDockWidget):
         # over the thing they were told they could not use
         self.why = QLabel()
         self.why.setWordWrap(True)
-        self.why.setStyleSheet('color: palette(mid);')
+        self.why.setStyleSheet('color: palette(placeholderText);')
         self.where = QLabel()
         self.where.setWordWrap(True)
         self.tags = QLabel()
