@@ -4,8 +4,9 @@ on:
   push:
     branches: [main]
     # a release's tag: only the UI on pip's PySide6 on Windows - see the ui
-    # job. The rest ran on the same commit when it reached main; each of
-    # those jobs is skipped on a tag
+    # job. A release is tagged on main, where the rest ran on the same
+    # commit; each of those jobs is skipped when a tag is pushed, and run by
+    # hand on a tag they all run
     tags: ['v*']
   pull_request:
   # and by hand, Actions > CI > Run workflow, the same
@@ -26,7 +27,7 @@ jobs:
   # submodule: it reads the source and runs nothing, so a second platform would
   # answer the same question twice.
   lint:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +41,7 @@ jobs:
   # as the packages have it; that the pure logic imports with no GDAL is
   # asked of Linux alone now
   tests:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     steps:
       # with the submodule: test_params holds the library version this code
@@ -69,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.ref_type == 'tag' && fromJSON('["windows-latest"]') || github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
+        os: ${{ github.event_name == 'push' && github.ref_type == 'tag' && fromJSON('["windows-latest"]') || github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +104,7 @@ jobs:
   # test_golden_surface, which drives the server's bash pipeline and has no
   # part in the desktop.
   windows-stack:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: windows-latest
     defaults:
       run:
@@ -199,7 +200,7 @@ jobs:
   # which has no OpenMP of its own, so conda-forge's llvm-openmp provides it.
   # Then the suites, as windows-stack runs them.
   macos-stack:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -256,7 +257,7 @@ jobs:
   # GDAL and a reference surface, so it is Linux only and skips cleanly until
   # the fixture exists.
   golden:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -291,7 +292,7 @@ jobs:
   # was added: a check that asked for OGR's in-memory driver by its 3.11 name,
   # and tests that 6.8's QAction.menu() leaves holding a deleted menu.
   debian:
-    if: github.ref_type != 'tag'
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'tag') }}
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
