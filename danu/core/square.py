@@ -33,6 +33,9 @@ from xml.etree import ElementTree
 # name - N18E088_Katyapura - which is for people; only the name is data
 _NAME = re.compile(r'^([NS])(\d{2})([EW])(\d{3})$')
 _FILE = re.compile(r'([NS]\d{2}[EW]\d{3})(?:_[^.]+)?\.osm(?:\.xz)?$')
+# a label the data drop (#190) accepts: no dot, which would end it early, and
+# short enough to read in a list. Shown with its underscores as spaces
+LABEL = re.compile(r'[A-Za-z0-9_-]{1,64}')
 
 
 @dataclass(frozen=True, order=True)
@@ -65,6 +68,15 @@ class SquareName:
         if not m:
             raise ValueError(f'{base!r}: not a square file, want N42E017[_Label].osm.xz')
         return cls.parse(m.group(1))
+
+    def filename(self, label: str = '') -> str:
+        """The square's file: ``N18E088_Katyapura.osm.xz``, or with no label
+        ``N18E088.osm.xz``. Raises on a label LABEL does not take."""
+        if not label:
+            return f'{self.name}.osm.xz'
+        if not LABEL.fullmatch(label):
+            raise ValueError(f'{label!r}: a label is letters, digits, _ and -, up to 64')
+        return f'{self.name}_{label}.osm.xz'
 
     @property
     def name(self) -> str:
@@ -345,6 +357,16 @@ def xml_version(elem) -> int | None:
     or an answer asked for no metadata - or one that is not a number."""
     v = elem.get('version')
     return int(v) if v is not None and v.isdigit() else None
+
+
+def label_of(filename: str | os.PathLike) -> str:
+    """``N18E088_Katyapura.osm.xz`` -> ``Katyapura``; no label, ''. Raises
+    on anything that is not a square file, as ``SquareName.from_filename``."""
+    base = os.path.basename(os.fspath(filename))
+    m = _FILE.match(base)
+    if not m:
+        raise ValueError(f'{base!r}: not a square file, want N42E017[_Label].osm.xz')
+    return base[len(m.group(1)):].split('.', 1)[0].removeprefix('_')
 
 
 def list_squares(zone_dir: str | os.PathLike, compressed_only: bool = False) -> dict[SquareName, Path]:

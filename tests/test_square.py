@@ -584,3 +584,18 @@ def test_a_lakes_outline_with_a_level_is_water_and_a_thalweg_with_one_a_contour(
     sq.ways[13] = Way(id=13, refs=[2, 3], tags={'ele': '100', 'danu:fill': 'relation/1'})
     sq.ways[14] = Way(id=14, refs=[1, 3], tags={'ele': '75'})
     assert {w.id for w in sq.contours()} == {12, 14}
+
+
+def test_a_square_file_with_and_without_a_label():
+    from danu.core.square import label_of
+    n = SquareName.parse('N18E088')
+    assert n.filename() == 'N18E088.osm.xz' and n.filename('Katyapura') == 'N18E088_Katyapura.osm.xz'
+    assert n.filename('Bishop-Bureau_2') == 'N18E088_Bishop-Bureau_2.osm.xz'
+    for bad in ('a.b', 'with space', 'x' * 65, 'é'):
+        with pytest.raises(ValueError):
+            n.filename(bad)
+    assert label_of('zone/N18E088_Katyapura.osm.xz') == 'Katyapura' and label_of('N18E088.osm.xz') == ''
+    assert label_of('S42E142_Bishop-Bureau.osm.xz') == 'Bishop-Bureau'
+    for not_square in ('EMPTY.osm.xz', 'N18E088_Katyapura.mine.osm.xz', 'S01W145_lon-145.00_x.osm.xz'):
+        with pytest.raises(ValueError):
+            label_of(not_square)

@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from danu.core import territory as T
 
 # the published geometry is [lat, lon]; one entry a bare ring, one a list of
@@ -95,3 +97,57 @@ def test_before_the_records_are_read_every_polygon_is_unknown():
     idx = T.TerritoryIndex(T.parse_geometry(json.dumps({'11': [[-5, -5], [-5, 15], [15, 15], [15, -5]]})), {})
     (t,) = idx.under((2, 2, 3, 3))
     assert t.describe() == 'unknown territory (relation 11)'
+
+
+# the data drop's permission (#190)
+
+def test_editors_are_the_owners_and_the_dem_delegates_trimmed():
+    a = T.parse_attributes(json.dumps([
+        {'rel': 1, 'owner': 'lankusiek; Mie; Poissott', 'constraints': ['Desert', 'dem:Alice; Bob', 'DEM:Carol']},
+        {'rel': 2, 'owner': 'Kevin J', 'constraints': ['Mountains-S', 7, None]},
+        {'rel': 3, 'owner': '', 'constraints': 'not a list'},
+    ]))
+    assert a[1].editors == {'lankusiek', 'Mie', 'Poissott', 'Alice', 'Bob', 'Carol'}
+    assert a[2].editors == {'Kevin J'} and a[2].constraints == ('Mountains-S',)
+    assert a[3].editors == frozenset() and a[3].constraints == ()
+    # describe's warning goes by them too
+    t = T.Territory(9, 'X1', 'Ex', 'owned', 'Luciano', ('dem:wangi',))
+    assert T.describe([t], 'wangi')[1] is False and T.describe([t], 'Wangi')[1] is True
+
+
+def test_shares_are_exact_holes_out_and_slivers_dropped():
+    idx = index()
+    assert idx.shares((2, 2, 3, 3)) == {1: 1.0}
+    sh = idx.shares((9.5, 2, 10.5, 3))
+    assert sh == pytest.approx({1: 0.5, 2: 0.5})
+    assert idx.shares((21, 21, 29, 29)) == pytest.approx({3: (64 - 36) / 64}), 'the hole is not Three'
+    assert idx.shares((23, 23, 27, 27)) == {}, 'a square wholly in the hole'
+    # a neighbour reaching half a metre into the square is a sliver, not a claim
+    assert idx.shares((10 - 5e-6, 2, 11 - 5e-6, 3)) == {2: pytest.approx(1 - 5e-6)}
+
+
+def test_under_puts_the_centre_first_then_the_larger_share():
+    idx = index()
+    assert [t.name for t in idx.under((9.4, 2, 10.4, 3))] == ['One', 'Two']
+    assert [t.name for t in idx.under((9.8, 2, 11.8, 3))] == ['Two', 'One']
+    assert [t.name for t in idx.under((-0.9, 2, 0.1, 3))] == ['One'], 'centre at sea: by share'
+
+
+def test_permission_yes_partial_no():
+    idx = index()
+    assert idx.permission((2, 2, 3, 3), 'Luciano').level == T.YES
+    assert idx.permission((-0.5, 2, 0.5, 3), 'Luciano').level == T.YES, 'the sea counts for nobody'
+    p = idx.permission((9.5, 2, 10.5, 3), 'Luciano')
+    assert p.level == T.PARTIAL and [t.name for t in p.mine] == ['One'] and [t.name for t in p.others] == ['Two']
+    assert idx.permission((9.5, 2, 10.5, 3), 'admin').level == T.PARTIAL, 'admin the owner, not the role'
+    assert idx.permission((2, 2, 3, 3), 'wangi').level == T.NO
+    assert idx.permission((2, 2, 3, 3), '').level == T.NO
+    assert idx.permission((40, 40, 41, 41), 'Luciano').level == T.NO, 'no territory at all: admins only'
+    assert idx.permission((21, 21, 29, 29), 'Leowezy').level == T.YES, 'one of several owners'
+
+
+def test_permission_ignores_status():
+    geometry = T.parse_geometry(json.dumps({'1': [[0, 0], [0, 10], [10, 10], [10, 0]]}))
+    for status in ('owned', 'reserved', 'collaborative', 'available', 'archived'):
+        idx = T.TerritoryIndex(geometry, {1: T.Territory(1, 'A', 'A', status, 'wangi')})
+        assert idx.permission((2, 2, 3, 3), 'wangi').level == T.YES

@@ -43,7 +43,7 @@ Reading needs no sign-in. Every other call carries the user's OGF token. The ser
 ### Squares and their names
 
 - A square is its degree cell, e.g. `N20E086`, and a zone holds at most one file for a cell. Most squares also have a name, which grounds them quicker than the grid does: `N20E086_Gobras_City.osm.xz`. On 2026-10-18, 557 of the 807 squares had one.
-- A name is letters, digits, `_`, `-` and `.`, up to 64 characters. Danu shows `_` as a space.
+- A name is letters, digits, `_` and `-`, up to 64 characters. Danu shows `_` as a space. No `.`: a square's file name ends at its first one, so trent's `S01W145_lon-145.00_-144.00lat-1.00_0.00_local-source.osm.xz` isn't read as a square today, and is renamed before the drop goes live.
 - A square can be renamed, and its name removed, by anyone who may upload it. A rename can come with an upload or on its own. Either way the file is replaced under its new name in one step, behind the same `If-Match`, and the rename is logged.
 - Each zone's `EMPTY.osm.xz` isn't a square. The API ignores it.
 

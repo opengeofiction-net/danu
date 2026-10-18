@@ -3,7 +3,8 @@ handoff*.
 
 Two published files join on a relation id. The wiki's
 ``OpenGeofiction:Territory_administration`` (``action=raw``) is the
-attributes: ``ogfId``, ``name``, ``status``, ``owner``, ``rel``. The daily
+attributes: ``ogfId``, ``name``, ``status``, ``owner``, ``rel`` and
+``constraints``. The daily
 ``data.opengeofiction.net/utility/territory.json`` is the geometry: relation
 id to rings of ``[lat, lon]`` - the spec said ``[lon, lat]`` until the file
 was measured on 2026-09-19 (longitudes run to 179, latitudes to 80) and now
@@ -18,6 +19,13 @@ vertex into it. A square straddling a border reports both; a collaborative
 territory reports as such. Ownership warns and never blocks - the editor
 reports, the project adjudicates. Nothing here fetches anything: the files
 arrive as text from whoever holds the cache.
+
+The data drop (#190) asks the sharper question, *may this user upload this
+square?* - ``permission``: yes where all the territory in the square is
+theirs, partial where some is, no where none is. Theirs is a territory that
+names them as an owner, or as a delegate in a ``dem:`` constraint. Its
+status is not asked: the territory administration takes owners off a
+territory as it is withdrawn.
 """
 
 from __future__ import annotations
@@ -31,6 +39,16 @@ Ring = list[Point]
 # statuses under which the ground is somebody's to draw
 CLAIMED = {'owned', 'reserved', 'marked for withdrawal'}
 
+# a delegate for the elevation: a constraint "dem:Alice;Bob" (#190)
+DEM = 'dem:'
+
+# A territory is in a square when more than this share of the square is
+# under it: slivers where two neighbours' polygons disagree by a few metres
+# are not a claim. 1e-5 of a degree square is about 0.1 km2 at the equator
+MIN_SHARE = 1e-5
+
+YES, PARTIAL, NO = 'yes', 'partial', 'no'
+
 
 @dataclass(frozen=True)
 class Territory:
@@ -39,6 +57,18 @@ class Territory:
     name: str = ''
     status: str = ''
     owner: str = ''
+    constraints: tuple[str, ...] = ()
+
+    @property
+    def editors(self) -> frozenset[str]:
+        """Who may draw it: each of the ``;`` separated owners, and each
+        delegate a ``dem:`` constraint names, trimmed. Exact, as OGF's names
+        are: wangi, not Wangi (H6f)."""
+        names = self.owner.split(';')
+        for c in self.constraints:
+            if c[:len(DEM)].lower() == DEM:
+                names += c[len(DEM):].split(';')
+        return frozenset(n.strip() for n in names if n.strip())
 
     @property
     def known(self) -> bool:
@@ -61,8 +91,10 @@ def parse_attributes(text: str) -> dict[int, Territory]:
             rel = int(rec['rel'])
         except (KeyError, TypeError, ValueError):
             continue
+        cons = rec.get('constraints')
         out[rel] = Territory(rel, str(rec.get('ogfId', '')), str(rec.get('name', '')),
-                             str(rec.get('status', '')), str(rec.get('owner', '')))
+                             str(rec.get('status', '')), str(rec.get('owner', '')),
+                             tuple(c for c in cons if isinstance(c, str)) if isinstance(cons, list) else ())
     return out
 
 
@@ -104,12 +136,51 @@ def _inside(pt: Point, ring: Ring) -> bool:
     return inside
 
 
+def _clip(ring: Ring, bounds: tuple[float, float, float, float]) -> Ring:
+    """Sutherland-Hodgman: the ring cut to the box. Edges along the box's
+    sides may come out doubled back, which leave the area as it is."""
+    w, s, e, n = bounds
+    out = ring
+    for inside, cut in (
+            (lambda p: p[0] >= w, lambda a, b: (w, a[1] + (b[1] - a[1]) * (w - a[0]) / (b[0] - a[0]))),
+            (lambda p: p[0] <= e, lambda a, b: (e, a[1] + (b[1] - a[1]) * (e - a[0]) / (b[0] - a[0]))),
+            (lambda p: p[1] >= s, lambda a, b: (a[0] + (b[0] - a[0]) * (s - a[1]) / (b[1] - a[1]), s)),
+            (lambda p: p[1] <= n, lambda a, b: (a[0] + (b[0] - a[0]) * (n - a[1]) / (b[1] - a[1]), n))):
+        if not out:
+            break
+        pts, out = out, []
+        prev = pts[-1]
+        for cur in pts:
+            if inside(cur):
+                if not inside(prev):
+                    out.append(cut(prev, cur))
+                out.append(cur)
+            elif inside(prev):
+                out.append(cut(prev, cur))
+            prev = cur
+    return out
+
+
+def _area(ring: Ring) -> float:
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1], strict=True))) / 2
+
+
+@dataclass(frozen=True)
+class Permission:
+    """May a user upload a square: ``level`` yes, partial or no, and the
+    territories in the square that are theirs and that are another's."""
+    level: str
+    mine: tuple[Territory, ...] = ()
+    others: tuple[Territory, ...] = ()
+
+
 @dataclass
 class TerritoryIndex:
     """Polygons with a bounding box each, and the attributes to join to."""
     geometry: dict[int, list[Ring]]
     attributes: dict[int, Territory] = field(default_factory=dict)
     _boxes: dict[int, tuple[float, float, float, float]] = field(default_factory=dict, init=False)
+    _signs: dict[int, list[int]] = field(default_factory=dict, init=False)
 
     def __post_init__(self):
         for rel, rings in self.geometry.items():
@@ -144,34 +215,59 @@ class TerritoryIndex:
             return False
         return sum(_inside(pt, ring) for ring in self.geometry[rel]) % 2 == 1
 
+    def _ring_signs(self, rel: int) -> list[int]:
+        """+1 for an outer ring, -1 for a hole - one inside an odd number of
+        the others - so that areas sum as even-odd fills."""
+        if rel not in self._signs:
+            rings = self.geometry[rel]
+            self._signs[rel] = [
+                -1 if sum(_inside(r[0], o) for j, o in enumerate(rings) if j != i) % 2 else 1
+                for i, r in enumerate(rings)]
+        return self._signs[rel]
+
+    def shares(self, bounds: tuple[float, float, float, float]) -> dict[int, float]:
+        """Each territory in a box, by relation, with the share of the box it
+        covers: exact, from its rings cut to the box, holes taken out. Only
+        those over MIN_SHARE."""
+        w, s, e, n = bounds
+        whole = (e - w) * (n - s)
+        out: dict[int, float] = {}
+        for rel, (bw, bs, be, bn) in self._boxes.items():
+            if be < w or bw > e or bn < s or bs > n or not self.is_territory(rel):
+                continue
+            area = sum(sign * _area(_clip(ring, bounds))
+                       for sign, ring in zip(self._ring_signs(rel), self.geometry[rel], strict=True))
+            if area / whole > MIN_SHARE:
+                out[rel] = area / whole
+        return out
+
     def at(self, lon: float, lat: float) -> list[Territory]:
         return [self.territory(rel) for rel in self._boxes if self.contains(rel, (lon, lat))]
 
     def under(self, bounds: tuple[float, float, float, float]) -> list[Territory]:
         """The territories under a box - a square, or a working set: those
-        holding its centre, corners or edge midpoints, and those reaching a
-        vertex into it. Ordered with the one under the centre first. This is
-        the one definition of 'under'; anything else that asks - a report,
-        the server - calls this rather than sampling for itself. A sample
-        exactly on a shared border falls to the polygon east or north of it,
-        by the strict inequality in the ray test: arbitrary, but stable."""
+        with a share of it (``shares``). Ordered with the one under the
+        centre first, then by the share each has. This is the one definition
+        of 'under'; anything else that asks - a report, the server's
+        permission - calls this. A centre exactly on a shared border falls to
+        the polygon east or north of it, by the strict inequality in the ray
+        test: arbitrary, but stable."""
         w, s, e, n = bounds
-        cx, cy = (w + e) / 2, (s + n) / 2
-        samples = [(cx, cy), (w, s), (e, s), (e, n), (w, n), (cx, s), (cx, n), (w, cy), (e, cy)]
-        found: dict[int, int] = {}                  # rel -> rank
-        for rel, (bw, bs, be, bn) in self._boxes.items():
-            if be < w or bw > e or bn < s or bs > n:
-                continue
-            if not self.is_territory(rel):
-                continue
-            for i, pt in enumerate(samples):
-                if self.contains(rel, pt):
-                    found[rel] = min(found.get(rel, 99), i)
-                    break
-            else:
-                if any(w <= x <= e and s <= y <= n for ring in self.geometry[rel] for x, y in ring):
-                    found[rel] = 50
-        return [self.territory(rel) for rel, _ in sorted(found.items(), key=lambda kv: (kv[1], kv[0]))]
+        centre = ((w + e) / 2, (s + n) / 2)
+        found = self.shares(bounds)
+        return [self.territory(rel) for rel in
+                sorted(found, key=lambda rel: (not self.contains(rel, centre), -found[rel], rel))]
+
+    def permission(self, bounds: tuple[float, float, float, float], user: str) -> Permission:
+        """May ``user`` upload the square at ``bounds`` (#190): yes where all
+        the territory in it is theirs - ground under no territory, the sea,
+        counts for nobody - partial where some is, no where none is. An
+        administrator may upload anything; that is the caller's to know."""
+        found = self.under(bounds)
+        mine = tuple(t for t in found if user and user in t.editors)
+        others = tuple(t for t in found if t not in mine)
+        level = NO if not mine else PARTIAL if others else YES
+        return Permission(level, mine, others)
 
 
 def describe(found: list[Territory], user: str = '', admin: bool = False) -> tuple[str, bool]:
@@ -184,11 +280,10 @@ def describe(found: list[Territory], user: str = '', admin: bool = False) -> tup
     line = '; '.join(t.describe() for t in found)
     if admin and user:
         line += ' (administrator)'
-    # an owner field can name several, 'Alessa;Leowezy'. Exact: OGF's
-    # usernames are case- and punctuation-sensitive, and the admin data holds
-    # the server's - wangi, not the wiki's Wangi (H6f)
+    # not somebody else's to the owners, 'Alessa;Leowezy', nor to a dem:
+    # delegate (#190) - Territory.editors
     others = [t for t in found if t.known and t.status in CLAIMED and t.owner
-              and user not in [o.strip() for o in t.owner.split(';')]]
+              and user not in t.editors]
     if user and others:
         return f'not yours to draw: {line}', True
     return line, False
