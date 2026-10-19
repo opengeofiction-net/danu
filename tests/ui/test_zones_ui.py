@@ -167,3 +167,97 @@ def test_one_zones_in_view_the_panel_and_the_outlines_with_it(w):
     assert w.zones_dock.isVisible() and z.item.isVisible() and z.zones
     w.zones_dock.toggleViewAction().trigger()
     assert not z.item.isVisible()
+
+
+# ------------------------------------------------------------------ the zones map as the way in
+
+def on_map(w, lon, lat):
+    """Where a place is on the map's viewport, the map framed to show it and the open set."""
+    from PySide6.QtCore import QPoint
+    p = w.map.mapFromScene(at(lon, lat))
+    return QPoint(p.x(), p.y())
+
+
+@pytest.fixture
+def way_in(w, tmp_path):
+    """The server holds Gobras City in gobras; the map framed on gobras and the open set."""
+    from tests.test_drop import osm
+    (w.server_base / 'osm-squares' / 'gobras').mkdir()
+    (w.server_base / 'osm-squares' / 'gobras' / 'N20E086_Gobras_City.osm.xz').write_bytes(osm(1))
+    w.settings.import_root = tmp_path / 'imports'
+    w.importer.runner = lambda job: job.run()
+    w.importer.opener = w.zone_editor.opener
+    w.zones_dock.show()
+    w.map.fit_bounds(80.0, -30.0, 130.0, 25.0)
+    return w
+
+
+def test_a_click_outside_the_set_picks_the_zone(way_in, qtbot):
+    from PySide6.QtTest import QTest
+    w = way_in
+    assert w.map.browse is w.zone_editor.browser
+    QTest.mouseClick(w.map.viewport(), Qt.MouseButton.LeftButton, pos=on_map(w, 87.5, 19.5))
+    assert w.zone_editor.chosen() == 'gobras' and w.zone_editor.dock.import_.isEnabled()
+
+
+def test_a_double_click_imports_the_zone_and_opens_the_square(way_in, qtbot):
+    from PySide6.QtTest import QTest
+    w = way_in
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        QTest.mouseDClick(w.map.viewport(), Qt.MouseButton.LeftButton, pos=on_map(w, 86.5, 20.5))
+    zone = w.settings.import_root / 'gobras'
+    assert (zone / 'N20E086_Gobras_City.osm.xz').exists()
+    assert w.zone_dir == zone and w.working_set.centre == S(86, 20)
+
+
+def test_a_square_here_already_opens_without_an_import(way_in, qtbot):
+    w = way_in
+    zone = w.settings.import_root / 'gobras'
+    zone.mkdir(parents=True)
+    from tests.test_drop import osm
+    (zone / 'N21E087_Hope_Island.osm.xz').write_bytes(osm(1))
+    w.importer.import_zone = w.importer.refresh = lambda *a: pytest.fail('imported')
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.zone_editor.open_square(S(87, 21))
+    assert w.working_set.centre == S(87, 21)
+
+
+def test_inside_the_open_set_the_map_is_the_editors(way_in):
+    w = way_in
+    opened = []
+    w.zone_editor.open_square = lambda cell: opened.append(cell) or True
+    ev = QMouseEvent(QMouseEvent.Type.MouseButtonDblClick, QPointF(), QPointF(), Qt.MouseButton.LeftButton,
+                     Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    assert not w.zone_editor.browser.double_click(ev, at(125.5, -23.5)), 'the open square: the editor\'s'
+    assert w.zone_editor.browser.double_click(ev, at(86.5, 20.5)) and opened == [S(86, 20)]
+
+
+def test_a_drag_is_never_a_pick(way_in):
+    w = way_in
+    b = w.zone_editor.browser
+    press = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(10, 10), QPointF(10, 10),
+                        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    release = QMouseEvent(QMouseEvent.Type.MouseButtonRelease, QPointF(60, 10), QPointF(60, 10),
+                          Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+    b.press(press)
+    b.click(release, at(87.5, 19.5))
+    assert w.zone_editor.chosen() is None
+
+
+def test_import_imports_the_zone_chosen(way_in):
+    w = way_in
+    w.zone_editor.dock.list.setCurrentRow(0)
+    w.zone_editor.dock.import_.click()
+    assert (w.settings.import_root / 'gobras' / 'N20E086_Gobras_City.osm.xz').exists()
+
+
+def test_closed_or_painting_the_map_is_not_the_zones(way_in):
+    w = way_in
+    admin(w)
+    w.zone_editor.dock.list.setCurrentRow(0)
+    w.zone_editor.start_edit('gobras')
+    assert w.map.browse is None, 'painting squares: the painter\'s'
+    w.zone_editor.stop_edit()
+    assert w.map.browse is w.zone_editor.browser
+    w.zones_dock.toggleViewAction().trigger()
+    assert w.map.browse is None

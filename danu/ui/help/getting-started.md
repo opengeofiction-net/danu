@@ -12,6 +12,9 @@ and opening squares work without it.
 
 ## 2. Import your zone
 
+**View › Zones** shows the zones on the map: double-click a square of yours
+to import its zone and open it. Or:
+
 **File › Import…** lists the zones on the server and copies the chosen one's
 squares to this machine - into the folder Preferences names under *where an
 import goes*. Import again later to bring in what others have sent since: a

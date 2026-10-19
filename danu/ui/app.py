@@ -863,7 +863,8 @@ class MainWindow(QMainWindow):
             if info.ok and info.body.get('zone'):
                 zone_dir = self.settings.import_root / str(info.body['zone'])
                 if info.body.get('held'):
-                    self._import_then_open(zone_dir, name, info.body['held'].get('file', ''))
+                    self._import_then_open(zone_dir, name, f"{name} is held on the server as "
+                                           f"{info.body['held'].get('file', '')} - importing {zone_dir.name}")
                     return
                 zone_dir.mkdir(parents=True, exist_ok=True)
                 self._write_blank(zone_dir, name)
@@ -889,9 +890,11 @@ class MainWindow(QMainWindow):
         if chosen:
             self._write_blank(Path(chosen), name)
 
-    def _import_then_open(self, zone_dir: Path, name: SquareName, held: str) -> None:
-        """The square is on the server already: its zone imported, and it opened."""
-        self.statusBar().showMessage(f'{name} is held on the server as {held} - importing {zone_dir.name}')
+    def _import_then_open(self, zone_dir: Path, name: SquareName, said: str) -> None:
+        """The square's zone imported, and it opened: a new square the server
+        holds already, or one double-clicked on the zones map (#190) - drawn
+        or still to be, as an absent square opens."""
+        self.statusBar().showMessage(said)
 
         def imported(answer):
             done()

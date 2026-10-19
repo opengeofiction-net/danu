@@ -156,6 +156,9 @@ class MapView(QGraphicsView):
         # the editing tool, if any, sees mouse and key events first and says
         # whether it took them; panning and the cursor report carry on either way
         self.tool = None
+        # the zones map's clicks (#190): told of each press, offered each
+        # click after the tool has had it, and each double-click before
+        self.browse = None
         # the loupe (H3d), whose magnification shift and the wheel step while it is shown
         self.loupe = None
         self._pan_last: QPointF | None = None      # the right button dragging the map
@@ -324,6 +327,8 @@ class MapView(QGraphicsView):
         return self._pan_last is not None
 
     def mousePressEvent(self, event):
+        if self.browse is not None:
+            self.browse.press(event)
         if event.button() == Qt.MouseButton.RightButton:
             self.pan_start(event.position())
             event.accept()
@@ -343,6 +348,8 @@ class MapView(QGraphicsView):
                 event.accept()                     # a right click: the tools' to answer
                 return
         p = self.mapToScene(event.position().toPoint())
+        if self.browse is not None:
+            self.browse.click(event, p)                # a pick, never a press the tool started
         if self.tool is not None and self.tool.mouse_release(event, p):
             event.accept()
             return
@@ -350,6 +357,9 @@ class MapView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
+        if self.browse is not None and self.browse.double_click(event, p):
+            event.accept()
+            return
         if self.tool is not None and self.tool.mouse_double_click(event, p):
             event.accept()
             return

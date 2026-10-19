@@ -6118,3 +6118,21 @@ first, though the server works out the same permission for them as for
 anyone. It reads the mapper's own first now: an administrator whose
 territory it is is told it is theirs - "yours to upload: Gobrassanya" - and
 "as an administrator" is said only of ground that is another's.
+
+## The zones map as the way in (#190)
+
+With the Zones panel open the map is a way to the squares, beside File ›
+Import and Open: a click on a zone chooses it in the panel, whose **Import**
+imports it (`Importer.import_zone`, File › Import's own once a zone is
+chosen); a double-click on a square opens it from the import root - its
+zone imported first if the square is not there, as a new square already on
+the server is, and opened even if it is still blank on the server, as an
+absent square opens.
+
+Only outside the open set, or with nothing open. Inside it every press is
+the editor's - a lasso, a node, a line - so the map view gives the zones map
+(`MapView.browse`, a `ZoneBrowser`) only what can't be the editor's: a
+click, offered after the tool has had it and taken as a pick only if it
+moved less than 4 px, and a double-click outside the set, offered first. A
+lasso begun outside the set still sweeps into it. While a zone is painted
+the painter has the map, and with the panel closed the editor has it all.
