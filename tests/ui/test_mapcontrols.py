@@ -46,6 +46,9 @@ def test_the_buttons_follow_the_window_as_it_is_resized(window, size, columns):
     # windows-latest they left the map 68 px of a 1400 px window
     for d in w.findChildren(QDockWidget):
         d.hide()
+    # the hidden panels' room given back before the resize: a tab group one of
+    # whose panels started open - the Zones panel (#190) - keeps it until then
+    QApplication.processEvents()
     w.resize(*size)
     QApplication.processEvents()
     vp = w.map.viewport().geometry()

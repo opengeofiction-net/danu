@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self.drop = DropClient(self.settings.url('drop/url'), self.settings.server_url, parent=self)
         self.drop.answered.connect(self._drop_answered)
         self._drop_asked = None             # (square, token) last asked about
+        self._browsing = False              # the start page put away for the zones map
         self._drop_runner = QThreadPool.globalInstance().start      # the tests' to make run in place
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         # slope or elevation: the reading under a still cursor follows the mode
@@ -372,8 +373,11 @@ class MainWindow(QMainWindow):
         self.zone_editor.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
         self.map.scene().addItem(self.zone_editor.item)
         self.zones_dock = self.zone_editor.dock
+        # open from the first run, so the zones are on the map and it is a way
+        # in: tabbed with the surface panel, the surface in front
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.zones_dock)
-        self.zones_dock.hide()
+        self.tabifyDockWidget(self.surface_panel, self.zones_dock)
+        self.surface_panel.raise_()
         self.profile_dock.placeChosen.connect(lambda lon, lat: self._show_place(lon, lat, lon, lat))
         # filled under its line in the map's colours, and again when they change
         self.profile_dock.plot.colourer = self._profile_colours
@@ -432,14 +436,20 @@ class MainWindow(QMainWindow):
         self._menus()
         # the start page (J5a), shown by update_start once it is known that
         # nothing is being opened - or over what is, when asked for (J5c)
-        self.start = StartCard(self.map, self.account_action, self.import_action, self.open_action,
-                               self.new_square_action)
+        self.zones_map_action = QAction('&Zones map', self)
+        self.zones_map_action.setToolTip('the zones on the map: double-click a square to open it')
+        self.zones_map_action.triggered.connect(self.browse_zones)
+        self.start = StartCard(self.map, self.account_action, self.zones_map_action, self.import_action,
+                               self.open_action, self.new_square_action)
         self.start.hide()
         self._start_asked = False
         self.start.closed.connect(self.close_start)
         self.start.menuAnswered.connect(self._menu_answered)
         self._docked_only()
         self._default_layout = self.saveState()       # what Reset panels goes back to
+        # the outlines and the map's clicks follow the panel's action, which
+        # says so only as it changes: told how it starts
+        self.zone_editor.show(self.zones_dock.toggleViewAction().isChecked())
         # signing in to OGF (H6f): the tests hand in where the browser goes
         self.signin = None
         self._signin_options: dict = {}
@@ -863,7 +873,7 @@ class MainWindow(QMainWindow):
             if info.ok and info.body.get('zone'):
                 zone_dir = self.settings.import_root / str(info.body['zone'])
                 if info.body.get('held'):
-                    self._import_then_open(zone_dir, name, f"{name} is held on the server as "
+                    self.import_then_open(zone_dir, name, f"{name} is held on the server as "
                                            f"{info.body['held'].get('file', '')} - importing {zone_dir.name}")
                     return
                 zone_dir.mkdir(parents=True, exist_ok=True)
@@ -890,7 +900,7 @@ class MainWindow(QMainWindow):
         if chosen:
             self._write_blank(Path(chosen), name)
 
-    def _import_then_open(self, zone_dir: Path, name: SquareName, said: str) -> None:
+    def import_then_open(self, zone_dir: Path, name: SquareName, said: str) -> None:
         """The square's zone imported, and it opened: a new square the server
         holds already, or one double-clicked on the zones map (#190) - drawn
         or still to be, as an absent square opens."""
@@ -1431,7 +1441,7 @@ class MainWindow(QMainWindow):
         """The start page, while there is no working set and none is being
         read: at start when nothing opened, and after a read that failed.
         Or over the squares, asked for, until closed or others are opened."""
-        nothing = self.working_set is None and self._pending is None
+        nothing = self.working_set is None and self._pending is None and not self._browsing
         self.start.offer_menu(desktop.appimage() is not None and desktop.installed() is None
                               and not self.settings.menu_offered)
         self.start.set_closable(not nothing)
@@ -1440,6 +1450,17 @@ class MainWindow(QMainWindow):
     def show_start(self) -> None:
         self._start_asked = True
         self.update_start()
+
+    def browse_zones(self) -> None:
+        """The start page's way in (#190): the card put away, the Zones panel
+        in front, and the map framed on the zones - double-click a square to
+        open it. Help › Start page brings the card back."""
+        self._browsing = True
+        self._start_asked = False
+        self.update_start()
+        self.zones_dock.show()
+        self.zones_dock.raise_()
+        self.zone_editor.frame_all()
 
     def close_start(self) -> None:
         self._start_asked = False

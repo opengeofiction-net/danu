@@ -32,6 +32,9 @@ def w(window, tmp_path):
     z.ask_inactive = lambda zone: ('wip', 'being drawn')
     window.settings.set_url('drop/url', API)
     window.server_base = base
+    # open from the first run, the panel read the zones as the window was made,
+    # from nowhere: read again from this drop
+    z.load()
     return window
 
 
@@ -121,8 +124,9 @@ def test_a_new_zone(w):
 def test_a_new_zone_left_empty_is_dropped(w):
     admin(w)
     z = w.zone_editor
+    z.set_zones([])
     assert not z.dock.new.isEnabled(), 'no zones read: no overlap to judge by'
-    w.zones_dock.show()
+    z.load()
     z.dock.new.click()
     z.dock.save.click()
     assert 'at least one square' in z.dock.status.text()
@@ -162,11 +166,11 @@ def test_one_zones_in_view_the_panel_and_the_outlines_with_it(w):
     view = [a.text().replace('&', '') for a in menu(w.menuBar(), 'View').actions()]
     assert view.count('Zones') == 1
     z = w.zone_editor
-    assert not z.item.isVisible()
+    assert w.zones_dock.isVisible() and z.item.isVisible() and z.zones, 'open from the first run'
     w.zones_dock.toggleViewAction().trigger()
-    assert w.zones_dock.isVisible() and z.item.isVisible() and z.zones
+    assert not z.item.isVisible() and w.map.browse is None
     w.zones_dock.toggleViewAction().trigger()
-    assert not z.item.isVisible()
+    assert z.item.isVisible() and w.map.browse is z.browser
 
 
 # ------------------------------------------------------------------ the zones map as the way in

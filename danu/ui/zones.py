@@ -231,15 +231,19 @@ class ZoneBrowser:
         return ws is None or cell not in ws.squares
 
     def press(self, event) -> None:
-        self._pressed = event.position() if event.button() == Qt.MouseButton.LeftButton else None
+        self._pressed = None
+        if event.button() == Qt.MouseButton.LeftButton:
+            view = self.editor.window.map
+            self._pressed = (event.position(), view.mapToScene(event.position().toPoint()))
 
     def click(self, event, p) -> None:
         pressed, self._pressed = self._pressed, None
         if pressed is None or event.button() != Qt.MouseButton.LeftButton:
             return
-        if (event.position() - pressed).manhattanLength() > self.SLOP_PX:
+        at, where = pressed
+        if (event.position() - at).manhattanLength() > self.SLOP_PX:
             return
-        cell = self._cell(p)
+        cell = self._cell(where)            # the press's square: a click over an edge is still the first's
         if cell is not None and self._outside(cell):
             self.editor.pick(cell)
 
@@ -318,6 +322,7 @@ class ZoneEditor(QObject):
         self.ask_name = lambda: _ask_name(window)
         self.ask_inactive = lambda zone: _ask_inactive(window, zone)
         self.zones: list[dict] = []
+        self._frame_pending = False
         self.painter: ZonePainter | None = None
         self.editing: str | None = None
         self._jobs: list[Job] = []
@@ -404,6 +409,18 @@ class ZoneEditor(QObject):
         self.window.map.browse = self.browser if self.item.isVisible() and self.editing is None else None
 
     # ------------------------------------------------------------ the way in
+    def frame_all(self) -> None:
+        """The map framed on every zone - now, or once they have been read."""
+        if not self.zones:
+            self._frame_pending = True
+            self.load()
+            return
+        self._frame_pending = False
+        cells = [c for z in self.zones for c in cells_of(z)]
+        if cells:
+            self.window.map.fit_bounds(min(c.lon for c in cells), min(c.lat for c in cells),
+                                       max(c.lon for c in cells) + 1, max(c.lat for c in cells) + 1)
+
     def zone_of(self, cell: SquareName) -> str | None:
         return next((z['name'] for z in self.zones if cell in cells_of(z)), None)
 
@@ -411,8 +428,7 @@ class ZoneEditor(QObject):
         """The zone under a click, chosen in the panel."""
         zone = self.zone_of(cell)
         if zone is None:
-            self.say(f'{cell} is in no zone')
-            return
+            return              # nothing to pick: the editor's word on the click stands
         for i in range(self.dock.list.count()):
             if self.dock.list.item(i).data(Qt.ItemDataRole.UserRole) == zone:
                 self.dock.list.blockSignals(True)
@@ -439,7 +455,7 @@ class ZoneEditor(QObject):
         if zone_dir.is_dir() and cell in list_squares(zone_dir):
             w.open_working_set(zone_dir, cell, w.settings.size)
         else:
-            w._import_then_open(zone_dir, cell, f'importing {zone} to open {cell}…')
+            w.import_then_open(zone_dir, cell, f'importing {zone} to open {cell}…')
         return True
 
     def load(self, quiet: bool = False) -> None:
@@ -453,6 +469,8 @@ class ZoneEditor(QObject):
                 self.say(f'zones: {answer.why}')
                 return
             self.set_zones(answer.body.get('zones', []))
+            if self._frame_pending:
+                self.frame_all()
             if not quiet:
                 self.say(f'{len(self.zones)} zones')
         api = self._api()
