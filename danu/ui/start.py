@@ -3,8 +3,9 @@
 Danu starts by putting back the last session, or failing that by opening the
 most recent square. Only when neither opens anything - a first run, or every
 square gone from where it was - is there nothing to show but the map, and
-then this says what to do: sign in, import a zone, open squares already
-on disk, or start a square nobody has drawn (J5c). The map stays live behind
+then this says what to do: sign in, then find the squares on the zones map
+and double-click one to open it (#190) - or import a zone by name, open
+squares already on disk, or start a square nobody has drawn (J5c). The map stays live behind
 it, the territories on it, so a mapper can look for their zone before
 importing it - or find the ground a new square is to be. It goes when a
 working set is on screen.
@@ -40,7 +41,7 @@ class StartCard(QFrame):
     menuAnswered = Signal(bool)          # the applications menu offered: taken, or not
     closed = Signal()
 
-    def __init__(self, view: QWidget, sign_in: QAction, import_: QAction, open_: QAction,
+    def __init__(self, view: QWidget, sign_in: QAction, zones: QAction, import_: QAction, open_: QAction,
                  new: QAction):
         super().__init__(view)
         self.setObjectName('startCard')
@@ -59,15 +60,20 @@ class StartCard(QFrame):
         self.account = QLabel()
         self.account.setWordWrap(True)
         self.sign_in = self._step(steps, 0, '1', self.account, 'Sign in…', sign_in)
-        imp = QLabel('Import your zone: its squares from the server, to work on here')
+        find = QLabel('<b>Find your squares on the zones map</b>: double-click one to import its zone '
+                      'and open it')
+        find.setWordWrap(True)
+        self.zones = self._step(steps, 1, '2', find, 'Zones map', zones)
+        self.zones.setDefault(True)
+        imp = QLabel('…or import a zone by name: its squares from the server, to work on here')
         imp.setWordWrap(True)
-        self.import_ = self._step(steps, 1, '2', imp, 'Import…', import_)
+        self.import_ = self._step(steps, 2, '', imp, 'Import…', import_)
         opn = QLabel('…or open squares already on this machine')
         opn.setWordWrap(True)
-        self.open_ = self._step(steps, 2, '3', opn, 'Open…', open_)
+        self.open_ = self._step(steps, 3, '', opn, 'Open…', open_)
         new_ = QLabel('…or start a square nobody has drawn: the one in the middle of the map')
         new_.setWordWrap(True)
-        self.new = self._step(steps, 3, '', new_, 'New…', new)
+        self.new = self._step(steps, 4, '', new_, 'New…', new)
 
         # the AppImage's place in the menu, asked once
         self.offer = QWidget()

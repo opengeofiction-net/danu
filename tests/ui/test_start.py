@@ -47,7 +47,7 @@ def test_with_nothing_open_the_start_page_is_over_the_middle_of_the_map(bare):
     card = bare.start.geometry()
     assert vp.contains(card)
     assert abs(card.center().x() - vp.center().x()) <= 1 and abs(card.center().y() - vp.center().y()) <= 1
-    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…', 'New…']
+    assert list(buttons(bare)) == ['Sign in…', 'Zones map', 'Import…', 'Open…', 'New…']
 
 
 def test_each_step_is_the_file_menus_own_action(bare):
@@ -64,9 +64,9 @@ def test_signed_in_it_says_as_whom_and_offers_no_sign_in(bare):
     assert 'Sign in to OGF' in bare.start.account.text()
     bare._signed_in('wangi', 'tok-1', [])
     assert 'Signed in to OGF as <b>wangi</b>' in bare.start.account.text()
-    assert list(buttons(bare)) == ['Import…', 'Open…', 'New…']
+    assert list(buttons(bare)) == ['Zones map', 'Import…', 'Open…', 'New…']
     bare.sign_out()
-    assert list(buttons(bare)) == ['Sign in…', 'Import…', 'Open…', 'New…']
+    assert list(buttons(bare)) == ['Sign in…', 'Zones map', 'Import…', 'Open…', 'New…']
 
 
 def test_it_goes_while_a_square_is_read_and_stays_gone_once_it_is_open(bare, zone, qtbot):
@@ -259,3 +259,16 @@ def test_a_new_square_in_no_zone_asks_the_directory_from_the_import_root_made_fi
     drop.new_blank_square()
     assert drop.asked_dirs == [str(drop.settings.import_root)] and drop.settings.import_root.is_dir()
     assert 'in no zone' in drop.statusBar().currentMessage()
+
+
+def test_the_zones_map_is_the_way_in_the_card_put_away(bare):
+    """#190: step 2 puts the card away, brings the Zones panel in front, and
+    the card does not come back over the map the mapper is looking at."""
+    framed = []
+    bare.zone_editor.frame_all = lambda: framed.append(True)
+    buttons(bare)['Zones map'].click()
+    assert not bare.start.isVisible() and framed
+    bare.update_start()
+    assert not bare.start.isVisible(), 'browsing: not put back over the map'
+    bare.show_start()
+    assert bare.start.isVisible(), 'Help › Start page brings it back'

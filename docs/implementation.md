@@ -6131,8 +6131,19 @@ absent square opens.
 
 Only outside the open set, or with nothing open. Inside it every press is
 the editor's - a lasso, a node, a line - so the map view gives the zones map
-(`MapView.browse`, a `ZoneBrowser`) only what can't be the editor's: a
-click, offered after the tool has had it and taken as a pick only if it
-moved less than 4 px, and a double-click outside the set, offered first. A
+(`MapView.browse`, a `ZoneBrowser`) only what can't be the editor's: each
+release, offered before the tool - the select tool's marquee takes every
+one, so offered after it the zones map would see none - and taken only as a
+pick, of the square under the press, if it moved less than 4 px and is
+outside the set; and a double-click outside the set, the zones map's
+alone. A
 lasso begun outside the set still sweeps into it. While a zone is painted
 the painter has the map, and with the panel closed the editor has it all.
+
+**Shown from the first run, and the start page's way in.** The Zones panel
+opens tabbed with the surface panel, the surface in front, so the zones are
+on the map from the start and its clicks are the zones map's - a tabbed
+panel is open, as its action says; a saved layout puts back whatever the
+mapper had. The start page leads with it: step 2, **Zones map**, puts the
+card away, brings the panel in front and frames the map on every zone, read
+first if need be; Import, Open and New are the "…or"s after it.
