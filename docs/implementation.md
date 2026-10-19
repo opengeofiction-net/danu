@@ -6111,3 +6111,10 @@ Upload looks, or - the drop holding it already - the zone is imported and
 the square opened, rather than a blank written beside the server's. In no
 zone, or the drop not reached, the directory is asked for as before, from
 the import root, made first.
+
+**The owner before the administrator.** The status line said an
+administrator's square was theirs "as an administrator", the admin flag read
+first, though the server works out the same permission for them as for
+anyone. It reads the mapper's own first now: an administrator whose
+territory it is is told it is theirs - "yours to upload: Gobrassanya" - and
+"as an administrator" is said only of ground that is another's.

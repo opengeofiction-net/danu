@@ -28,7 +28,13 @@ def test_the_line_for_each_answer():
     line, warn = d(200, {**base, 'permission': perm('partial', ['Elsewhere', 'Beyond'])})
     assert not warn and 'shared with Elsewhere, Beyond' in line and '10 km' in line
     assert d(200, {**base, 'permission': perm('no', ['Elsewhere'])}) == ('zone gobras - not yours to upload: Elsewhere', True)
-    assert d(200, {**base, 'admin': True, 'permission': perm('no')})[0] == 'zone gobras - yours to upload, as an administrator'
+    assert d(200, {**base, 'admin': True, 'permission': perm('no', ['Elsewhere'])}) == \
+        ('zone gobras - not your territory (Elsewhere), yours to upload as an administrator', False)
+    # an administrator whose territory it is is its owner first
+    owned = {'level': 'yes', 'mine': [{'name': 'Gobrassanya', 'ogfId': 'UL05a'}], 'others': []}
+    assert d(200, {**base, 'admin': True, 'permission': owned}) == ('zone gobras - yours to upload: Gobrassanya', False)
+    shared = {**perm('partial', ['Elsewhere']), 'mine': [{'name': 'Gobrassanya'}]}
+    assert 'shared with Elsewhere' in d(200, {**base, 'admin': True, 'permission': shared})[0]
     assert d(200, {**base, 'zone': '<b>', 'permission': perm('yes')})[0] == 'zone &lt;b&gt; - yours to upload'
     assert d(503, {'error': 'the territories have not been read yet'}) == \
         ('upload: the territories have not been read yet', False)
