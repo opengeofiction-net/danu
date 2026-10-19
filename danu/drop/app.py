@@ -298,8 +298,10 @@ class DropApp:
                 raise Refused(422, str(e)) from e
             left = self._left_out(before, after, zone)
             # what it leaves out retired before the change is written: stopped
-            # between, a blank square is in kept, not a zone naming squares
-            # its directory still holds
+            # between - or the write refused, a full disk - only blank and
+            # coastline-only squares are in kept, each logged with where, for
+            # an admin to put back; never a zone naming squares its directory
+            # still holds
             retired = [self.store.retire(zone, h, user.name, 'left out of its zone') for h in left]
             # its directory first: a zone named is a zone that can be listed
             self.store.zone_dir(zone).mkdir(parents=True, exist_ok=True)
@@ -328,9 +330,12 @@ class DropApp:
         """Some of a zone's squares a new zone: the rectangles of both
         written, the squares' files moved with them, the old zone's inactive
         entry copied - one step, under the lock. One step for the drop, not
-        for the disk: three files can't change at once, and a server stopped
+        for the disk: the files can't change at once, and a server stopped
         in the milliseconds between leaves the moves for an admin to finish
-        by hand, the log saying which were made."""
+        by hand - each move is a line of the log as it is made. The zones
+        file first: the build finds zones by their directories, so squares
+        moved before it was written would be built as a zone no file names,
+        and none could upload to."""
         user = self.admin(environ)
         body = self.body_json(environ)
         name, squares = body.get('name'), body.get('squares')

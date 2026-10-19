@@ -281,6 +281,7 @@ class Store:
         zone, which the build would still build from its old directory."""
         kept = self._keep(zone, held)
         held.path.unlink()
+        self._hashes.pop(str(held.path), None)
         self._log(user=user, action='retire', zone=zone, square=held.square.name, file=held.path.name,
                   sha256=held.sha256, kept=kept, why=why)
         self._publish(zone, held, None)
@@ -291,6 +292,7 @@ class Store:
         d = self.zone_dir(to_zone)
         d.mkdir(parents=True, exist_ok=True)
         os.replace(held.path, d / held.path.name)
+        self._hashes.pop(str(held.path), None)     # its new path hashes it again, once
         if self.published is not None:
             src, dst = self.published / from_zone / held.path.name, self.published / to_zone
             dst.mkdir(parents=True, exist_ok=True)
