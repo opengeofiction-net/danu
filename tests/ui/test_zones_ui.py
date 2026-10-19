@@ -265,3 +265,35 @@ def test_closed_or_painting_the_map_is_not_the_zones(way_in):
     assert w.map.browse is w.zone_editor.browser
     w.zones_dock.toggleViewAction().trigger()
     assert w.map.browse is None
+
+
+def test_a_closed_window_is_freed_though_it_read_the_zones(qtbot, tmp_path, territory_files):
+    """The pool kept the jobs that read the zones, and they held the window:
+    every test's window stayed, and the suite ran three times as long (#229)."""
+    import gc
+    import weakref
+
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QApplication
+
+    from danu.ui.app import MainWindow
+    from danu.ui.config import load_layers
+    from danu.ui.settings import Settings
+    from danu.ui.territory import TerritoryFetcher
+    fetcher = TerritoryFetcher(tmp_path / 'tcache', geometry_url=(territory_files / 'territory.json').as_uri(),
+                               attributes_url=(territory_files / 'admin.json').as_uri())
+    w = MainWindow(load_layers(), cache_dir=None, settings=Settings(tmp_path / 'danu.ini'), territory_fetcher=fetcher)
+    w.prompt_on_close = False
+    w.show()
+    qtbot.waitExposed(w)
+    assert w.zone_editor._jobs, 'the zones read as the window opened'
+    QThreadPool.globalInstance().waitForDone(10000)
+    QApplication.processEvents()
+    gone = weakref.ref(w)
+    w.close()
+    w.deleteLater()
+    del w, fetcher
+    QApplication.processEvents()
+    qtbot.wait(50)
+    gc.collect()
+    assert gone() is None

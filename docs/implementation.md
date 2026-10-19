@@ -6147,3 +6147,14 @@ panel is open, as its action says; a saved layout puts back whatever the
 mapper had. The start page leads with it: step 2, **Zones map**, puts the
 card away, brings the panel in front and frames the map on every zone, read
 first if need be; Import, Open and New are the "…or"s after it.
+
+**Windows freed again (#229's slowdown).** With the Zones panel open from
+the first run, every window reads the zones as it opens, on the global
+QThreadPool. The pool keeps a reference to each job it ran - Job is not
+auto-deleted - and the zones' jobs held the editor and its window through
+their `fn` and their signals' slots: no window was ever freed, and each
+test's teardown collected all of those before it. CI's ui job went from 2
+minutes to 9, windows-stack from 8 to 17. `ZoneEditor.detach`, called as the
+window closes beside the territories' and the tiles' aborts, drops every
+such job's `fn` and connections; a test closes a window that has read the
+zones and asks that it is gone. The UI suite is back to 2 minutes.
