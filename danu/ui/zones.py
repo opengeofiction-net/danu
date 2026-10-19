@@ -357,16 +357,11 @@ class ZoneEditor(QObject):
         return bool(s.token) and s.admin
 
     def _run(self, fn, done) -> None:
-        job = None
-
-        def finished(answer):
-            self._jobs.remove(job)
-            done(answer)
-
+        """``fn`` on a worker, ``done`` with its answer. Every job is kept,
+        done or not, for ``detach`` to let go of when the window closes."""
         def failed(why):
-            self._jobs.remove(job)
             self.say(f'the drop not reached: {why.splitlines()[0]}')
-        job = Job(fn, finished, failed)
+        job = Job(fn, done, failed)
         self._jobs.append(job)
         self.runner(job)
 
@@ -397,6 +392,27 @@ class ZoneEditor(QObject):
         d.reload.setEnabled(not editing)
 
     # ------------------------------------------------------------ showing
+    def detach(self) -> None:
+        """The window closing: every job asked of the drop let go of, as the
+        window lets go of the territories' and the tiles'. The global
+        QThreadPool keeps a reference to each job it ran - Job is not
+        auto-deleted - and a job's ``fn`` and its signals' slots hold this
+        editor and its window. So a window was never freed once it had read
+        the zones; open from the first run, the panel reads them as every
+        window opens, and every test's window was kept, the suite running
+        three times as long, collections walking all of them (#229). Each
+        job's ``fn`` and connections are dropped here, which leaves the pool
+        holding nothing of the window's."""
+        for job in self._jobs:
+            job.fn = None                   # QThreadPool keeps a job it ran; what it ran held this
+            for signal in (job.signals.done, job.signals.failed):
+                try:
+                    signal.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+        self._jobs.clear()
+        self.window.map.browse = None
+
     def show(self, on: bool) -> None:
         self.item.setVisible(on)
         self._browse()

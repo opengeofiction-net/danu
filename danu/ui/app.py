@@ -968,6 +968,7 @@ class MainWindow(QMainWindow):
             self.usage.close()
         self.territory.abort()
         self.fetcher.abort()
+        self.zone_editor.detach()
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
