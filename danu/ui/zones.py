@@ -8,8 +8,9 @@ the drop's ``GET /zones``. Anyone can look.
 
 The **Zones** panel lists them, and while it is open the zones map is a way
 in: outside the open set - or anywhere, nothing open - a click on a zone
-chooses it, and a double-click on a square opens it, its zone imported first
-if it is not on this machine; **Import** imports the zone chosen. Inside the
+chooses it, and a double-click on a square opens it - its zone imported
+first if the square is not among the zone's here; **Import** imports the
+zone chosen. Inside the
 open set the map is the editor's, as ever.
 
 An administrator signed in gets its buttons:

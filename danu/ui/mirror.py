@@ -120,8 +120,9 @@ class Importer(QObject):
 
     def import_zone(self, zone: str) -> bool:
         """One zone imported into the import root, as File › Import does once
-        it is chosen - the Zones panel's Import, and a square opened from the
-        zone map (#190). A square changed here is asked about as ever."""
+        it is chosen - the Zones panel's Import (#190). A square changed here
+        is asked about as ever. True if the import started; ``finished`` or
+        ``failed`` says how it ended."""
         if self.busy:
             self.message.emit('an import is already running')
             return False
