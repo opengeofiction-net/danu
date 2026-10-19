@@ -8,7 +8,7 @@ delete are checked against the square's permission, and the zone calls are
 an administrator's. Every answer but a square's bytes is JSON, and every
 refusal says why in ``error``.
 
-    GET    /zones                        the zones, their squares, inactive or not
+    GET    /zones[?held=1]               the zones, their squares, inactive or not - and the squares held, with each one's class
     GET    /zones/<zone>                 a zone's squares: file, label, size, sha256
     GET    /zones/<zone>/<file>          a square's bytes, its sha256 the ETag
     GET    /squares/<square>             its zone, what is held, and - signed in - its permission
@@ -16,6 +16,7 @@ refusal says why in ``error``.
     PATCH  /squares/<square>             {"label": L}, with If-Match
     DELETE /squares/<square>             with If-Match
     PUT    /zones/<zone>                 {"squares": ["N18E086-N21E089", ...]}, an admin's
+    POST   /zones/<zone>/split           {"name": N, "squares": [...]}: those squares a new zone, an admin's
     PUT    /zones/<zone>/inactive        {"reason": R, "note": N}, an admin's
     DELETE /zones/<zone>/inactive        an admin's
 """
@@ -157,7 +158,7 @@ class DropApp:
                 return _json(start, 200, {'service': 'danu data drop', 'version': __version__})
             case ['zones']:
                 self.only(method, 'GET')
-                return self.list_zones(start)
+                return self.list_zones(start, query)
             case ['zones', zone]:
                 if method == 'PUT':
                     return self.put_zone(environ, start, zone)
@@ -166,6 +167,9 @@ class DropApp:
             case ['zones', zone, 'inactive']:
                 self.only(method, 'PUT', 'DELETE')
                 return self.inactive(environ, start, zone, method)
+            case ['zones', zone, 'split']:
+                self.only(method, 'POST')
+                return self.split_zone(environ, start, zone)
             case ['zones', zone, file]:
                 self.only(method, 'GET')
                 return self.file(environ, start, zone, file)
@@ -185,11 +189,19 @@ class DropApp:
         if method not in allowed:
             raise Refused(405, f'{method}: this takes {", ".join(allowed)}')
 
-    def list_zones(self, start):
+    def list_zones(self, start, query=None):
+        """The zones; with ``held=1`` each zone's squares too, and their
+        class, for the zone map's colours - hashed and classed once a file."""
         inactive = Z.Inactive.read(self.config.inactive_file).reasons()
-        return _json(start, 200, {'zones': [
-            {'name': z.name, 'squares': [str(r) for r in z.rects], 'inactive': inactive.get(z.name)}
-            for z in self.zones().zones.values()]})
+        held = bool(query and query.get('held', [''])[0] not in ('', '0'))
+        out = []
+        for z in self.zones().zones.values():
+            row = {'name': z.name, 'squares': [str(r) for r in z.rects], 'inactive': inactive.get(z.name)}
+            if held:
+                row['held'] = [{'square': h.square.name, 'file': h.path.name, 'class': h.kind}
+                               for h in self.store.listing(z.name)]
+            out.append(row)
+        return _json(start, 200, {'zones': out})
 
     def known_zone(self, zone: str) -> Z.Zone:
         z = self.zones().zones.get(zone)
@@ -284,12 +296,75 @@ class DropApp:
                 after = before.put(zone, squares)
             except Z.ZoneError as e:
                 raise Refused(422, str(e)) from e
+            left = self._left_out(before, after, zone)
             # its directory first: a zone named is a zone that can be listed
             self.store.zone_dir(zone).mkdir(parents=True, exist_ok=True)
             _write(self.config.zones_file, after.text)
+            retired = [self.store.retire(zone, h, user.name, 'left out of its zone') for h in left]
             self.store.log_admin(user.name, 'zone', zone=zone, squares=[str(r) for r in after.zones[zone].rects])
         created = zone not in before.zones
-        return _json(start, 201 if created else 200, {'name': zone, 'squares': [str(r) for r in after.zones[zone].rects]})
+        return _json(start, 201 if created else 200, {'name': zone, 'squares': [str(r) for r in after.zones[zone].rects],
+                                                      'retired': [h.path.name for h in left], 'kept': retired})
+
+    def _left_out(self, before: Z.Zones, after: Z.Zones, zone: str) -> list:
+        """The squares a zone change leaves in no zone. Refused (409) if any
+        holds contours - the report's own test - for its mapper's work would
+        be built where nobody could upload it again; the blank and the
+        coastline-only are returned, to be retired."""
+        if zone not in before.zones:
+            return []
+        gone = before.zones[zone].cells() - after.zones[zone].cells()
+        out = [h for h in self.store.listing(zone) if h.square in gone and after.zone_of(h.square) is None]
+        drawn = [h.square.name for h in out if h.kind == 'contour']
+        if drawn:
+            raise Refused(409, f'{", ".join(drawn)} hold{"s" if len(drawn) == 1 else ""} contours, and would be '
+                          'in no zone: keep them in the zone, or move them to another first', squares=drawn)
+        return out
+
+    def split_zone(self, environ, start, zone: str):
+        """Some of a zone's squares a new zone: the rectangles of both
+        written, the squares' files moved with them, the old zone's inactive
+        entry copied - one step, under the lock."""
+        user = self.admin(environ)
+        body = self.body_json(environ)
+        name, squares = body.get('name'), body.get('squares')
+        if not isinstance(name, str) or not isinstance(squares, list) or not all(isinstance(s, str) for s in squares):
+            raise Refused(422, 'name, and squares: a list of rectangles')
+        with self.store.locked():
+            before = self.zones()
+            old = before.zones.get(zone)
+            if old is None:
+                raise Refused(404, f'no zone {zone}')
+            if name in before.zones:
+                raise Refused(409, f'{name} is a zone already')
+            try:
+                moving = set().union(*(Z.Rect.parse(r).cells() for r in squares)) if squares else set()
+            except Z.ZoneError as e:
+                raise Refused(422, str(e)) from e
+            if not moving or not moving <= old.cells():
+                raise Refused(422, f'the new zone\'s squares are some of {zone}\'s, not none and not others')
+            if moving == old.cells():
+                raise Refused(422, f'that is all of {zone}: rename it, or make a new zone')
+            staying = old.cells() - moving
+            try:
+                after = before.put(zone, [str(r) for r in Z.rects_for(staying)])
+                after = after.put(name, [str(r) for r in Z.rects_for(moving)])
+            except Z.ZoneError as e:
+                raise Refused(422, str(e)) from e
+            inactive = Z.Inactive.read(self.config.inactive_file)
+            reason = inactive.reasons().get(zone)
+            self.store.zone_dir(name).mkdir(parents=True, exist_ok=True)
+            _write(self.config.zones_file, after.text)
+            moved = [h for h in self.store.listing(zone) if h.square in moving]
+            for h in moved:
+                self.store.move(h, zone, name, user.name)
+            if reason:
+                _write(self.config.inactive_file, inactive.set(name, reason, f'split from {zone}').text)
+            self.store.log_admin(user.name, 'split', zone=zone, new=name,
+                                 squares=[str(r) for r in after.zones[name].rects], inactive=reason)
+        return _json(start, 201, {'name': name, 'squares': [str(r) for r in after.zones[name].rects],
+                                  'from': {'name': zone, 'squares': [str(r) for r in after.zones[zone].rects]},
+                                  'moved': [h.path.name for h in moved], 'inactive': reason})
 
     def inactive(self, environ, start, zone: str, method: str):
         user = self.admin(environ)

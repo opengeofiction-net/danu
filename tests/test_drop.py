@@ -13,6 +13,8 @@ import pytest
 pytest.importorskip('fcntl', reason='the data drop is the server\'s: no fcntl here')
 
 from danu.core import territory as T
+from danu.core import zones as Z
+from danu.core.square import SquareName as S
 from danu.drop import app as A
 from danu.drop.sources import OgfUsers, Territories, Unknown, User
 
@@ -340,3 +342,95 @@ def test_territories_reread_as_they_change_and_survive_a_failed_fetch(tmp_path):
     with pytest.raises(Unknown) as e:
         t2.index()
     assert e.value.status == 503
+
+
+# ------------------------------------------------------------------ zones that keep their squares, and splits
+
+def shore() -> bytes:
+    """A coastline and nothing behind it: every elevation 0."""
+    return lzma.compress(b"<?xml version='1.0'?><osm version='0.6'><way id='-1'><tag k='ele' v='0'/>"
+                         b"<tag k='natural' v='coastline'/></way></osm>")
+
+
+@pytest.fixture
+def zoned(drop):
+    """gobras N20E086-N20E089: drawn at 086, coastline only at 087, blank at 088,
+    and its published copy as the nightly copy leaves it."""
+    sq = drop.base / 'osm-squares' / 'gobras'
+    (sq / 'N20E087_Artana.osm.xz').write_bytes(shore())
+    (sq / 'N20E088_Laguna.osm.xz').write_bytes(osm(0))
+    pub = drop.pub / 'osm-squares' / 'gobras'
+    pub.mkdir(parents=True)
+    for p in sq.glob('N*.osm.xz'):
+        (pub / p.name).write_bytes(p.read_bytes())
+    return drop
+
+
+def test_the_listing_says_each_squares_class(zoned):
+    _, body, _ = call(zoned, 'GET', '/zones/gobras')
+    assert {h['square']: h['class'] for h in body['held']} == {
+        'N20E086': 'contour', 'N20E087': 'coastline', 'N20E088': 'blank'}
+    _, body, _ = call(zoned, 'GET', '/zones', query='held=1')
+    (g,) = body['zones']
+    assert sorted(h['class'] for h in g['held']) == ['blank', 'coastline', 'contour']
+    assert 'held' not in call(zoned, 'GET', '/zones')[1]['zones'][0], 'asked for'
+
+
+def test_a_resize_that_would_leave_a_drawn_square_in_no_zone_is_refused(zoned):
+    before = (zoned.base / 'zones').read_text()
+    status, body, _ = call(zoned, 'PUT', '/zones/gobras', {'squares': ['N20E087-N20E089']}, 't-admin')
+    assert status == 409 and body['squares'] == ['N20E086'] and 'contours' in body['error']
+    assert (zoned.base / 'zones').read_text() == before
+    assert (zoned.base / 'osm-squares' / 'gobras' / 'N20E086_Gobras_City.osm.xz').exists()
+
+
+def test_a_resize_retires_the_blank_and_the_coastline_only_it_leaves_out(zoned):
+    status, body, _ = call(zoned, 'PUT', '/zones/gobras', {'squares': ['N20E086']}, 't-admin')
+    assert status == 200 and sorted(body['retired']) == ['N20E087_Artana.osm.xz', 'N20E088_Laguna.osm.xz']
+    for copy in (zoned.base / 'osm-squares' / 'gobras', zoned.pub / 'osm-squares' / 'gobras'):
+        assert sorted(p.name for p in copy.glob('N*.osm.xz')) == ['N20E086_Gobras_City.osm.xz'], copy
+    kept = sorted(p.name.split('.')[0] for p in (zoned.base / 'drop' / 'kept' / 'gobras').iterdir())
+    assert kept == ['N20E087_Artana', 'N20E088_Laguna']
+    log = [json.loads(x) for x in (zoned.base / 'drop' / 'log.jsonl').read_text().splitlines()]
+    assert [e['action'] for e in log] == ['retire', 'retire', 'zone']
+
+
+def test_a_resize_that_only_grows_moves_nothing(zoned):
+    status, body, _ = call(zoned, 'PUT', '/zones/gobras', {'squares': ['N20E086-N21E089']}, 't-admin')
+    assert status == 200 and body['retired'] == []
+
+
+def test_a_split_moves_the_squares_and_their_files_to_the_new_zone(zoned):
+    (zoned.base / 'inactive').write_text('gobras      wip        # being drawn\n')
+    status, body, _ = call(zoned, 'POST', '/zones/gobras/split',
+                           {'name': 'artana', 'squares': ['N20E087-N20E088']}, 't-admin')
+    assert status == 201 and body['squares'] == ['N20E087-N20E088']
+    assert body['from']['squares'] == ['N20E086', 'N20E089']
+    assert sorted(body['moved']) == ['N20E087_Artana.osm.xz', 'N20E088_Laguna.osm.xz'] and body['inactive'] == 'wip'
+    zones = Z.Zones((zoned.base / 'zones').read_text())
+    assert zones.zone_of(S.parse('N20E087')) == 'artana' and zones.zone_of(S.parse('N20E086')) == 'gobras'
+    for root in (zoned.base / 'osm-squares', zoned.pub / 'osm-squares'):
+        assert sorted(p.name for p in (root / 'artana').glob('N*')) == ['N20E087_Artana.osm.xz', 'N20E088_Laguna.osm.xz']
+        assert sorted(p.name for p in (root / 'gobras').glob('N*')) == ['N20E086_Gobras_City.osm.xz']
+    assert 'artana      wip        # split from gobras' in (zoned.base / 'inactive').read_text()
+    _, body, _ = call(zoned, 'GET', '/squares/N20E087', token='t-wangi')
+    assert body['zone'] == 'artana' and body['held']['sha256'] == sha(shore()), 'uploadable where it went'
+
+
+@pytest.mark.parametrize('body, status, why', [
+    ({'name': 'gobras', 'squares': ['N20E087']}, 409, 'a zone already'),
+    ({'name': 'artana', 'squares': ['N30E087']}, 422, 'some of gobras'),
+    ({'name': 'artana', 'squares': ['N20E086-N20E089']}, 422, 'all of gobras'),
+    ({'name': 'Artana', 'squares': ['N20E087']}, 422, 'lowercase'),
+    ({'name': 'artana', 'squares': []}, 422, 'not none'),
+])
+def test_a_split_refused_changes_nothing(zoned, body, status, why):
+    before = (zoned.base / 'zones').read_text()
+    got, answer, _ = call(zoned, 'POST', '/zones/gobras/split', body, 't-admin')
+    assert got == status and why in answer['error']
+    assert (zoned.base / 'zones').read_text() == before and not (zoned.base / 'osm-squares' / 'artana').exists()
+
+
+def test_a_split_is_an_administrators(zoned):
+    assert call(zoned, 'POST', '/zones/gobras/split', {'name': 'x', 'squares': ['N20E087']}, 't-wangi')[0] == 403
+    assert call(zoned, 'POST', '/zones/nowhere/split', {'name': 'x', 'squares': ['N20E087']}, 't-admin')[0] == 404

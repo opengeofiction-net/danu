@@ -28,12 +28,18 @@ the zones squares are uploaded to, with their names, as the wiki's map does:
 **grey**. The panel lists them, and the map is a way in: outside the open
 squares - or anywhere, with nothing open - **click** a zone to choose it,
 and **double-click** a square to open it, its zone imported first if it is
-not on this machine yet. **Import** imports the zone chosen. An
+not on this machine yet. **Import** imports the zone chosen. Each zone's
+squares are drawn as the wiki's map draws them: **green** with contours,
+**orange** a coastline only, **grey** blank. An
 administrator edits them there: **New zone…**, and **Edit squares**, which
 makes a click or a drag add squares to the zone and ctrl and a drag take
 them away, until **Save** - squares another zone holds show red, and are
 not taken; **Inactive…** and **Active** set whether it is
-drawn on the tile servers.
+drawn on the tile servers. **Split…** makes some of a zone's squares a new
+zone: name it, paint the squares that go, and Save - their files go with
+them. A change that would leave a square with contours in no zone is
+refused, the squares named; blank and coastline-only squares it leaves out
+are taken out of the build, kept on the server for an administrator.
 
 ## The surface
 

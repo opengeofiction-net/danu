@@ -114,9 +114,18 @@ def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int) -> Pa
     return new
 
 
-def zones(api: str, opener=urllib.request.urlopen) -> Answer:
-    """The zones, their rectangles, and the reason any is inactive."""
-    return _ask('GET', f'{api.rstrip("/")}/zones', '', opener, timeout=60)
+def zones(api: str, opener=urllib.request.urlopen, held: bool = False) -> Answer:
+    """The zones, their rectangles, and the reason any is inactive; with
+    ``held`` each zone's squares too, and their class."""
+    return _ask('GET', f'{api.rstrip("/")}/zones' + ('?held=1' if held else ''), '', opener, timeout=60)
+
+
+def split_zone(api: str, token: str, zone: str, name: str, rects: list[str],
+               opener=urllib.request.urlopen) -> Answer:
+    """Some of a zone's squares a new zone, ``name`` - an administrator's."""
+    return _ask('POST', f'{api.rstrip("/")}/zones/{urllib.parse.quote(zone)}/split', token, opener,
+                json.dumps({'name': name, 'squares': rects}).encode(), {'Content-Type': 'application/json'},
+                timeout=60)
 
 
 def put_zone(api: str, token: str, zone: str, rects: list[str], opener=urllib.request.urlopen) -> Answer:

@@ -20,7 +20,15 @@ under it, ctrl and a drag takes them away, and squares another zone holds
 show red and are never taken - until **Save**, which sends the squares as
 the fewest rectangles (``zones.rects_for``), or **Cancel**. **Inactive…**
 asks a reason and a note, as danu-build's ``inactive`` takes them, and
-**Active** clears it. The server checks everything again: an overlap, a bad
+**Active** clears it. **Split…** asks the new zone's name and paints which of
+the chosen zone's squares go to it - nothing outside the zone is taken - and
+Save moves them, their files with them. A resize that would leave a square
+with contours in no zone is refused, the squares named; the blank and the
+coastline-only it leaves out are retired to the drop's kept files.
+
+Each zone's squares are drawn too, outside the open set, in the wiki's
+colours for a square (``danu.core.topo_style``): green with contours,
+orange a coastline only, grey blank - the drop's listing says which. The server checks everything again: an overlap, a bad
 name, a reason it doesn't know, are refused there with the reason said.
 """
 
@@ -49,7 +57,7 @@ from PySide6.QtWidgets import (
 from ..core import dropclient
 from ..core import zones as Z
 from ..core.square import SquareName, list_squares
-from ..core.topo_style import ZONE, ZONE_INACTIVE
+from ..core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE, ZONE, ZONE_INACTIVE
 from . import mercator as m
 from . import topo_style as style
 from .background import Job
@@ -85,11 +93,20 @@ class ZonesItem(QGraphicsItem):
         self.editing: set[SquareName] | None = None
         self.refused: set[SquareName] = set()
         self._paths: dict[str, QPainterPath] = {}
+        self.squares: dict[SquareName, str] = {}     # the squares held, by class
+        self.skip: set[SquareName] = set()           # the open set's: its own frames draw those
 
     def set_zones(self, zones: list[dict]) -> None:
         self.prepareGeometryChange()
         self.zones = zones
         self._paths = {z['name']: _outline(cells_of(z)) for z in zones}
+        self.squares = {}
+        for z in zones:
+            for h in z.get('held', []):
+                try:
+                    self.squares[SquareName.parse(h['square'])] = _CLASS.get(h.get('class'), SQUARE_BLANK)
+                except (KeyError, ValueError):
+                    continue
         self.update()
 
     def set_editing(self, cells: set[SquareName] | None, refused: set[SquareName] = frozenset()) -> None:
@@ -105,6 +122,12 @@ class ZonesItem(QGraphicsItem):
         return QRectF(0, 0, m.WORLD, m.WORLD) if self.zones or self.editing is not None else QRectF()
 
     def paint(self, painter: QPainter, option, widget=None):
+        for c, cls in self.squares.items():
+            if c in self.skip:
+                continue
+            painter.setPen(style.pen(cls))
+            painter.setBrush(style.brush(cls))
+            painter.drawRect(_cell_rect(c))
         for z in self.zones:
             path = self._paths.get(z['name'])
             if path is None or path.isEmpty():
@@ -135,6 +158,10 @@ class ZonesItem(QGraphicsItem):
         painter.restore()
 
 
+# the drop's classes - the report's - as the topo layer's square styles
+_CLASS = {'contour': SQUARE, 'coastline': SQUARE_COASTLINE, 'blank': SQUARE_BLANK}
+
+
 def cells_of(zone: dict) -> set[SquareName]:
     out: set[SquareName] = set()
     for r in zone.get('squares', []):
@@ -148,8 +175,10 @@ class ZonePainter:
     the button lets go. Squares another zone holds are refused. Anything but
     the left button is left to the map."""
 
-    def __init__(self, item: ZonesItem, cells: set[SquareName], others: set[SquareName], changed):
+    def __init__(self, item: ZonesItem, cells: set[SquareName], others: set[SquareName], changed,
+                 within: set[SquareName] | None = None):
         self.item, self.cells, self.others, self.changed = item, set(cells), set(others), changed
+        self.within = within                # a split: only these may be taken
         self._from: SquareName | None = None
         self._remove = False
         self.item.set_editing(self.cells)
@@ -175,7 +204,11 @@ class ZonePainter:
         if self._remove:
             self.item.set_editing(self.cells - span)
         else:
-            self.item.set_editing((self.cells | span) - self.others, span & self.others)
+            refused = self._refused(span)
+            self.item.set_editing((self.cells | span) - refused, refused)
+
+    def _refused(self, span: set[SquareName]) -> set[SquareName]:
+        return span & self.others if self.within is None else span - self.within
 
     def mouse_press(self, event, p) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -197,7 +230,7 @@ class ZonePainter:
         to = self._cell(p)
         if to is not None:
             span = self._span(to)
-            self.cells = self.cells - span if self._remove else (self.cells | span) - self.others
+            self.cells = self.cells - span if self._remove else (self.cells | span) - self._refused(span)
         self._from = None
         self.item.set_editing(self.cells)
         self.changed(self.cells)
@@ -293,12 +326,14 @@ class ZonesDock(QDockWidget):
         self.edit = QPushButton('Edit squares')
         self.save = QPushButton('Save')
         self.cancel = QPushButton('Cancel')
+        self.split = QPushButton('Split…')
+        self.split.setToolTip('some of the chosen zone\'s squares a new zone, their files moved with them')
         self.inactive = QPushButton('Inactive…')
         self.active = QPushButton('Active')
         row1, row2 = QHBoxLayout(), QHBoxLayout()
         for b in (self.reload, self.import_, self.new, self.edit):
             row1.addWidget(b)
-        for b in (self.save, self.cancel, self.inactive, self.active):
+        for b in (self.split, self.save, self.cancel, self.inactive, self.active):
             row2.addWidget(b)
         box.addLayout(row1)
         box.addLayout(row2)
@@ -322,6 +357,7 @@ class ZoneEditor(QObject):
         self.ask_name = lambda: _ask_name(window)
         self.ask_inactive = lambda zone: _ask_inactive(window, zone)
         self.zones: list[dict] = []
+        self.splitting: str | None = None   # the zone a split takes squares from
         self._frame_pending = False
         self.painter: ZonePainter | None = None
         self.editing: str | None = None
@@ -333,6 +369,7 @@ class ZoneEditor(QObject):
         d.new.clicked.connect(self.new_zone)
         d.edit.clicked.connect(lambda: self.start_edit(self.chosen()))
         d.save.clicked.connect(self.save)
+        d.split.clicked.connect(self._split_chosen)
         d.cancel.clicked.connect(self.stop_edit)
         d.inactive.clicked.connect(self.make_inactive)
         d.active.clicked.connect(self.make_active)
@@ -377,11 +414,12 @@ class ZoneEditor(QObject):
         d, admin, editing = self.dock, self.admin, self.editing is not None
         chosen = self.chosen()
         z = next((z for z in self.zones if z['name'] == chosen), None)
-        for b in (d.new, d.edit, d.save, d.cancel, d.inactive, d.active):
+        for b in (d.new, d.edit, d.split, d.save, d.cancel, d.inactive, d.active):
             b.setVisible(admin)
         # overlaps are judged against the zones: none read, nothing to judge
         d.new.setEnabled(admin and not editing and bool(self.zones))
         d.edit.setEnabled(admin and not editing and z is not None)
+        d.split.setEnabled(admin and not editing and z is not None and len(cells_of(z)) > 1)
         d.save.setEnabled(editing)
         d.cancel.setEnabled(editing)
         d.inactive.setEnabled(admin and not editing and z is not None and not z.get('inactive'))
@@ -485,12 +523,13 @@ class ZoneEditor(QObject):
                 self.say(f'zones: {answer.why}')
                 return
             self.set_zones(answer.body.get('zones', []))
+            self.show_here()
             if self._frame_pending:
                 self.frame_all()
             if not quiet:
                 self.say(f'{len(self.zones)} zones')
-        api = self._api()
-        self._run(lambda: dropclient.zones(api, **self._kw()), done)
+        api, kw = self._api(), self._kw()
+        self._run(lambda: dropclient.zones(api, held=True, **kw), done)
 
     def set_zones(self, zones: list[dict]) -> None:
         keep = self.chosen()
@@ -516,6 +555,7 @@ class ZoneEditor(QObject):
     def show_here(self) -> None:
         ws = self.window.working_set
         self.item.here = None
+        self.item.skip = set(ws.squares) if ws is not None else set()
         if ws is not None:
             self.item.here = next((z['name'] for z in self.zones if ws.centre in cells_of(z)), None)
         self.item.update()
@@ -545,6 +585,28 @@ class ZoneEditor(QObject):
         self.zones.append({'name': name, 'squares': [], 'inactive': None})
         self.start_edit(name)
 
+    def _split_chosen(self) -> None:
+        zone = self.chosen()
+        if zone is None or not self.admin:
+            return
+        name = self.ask_name()
+        if not name:
+            return
+        if not Z.ZONE.fullmatch(name) or any(z['name'] == name for z in self.zones):
+            self.say(f'{name!r}: a new zone\'s name - lowercase letters, digits, _ and -, and not one there is')
+            return
+        z = next(z for z in self.zones if z['name'] == zone)
+        self.editing, self.splitting = name, zone
+        self.dock.show()
+        self.show(True)
+        self.window.map.browse = None
+        self.painter = ZonePainter(self.item, set(), set(),
+                                   lambda cells: self.say(f'{len(cells)} of {zone}\'s squares to {name} - Save to split'),
+                                   within=cells_of(z))
+        self._tool, self.window.map.tool = self.window.map.tool, self.painter
+        self.say(f'{zone} into {name}: click or drag over the squares that go to {name}; then Save')
+        self.update_buttons()
+
     def start_edit(self, name: str | None) -> None:
         if name is None or not self.admin:
             return
@@ -566,7 +628,7 @@ class ZoneEditor(QObject):
         if not any(cells_of(z) for z in self.zones if z['name'] == self.editing):
             self.zones = [z for z in self.zones if z['name'] != self.editing or z['squares']]
         self.window.map.tool = self._tool
-        self.editing, self.painter = None, None
+        self.editing, self.painter, self.splitting = None, None, None
         self._browse()
         self.item.set_editing(None)
         self.say('')
@@ -580,16 +642,26 @@ class ZoneEditor(QObject):
             self.say(f'{name} needs at least one square')
             return
         rects = [str(r) for r in Z.rects_for(cells)]
-        api, token = self._api(), self._token()
+        api, token, kw, source = self._api(), self._token(), self._kw(), self.splitting
 
         def done(answer):
             if not answer.ok:
                 self.say(f'{name} not saved: {answer.why}')
                 return
             self.stop_edit()
-            self.say(f'{name} saved: {", ".join(rects)}')
+            if source is not None:
+                moved = answer.body.get('moved', [])
+                self.say(f'{source} split: {name} is {", ".join(rects)}, {len(moved)} square'
+                         f'{"" if len(moved) == 1 else "s"} moved with it')
+            else:
+                retired = answer.body.get('retired', [])
+                self.say(f'{name} saved: {", ".join(rects)}'
+                         + (f' - left out and retired: {", ".join(retired)}' if retired else ''))
             self.load(quiet=True)
-        self._run(lambda: dropclient.put_zone(api, token, name, rects, **self._kw()), done)
+        if source is not None:
+            self._run(lambda: dropclient.split_zone(api, token, source, name, rects, **kw), done)
+        else:
+            self._run(lambda: dropclient.put_zone(api, token, name, rects, **kw), done)
 
     def make_inactive(self) -> None:
         name = self.chosen()

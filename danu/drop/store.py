@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.square import SquareName, label_of, list_squares
+from ..report.zones_to_multimap import classify_square
 
 XZ_MAGIC = b'\xfd7zXZ\x00'
 
@@ -52,13 +53,15 @@ class Held:
     mtime: float
     sha256: str
 
+    kind: str = ''                  # 'contour', 'coastline' or 'blank': the report's classify_square
+
     @property
     def label(self) -> str:
         return label_of(self.path)
 
     def describe(self) -> dict:
         return {'square': self.square.name, 'file': self.path.name, 'label': self.label,
-                'size': self.size, 'mtime': self.mtime, 'sha256': self.sha256}
+                'size': self.size, 'mtime': self.mtime, 'sha256': self.sha256, 'class': self.kind}
 
 
 def check_square_file(path: Path) -> None:
@@ -92,6 +95,7 @@ class Store:
         self.published = Path(pubroot) / 'osm-squares' if pubroot else None
         self.drop = self.base / 'drop'
         self._hashes: dict[str, tuple[int, int, str]] = {}    # path -> size, time, hash
+        self._kinds: dict[str, str] = {}                      # hash -> the report's class
 
     # ---------------------------------------------------------------- reading
 
@@ -120,7 +124,10 @@ class Store:
         out = []
         for square, path in sorted(found.items()):
             st = path.stat()
-            out.append(Held(square, path, st.st_size, st.st_mtime, self._sha256(path, st)))
+            sha = self._sha256(path, st)
+            if sha not in self._kinds:
+                self._kinds[sha] = classify_square(path)
+            out.append(Held(square, path, st.st_size, st.st_mtime, sha, self._kinds[sha]))
         return out
 
     def held(self, zone: str, square: SquareName) -> Held | None:
@@ -267,6 +274,30 @@ class Store:
             self._log(user=user, action='delete', zone=zone, square=square.name,
                       file=current.path.name, sha256=current.sha256, kept=kept)
             self._publish(zone, current, None)
+
+    def retire(self, zone: str, held: Held, user: str, why: str) -> str:
+        """A square out of the build: to ``drop/kept/`` from both copies,
+        logged. A blank or coastline-only square a zone change leaves in no
+        zone, which the build would still build from its old directory."""
+        kept = self._keep(zone, held)
+        held.path.unlink()
+        self._log(user=user, action='retire', zone=zone, square=held.square.name, file=held.path.name,
+                  sha256=held.sha256, kept=kept, why=why)
+        self._publish(zone, held, None)
+        return kept
+
+    def move(self, held: Held, from_zone: str, to_zone: str, user: str) -> None:
+        """A square into another zone, both copies, its time kept."""
+        d = self.zone_dir(to_zone)
+        d.mkdir(parents=True, exist_ok=True)
+        os.replace(held.path, d / held.path.name)
+        if self.published is not None:
+            src, dst = self.published / from_zone / held.path.name, self.published / to_zone
+            dst.mkdir(parents=True, exist_ok=True)
+            if src.exists():
+                os.replace(src, dst / held.path.name)
+        self._log(user=user, action='move', zone=to_zone, was_zone=from_zone, square=held.square.name,
+                  file=held.path.name, sha256=held.sha256)
 
     def log_admin(self, user: str, action: str, **what) -> None:
         self._log(user=user, action=action, **what)
