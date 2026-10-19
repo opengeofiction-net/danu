@@ -156,6 +156,13 @@ class MapView(QGraphicsView):
         # the editing tool, if any, sees mouse and key events first and says
         # whether it took them; panning and the cursor report carry on either way
         self.tool = None
+        # the zones map's clicks (#190): told of each press, and offered each
+        # release and double-click before the tool. A release only as a pick,
+        # never taken from the tool - the select tool's marquee takes every
+        # release, so after it the zones map would never see one - and only a
+        # click outside the open set that did not move; a double-click there
+        # is the zones map's alone
+        self.browse = None
         # the loupe (H3d), whose magnification shift and the wheel step while it is shown
         self.loupe = None
         self._pan_last: QPointF | None = None      # the right button dragging the map
@@ -324,6 +331,8 @@ class MapView(QGraphicsView):
         return self._pan_last is not None
 
     def mousePressEvent(self, event):
+        if self.browse is not None:
+            self.browse.press(event)
         if event.button() == Qt.MouseButton.RightButton:
             self.pan_start(event.position())
             event.accept()
@@ -343,6 +352,8 @@ class MapView(QGraphicsView):
                 event.accept()                     # a right click: the tools' to answer
                 return
         p = self.mapToScene(event.position().toPoint())
+        if self.browse is not None:
+            self.browse.click(event, p)                # a pick only; the tool has the release too
         if self.tool is not None and self.tool.mouse_release(event, p):
             event.accept()
             return
@@ -350,6 +361,9 @@ class MapView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
+        if self.browse is not None and self.browse.double_click(event, p):
+            event.accept()
+            return
         if self.tool is not None and self.tool.mouse_double_click(event, p):
             event.accept()
             return

@@ -116,6 +116,16 @@ class Importer(QObject):
         if zone is None:
             self.message.emit('' if zones else 'the server lists no zones')
             return
+        self.import_zone(zone)
+
+    def import_zone(self, zone: str) -> bool:
+        """One zone imported into the import root, as File › Import does once
+        it is chosen - the Zones panel's Import (#190). A square changed here
+        is asked about as ever. True if the import started; ``finished`` or
+        ``failed`` says how it ended."""
+        if self.busy:
+            self.message.emit('an import is already running')
+            return False
         root, base = self.window.settings.import_root, self.window.settings.url('squares/mirror')
         api = self.window.settings.url('drop/url')
         job = None
@@ -128,6 +138,7 @@ class Importer(QObject):
                       f'importing {zone}: {s[0]} of {s[1]} squares' + (f' - {s[2]}' if s[2] else '')))
         self.job = job
         self.runner(job)
+        return True
 
     def refresh(self, zone_dir: Path, square) -> bool:
         """One zone fetched again without a question (#190, N5b): the server's

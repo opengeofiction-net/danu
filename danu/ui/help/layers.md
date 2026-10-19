@@ -25,7 +25,10 @@ there is room.
 **View › Zones** opens the Zones panel, and while it is open the map draws
 the zones squares are uploaded to, with their names, as the wiki's map does:
 **blue**, and an inactive zone - built, but not on the tile servers -
-**grey**. The panel lists them. An
+**grey**. The panel lists them, and the map is a way in: outside the open
+squares - or anywhere, with nothing open - **click** a zone to choose it,
+and **double-click** a square to open it, its zone imported first if it is
+not on this machine yet. **Import** imports the zone chosen. An
 administrator edits them there: **New zone…**, and **Edit squares**, which
 makes a click or a drag add squares to the zone and ctrl and a drag take
 them away, until **Save** - squares another zone holds show red, and are

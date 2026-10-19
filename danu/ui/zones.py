@@ -6,7 +6,14 @@ wiki's colours (``danu.core.topo_style``, OpenGeofiction:Topo layer) - blue,
 an inactive one grey and filled - the one chosen in the panel thicker, from
 the drop's ``GET /zones``. Anyone can look.
 
-The **Zones** panel lists them. An administrator signed in gets its buttons:
+The **Zones** panel lists them, and while it is open the zones map is a way
+in: outside the open set - or anywhere, nothing open - a click on a zone
+chooses it, and a double-click on a square opens it - its zone imported
+first if the square is not among the zone's here; **Import** imports the
+zone chosen. Inside the
+open set the map is the editor's, as ever.
+
+An administrator signed in gets its buttons:
 **New zone…** asks a name and starts it empty; **Edit squares** makes the
 map a painter of whole degree squares - a click or a drag adds the squares
 under it, ctrl and a drag takes them away, and squares another zone holds
@@ -41,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from ..core import dropclient
 from ..core import zones as Z
-from ..core.square import SquareName
+from ..core.square import SquareName, list_squares
 from ..core.topo_style import ZONE, ZONE_INACTIVE
 from . import mercator as m
 from . import topo_style as style
@@ -203,6 +210,48 @@ class ZonePainter:
         return False
 
 
+class ZoneBrowser:
+    """The zones map's clicks, outside the open set (``MapView.browse``). A
+    click - a press and a release on the same spot - picks the zone under it;
+    a double-click opens the square. Never a press or a drag: those are the
+    tool's, so a lasso begun outside the set still sweeps into it."""
+
+    SLOP_PX = 4
+
+    def __init__(self, editor: 'ZoneEditor'):
+        self.editor = editor
+        self._pressed = None
+
+    @staticmethod
+    def _cell(p: QPointF) -> SquareName | None:
+        return ZonePainter._cell(p)
+
+    def _outside(self, cell: SquareName) -> bool:
+        ws = self.editor.window.working_set
+        return ws is None or cell not in ws.squares
+
+    def press(self, event) -> None:
+        self._pressed = event.position() if event.button() == Qt.MouseButton.LeftButton else None
+
+    def click(self, event, p) -> None:
+        pressed, self._pressed = self._pressed, None
+        if pressed is None or event.button() != Qt.MouseButton.LeftButton:
+            return
+        if (event.position() - pressed).manhattanLength() > self.SLOP_PX:
+            return
+        cell = self._cell(p)
+        if cell is not None and self._outside(cell):
+            self.editor.pick(cell)
+
+    def double_click(self, event, p) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        cell = self._cell(p)
+        if cell is None or not self._outside(cell):
+            return False
+        return self.editor.open_square(cell)
+
+
 class InactiveDialog(QDialog):
     def __init__(self, zone: str, parent=None):
         super().__init__(parent)
@@ -234,6 +283,8 @@ class ZonesDock(QDockWidget):
         self.status.setWordWrap(True)
         box.addWidget(self.status)
         self.reload = QPushButton('Reload')
+        self.import_ = QPushButton('Import')
+        self.import_.setToolTip('the zone chosen, its squares copied to this machine - as File › Import')
         self.new = QPushButton('New zone…')
         self.edit = QPushButton('Edit squares')
         self.save = QPushButton('Save')
@@ -241,7 +292,7 @@ class ZonesDock(QDockWidget):
         self.inactive = QPushButton('Inactive…')
         self.active = QPushButton('Active')
         row1, row2 = QHBoxLayout(), QHBoxLayout()
-        for b in (self.reload, self.new, self.edit):
+        for b in (self.reload, self.import_, self.new, self.edit):
             row1.addWidget(b)
         for b in (self.save, self.cancel, self.inactive, self.active):
             row2.addWidget(b)
@@ -272,6 +323,8 @@ class ZoneEditor(QObject):
         self._jobs: list[Job] = []
         d = self.dock
         d.reload.clicked.connect(self.load)
+        d.import_.clicked.connect(lambda: self.import_zone(self.chosen()))
+        self.browser = ZoneBrowser(self)
         d.new.clicked.connect(self.new_zone)
         d.edit.clicked.connect(lambda: self.start_edit(self.chosen()))
         d.save.clicked.connect(self.save)
@@ -334,14 +387,60 @@ class ZoneEditor(QObject):
         d.inactive.setEnabled(admin and not editing and z is not None and not z.get('inactive'))
         d.active.setEnabled(admin and not editing and z is not None and bool(z.get('inactive')))
         d.list.setEnabled(not editing)
+        d.import_.setEnabled(not editing and z is not None)
         # the squares refused are the other zones' as editing began
         d.reload.setEnabled(not editing)
 
     # ------------------------------------------------------------ showing
     def show(self, on: bool) -> None:
         self.item.setVisible(on)
+        self._browse()
         if on and not self.zones:
             self.load()
+
+    def _browse(self) -> None:
+        """The map's clicks are the zones map's while it shows and no zone is
+        being painted."""
+        self.window.map.browse = self.browser if self.item.isVisible() and self.editing is None else None
+
+    # ------------------------------------------------------------ the way in
+    def zone_of(self, cell: SquareName) -> str | None:
+        return next((z['name'] for z in self.zones if cell in cells_of(z)), None)
+
+    def pick(self, cell: SquareName) -> None:
+        """The zone under a click, chosen in the panel."""
+        zone = self.zone_of(cell)
+        if zone is None:
+            self.say(f'{cell} is in no zone')
+            return
+        for i in range(self.dock.list.count()):
+            if self.dock.list.item(i).data(Qt.ItemDataRole.UserRole) == zone:
+                self.dock.list.blockSignals(True)
+                self.dock.list.setCurrentRow(i)
+                self.dock.list.blockSignals(False)
+        self.item.chosen = zone
+        self.item.update()
+        self.update_buttons()
+        self.say(f'{zone} - double-click a square to open it, or Import')
+
+    def import_zone(self, zone: str | None) -> None:
+        if zone is not None and self.window.importer.import_zone(zone):
+            self.say(f'importing {zone}…')
+
+    def open_square(self, cell: SquareName) -> bool:
+        """A square opened from the map: from here if its zone is, or the
+        zone imported first. True if the double-click was this map's."""
+        zone = self.zone_of(cell)
+        if zone is None:
+            self.say(f'{cell} is in no zone')
+            return True
+        w = self.window
+        zone_dir = w.settings.import_root / zone
+        if zone_dir.is_dir() and cell in list_squares(zone_dir):
+            w.open_working_set(zone_dir, cell, w.settings.size)
+        else:
+            w._import_then_open(zone_dir, cell, f'importing {zone} to open {cell}…')
+        return True
 
     def load(self, quiet: bool = False) -> None:
         """The zones from the drop; ``quiet`` after a change, whose own word
@@ -420,6 +519,7 @@ class ZoneEditor(QObject):
         self.editing = name
         self.dock.show()
         self.show(True)
+        self.window.map.browse = None
         self.painter = ZonePainter(self.item, cells_of(z), others,
                                    lambda cells: self.say(f'{name}: {len(cells)} squares - Save to send them'))
         self._tool, self.window.map.tool = self.window.map.tool, self.painter
@@ -433,6 +533,7 @@ class ZoneEditor(QObject):
             self.zones = [z for z in self.zones if z['name'] != self.editing or z['squares']]
         self.window.map.tool = self._tool
         self.editing, self.painter = None, None
+        self._browse()
         self.item.set_editing(None)
         self.say('')
         self.update_buttons()
