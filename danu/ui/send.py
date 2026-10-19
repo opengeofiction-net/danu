@@ -165,7 +165,7 @@ class Sender(QObject):
 
     def _unimported(self, square: SquareName, path: Path, held: dict) -> None:
         """Held there, never imported here: the mapper's to say which wins."""
-        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(float(held.get('mtime', 0))))
+        when = time.strftime('%Y-%m-%d %H:%M %Z', time.localtime(float(held.get('mtime', 0))))
         if not self.confirm('Replace the server\'s square',
                             f'Your copy of {square} was not imported from the server\'s - it may have been '
                             f'edited before Danu 1.3. The server\'s, {held.get("file")}, last changed {when}.\n\n'
