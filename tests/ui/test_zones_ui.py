@@ -60,7 +60,7 @@ def zones_file(w):
 
 
 def test_anyone_sees_the_zones_from_view(w):
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z = w.zone_editor
     assert z.item.isVisible() and [x['name'] for x in z.zones] == ['gobras', 'pizarrales']
     assert z.dock.list.count() == 2 and 'gobras - 16 squares' == z.dock.list.item(0).text()
@@ -71,7 +71,7 @@ def test_anyone_sees_the_zones_from_view(w):
 def test_an_administrator_paints_squares_onto_a_zone(w):
     admin(w)
     z = w.zone_editor
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.list.setCurrentRow(0)                                       # gobras
     editor_tool = w.map.tool
     z.dock.edit.click()
@@ -93,7 +93,7 @@ def test_an_administrator_paints_squares_onto_a_zone(w):
 def test_the_drag_shows_what_it_would_take_and_refuse(w):
     admin(w)
     z = w.zone_editor
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.list.setCurrentRow(0)
     z.dock.edit.click()
     ev = QMouseEvent(QMouseEvent.Type.MouseButtonPress, QPointF(), QPointF(), Qt.MouseButton.LeftButton,
@@ -108,7 +108,7 @@ def test_the_drag_shows_what_it_would_take_and_refuse(w):
 def test_a_new_zone(w):
     admin(w)
     z = w.zone_editor
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.new.click()
     assert z.editing == 'tekan'
     click(z.painter, 128.5, 17.5, 130.5, 21.5)
@@ -122,7 +122,7 @@ def test_a_new_zone_left_empty_is_dropped(w):
     admin(w)
     z = w.zone_editor
     assert not z.dock.new.isEnabled(), 'no zones read: no overlap to judge by'
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.new.click()
     z.dock.save.click()
     assert 'at least one square' in z.dock.status.text()
@@ -133,7 +133,7 @@ def test_a_new_zone_left_empty_is_dropped(w):
 def test_inactive_and_active_again(w):
     admin(w)
     z = w.zone_editor
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.list.setCurrentRow(0)
     z.dock.inactive.click()
     assert 'gobras      wip        # being drawn' in (w.server_base / 'inactive').read_text()
@@ -148,10 +148,22 @@ def test_the_server_refuses_one_it_does_not_take_for_an_administrator(w):
     w.settings.user, w.settings.token, w.settings.roles = 'wangi', 't-wangi', ['administrator']
     z = w.zone_editor
     z.update_buttons()
-    w.view_actions['view.zones'].setChecked(True)
+    w.zones_dock.show()
     z.dock.list.setCurrentRow(0)
     z.dock.edit.click()
     click(z.painter, 90.5, 18.5)
     z.dock.save.click()
     assert 'not saved' in z.dock.status.text() and 'administrator' in z.dock.status.text()
     assert z.editing == 'gobras', 'still editing: nothing lost'
+
+
+def test_one_zones_in_view_the_panel_and_the_outlines_with_it(w):
+    from .conftest import menu
+    view = [a.text().replace('&', '') for a in menu(w.menuBar(), 'View').actions()]
+    assert view.count('Zones') == 1
+    z = w.zone_editor
+    assert not z.item.isVisible()
+    w.zones_dock.toggleViewAction().trigger()
+    assert w.zones_dock.isVisible() and z.item.isVisible() and z.zones
+    w.zones_dock.toggleViewAction().trigger()
+    assert not z.item.isVisible()

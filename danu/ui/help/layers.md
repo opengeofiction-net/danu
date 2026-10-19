@@ -22,9 +22,10 @@ there is room.
 
 ## Zones
 
-**View › Zones** draws the zones squares are uploaded to, with their names,
-as the wiki's map does: **blue**, and an inactive zone - built, but not on
-the tile servers - **grey**. The **Zones** panel lists them. An
+**View › Zones** opens the Zones panel, and while it is open the map draws
+the zones squares are uploaded to, with their names, as the wiki's map does:
+**blue**, and an inactive zone - built, but not on the tile servers -
+**grey**. The panel lists them. An
 administrator edits them there: **New zone…**, and **Edit squares**, which
 makes a click or a drag add squares to the zone and ctrl and a drag take
 them away, until **Save** - squares another zone holds show red, and are

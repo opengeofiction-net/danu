@@ -27,8 +27,10 @@ the ground can be seen across the square's edges. **File › Open recent** has
 the last few.
 
 Ground nobody has drawn yet starts with **File › New blank square…**, or
-**New…** on the start page: choose the zone's folder, and the square offered
-is the one in the middle of the map. **Help › Start page** brings the start
+**New…** on the start page: the square offered is the one in the middle of
+the map, and it goes into its zone's folder, where Import puts the zone - or,
+if the server has the square already, the zone is imported and the square
+opened. A square in no zone asks for a folder. **Help › Start page** brings the start
 page back over whatever is open.
 
 ## 4. Draw

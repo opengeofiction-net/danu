@@ -6078,3 +6078,36 @@ drawn, orange a coastline only, grey blank - and its line's weight and
 opacity; not its fill, a 10% wash over every square colouring the ground and
 the contours in their level's colour under it. The class is kept per square
 and worked out again when its ways or nodes come or go.
+
+## After 1.3.0: the first trial (#190, #226)
+
+**The mapper's address in the drop's journal.** gunicorn logged the address
+that reached it, which is always api's over the VPN. nginx sets
+`X-Forwarded-For` to its client itself, so the access log is that header now:
+`danu.drop.gunicorn`, a settings module the unit names with
+`--config python:` - on the command line systemd would take each `%` for
+one of its own specifiers.
+
+**A square never imported here.** 1.2's Import kept a square changed here
+without recording the version it came from, so a square edited before 1.3
+has none to send, and its upload came back a conflict: the copy kept as
+`.mine`, the server's imported over the mapper's work. That is right when
+somebody else uploaded since, and nobody did. The refusal now says so -
+`unimported`, with the server's copy - and the editor asks whether to
+replace the server's copy, saying when it last changed. Yes sends that
+copy's version as `If-Match`, so it is that one replaced and no later one;
+the server keeps it in `drop/kept/`. A copy imported here and changed there
+since is still a conflict, and still `.mine`.
+
+**One Zones in View.** The layer had its own action beside the panel's. The
+outlines go with the panel now: open - even tabbed behind another - or not.
+
+**A new square goes into its zone (#226).** With nothing open, New blank
+square asked for the zone's directory from the import root, which on a new
+install doesn't exist, and the dialog started in a folder of the system's.
+The square is asked for first now, and the drop which zone it is in: it is
+written to `<import root>/<zone>/`, where Import mirrors that zone and
+Upload looks, or - the drop holding it already - the zone is imported and
+the square opened, rather than a blank written beside the server's. In no
+zone, or the drop not reached, the directory is asked for as before, from
+the import root, made first.

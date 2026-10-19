@@ -139,3 +139,25 @@ def test_a_square_renamed_there_the_same_bytes_opens_the_set_again(w, zone, qtbo
     (w.there / GOLDEN).rename(w.there / 'S24E125_Pizarrales.osm.xz')
     reopened(w, qtbot, w.import_action.trigger)
     assert w.working_set.squares[w.working_set.centre].path.name == 'S24E125_Pizarrales.osm.xz'
+
+
+def test_never_imported_here_asked_then_replaced_and_no_mine(w, zone):
+    (zone / '.danu-mirror.json').unlink()
+    (zone / GOLDEN).write_bytes(osm(2))
+    asked = []
+    w.sender.confirm = lambda title, text: (asked.append((title, text)), True)[1]
+    w.drop_actions['drop.upload'].trigger()
+    assert [t for t, _ in asked] == ['Upload square', 'Replace the server\'s square']
+    assert 'before Danu 1.3' in asked[1][1] and 'last changed' in asked[1][1]
+    assert (w.there / GOLDEN).read_bytes() == osm(2) and 'uploaded' in w.messages[-1]
+    assert not list(zone.glob('*.mine.osm.xz'))
+
+
+def test_never_imported_here_declined_nothing_changes(w, zone):
+    (zone / '.danu-mirror.json').unlink()
+    before = (w.there / GOLDEN).read_bytes()
+    (zone / GOLDEN).write_bytes(osm(2))
+    w.sender.confirm = lambda title, text: title == 'Upload square'
+    w.drop_actions['drop.upload'].trigger()
+    assert (w.there / GOLDEN).read_bytes() == before and (zone / GOLDEN).read_bytes() == osm(2)
+    assert not list(zone.glob('*.mine.osm.xz')) and 'left as it is' in w.messages[-1]
