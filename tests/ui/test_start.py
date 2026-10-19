@@ -32,6 +32,7 @@ def new_window(qtbot, tmp_path, territory_files):
 def bare(qtbot, tmp_path, territory_files):
     """A window with nothing open, as a first run has it, told so as main tells it."""
     w = new_window(qtbot, tmp_path, territory_files)
+    w._drop_runner = lambda job: job.run()          # the drop asked in place: not reached, here
     w.update_start()
     return w
 
@@ -205,3 +206,56 @@ def test_shown_at_every_start_is_a_preference(window):
     dlg.start_always.setChecked(True)
     dlg.accept()
     assert window.settings.start_always
+
+
+# ------------------------------------------------------------------ #226: a new square, into its zone
+
+@pytest.fixture
+def drop(bare, tmp_path, monkeypatch):
+    """The real drop in-process: gobras's squares N20E086-N20E089, Gobras City held there."""
+    pytest.importorskip('fcntl', reason='the data drop is the server\'s: no fcntl here')
+    from danu.core import dropclient
+    from danu.drop import app as A
+    from tests.test_drop import FakeTerritories, fake_users, osm
+    from tests.test_dropclient import API, InProcess
+    base = tmp_path / 'server'
+    (base / 'osm-squares' / 'gobras').mkdir(parents=True)
+    (base / 'osm-squares' / 'gobras' / 'N20E086_Gobras_City.osm.xz').write_bytes(osm(1))
+    (base / 'zones').write_text('gobras          N20E086-N20E089\n')
+    opener = InProcess(A.DropApp(A.Config(base, tmp_path / 'publish'), fake_users, FakeTerritories()))
+    real = dropclient.square_info
+    monkeypatch.setattr(dropclient, 'square_info', lambda api, sq, token='': real(api, sq, token, opener=opener))
+    bare.settings.set_url('drop/url', API)
+    bare.settings.import_root = tmp_path / 'Documents' / 'danu' / 'osm-squares'
+    bare.importer.runner = lambda job: job.run()
+    bare.importer.opener = opener
+    asked = []
+    monkeypatch.setattr('danu.ui.app.QFileDialog.getExistingDirectory', lambda *a: (asked.append(a[2]), '')[1])
+    bare.asked_dirs = asked
+    return bare
+
+
+def test_a_new_square_in_a_zone_goes_where_import_puts_the_zone(drop, qtbot):
+    drop.ask_text = lambda title, label, text: ('N20E087', True)
+    with qtbot.waitSignal(drop.loader.finished, timeout=15000):
+        drop.new_blank_square()
+    zone = drop.settings.import_root / 'gobras'
+    assert (zone / 'N20E087.osm.xz').exists() and drop.zone_dir == zone and not drop.asked_dirs
+
+
+def test_a_new_square_held_there_already_imports_the_zone_and_opens_it(drop, qtbot):
+    drop.ask_text = lambda title, label, text: ('N20E086', True)
+    with qtbot.waitSignal(drop.loader.finished, timeout=15000):
+        drop.new_blank_square()
+    zone = drop.settings.import_root / 'gobras'
+    assert sorted(p.name for p in zone.glob('*.osm.xz')) == ['N20E086_Gobras_City.osm.xz'], 'no blank over it'
+    assert drop.working_set.centre == SquareName(86, 20)
+
+
+def test_a_new_square_in_no_zone_asks_the_directory_from_the_import_root_made_first(drop):
+    """#226: the dialog started somewhere of the system's, the root not there yet."""
+    drop.ask_text = lambda title, label, text: ('N40E010', True)
+    assert not drop.settings.import_root.exists()
+    drop.new_blank_square()
+    assert drop.asked_dirs == [str(drop.settings.import_root)] and drop.settings.import_root.is_dir()
+    assert 'in no zone' in drop.statusBar().currentMessage()

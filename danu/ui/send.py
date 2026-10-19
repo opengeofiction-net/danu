@@ -9,11 +9,17 @@ imported in its place, and the set opened again with the copy drawn over it
 (``reference.py``): theirs to redo their changes on, and upload again.
 Mappers sharing a square sort that out between themselves.
 
+A square the server holds that was never imported here - edited before Danu
+1.3, whose Import kept a square changed here unrecorded - is not a conflict
+anybody else made: the mapper is asked whether to replace the server's copy,
+told when it last changed, and the server keeps the one replaced.
+
 ``confirm``, ``ask_label`` and ``runner`` are the tests' to replace.
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
@@ -133,9 +139,9 @@ class Sender(QObject):
         if got is not None:
             self._saved_then(lambda: self._upload(*got))
 
-    def _upload(self, square: SquareName, path: Path) -> None:
-        if not self.confirm('Upload square', f'Upload {path.name} to the OpenGeofiction data drop? It is '
-                            'built into the elevation the night after.'):
+    def _upload(self, square: SquareName, path: Path, over: str | None = None) -> None:
+        if over is None and not self.confirm('Upload square', f'Upload {path.name} to the OpenGeofiction data '
+                                             'drop? It is built into the elevation the night after.'):
             return
         w = self.window
         api, token = w.settings.url('drop/url'), w.settings.token
@@ -149,11 +155,25 @@ class Sender(QObject):
                 if new != path:
                     self._again(said)
                 self._asked_again()
-            elif reply.status == 412:           # changed there since, or there and never had here
+            elif reply.status == 412 and reply.body.get('unimported'):
+                self._unimported(square, path, reply.body['held'])
+            elif reply.status == 412:           # changed there since it was imported
                 self._changed(square, path)
             else:
                 self.message.emit(f'{square} not uploaded: {reply.why}')
-        self._run(lambda: dropclient.upload(api, token, path, **self._kw()), done)
+        self._run(lambda: dropclient.upload(api, token, path, over=over, **self._kw()), done)
+
+    def _unimported(self, square: SquareName, path: Path, held: dict) -> None:
+        """Held there, never imported here: the mapper's to say which wins."""
+        when = time.strftime('%Y-%m-%d %H:%M %Z', time.localtime(float(held.get('mtime', 0))))
+        if not self.confirm('Replace the server\'s square',
+                            f'Your copy of {square} was not imported from the server\'s - it may have been '
+                            f'edited before Danu 1.3. The server\'s, {held.get("file")}, last changed {when}.\n\n'
+                            'Replace the server\'s with yours? The server keeps the one replaced, for an '
+                            'administrator to put back.'):
+            self.message.emit(f'{square} not uploaded: the server\'s copy left as it is')
+            return
+        self._upload(square, path, over=str(held['sha256']))
 
     def rename(self) -> None:
         got = self._square()

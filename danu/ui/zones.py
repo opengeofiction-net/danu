@@ -1,6 +1,7 @@
 """The zones on the map, and for administrators their editing (#190, N6).
 
-**View › Zones** draws each zone's squares outlined, with its name, in the
+**View › Zones** opens the panel, and while it is open the map draws each
+zone's squares outlined, with its name, in the
 wiki's colours (``danu.core.topo_style``, OpenGeofiction:Topo layer) - blue,
 an inactive one grey and filled - the one chosen in the panel thicker, from
 the drop's ``GET /zones``. Anyone can look.
@@ -278,7 +279,8 @@ class ZoneEditor(QObject):
         d.inactive.clicked.connect(self.make_inactive)
         d.active.clicked.connect(self.make_active)
         d.list.currentItemChanged.connect(lambda *_: self._chose())
-        d.visibilityChanged.connect(self._dock_shown)
+        # the outlines go with the panel: open, even tabbed behind another, or closed
+        d.toggleViewAction().toggled.connect(self.show)
         self.update_buttons()
 
     # ------------------------------------------------------------ plumbing
@@ -340,10 +342,6 @@ class ZoneEditor(QObject):
         self.item.setVisible(on)
         if on and not self.zones:
             self.load()
-
-    def _dock_shown(self, on: bool) -> None:
-        if on:
-            self.window.view_actions['view.zones'].setChecked(True)
 
     def load(self, quiet: bool = False) -> None:
         """The zones from the drop; ``quiet`` after a change, whose own word
@@ -420,8 +418,8 @@ class ZoneEditor(QObject):
         z = next(z for z in self.zones if z['name'] == name)
         others = set().union(*(cells_of(o) for o in self.zones if o['name'] != name))
         self.editing = name
-        self.item.setVisible(True)
-        self.window.view_actions['view.zones'].setChecked(True)
+        self.dock.show()
+        self.show(True)
         self.painter = ZonePainter(self.item, cells_of(z), others,
                                    lambda cells: self.say(f'{name}: {len(cells)} squares - Save to send them'))
         self._tool, self.window.map.tool = self.window.map.tool, self.painter

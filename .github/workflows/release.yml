@@ -153,7 +153,8 @@ jobs:
           # packaged app, answering from a zone on disk
           mkdir -p /tmp/drop/osm-squares/gobras
           echo 'gobras  N20E086-N21E087' > /tmp/drop/zones
-          BASE=/tmp/drop PUBROOT=/tmp/drop/publish gunicorn --bind 127.0.0.1:8337 --daemon --pid /tmp/drop/pid \
+          BASE=/tmp/drop PUBROOT=/tmp/drop/publish gunicorn --config python:danu.drop.gunicorn \
+            --bind 127.0.0.1:8337 --daemon --pid /tmp/drop/pid \
             'danu.drop.app:create()'
           python3 - <<'PY'
           import json, time, urllib.request

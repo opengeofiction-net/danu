@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self.drop = DropClient(self.settings.url('drop/url'), self.settings.server_url, parent=self)
         self.drop.answered.connect(self._drop_answered)
         self._drop_asked = None             # (square, token) last asked about
+        self._drop_runner = QThreadPool.globalInstance().start      # the tests' to make run in place
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
         # slope or elevation: the reading under a still cursor follows the mode
         self.surface_panel.styleChanged.connect(self._cursor_reading_again)
@@ -809,24 +810,27 @@ class MainWindow(QMainWindow):
         nobody has drawn. The set is re-read so it shows as present.
 
         With nothing open (J5c) - a mapper starting a territory, from the
-        start page - the zone's directory is asked for, the square offered is
-        the one in the middle of the map, and the set opens round it."""
+        start page - the square offered is the one in the middle of the map,
+        and the set opens round it. Its zone is the drop's (#226): the square
+        goes where Import puts that zone, ``<import root>/<zone>/``, so that
+        Import and Upload find it - or, the drop holding it already, the zone
+        is imported rather than a blank written over it. In no zone, or the
+        drop not reached, the zone's directory is asked for, from the import
+        root - made first, or the dialog starts somewhere of the system's."""
         ws = self.working_set
         if ws is None:
             if self._pending is not None:
                 self.statusBar().showMessage('a square is being read')
                 return
-            root = self.settings.squares_root or self.settings.import_root
-            chosen = QFileDialog.getExistingDirectory(self, "The zone's directory, for the new square",
-                                                      str(root))
-            if not chosen:
-                return
-            zone_dir = Path(chosen)
             lon, lat = self.map.center_lonlat()
             try:
                 default = str(SquareName(int(np.floor(lon)), int(np.floor(lat))))
             except ValueError:                           # the map's edge, past the squares
                 default = ''
+            name = self._ask_square_name(default)
+            if name is not None:
+                self._new_in_its_zone(name)
+            return
         elif self.zone_dir is None:
             self.statusBar().showMessage('open a square in the zone first')
             return
@@ -836,14 +840,74 @@ class MainWindow(QMainWindow):
         else:
             zone_dir = self.zone_dir
             default = next((str(n) for n, s in ws.squares.items() if not s.present), str(ws.centre))
+        name = self._ask_square_name(default)
+        if name is not None:
+            self._write_blank(zone_dir, name)
+
+    def _ask_square_name(self, default: str) -> SquareName | None:
         text, ok = self.ask_text('New blank square', 'Square (e.g. N20E087):', default)
         if not ok or not text.strip():
-            return
+            return None
         try:
-            name = SquareName.parse(text.strip())
+            return SquareName.parse(text.strip())
         except ValueError as e:
             QMessageBox.warning(self, 'Danu', str(e))
-            return
+            return None
+
+    def _new_in_its_zone(self, name: SquareName) -> None:
+        """Nothing open: the drop asked which zone the new square is in."""
+        api, token = self.settings.url('drop/url'), self.settings.token
+        self.statusBar().showMessage(f'asking the drop which zone {name} is in…')
+
+        def answered(info):
+            if info.ok and info.body.get('zone'):
+                zone_dir = self.settings.import_root / str(info.body['zone'])
+                if info.body.get('held'):
+                    self._import_then_open(zone_dir, name, info.body['held'].get('file', ''))
+                    return
+                zone_dir.mkdir(parents=True, exist_ok=True)
+                self._write_blank(zone_dir, name)
+                return
+            if info.status == 404 and 'square' in info.body:
+                self.statusBar().showMessage(f'{name} is in no zone, so it can\'t be uploaded yet - '
+                                             'choose a directory for it')
+            self._new_asking_the_directory(name)
+
+        def unreached(_why):
+            self._new_asking_the_directory(name)
+        job = Job(lambda: dropclient.square_info(api, name, token), answered, unreached)
+        self._new_square_job = job
+        self._drop_runner(job)
+
+    def _new_asking_the_directory(self, name: SquareName) -> None:
+        root = self.settings.squares_root or self.settings.import_root
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        chosen = QFileDialog.getExistingDirectory(self, "The zone's directory, for the new square", str(root))
+        if chosen:
+            self._write_blank(Path(chosen), name)
+
+    def _import_then_open(self, zone_dir: Path, name: SquareName, held: str) -> None:
+        """The square is on the server already: its zone imported, and it opened."""
+        self.statusBar().showMessage(f'{name} is held on the server as {held} - importing {zone_dir.name}')
+
+        def imported(answer):
+            done()
+            if Path(answer[1]) == zone_dir:
+                self.open_working_set(zone_dir, name, self.settings.size)
+
+        def done(*_):
+            self.importer.finished.disconnect(imported)
+            self.importer.failed.disconnect(done)
+        self.importer.finished.connect(imported)
+        self.importer.failed.connect(done)
+        if not self.importer.refresh(zone_dir, None):
+            done()
+
+    def _write_blank(self, zone_dir: Path, name: SquareName) -> None:
+        ws = self.working_set
         path = save.default_path(zone_dir, name)
         if (path.exists() or name in list_squares(zone_dir)
                 or (ws is not None and name in ws.squares and ws.squares[name].present)):
@@ -1087,12 +1151,6 @@ class MainWindow(QMainWindow):
         refused.toggled.connect(self.reference.setVisible)
         view.addAction(refused)
         self.view_actions['view.refused'] = refused
-        zones = QAction('&Zones', self)
-        zones.setCheckable(True)
-        zones.setToolTip('the data drop\'s zones and their names, as the wiki\'s topo layer map draws them')
-        zones.toggled.connect(self.zone_editor.show)
-        view.addAction(zones)
-        self.view_actions['view.zones'] = zones
         self.update_reference_actions()
         view.addSeparator()
         for dock in self.docks():

@@ -23,8 +23,10 @@ Group=ogf
 # Uploads are read through before they are taken. The largest square -
 # liberian's N03E058, 24 MB of xz holding 271 MB of XML - took 6.5 s on a
 # desktop; the workers are given five minutes
-ExecStart=/usr/bin/gunicorn --bind ${DROP_BIND} --workers 3 --timeout 300 \
-	--access-logfile - danu.drop.app:create()
+# the access log's format is danu.drop.gunicorn's: the mapper's address, which
+# nginx on api passes on, rather than api's
+ExecStart=/usr/bin/gunicorn --config python:danu.drop.gunicorn --bind ${DROP_BIND} --workers 3 \
+	--timeout 300 --access-logfile - danu.drop.app:create()
 Restart=on-failure
 
 [Install]

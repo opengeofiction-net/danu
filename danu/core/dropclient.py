@@ -5,9 +5,12 @@ from the server.
 That version is the mirror's (``danu.core.mirror``): the manifest beside a
 zone's squares records each one's SHA-256 as imported, and the upload sends
 it as ``If-Match``. A square the server doesn't hold goes up with
-``If-None-Match: *``. One the server holds that was never imported here has
-no version to say, and is refused as one changed would be - the mapper's
-copy kept, the server's imported, theirs to bring together.
+``If-None-Match: *``. One the server holds that was never imported here -
+edited before Danu 1.3, or brought from elsewhere - has no version to say: it
+is refused unsent, marked ``unimported``, with the server's copy, and the
+editor asks whether to replace that copy. Asked yes, ``over`` is that copy's
+version, sent as ``If-Match``, so it is that copy which is replaced and no
+later one.
 
 After a change the manifest says what the server now holds - the bytes
 uploaded, under the name the server gave - so the next upload is made from
@@ -137,13 +140,14 @@ def square_info(api: str, square: SquareName, token: str = '', opener=urllib.req
 
 
 def upload(api: str, token: str, path: Path, label: str | None = None,
-           opener=urllib.request.urlopen) -> tuple[Answer, Path]:
-    """The square at ``path`` uploaded, from the version the manifest has.
-    ``label`` None keeps the server's name for it; '' takes the label away.
-    Answers what the drop said, and where the square is here now."""
+           opener=urllib.request.urlopen, over: str | None = None) -> tuple[Answer, Path]:
+    """The square at ``path`` uploaded, from the version the manifest has -
+    or, ``over``, replacing that version of the server's, asked. ``label``
+    None keeps the server's name for it; '' takes the label away. Answers
+    what the drop said, and where the square is here now."""
     path = Path(path)
     zone_dir, square = path.parent, SquareName.from_filename(path)
-    base = _version(zone_dir, path)
+    base = over or _version(zone_dir, path)
     if base is not None:
         headers = {'If-Match': f'"{base}"'}
     else:
@@ -152,8 +156,8 @@ def upload(api: str, token: str, path: Path, label: str | None = None,
             return info, path
         if info.body.get('held'):
             # held there and never had here: no version to say it was made from
-            return Answer(412, {'error': f'{square} is held on the server, and this copy was not imported from it'},
-                          info.etag), path
+            return Answer(412, {'error': f'{square} is held on the server, and this copy was not imported from it',
+                                'unimported': True, 'held': info.body['held']}, info.etag), path
         headers = {'If-None-Match': '*'}
     query = '' if label is None else '?' + urllib.parse.urlencode({'label': label})
     data = path.read_bytes()

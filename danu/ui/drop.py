@@ -43,14 +43,18 @@ def describe(status: int, body: dict, server: str) -> tuple[str, bool]:
     p = body.get('permission')
     if p is None:
         return f'zone {zone} - sign in to see whether it is yours to upload', False
-    if body.get('admin'):
-        return f'zone {zone} - yours to upload, as an administrator', False
-    others = ', '.join(html.escape(t.get('name') or t.get('ogfId') or '?') for t in p.get('others', []))
+    # the mapper's own ground first: an administrator who owns the territory
+    # is its owner, and the administrator only where the ground is another's
+    named = lambda ts: ', '.join(html.escape(t.get('name') or t.get('ogfId') or '?') for t in ts)  # noqa: E731
+    mine, others = named(p.get('mine', [])), named(p.get('others', []))
     if p.get('level') == 'yes':
-        return f'zone {zone} - yours to upload', False
+        return f'zone {zone} - yours to upload' + (f': {mine}' if mine else ''), False
     if p.get('level') == 'partial':
         return (f'zone {zone} - yours to upload, shared with {others}: keep to your own ground, '
                 f'and within {REACH_M / 1000:g} km of it in theirs'), False
+    if body.get('admin'):
+        return (f'zone {zone} - not your territory' + (f' ({others})' if others else '')
+                + ', yours to upload as an administrator'), False
     return f'zone {zone} - not yours to upload' + (f': {others}' if others else ''), True
 
 

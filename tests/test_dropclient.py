@@ -158,3 +158,24 @@ def test_a_rename_does_not_vouch_for_edits_the_server_never_had(world):
     f = mirror.fetch('gobras', here.parent, 'https://unused.example', opener=opener, api=API)
     assert list(f.changed) == ['N20E086_Gobras.osm.xz'], 'asked about, not overwritten as untouched'
     f.discard()
+
+
+def test_never_imported_here_the_servers_copy_is_said_and_replaced_only_when_asked(world):
+    """Edited before Danu 1.3: no version here. The refusal says the server's
+    copy; ``over`` replaces that copy, and a newer one there still refuses."""
+    opener, here, there = world
+    (here / '.danu-mirror.json').unlink()
+    mine = here / 'N20E086_Gobras_City.osm.xz'
+    mine.write_bytes(osm(2))
+    answer, _ = C.upload(API, 't-wangi', mine, opener=opener)
+    assert answer.status == 412 and answer.body['unimported']
+    held = answer.body['held']
+    assert held['sha256'] == sha(osm(1)) and held['file'] == mine.name and 'mtime' in held
+    (there / mine.name).write_bytes(osm(4))                              # somebody else's, meanwhile
+    answer, _ = C.upload(API, 't-wangi', mine, opener=opener, over=held['sha256'])
+    assert answer.status == 412 and not answer.body.get('unimported'), 'replacing only the copy said'
+    answer, _ = C.upload(API, 't-wangi', mine, opener=opener, over=sha(osm(4)))
+    assert answer.status == 200 and (there / mine.name).read_bytes() == osm(2)
+    assert mirror.read_manifest(here)[mine.name]['sha256'] == sha(osm(2)), 'imported from now on'
+    kept = list((there.parent.parent / 'drop' / 'kept' / 'gobras').iterdir())
+    assert [k.read_bytes() for k in kept] == [osm(4)], 'the server keeps the one replaced'
