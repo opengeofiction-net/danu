@@ -374,6 +374,7 @@ def test_the_listing_says_each_squares_class(zoned):
     (g,) = body['zones']
     assert sorted(h['class'] for h in g['held']) == ['blank', 'coastline', 'contour']
     assert 'held' not in call(zoned, 'GET', '/zones')[1]['zones'][0], 'asked for'
+    assert 'held' not in call(zoned, 'GET', '/zones', query='held=false')[1]['zones'][0]
 
 
 def test_a_resize_that_would_leave_a_drawn_square_in_no_zone_is_refused(zoned):
@@ -419,7 +420,7 @@ def test_a_split_moves_the_squares_and_their_files_to_the_new_zone(zoned):
 
 @pytest.mark.parametrize('body, status, why', [
     ({'name': 'gobras', 'squares': ['N20E087']}, 409, 'a zone already'),
-    ({'name': 'artana', 'squares': ['N30E087']}, 422, 'some of gobras'),
+    ({'name': 'artana', 'squares': ['N30E087']}, 422, 'of gobras\'s own'),
     ({'name': 'artana', 'squares': ['N20E086-N20E089']}, 422, 'all of gobras'),
     ({'name': 'Artana', 'squares': ['N20E087']}, 422, 'lowercase'),
     ({'name': 'artana', 'squares': []}, 422, 'not none'),

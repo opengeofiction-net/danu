@@ -193,7 +193,7 @@ class DropApp:
         """The zones; with ``held=1`` each zone's squares too, and their
         class, for the zone map's colours - hashed and classed once a file."""
         inactive = Z.Inactive.read(self.config.inactive_file).reasons()
-        held = bool(query and query.get('held', [''])[0] not in ('', '0'))
+        held = bool(query) and query.get('held', [''])[0].lower() in ('1', 'true', 'yes')
         out = []
         for z in self.zones().zones.values():
             row = {'name': z.name, 'squares': [str(r) for r in z.rects], 'inactive': inactive.get(z.name)}
@@ -297,10 +297,13 @@ class DropApp:
             except Z.ZoneError as e:
                 raise Refused(422, str(e)) from e
             left = self._left_out(before, after, zone)
+            # what it leaves out retired before the change is written: stopped
+            # between, a blank square is in kept, not a zone naming squares
+            # its directory still holds
+            retired = [self.store.retire(zone, h, user.name, 'left out of its zone') for h in left]
             # its directory first: a zone named is a zone that can be listed
             self.store.zone_dir(zone).mkdir(parents=True, exist_ok=True)
             _write(self.config.zones_file, after.text)
-            retired = [self.store.retire(zone, h, user.name, 'left out of its zone') for h in left]
             self.store.log_admin(user.name, 'zone', zone=zone, squares=[str(r) for r in after.zones[zone].rects])
         created = zone not in before.zones
         return _json(start, 201 if created else 200, {'name': zone, 'squares': [str(r) for r in after.zones[zone].rects],
@@ -324,7 +327,10 @@ class DropApp:
     def split_zone(self, environ, start, zone: str):
         """Some of a zone's squares a new zone: the rectangles of both
         written, the squares' files moved with them, the old zone's inactive
-        entry copied - one step, under the lock."""
+        entry copied - one step, under the lock. One step for the drop, not
+        for the disk: three files can't change at once, and a server stopped
+        in the milliseconds between leaves the moves for an admin to finish
+        by hand, the log saying which were made."""
         user = self.admin(environ)
         body = self.body_json(environ)
         name, squares = body.get('name'), body.get('squares')
@@ -342,7 +348,7 @@ class DropApp:
             except Z.ZoneError as e:
                 raise Refused(422, str(e)) from e
             if not moving or not moving <= old.cells():
-                raise Refused(422, f'the new zone\'s squares are some of {zone}\'s, not none and not others')
+                raise Refused(422, f'the new zone takes squares of {zone}\'s own: not none, and not others')
             if moving == old.cells():
                 raise Refused(422, f'that is all of {zone}: rename it, or make a new zone')
             staying = old.cells() - moving
