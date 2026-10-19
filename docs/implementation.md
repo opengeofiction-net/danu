@@ -6158,3 +6158,31 @@ minutes to 9, windows-stack from 8 to 17. `ZoneEditor.detach`, called as the
 window closes beside the territories' and the tiles' aborts, drops every
 such job's `fn` and connections; a test closes a window that has read the
 zones and asks that it is gone. The UI suite is back to 2 minutes.
+
+## Zones that keep their squares, and splits (#190)
+
+**A square left in no zone.** A resize rewrote the rectangles and nothing
+else, so a square outside them kept its file in `osm-squares/<zone>/`: built
+still - the build reads the directory - but in no zone, so never uploaded
+again. `PUT /zones/<zone>` now asks, of the squares the change takes out of
+the zone and puts in no other, what each holds - the report's own
+`classify_square`, so the drop, the editor and the wiki agree what *drawn*
+is. Any with contours, the change is refused (409), the squares named. The
+blank and the coastline-only are retired: moved to `drop/kept/<zone>/` from
+both copies, and logged.
+
+**Splits.** `POST /zones/<zone>/split` - an administrator's - makes some of a
+zone's squares a new zone, under the lock: both zones' rectangles written
+(`zones.rects_for`), the squares' files moved to the new zone's directory in
+both copies, their times kept, and the old zone's inactive entry copied to
+the new, "split from" it. Nothing leaves every zone, so nothing is refused
+for contours; a name that is a zone, squares not all of the zone's, none of
+them, or all of them, are. In the Zones panel, **Split…** asks the name and
+paints the squares - a `ZonePainter` held `within` the zone, so nothing
+outside it is taken.
+
+**The squares on the zone map.** The drop's listings give each square's
+class beside its hash, worked out once a file and cached by the hash, and
+`GET /zones?held=1` every zone's squares. The zone map draws them outside
+the open set in the wiki's colours for a square, fills and all - over the
+open set its own frames do, without the fills.

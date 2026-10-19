@@ -297,3 +297,69 @@ def test_a_closed_window_is_freed_though_it_read_the_zones(qtbot, tmp_path, terr
     qtbot.wait(50)
     gc.collect()
     assert gone() is None
+
+
+# ------------------------------------------------------------------ splits, and the squares' classes
+
+@pytest.fixture
+def held(w):
+    """gobras on the server: drawn at N20E086, coastline only at N20E087, blank at N20E088."""
+    from tests.test_drop import osm, shore
+    d = w.server_base / 'osm-squares' / 'gobras'
+    d.mkdir()
+    (d / 'N20E086_Gobras_City.osm.xz').write_bytes(osm(1))
+    (d / 'N20E087_Artana.osm.xz').write_bytes(shore())
+    (d / 'N20E088_Laguna.osm.xz').write_bytes(osm(0))
+    w.zone_editor.load()
+    return w
+
+
+def test_the_squares_are_drawn_in_the_wikis_colours_but_not_over_the_open_set(held):
+    from danu.core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE
+    item = held.zone_editor.item
+    assert item.squares == {S(86, 20): SQUARE, S(87, 20): SQUARE_COASTLINE, S(88, 20): SQUARE_BLANK}
+    assert S(125, -24) in item.skip, 'the open set\'s own frames draw its squares'
+
+
+def test_a_split_through_the_panel(held):
+    w = held
+    admin(w)
+    z = w.zone_editor
+    z.dock.list.setCurrentRow(0)                                       # gobras
+    z.ask_name = lambda: 'artana'
+    z.dock.split.click()
+    assert z.splitting == 'gobras' and w.map.tool is z.painter
+    click(z.painter, 87.5, 20.5, 89.5, 20.5)
+    click(z.painter, 90.5, 20.5)                                       # outside gobras: refused
+    assert z.painter.cells == {S(87, 20), S(88, 20), S(89, 20)}
+    z.dock.save.click()
+    zones = zones_file(w)
+    assert [str(r) for r in zones.zones['artana'].rects] == ['N20E087-N20E089']
+    assert zones.zones['gobras'].cells() == Z.Rect.parse('N18E086-N21E089').cells() - {S(87, 20), S(88, 20), S(89, 20)}
+    assert sorted(p.name for p in (w.server_base / 'osm-squares' / 'artana').iterdir()) == \
+        ['N20E087_Artana.osm.xz', 'N20E088_Laguna.osm.xz']
+    assert 'gobras split' in z.dock.status.text() and '2 squares moved' in z.dock.status.text()
+    assert z.splitting is None and w.map.tool is not z.painter
+
+
+def test_a_resize_that_would_strand_contours_is_refused_and_said(held):
+    w = held
+    admin(w)
+    z = w.zone_editor
+    z.dock.list.setCurrentRow(0)
+    z.dock.edit.click()
+    click(z.painter, 86.5, 18.5, 86.5, 21.5, ctrl=True)               # the 086 column away
+    z.dock.save.click()
+    assert 'not saved' in z.dock.status.text() and 'N20E086' in z.dock.status.text()
+    assert z.editing == 'gobras', 'still editing: nothing lost'
+
+
+def test_a_resize_says_what_it_retired(held):
+    w = held
+    admin(w)
+    z = w.zone_editor
+    z.dock.list.setCurrentRow(0)
+    z.dock.edit.click()
+    click(z.painter, 88.5, 18.5, 89.5, 21.5, ctrl=True)
+    z.dock.save.click()
+    assert 'retired: N20E088_Laguna.osm.xz' in z.dock.status.text()
