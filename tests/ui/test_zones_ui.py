@@ -363,3 +363,39 @@ def test_a_resize_says_what_it_retired(held):
     click(z.painter, 88.5, 18.5, 89.5, 21.5, ctrl=True)
     z.dock.save.click()
     assert 'retired: N20E088_Laguna.osm.xz' in z.dock.status.text()
+
+
+# ------------------------------------------------------------------ moving the open set
+
+def test_ctrl_double_click_on_a_square_of_the_open_set_moves_the_set_onto_it(window, qtbot):
+    from PySide6.QtTest import QTest
+    w = window
+    assert w.working_set.centre == S(125, -24)
+    w.map.fit_bounds(124.0, -25.0, 127.0, -22.0)
+    p = w.map.mapFromScene(at(126.5, -23.5))
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        QTest.mouseDClick(w.map.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier, p)
+    assert w.working_set.centre == S(126, -24)
+
+
+def test_a_plain_double_click_inside_the_set_does_not_move_it(window, qtbot):
+    from PySide6.QtTest import QTest
+    w = window
+    opened = []
+    w.map.recentre = lambda p: opened.append(p)
+    w.map.fit_bounds(124.0, -25.0, 127.0, -22.0)
+    QTest.mouseDClick(w.map.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                      w.map.mapFromScene(at(126.5, -23.5)))
+    assert opened == [] and w.working_set.centre == S(125, -24)
+
+
+@pytest.mark.parametrize('name, key, centre', [('view.set_west', 'Alt+Left', S(124, -24)),
+                                               ('view.set_east', 'Alt+Right', S(126, -24)),
+                                               ('view.set_north', 'Alt+Up', S(125, -23)),
+                                               ('view.set_south', 'Alt+Down', S(125, -25))])
+def test_alt_and_an_arrow_moves_the_set_a_square(window, qtbot, name, key, centre):
+    w = window
+    assert w.edit_actions[name].shortcut().toString() == key
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        w.edit_actions[name].trigger()
+    assert w.working_set.centre == centre

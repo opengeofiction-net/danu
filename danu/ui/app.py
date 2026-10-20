@@ -371,6 +371,7 @@ class MainWindow(QMainWindow):
         # the data drop's zones (#190, N6): on the map for anyone, edited by administrators
         self.zone_editor = ZoneEditor(self, self)
         self.zone_editor.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
+        self.map.recentre = self.open_square_at
         self.map.scene().addItem(self.zone_editor.item)
         self.zones_dock = self.zone_editor.dock
         # open from the first run, so the zones are on the map and it is a way
@@ -1054,7 +1055,11 @@ class MainWindow(QMainWindow):
                 ('view.josm_surface', 'Show in &JOSM', self.show_surface_in_josm),
                 # toggled turns the loupe on and off, below: the button's toggle reaches it
                 # through setChecked, which triggers nothing
-                ('view.magnify', '&Magnify', None)):
+                ('view.magnify', '&Magnify', None),
+                ('view.set_west', 'Set a square &west', lambda: self.move_set(-1, 0)),
+                ('view.set_east', 'Set a square &east', lambda: self.move_set(1, 0)),
+                ('view.set_north', 'Set a square &north', lambda: self.move_set(0, 1)),
+                ('view.set_south', 'Set a square &south', lambda: self.move_set(0, -1))):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             self._logged(a, name)
@@ -1139,6 +1144,8 @@ class MainWindow(QMainWindow):
         view = self.menuBar().addMenu('&View')
         view.addAction(e['view.magnify'])
         view.addAction(e['view.josm'])
+        for name in ('view.set_west', 'view.set_east', 'view.set_north', 'view.set_south'):
+            view.addAction(e[name])
         view.addSeparator()
         # the surface panel's three overlays, the same choices as its boxes
         p = self.surface_panel
@@ -1451,6 +1458,38 @@ class MainWindow(QMainWindow):
     def show_start(self) -> None:
         self._start_asked = True
         self.update_start()
+
+    def move_set(self, dx: int, dy: int) -> None:
+        """The open set a square over: Alt and an arrow."""
+        ws = self.working_set
+        if ws is None or self.zone_dir is None:
+            self.statusBar().showMessage('open a square first')
+            return
+        to = ws.centre.neighbour(dx, dy)
+        if to is None:
+            self.statusBar().showMessage('no square past the pole')
+            return
+        self.open_working_set(self.zone_dir, to, ws.size)
+
+    def open_square_at(self, p) -> None:
+        """Ctrl and a double-click: the square under it opened. One of the
+        open set's - drawn or absent - the set moves onto it, from this zone's
+        directory; another, the zones map's open, its zone imported first if
+        need be; no zones read, from this zone's directory as well."""
+        lon, lat = m.scene_to_lonlat(p.x(), p.y())
+        try:
+            cell = SquareName(int(np.floor(lon)), int(np.floor(lat)))
+        except ValueError:
+            return
+        ws = self.working_set
+        if ws is not None and self.zone_dir is not None and cell in ws.squares:
+            self.open_working_set(self.zone_dir, cell, ws.size)
+        elif self.zone_editor.zone_of(cell) is not None:
+            self.zone_editor.open_square(cell)
+        elif self.zone_dir is not None:
+            self.open_working_set(self.zone_dir, cell, ws.size if ws is not None else self.settings.size)
+        else:
+            self.statusBar().showMessage(f'{cell} is in no zone: open a square first, or import its zone')
 
     def browse_zones(self) -> None:
         """The start page's way in (#190): the card put away, the Zones panel

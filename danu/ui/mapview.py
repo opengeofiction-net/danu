@@ -163,6 +163,9 @@ class MapView(QGraphicsView):
         # click outside the open set that did not move; a double-click there
         # is the zones map's alone
         self.browse = None
+        # Ctrl and a double-click: the square under it opened, the set moved
+        # onto it - the window's, given the scene point
+        self.recentre = None
         # the loupe (H3d), whose magnification shift and the wheel step while it is shown
         self.loupe = None
         self._pan_last: QPointF | None = None      # the right button dragging the map
@@ -361,6 +364,11 @@ class MapView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
+        if (self.recentre is not None and event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            self.recentre(p)
+            event.accept()
+            return
         if self.browse is not None and self.browse.double_click(event, p):
             event.accept()
             return

@@ -28,7 +28,11 @@ the zones squares are uploaded to, with their names, as the wiki's map does:
 **grey**. The panel lists them, and the map is a way in: outside the open
 squares - or anywhere, with nothing open - **click** a zone to choose it,
 and **double-click** a square to open it, its zone imported first if it is
-not on this machine yet. **Import** imports the zone chosen. Each zone's
+not on this machine yet. **Import** imports the zone chosen.
+
+**Ctrl and a double-click** on a square opens it: one of the open set's, and
+the set moves onto it; one in a zone, imported first if need be. **Alt and
+an arrow** moves the set a square west, east, north or south. Each zone's
 squares are drawn as the wiki's map draws them: **green** with contours,
 **orange** a coastline only, **grey** blank. An
 administrator edits them there: **New zone…**, and **Edit squares**, which
