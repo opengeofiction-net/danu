@@ -432,6 +432,36 @@ def test_a_split_refused_changes_nothing(zoned, body, status, why):
     assert (zoned.base / 'zones').read_text() == before and not (zoned.base / 'osm-squares' / 'artana').exists()
 
 
+def test_pruning_keeps_the_recent_and_each_squares_newest(tmp_path):
+    from danu.drop.store import Store, main
+    store = Store(tmp_path, None)
+    kept = tmp_path / 'drop' / 'kept'
+    names = {'gobras': ['N20E086_Gobras_City.osm.xz.20260101T000000Z.aaaaaaaaaaaa',
+                        'N20E086_Gobras_City.osm.xz.20260301T000000Z.bbbbbbbbbbbb',
+                        'N20E086.osm.xz.20261001T000000Z.cccccccccccc',          # relabelled: one square
+                        'N21E086.osm.xz.20260101T000000Z.dddddddddddd',          # deleted: its only copy
+                        'notes.txt'],
+             'karang': ['N20E087_Artana.osm.xz.20260101T000000Z.eeeeeeeeeeee'],  # split away from gobras
+             'gobras2': []}
+    names['gobras'].append('N20E087_Artana.osm.xz.20260102T000000Z.ffffffffffff')
+    for zone, files in names.items():
+        (kept / zone).mkdir(parents=True)
+        for n in files:
+            (kept / zone / n).write_bytes(b'x')
+    now = 1792454400.0      # 2026-10-20
+    assert main(['prune', str(tmp_path), '--dry-run']) == 0
+    assert sum(1 for _ in kept.glob('*/*')) == 7, 'a dry run keeps all'
+    gone = store.prune(90, now=now)
+    assert sorted(p.name[:30] for p in gone) == ['N20E086_Gobras_City.osm.xz.202', 'N20E086_Gobras_City.osm.xz.202',
+                                                  'N20E087_Artana.osm.xz.20260101']
+    left = sorted(p.name for p in kept.glob('*/*'))
+    assert left == ['N20E086.osm.xz.20261001T000000Z.cccccccccccc', 'N20E087_Artana.osm.xz.20260102T000000Z.ffffffffffff',
+                    'N21E086.osm.xz.20260101T000000Z.dddddddddddd', 'notes.txt']
+    log = [json.loads(line) for line in (tmp_path / 'drop' / 'log.jsonl').read_text().splitlines()]
+    assert [e['action'] for e in log] == ['prune'] * 3 and {e['zone'] for e in log} == {'gobras', 'karang'}
+    assert store.prune(90, now=now) == [], 'nothing more'
+
+
 def test_a_split_is_an_administrators(zoned):
     assert call(zoned, 'POST', '/zones/gobras/split', {'name': 'x', 'squares': ['N20E087']}, 't-wangi')[0] == 403
     assert call(zoned, 'POST', '/zones/nowhere/split', {'name': 'x', 'squares': ['N20E087']}, 't-admin')[0] == 404
