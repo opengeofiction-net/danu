@@ -30,7 +30,8 @@ ATTRIBUTES = [
      'constraints': ['dem:Mie']},
 ]
 USERS = {'t-wangi': User('wangi'), 't-luciano': User('Luciano'), 't-mie': User('Mie'),
-         't-admin': User('Admin', ('administrator',)), 't-nobody': User('nobody')}
+         't-admin': User('Admin', ('administrator',)), 't-nobody': User('nobody'),
+         't-blocked': User('wangi', blocked=True), 't-blocked-admin': User('Admin', ('administrator',), True)}
 
 ZONES = 'gobras          N20E086-N20E089   # the test zone\n'
 
@@ -291,6 +292,53 @@ def test_ogf_is_asked_once_a_while_per_token():
     now[0] = 301
     users('tok')
     assert asked == ['tok', 'tok']
+
+
+def test_a_blocked_account_changes_nothing(drop):
+    v = {'If-Match': f'"{sha(osm(1))}"'}
+    status, body, _ = call(drop, 'GET', '/squares/N20E086', token='t-blocked')
+    assert status == 200 and body['blocked'] is True, 'it reads, and is told'
+    assert call(drop, 'GET', '/squares/N20E086', token='t-wangi')[1]['blocked'] is False
+    status, body, _ = call(drop, 'PUT', '/squares/N20E086', osm(2), 't-blocked', v)
+    assert status == 403 and body['blocked'] and 'blocked' in body['error']
+    assert call(drop, 'PATCH', '/squares/N20E086', {'label': 'X'}, 't-blocked', v)[0] == 403
+    assert call(drop, 'DELETE', '/squares/N20E086', token='t-blocked', headers=v)[0] == 403
+    assert call(drop, 'PUT', '/squares/N20E086', osm(2), 't-blocked-admin', v)[0] == 403, 'an administrator too'
+    assert call(drop, 'PUT', '/zones/gobras/inactive', {'reason': 'wip'}, 't-blocked-admin')[0] == 403
+    assert (drop.base / 'osm-squares' / 'gobras' / 'N20E086_Gobras_City.osm.xz').read_bytes() == osm(1)
+    assert not (drop.base / 'drop' / 'log.jsonl').exists()
+
+
+def test_ogf_says_whether_a_block_is_in_force():
+    import urllib.error
+
+    def details(active):
+        return lambda url, token=None: json.dumps(
+            {'user': {'display_name': 'Aaron', 'roles': [], 'blocks': {'received': {'count': 1, 'active': active}}}}).encode()
+    assert OgfUsers('https://ogf.example', details(1))('t').blocked
+    assert not OgfUsers('https://ogf.example', details(0))('t').blocked
+
+    class Kept(urllib.error.HTTPError):
+        def __init__(self, body):
+            super().__init__('u', 403, 'Forbidden', {}, None)
+            self.body = body
+
+        def read(self, *a):
+            return self.body
+
+    def kept(body):
+        def fetch(url, token=None):
+            raise Kept(body)
+        return fetch
+    with pytest.raises(Unknown) as e:
+        OgfUsers('https://ogf.example', kept(b'Your access to the API has been blocked.'))('t')
+    assert e.value.status == 403 and 'blocked' in e.value.why
+    with pytest.raises(Unknown) as e:
+        OgfUsers('https://ogf.example', kept(b''))('t')
+    assert e.value.status == 403
+    with pytest.raises(Unknown) as e:
+        OgfUsers('https://ogf.example', lambda url, token=None: b'{"user": {"display_name": "A", "blocks": []}}')('t')
+    assert e.value.status == 502, 'a shape not understood is OGF not answering, never "not blocked"'
 
 
 def test_ogf_refusing_a_token_is_401_and_ogf_down_is_502():

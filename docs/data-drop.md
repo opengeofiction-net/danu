@@ -83,6 +83,7 @@ The API runs alongside danu-server on `util.ogf`: a small WSGI service from `pyt
   - `no`: none of it is the user's.
 - `yes` and `partial` may upload. Only `yes` and admins may delete.
 - Where permission is "partial" the user can edit anywhere within the square but has a social contract to focus within their own territory, with latitude to map up to 10 km within the neighbouring one. The server doesn't look at where the changes are.
+- A user with a block in force on OGF - `blocks.received.active` in `user/details` - changes nothing: no upload, rename, delete or zone change, an admin's included, as the block stops their map edits. Reads are still answered.
 
 ## Danu editor
 
