@@ -15,7 +15,7 @@ given to anyone.
 Danu talks only to OpenGeofiction's own servers, and to GitHub, where Danu is
 published. Each request carries your IP address, as any request on the
 internet does. Each also tells the server it comes from Danu and which
-version, as `Danu/1.3.1 (+https://github.com/opengeofiction-net/danu)` for this one.
+version, as `Danu/1.3.2 (+https://github.com/opengeofiction-net/danu)` for this one.
 
 - **Signing in** (optional, File › Sign in to OGF). Your browser opens
   opengeofiction.net, where you sign in. OpenGeofiction gives Danu a token
