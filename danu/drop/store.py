@@ -13,11 +13,13 @@ lock, so two workers can't both pass the check. Every file is written under
 a name the build doesn't read - a dot first, no ``.osm.xz`` last - and
 renamed into place. The file a change replaces is kept, under
 ``<BASE>/drop/kept/``: outside ``osm-squares/``, which the build searches all
-the way down. Each change is a line of ``<BASE>/drop/log.jsonl``.
+the way down, and pruned weekly by danu-backup - ``python -m danu.drop.store
+prune``. Each change is a line of ``<BASE>/drop/log.jsonl``.
 """
 
 from __future__ import annotations
 
+import calendar
 import fcntl
 import hashlib
 import json
@@ -34,6 +36,7 @@ from ..core.square import SquareName, label_of, list_squares
 from ..report.zones_to_multimap import classify_square
 
 XZ_MAGIC = b'\xfd7zXZ\x00'
+KEEP_DAYS = 90                  # a kept copy's life, its square's newest aside
 
 
 class Refused(Exception):
@@ -303,3 +306,61 @@ class Store:
 
     def log_admin(self, user: str, action: str, **what) -> None:
         self._log(user=user, action=action, **what)
+
+    def prune(self, days: float = KEEP_DAYS, now: float | None = None, dry_run: bool = False) -> list[Path]:
+        """The kept copies older than ``days`` removed, each logged - aged by
+        the time in their name, when they were kept: their own is the
+        square's, copied with it. A square's newest copy stays whatever its
+        age, so a square deleted or retired is never lost from here - the
+        newest of all its zones' copies, a split's being one square's; a
+        name not the drop's is left alone."""
+        kept = self.drop / 'kept'
+        if not kept.is_dir():
+            return []
+        cutoff = (time.time() if now is None else now) - days * 86400
+        by_square: dict[SquareName, list[tuple[float, Path]]] = {}
+        for path in kept.glob('*/*'):
+            name, _, rest = path.name.rpartition('.osm.xz.')
+            stamp = rest.partition('.')[0]
+            try:
+                square = SquareName.from_filename(f'{name}.osm.xz')
+                when = calendar.timegm(time.strptime(stamp, '%Y%m%dT%H%M%SZ'))
+            except ValueError:
+                continue
+            by_square.setdefault(square, []).append((when, path))
+        gone = []
+        with self.locked():
+            for square, copies in sorted(by_square.items()):
+                copies.sort()
+                for when, path in copies[:-1]:
+                    if when >= cutoff:
+                        break
+                    gone.append(path)
+                    if not dry_run:
+                        path.unlink()
+                        self._log(user='danu-backup', action='prune', zone=path.parent.name,
+                                  square=square.name, kept=str(path.relative_to(self.base)))
+        return gone
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m danu.drop.store prune <base>``: drop/kept pruned."""
+    import argparse
+    ap = argparse.ArgumentParser(prog='python -m danu.drop.store')
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    p = sub.add_parser('prune', help=f'remove kept copies older than --days, {KEEP_DAYS} unless given;'
+                                     " each square's newest stays")
+    p.add_argument('base')
+    p.add_argument('--days', type=float, default=KEEP_DAYS)
+    p.add_argument('--dry-run', action='store_true', help='say what would go, and keep it')
+    a = ap.parse_args(argv)
+    store = Store(a.base, None)
+    gone = store.prune(a.days, dry_run=a.dry_run)
+    for path in gone:
+        print(f"{'would remove' if a.dry_run else 'removed'} {path.relative_to(store.base)}")
+    print(f"{len(gone)} kept cop{'y' if len(gone) == 1 else 'ies'} past {a.days:g} days")
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

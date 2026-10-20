@@ -20,6 +20,8 @@
 # squares each zone holds, and drop/log.jsonl who uploaded what (#190). The
 # copies the drop keeps of what an upload replaced, drop/kept, are not: each
 # was in osm-squares, and so in an earlier week's archive, as the square it was.
+# They are pruned here instead, once the archive is queued: those older than
+# DROP_KEEP_DAYS (90), each square's newest copy kept whatever its age.
 #
 # Thursday, tagged monthly on the last Thursday of the month and yearly on the
 # last Thursday of December, which is what backupPlanet.sh and backupWiki.sh do.
@@ -107,5 +109,13 @@ echo "Queued for S3 as ${timeframe}:elevation:${archive}"
 echo "Deleting local archives older than ${KEEP_DAYS} days"
 find "${DEST}" -maxdepth 1 -name '*_ogf-elevation-*.tar.gz' \
 	-mtime +${KEEP_DAYS} -print -delete
+
+if [ -d "${BASE}/drop/kept" ]; then
+	echo "Pruning the drop's kept copies"
+	python3 -m danu.drop.store prune "${BASE}" --days "${DROP_KEEP_DAYS:-90}" |
+		sed 's/^/  /'
+	# the archive is queued already: a failed prune said, not failing the run
+	[ "${PIPESTATUS[0]}" -eq 0 ] || echo "ERROR: pruning drop/kept failed" >&2
+fi
 
 echo "Finished: $(date '+%Y-%m-%d %H:%M:%S %Z')"
