@@ -40,6 +40,10 @@ def describe(status: int, body: dict, server: str) -> tuple[str, bool]:
     if status != 200:
         return f'upload: {html.escape(str(body.get("error", status)))}', False
     zone = html.escape(str(body.get('zone', '')))
+    if body.get('blocked'):
+        name = html.escape(str(body.get('user', '')))
+        link = f'<a href="{html.escape(server.rstrip("/"))}/user/{name}/blocks">blocked on OGF</a>'
+        return f'zone {zone} - your account is {link}, so nothing can be uploaded while it is', True
     p = body.get('permission')
     if p is None:
         return f'zone {zone} - sign in to see whether it is yours to upload', False

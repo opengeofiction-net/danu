@@ -36,6 +36,8 @@ def test_the_line_for_each_answer():
     shared = {**perm('partial', ['Elsewhere']), 'mine': [{'name': 'Gobrassanya'}]}
     assert 'shared with Elsewhere' in d(200, {**base, 'admin': True, 'permission': shared})[0]
     assert d(200, {**base, 'zone': '<b>', 'permission': perm('yes')})[0] == 'zone &lt;b&gt; - yours to upload'
+    line, warn = d(200, {**base, 'blocked': True, 'permission': perm('yes')})
+    assert warn and '<a href="https://ogf.example/user/wangi/blocks">blocked on OGF</a>' in line
     assert d(503, {'error': 'the territories have not been read yet'}) == \
         ('upload: the territories have not been read yet', False)
 

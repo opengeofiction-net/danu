@@ -3,7 +3,9 @@ whose ground a square is, from the territories.
 
 A token is asked of OGF's ``user/details`` - the call the editor makes when
 it signs in - and the answer kept for a few minutes, keyed by the token's
-hash: the token itself is never held. The territories are the two files
+hash: the token itself is never held. It says too whether the account has a
+block in force, which keeps it from changing the drop as from editing the
+map; a block that keeps it from the API altogether OGF answers 403. The territories are the two files
 ``danu.core.territory`` joins, the geometry read again when it changes and
 the attributes fetched from the wiki every few minutes. A fetch that fails
 keeps what was had; with nothing ever had, permission can't be answered.
@@ -32,6 +34,7 @@ RETRY = 60               # seconds after a failed fetch before another
 class User:
     name: str
     roles: tuple[str, ...] = ()
+    blocked: bool = False
 
     @property
     def admin(self) -> bool:
@@ -54,6 +57,16 @@ def _get(url: str, token: str | None = None, timeout: float = 20) -> bytes:
         return r.read()
 
 
+BLOCKED = 'your OGF account is blocked: no uploads while it is - see your messages on OGF'
+
+
+def _body(e: urllib.error.HTTPError) -> bytes:
+    try:
+        return e.read() or b''
+    except (OSError, AttributeError, TypeError):
+        return b''
+
+
 class OgfUsers:
     def __init__(self, server: str, fetch=_get, clock=time.monotonic):
         self.server = server.rstrip('/')
@@ -71,8 +84,11 @@ class OgfUsers:
         try:
             data = json.loads(self.fetch(f'{self.server}/api/0.6/user/details.json', token))
             u = data['user']
-            user = User(str(u['display_name']), tuple(str(r) for r in u.get('roles', [])))
+            user = User(str(u['display_name']), tuple(str(r) for r in u.get('roles', [])),
+                        int(u.get('blocks', {}).get('received', {}).get('active', 0)) > 0)
         except urllib.error.HTTPError as e:
+            if e.code == 403 and b'blocked' in _body(e):
+                raise Unknown(403, BLOCKED) from e
             if e.code in (401, 403):
                 raise Unknown(401, 'OGF does not take this sign-in: sign in again') from e
             raise Unknown(502, f'OGF answered {e.code}') from e

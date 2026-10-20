@@ -33,7 +33,7 @@ from .. import __version__
 from ..core import territory as T
 from ..core import zones as Z
 from ..core.square import LABEL, SquareName
-from .sources import OgfUsers, Territories, Unknown, User
+from .sources import BLOCKED, OgfUsers, Territories, Unknown, User
 from .store import Refused, Store, check_square_file
 
 MAX_MB = 64     # the largest square on 2026-10-18 was 24 MB
@@ -111,6 +111,7 @@ class DropApp:
 
     def admin(self, environ) -> User:
         user = self.user(environ)
+        self.not_blocked(user)
         if not user.admin:
             raise Refused(403, 'an administrator\'s')
         return user
@@ -139,7 +140,15 @@ class DropApp:
     def permission(self, user: User, square: SquareName) -> T.Permission:
         return self.territories.index().permission(square.bounds, user.name)
 
+    @staticmethod
+    def not_blocked(user: User) -> None:
+        """A block in force on OGF stops every change here, an
+        administrator's too, as it stops edits to the map."""
+        if user.blocked:
+            raise Refused(403, BLOCKED, blocked=True)
+
     def allowed(self, user: User, square: SquareName, levels: tuple[str, ...]) -> None:
+        self.not_blocked(user)
         if user.admin:
             return
         p = self.permission(user, square)
@@ -238,6 +247,7 @@ class DropApp:
         if user is not None:
             body['user'] = user.name
             body['admin'] = user.admin
+            body['blocked'] = user.blocked
             body['permission'] = _permission(self.permission(user, square))
         headers = [('ETag', f'"{held.sha256}"')] if held else []
         return _json(start, 200, body, headers)
