@@ -334,8 +334,11 @@ def test_ogf_says_whether_a_block_is_in_force():
         OgfUsers('https://ogf.example', kept(b'Your access to the API has been blocked.'))('t')
     assert e.value.status == 403 and 'blocked' in e.value.why
     with pytest.raises(Unknown) as e:
-        OgfUsers('https://ogf.example', kept(b'missing scope'))('t')
-    assert e.value.status == 401
+        OgfUsers('https://ogf.example', kept(b''))('t')
+    assert e.value.status == 403
+    with pytest.raises(Unknown) as e:
+        OgfUsers('https://ogf.example', lambda url, token=None: b'{"user": {"display_name": "A", "blocks": []}}')('t')
+    assert e.value.status == 502, 'a shape not understood is OGF not answering, never "not blocked"'
 
 
 def test_ogf_refusing_a_token_is_401_and_ogf_down_is_502():

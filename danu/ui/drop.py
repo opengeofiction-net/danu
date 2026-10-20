@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import urllib.parse
 
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
@@ -41,8 +42,8 @@ def describe(status: int, body: dict, server: str) -> tuple[str, bool]:
         return f'upload: {html.escape(str(body.get("error", status)))}', False
     zone = html.escape(str(body.get('zone', '')))
     if body.get('blocked'):
-        name = html.escape(str(body.get('user', '')))
-        link = f'<a href="{html.escape(server.rstrip("/"))}/user/{name}/blocks">blocked on OGF</a>'
+        url = f'{server.rstrip("/")}/user/{urllib.parse.quote(str(body.get("user", "")))}/blocks'
+        link = f'<a href="{html.escape(url)}">blocked on OGF</a>'
         return f'zone {zone} - your account is {link}, so nothing can be uploaded while it is', True
     p = body.get('permission')
     if p is None:
