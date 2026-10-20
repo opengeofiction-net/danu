@@ -6186,3 +6186,15 @@ class beside its hash, worked out once a file and cached by the hash, and
 `GET /zones?held=1` every zone's squares. The zone map draws them outside
 the open set in the wiki's colours for a square, fills and all - over the
 open set its own frames do, without the fills.
+
+## Moving the open set
+
+From the open N21E086 to N20E086 the zones map couldn't help: inside the
+open set a double-click is the editor's - a line finished, a node inserted
+or picked - and free only on empty ground, which a drawn square hardly has.
+So two of its own. **Ctrl and a double-click** opens the square under it
+(`MapView.recentre`, offered before the zones map and the tool): one of the
+open set's, drawn or absent, and the set moves onto it from this zone's
+directory; another, the zones map's open, its zone imported first if need
+be. **Alt and an arrow** moves the set a square west, east, north or south
+(`view.set_*`, in View and rebindable, as every key is).

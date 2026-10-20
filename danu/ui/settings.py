@@ -74,6 +74,12 @@ DEFAULT_KEYS = {
     'view.josm_surface': 'Shift+J',
     # V for view closer: the loupe at the cursor, on and off - H3d
     'view.magnify': 'V',
+    # the open set a square west, east, north or south: the arrows the map's
+    # own keys are not, with Alt
+    'view.set_west': 'Alt+Left',
+    'view.set_east': 'Alt+Right',
+    'view.set_north': 'Alt+Up',
+    'view.set_south': 'Alt+Down',
     'file.save': 'Ctrl+S',
     'file.save_as': 'Ctrl+Shift+S',
     'surface.pinch': 'C',
