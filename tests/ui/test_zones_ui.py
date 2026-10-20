@@ -378,22 +378,24 @@ def test_ctrl_double_click_on_a_square_of_the_open_set_moves_the_set_onto_it(win
     assert w.working_set.centre == S(126, -24)
 
 
-def test_a_plain_double_click_inside_the_set_is_still_the_editors(window):
+def test_a_plain_double_click_inside_the_set_does_not_move_it(window, qtbot):
+    from PySide6.QtTest import QTest
     w = window
     opened = []
-    w.open_square_at = lambda p: opened.append(p)
-    w.map.recentre = w.open_square_at
-    ev = QMouseEvent(QMouseEvent.Type.MouseButtonDblClick, QPointF(), QPointF(), Qt.MouseButton.LeftButton,
-                     Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
-    w.map.mouseDoubleClickEvent(ev)
-    assert opened == []
+    w.map.recentre = lambda p: opened.append(p)
+    w.map.fit_bounds(124.0, -25.0, 127.0, -22.0)
+    QTest.mouseDClick(w.map.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                      w.map.mapFromScene(at(126.5, -23.5)))
+    assert opened == [] and w.working_set.centre == S(125, -24)
 
 
-@pytest.mark.parametrize('name, centre', [('view.set_west', S(124, -24)), ('view.set_east', S(126, -24)),
-                                          ('view.set_north', S(125, -23)), ('view.set_south', S(125, -25))])
-def test_alt_and_an_arrow_moves_the_set_a_square(window, qtbot, name, centre):
+@pytest.mark.parametrize('name, key, centre', [('view.set_west', 'Alt+Left', S(124, -24)),
+                                               ('view.set_east', 'Alt+Right', S(126, -24)),
+                                               ('view.set_north', 'Alt+Up', S(125, -23)),
+                                               ('view.set_south', 'Alt+Down', S(125, -25))])
+def test_alt_and_an_arrow_moves_the_set_a_square(window, qtbot, name, key, centre):
     w = window
-    assert w.edit_actions[name].shortcut().toString().startswith('Alt+')
+    assert w.edit_actions[name].shortcut().toString() == key
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.edit_actions[name].trigger()
     assert w.working_set.centre == centre
