@@ -114,6 +114,8 @@ if [ -d "${BASE}/drop/kept" ]; then
 	echo "Pruning the drop's kept copies"
 	python3 -m danu.drop.store prune "${BASE}" --days "${DROP_KEEP_DAYS:-90}" |
 		sed 's/^/  /'
+	# the archive is queued already: a failed prune said, not failing the run
+	[ "${PIPESTATUS[0]}" -eq 0 ] || echo "ERROR: pruning drop/kept failed" >&2
 fi
 
 echo "Finished: $(date '+%Y-%m-%d %H:%M:%S %Z')"

@@ -311,8 +311,9 @@ class Store:
         """The kept copies older than ``days`` removed, each logged - aged by
         the time in their name, when they were kept: their own is the
         square's, copied with it. A square's newest copy stays whatever its
-        age, across zones, so a square deleted or retired is never lost from
-        here; a name not the drop's is left alone."""
+        age, so a square deleted or retired is never lost from here - the
+        newest of all its zones' copies, a split's being one square's; a
+        name not the drop's is left alone."""
         kept = self.drop / 'kept'
         if not kept.is_dir():
             return []
