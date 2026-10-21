@@ -176,7 +176,8 @@ jobs:
       # 3.13.3-3 (15 Oct) was built against 2.2.0-2, and osgeo's _gdal then
       # fails to load - "The specified procedure could not be found". The hdf5
       # GDAL was built against, until MSYS2 builds GDAL again; take this step
-      # out then, and see the stack check below pass without it
+      # out then, and see the stack check below pass without it.
+      # msys2-gdal-watch.yml tells #235 when a newer GDAL is there
       - name: pins
         run: pacman -U --noconfirm https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-hdf5-2.2.0-2-any.pkg.tar.zst
       # by name: pacman under --noconfirm can answer its own "skip this
