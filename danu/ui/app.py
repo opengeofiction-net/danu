@@ -352,7 +352,10 @@ class MainWindow(QMainWindow):
         # cursor had been, so opening a square named a neighbour
         self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
-        self.editor.editedWays.connect(self.preview.edited)
+        # to the preview only while the surface rebuilds itself (#239): off,
+        # nothing is solved until Ctrl+R, which the preview then adopts
+        self._surface_out_of_date = False
+        self.editor.editedWays.connect(self._edited_ways)
         self.editor.editedWays.connect(self._checks_edited)
         self.editor.edited.connect(self._edited)
         self.editor.edited.connect(lambda: self.gone_dock.mark_deleted(self.working_set))
@@ -1219,6 +1222,14 @@ class MainWindow(QMainWindow):
         self.rebuild_action.setShortcut(QKeySequence(REBUILD_KEY))
         self.rebuild_action.triggered.connect(lambda: self.rebuild_surface())
         surface.addAction(self.rebuild_action)
+        self.auto_rebuild_action = QAction('Rebuild &automatically', self)
+        self.auto_rebuild_action.setCheckable(True)
+        self.auto_rebuild_action.setChecked(self.settings.auto_rebuild)
+        self.auto_rebuild_action.setToolTip('each edit rebuilt as it is made; off, the surface waits for '
+                                            f'{QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)}')
+        self._logged(self.auto_rebuild_action, 'surface.auto_rebuild')
+        self.auto_rebuild_action.toggled.connect(self.set_auto_rebuild)
+        surface.addAction(self.auto_rebuild_action)
         self.pinch_action = QAction('&Pinch ramp on active elevation', self)
         self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
         self._logged(self.pinch_action, 'surface.pinch')
@@ -1616,6 +1627,9 @@ class MainWindow(QMainWindow):
         # is the 0 it was initialised to - "building at 0″".
         self._arcsec = p.arcsec
         queued = self.builder.busy
+        # the edits so far are in this build; one made after it is asked for
+        # puts the surface out of date again
+        self._surface_out_of_date = False
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
         if queued:
             # the running build is already superseded; it finishes and is shown
@@ -2301,6 +2315,29 @@ class MainWindow(QMainWindow):
         self.surface_panel.previewed(seconds)
         self.statusBar().showMessage(
             f'preview: {painted:,} cells in {seconds * 1000:.0f} ms - exact on idle')
+
+    def _edited_ways(self, square, ways, spots) -> None:
+        if self.settings.auto_rebuild:
+            self.preview.edited(square, ways, spots)
+            return
+        if not self._surface_out_of_date and self._arcsec:
+            self._surface_out_of_date = True
+            self.statusBar().showMessage(
+                'the surface is out of date: automatic rebuilds are off - '
+                f'{QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)} rebuilds it')
+
+    def set_auto_rebuild(self, on: bool) -> None:
+        """Surface › Rebuild automatically (#239). Off, edits leave the
+        surface as it is - no preview, no rebuild once the drawing stops, the
+        close view not solved again - until Ctrl+R. On again, what was edited
+        meanwhile is rebuilt then."""
+        self.settings.auto_rebuild = on
+        if self.auto_rebuild_action.isChecked() != on:
+            self.auto_rebuild_action.setChecked(on)
+        if not on:
+            self.preview.stop_waiting()
+        elif self._surface_out_of_date and self._arcsec:
+            self.rebuild_surface(self._arcsec)
 
     def _rebuild_after_idle(self):
         """The drawing stopped, so settle the preview's approximations."""

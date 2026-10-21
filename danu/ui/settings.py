@@ -292,6 +292,17 @@ class Settings:
         self.q.setValue('start/always', bool(v))
 
     @property
+    def auto_rebuild(self) -> bool:
+        """Each edit rebuilt around itself as it is made, and the whole
+        set once the drawing stops (#239). Off, the surface is left as it is
+        until Surface › Rebuild surface."""
+        return self._flag('surface/auto_rebuild', True)
+
+    @auto_rebuild.setter
+    def auto_rebuild(self, v: bool):
+        self.q.setValue('surface/auto_rebuild', bool(v))
+
+    @property
     def menu_offered(self) -> bool:
         """The start page has offered the AppImage a place in the
         applications menu, and been answered (J5c): it asks once."""

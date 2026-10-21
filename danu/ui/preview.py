@@ -219,6 +219,11 @@ class PreviewDriver(QObject):
         self._gesture.stop()
         self._idle.stop()
 
+    def stop_waiting(self) -> None:
+        """No rebuild asked for once the drawing stops: the window's
+        automatic rebuilds turned off (#239)."""
+        self._idle.stop()
+
     def follow(self, shaded):
         """Point at the surface the layer is drawing.
 

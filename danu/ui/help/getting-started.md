@@ -87,7 +87,9 @@ them as they are set now.
 
 **Ctrl+R** (Surface › Rebuild surface) builds the surface the contours make,
 by the same code as the nightly build. After that, each edit is rebuilt around
-itself as you draw. The Surface panel
+itself as you draw. On a large square that can make drawing stutter: turn
+**Surface › Rebuild automatically** off, and the surface waits for **Ctrl+R**.
+The Surface panel
 chooses how it is shown; **Help › Layers** says what each part of the map is.
 
 Look for *unknown ground*, which the contours do not describe, and for the
