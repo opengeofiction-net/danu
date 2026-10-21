@@ -988,7 +988,17 @@ class SurfacePanel(QDockWidget):
 
         self.button = QPushButton('Rebuild surface')
         self.button.clicked.connect(self.rebuild.emit)
-        form.addRow(self.button)
+        # Surface › Rebuild automatically, beside the button (#239): the
+        # window keeps the two in step
+        self.auto = QCheckBox('auto')
+        self.auto.setChecked(True)
+        self.auto.setToolTip('each edit rebuilt as it is made; off, the surface waits for Rebuild surface')
+        rebuild = QWidget()
+        row = QHBoxLayout(rebuild)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.button, 1)
+        row.addWidget(self.auto)
+        form.addRow(rebuild)
 
         self.mode = QComboBox()
         self.mode.addItems(MODES)

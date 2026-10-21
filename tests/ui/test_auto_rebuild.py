@@ -15,8 +15,13 @@ def test_it_is_on_until_turned_off_and_the_choice_is_kept(window):
     a = window.auto_rebuild_action
     assert a.isCheckable() and a.isChecked() and window.settings.auto_rebuild
     assert a in window.menuBar().actions()[[m.text() for m in window.menuBar().actions()].index('&Surface')].menu().actions()
+    box = window.surface_panel.auto
+    assert box.text() == 'auto' and box.isChecked()
     a.setChecked(False)
-    assert window.settings.auto_rebuild is False
+    assert window.settings.auto_rebuild is False and not box.isChecked(), 'the panel follows the menu'
+    box.setChecked(True)
+    assert a.isChecked() and window.settings.auto_rebuild, 'and the menu the panel'
+    box.setChecked(False)
     assert window.settings.q.value('surface/auto_rebuild') in (False, 'false')
 
 

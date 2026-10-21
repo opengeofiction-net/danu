@@ -1229,6 +1229,10 @@ class MainWindow(QMainWindow):
                                             f'{QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)}')
         self._logged(self.auto_rebuild_action, 'surface.auto_rebuild')
         self.auto_rebuild_action.toggled.connect(self.set_auto_rebuild)
+        box = self.surface_panel.auto
+        box.setChecked(self.auto_rebuild_action.isChecked())
+        self.auto_rebuild_action.toggled.connect(box.setChecked)
+        box.toggled.connect(self.auto_rebuild_action.setChecked)
         surface.addAction(self.auto_rebuild_action)
         self.pinch_action = QAction('&Pinch ramp on active elevation', self)
         self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
