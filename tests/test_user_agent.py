@@ -17,6 +17,15 @@ def test_it_names_danu_and_its_version():
     assert 'github.com/opengeofiction-net/danu' in USER_AGENT
 
 
+def test_it_names_the_platform_and_privacy_says_so():
+    assert USER_AGENT == f'Danu/{danu.__version__} ({danu.PLATFORM}; +https://github.com/opengeofiction-net/danu)'
+    for python, named in (('win32', 'Windows'), ('darwin', 'macOS'), ('linux', 'Linux'), ('freebsd14', 'freebsd14')):
+        assert danu.platform_name(python) == named
+    text = (ROOT / 'PRIVACY.md').read_text()
+    assert '`Danu/<version> (<platform>; +https://github.com/opengeofiction-net/danu)`' in text
+    assert danu.__version__ not in text, 'no version to keep current'
+
+
 def test_every_request_made_carries_it():
     """Counted in the source: a request built in a file that does not say
     USER_AGENT as often is one sent without it."""
