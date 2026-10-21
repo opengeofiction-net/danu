@@ -60,6 +60,17 @@ def test_ctrl_r_brings_it_up_to_date_and_turning_it_on_rebuilds_what_was_edited(
     assert asked == [window._arcsec], 'still out of date, so again'
 
 
+def test_a_failed_build_leaves_it_out_of_date(window, monkeypatch):
+    window.builder._runner = held
+    assert window.rebuild_surface()
+    window.auto_rebuild_action.setChecked(False)
+    monkeypatch.setattr('danu.ui.app.QMessageBox.warning', lambda *a: None)
+    window.editor.history.dirty_squares = lambda: {'S': object()}
+    assert window.rebuild_surface() and not window._surface_out_of_date
+    window._surface_failed('no GDAL')
+    assert window._surface_out_of_date
+
+
 def test_off_with_nothing_built_says_nothing(window):
     window.auto_rebuild_action.setChecked(False)
     sq = next(iter(window.working_set.squares.values()))

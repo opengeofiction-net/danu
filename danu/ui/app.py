@@ -2418,6 +2418,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
 
     def _surface_failed(self, text: str):
+        # what it was asked for is still to build: off, turning automatic
+        # rebuilds on again rebuilds it
+        self._surface_out_of_date = bool(self._arcsec and self.editor.history.dirty_squares())
         self.surface_panel.failed(text)
         self.statusBar().showMessage('the surface could not be built')
         QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
