@@ -937,7 +937,9 @@ Three parts, in this order:
 
 - **G7a, flatten** (R26). The level goes on the lake's outline as `ele`, where
   the build already reads it: a closed way's own, or a relation's member ways -
-  refused where a member is shared with flowing water (R27). An island's ring
+  refused where a member is a waterway, or the lake is all of a river area
+  (R27). A member shared with a river area is where the river meets the lake,
+  and takes the level. An island's ring
   takes the level too and keeps its own contours. Contours inside the water are
   deleted, not kept as bathymetry; contours crossing the shore at another level
   are pulled back from it, as far as the strength says. The shore alone does not

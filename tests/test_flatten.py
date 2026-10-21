@@ -207,8 +207,42 @@ def test_refused_without_a_level_for_flowing_water_and_for_a_shared_bank():
     ring = way(sq, box(125.70, -22.50, 0.01), {}, closed=True)
     sq.relations[3] = Relation(id=3, tags={'natural': 'water', 'ele': '80'}, members=[Member('way', ring.id, 'outer')])
     sq.relations[4] = Relation(id=4, tags={'natural': 'water', 'water': 'river'}, members=[Member('way', ring.id, 'outer')])
-    with pytest.raises(flatten.Refused, match='flowing water'):
+    with pytest.raises(flatten.Refused, match='all of its outline the lake'):
         flatten.plan(w, sq, sq.relations[3], allocator(sq))
+    stream = way(sq, box(125.80, -22.50, 0.01), {'waterway': 'stream'}, closed=True)
+    sq.relations[5] = Relation(id=5, tags={'natural': 'water', 'ele': '80'}, members=[Member('way', stream.id, 'outer')])
+    with pytest.raises(flatten.Refused, match='a stream itself'):
+        flatten.plan(w, sq, sq.relations[5], allocator(sq))
+
+
+def test_the_line_across_a_rivers_mouth_takes_the_lakes_level():
+    """#240, Lake Segara: the lake's ring and the river's area share the short
+    way across the river's mouth, the river's centreline through its middle
+    node. Water both sides: the river's surface there is the lake's."""
+    w, sq = ws()
+    sw, se, ne, nw = (node(sq, lon, lat) for lon, lat in box(125.50, -22.50, 0.04))
+    mid = node(sq, 125.52, -22.46)
+    mouth_w, mouth_e = node(sq, 125.515, -22.46), node(sq, 125.525, -22.46)
+    shore = Way(id=next(_ids), refs=[mouth_e, ne, se, sw, nw, mouth_w], tags={})
+    mouth = Way(id=next(_ids), refs=[mouth_w, mid, mouth_e], tags={})
+    up_w, up_e = node(sq, 125.515, -22.40), node(sq, 125.525, -22.40)
+    bank_w = Way(id=next(_ids), refs=[mouth_w, up_w], tags={})
+    bank_e = Way(id=next(_ids), refs=[up_e, mouth_e], tags={})
+    head = Way(id=next(_ids), refs=[up_w, up_e], tags={})
+    for x in (shore, mouth, bank_w, bank_e, head):
+        sq.ways[x.id] = x
+    centre = way(sq, [(125.52, -22.40), (125.52, -22.46)], {'waterway': 'river', 'name': 'Lehva'})
+    centre.refs[-1] = mid
+    sq.relations[10] = Relation(id=10, tags={'type': 'multipolygon', 'natural': 'water', 'water': 'lake',
+                                             'name': 'Lake Segara', 'ele': '100'},
+                                members=[Member('way', shore.id, 'outer'), Member('way', mouth.id, 'outer')])
+    sq.relations[11] = Relation(id=11, tags={'type': 'multipolygon', 'natural': 'water', 'water': 'river'},
+                                members=[Member('way', x.id, 'outer') for x in (mouth, bank_w, head, bank_e)])
+    p = run(w, sq, sq.relations[10])
+    assert sq.ways[mouth.id].tags['ele'] == '100' and sq.ways[shore.id].tags['ele'] == '100'
+    assert p.outline_ways == 2
+    assert all('ele' not in sq.ways[x.id].tags for x in (bank_w, bank_e, head)), 'the river keeps its banks'
+    assert sq.ways[centre.id].refs[-1] == mid and 'ele' not in sq.ways[centre.id].tags, 'and its course'
 
 
 def test_flatten_and_its_undo_leave_the_square_as_it_was():
