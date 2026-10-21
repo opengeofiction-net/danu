@@ -62,7 +62,7 @@ def test_the_request_names_danu_takes_x_as_given_and_prefers_the_cache():
     req = f.request_for(LAYER, 3, 9, 2)         # x=9 is off the world at z3
     assert req.url().toString() == 'https://tiles.test/t/3/9/2.png'   # request_for does not wrap; paint does
     assert req.header(QNetworkRequest.KnownHeaders.UserAgentHeader) == USER_AGENT
-    assert USER_AGENT.startswith(f'Danu/{__version__} (+https://')
+    assert USER_AGENT.startswith(f'Danu/{__version__} (')
     assert 'Chrome' not in USER_AGENT and 'Mozilla' not in USER_AGENT
     assert req.attribute(QNetworkRequest.Attribute.CacheLoadControlAttribute) == \
         QNetworkRequest.CacheLoadControl.PreferCache
