@@ -355,6 +355,9 @@ class MainWindow(QMainWindow):
         # to the preview only while the surface rebuilds itself (#239): off,
         # nothing is solved until Ctrl+R, which the preview then adopts
         self._surface_out_of_date = False
+        # a session's surface not built again, automatic rebuilds off: the
+        # session written meanwhile still says one is wanted
+        self.surface_wanted = False
         self.editor.editedWays.connect(self._edited_ways)
         self.editor.editedWays.connect(self._checks_edited)
         self.editor.edited.connect(self._edited)
@@ -1452,6 +1455,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
         self._pending = (zone_dir, centre, size)
+        self.surface_wanted = False
         self.zone_dir = zone_dir
         self._start_asked = False                        # others asked for: what it was shown over has gone
         self.update_start()                              # the start page goes while it is read
@@ -1633,7 +1637,7 @@ class MainWindow(QMainWindow):
         queued = self.builder.busy
         # the edits so far are in this build; one made after it is asked for
         # puts the surface out of date again
-        self._surface_out_of_date = False
+        self._surface_out_of_date = self.surface_wanted = False
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
         if queued:
             # the running build is already superseded; it finishes and is shown

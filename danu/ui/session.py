@@ -7,7 +7,9 @@ surface was built, the tool, the loupe and the active elevation. Written as
 the map comes to rest and as any of those is chosen, as well as on closing,
 so a Danu killed reopens where it was too; read when Danu starts with no
 square named. A surface that was built is built again - a surface is never
-kept, only that there was one. At 3 arcseconds, as every surface the editor
+kept, only that there was one - unless automatic rebuilds are off (#239),
+when it waits for Ctrl+R and the next session remembers it was wanted. At 3
+arcseconds, as every surface the editor
 builds is (I3d); a file from before then, naming 1, reopens at 3 too.
 
 What a square holds is not here: that is the squares' and, unsaved, the
@@ -22,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray
+from PySide6.QtGui import QKeySequence
 
 from ..core.square import SquareName
 from .surface import ARCSEC
@@ -44,7 +47,7 @@ def capture(win) -> dict:
     active = win.layer_chooser.active
     out['layer'] = {'name': active.layer.name if active else None, 'opacity': win.layer_chooser.slider.value()}
     p = win.surface_panel
-    out['surface'] = {'built': win.surface.shaded is not None,
+    out['surface'] = {'built': win.surface.shaded is not None or win.surface_wanted,
                       'mode': p.mode.currentText(), 'ramp': p.ramp.currentText(),
                       'scaling': p.scaling.currentText(),
                       'lo': p.lo.value(), 'hi': p.hi.value(), 'centre': p.centre.value(), 'width': p.width.value(),
@@ -139,8 +142,14 @@ def restore(win, data: dict) -> bool:
             win.map.center_on_lonlat(float(v['lon']), float(v['lat']))
         if data.get('elevation') is not None:
             win.elevation.set(float(data['elevation']))
-        if s.get('built'):
+        if s.get('built') and win.settings.auto_rebuild:
             win.rebuild_surface(ARCSEC)
+        elif s.get('built'):
+            win.surface_wanted = True
+            win.statusBar().showMessage(
+                'automatic rebuilds are off: '
+                f'{win.rebuild_action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)} '
+                'builds the surface')
     # after the window's own handler, which fits the view to the centre square
     win.loader.finished.connect(landed)
     if not win.open_working_set(zone, centre, size):
