@@ -1414,8 +1414,7 @@ class MainWindow(QMainWindow):
             held = {n.split('_')[0].split('.')[0] for n in (*replaced, *done['current'])}
             gone = sorted(str(n) for n in self._reverting if str(n) not in held)
             said = (f'{", ".join(sorted(str(n) for n in self._reverting))} reverted to the server\'s'
-                    + (f' - {", ".join(gone)} not on the server, so to {"its" if len(gone) == 1 else "their"} '
-                       'saved file' if gone else ''))
+                    + (f' - {", ".join(gone)} not on the server, so as last saved here' if gone else ''))
 
             def reverted(*_):
                 self.loader.finished.disconnect(reverted)
@@ -1449,19 +1448,18 @@ class MainWindow(QMainWindow):
         False if a read is already running; the status line says so."""
         zone_dir = Path(zone_dir)
         self.wait_for_writes()                           # what is read is what was saved
-        if self._reverting is not None:
-            # every edit left unsaved is one being reverted: thrown away,
-            # autosave and all
-            self._reverting = None
-            if self.autosave is not None:
-                self.autosave.discard()
-        elif self.autosave is not None and self.editor.dirty():
+        # every edit left unsaved is one being reverted: thrown away, autosave
+        # and all - once the read has started, so one refused keeps them
+        reverting, self._reverting = self._reverting is not None, None
+        if not reverting and self.autosave is not None and self.editor.dirty():
             # the set being left has edits nobody saved: kept, and offered
             # back the next time it is opened
             self.autosave.flush()
         if not self.loader.load(zone_dir, centre, size):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
+        if reverting and self.autosave is not None:
+            self.autosave.discard()
         self._pending = (zone_dir, centre, size)
         self.zone_dir = zone_dir
         self._start_asked = False                        # others asked for: what it was shown over has gone
