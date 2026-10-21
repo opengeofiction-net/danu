@@ -161,3 +161,63 @@ def test_never_imported_here_declined_nothing_changes(w, zone):
     w.drop_actions['drop.upload'].trigger()
     assert (w.there / GOLDEN).read_bytes() == before and (zone / GOLDEN).read_bytes() == osm(2)
     assert not list(zone.glob('*.mine.osm.xz')) and 'left as it is' in w.messages[-1]
+
+
+# ------------------------------------------------------------------ revert
+
+def _edit(w, name):
+    from danu.core import edits
+    from danu.core.square import SquareName
+    sq = w.working_set.squares[SquareName.parse(name)]
+    alloc = edits.IdAllocator(sq)
+    lon = sq.name.lon + 0.2
+    w.editor.history.do(sq, edits.AddWay(alloc.take(), [alloc.take(), alloc.take()],
+                                         [(lon, sq.name.lat + 0.5), (lon + 0.6, sq.name.lat + 0.5)], {'ele': '999'}))
+    return sq
+
+
+def test_revert_takes_the_servers_copy_over_saved_and_unsaved_changes(w, zone, qtbot):
+    server = (w.there / GOLDEN).read_bytes()
+    (zone / GOLDEN).write_bytes(osm(2))                      # saved here, not uploaded
+    reopened(w, qtbot, lambda: w.open_working_set(zone, w.working_set.centre))
+    _edit(w, 'S24E125')                                      # and unsaved on top
+    asked = []
+    w.sender.ask_revert = lambda square, others: asked.append((square, others)) or 'one'
+    reopened(w, qtbot, w.drop_actions['drop.revert'].trigger)
+    assert asked == [('S24E125', [])]
+    assert (zone / GOLDEN).read_bytes() == server and not w.editor.dirty()
+    qtbot.waitUntil(lambda: "reverted to the server's" in w.statusBar().currentMessage(), timeout=5000)
+
+
+def test_revert_cancelled_changes_nothing(w, zone):
+    _edit(w, 'S24E125')
+    w.sender.ask_revert = lambda square, others: None
+    w.drop_actions['drop.revert'].trigger()
+    assert w.editor.dirty() and w._reverting is None
+
+
+def test_revert_saves_the_others_first_when_asked(w, zone, qtbot):
+    _edit(w, 'S24E125')
+    _edit(w, 'S24E126')
+    before = (zone / 'S24E126_Tenmetre.osm.xz').read_bytes()
+    w.sender.ask_revert = lambda square, others: 'one' if others == ['S24E126'] else None
+    reopened(w, qtbot, w.drop_actions['drop.revert'].trigger)
+    assert not w.editor.dirty()
+    assert (zone / 'S24E126_Tenmetre.osm.xz').read_bytes() != before, 'its edits saved'
+    from danu.core.square import SquareName
+    east = w.working_set.squares[SquareName(126, -24)]
+    assert any(x.tags.get('ele') == '999' for x in east.ways.values()), 'and still there'
+
+
+def test_revert_all_throws_the_others_edits_away_too(w, zone, qtbot):
+    from danu.core.square import SquareName
+    _edit(w, 'S24E125')
+    _edit(w, 'S24E126')
+    before = (zone / 'S24E126_Tenmetre.osm.xz').read_bytes()
+    w.sender.ask_revert = lambda square, others: 'all'
+    reopened(w, qtbot, w.drop_actions['drop.revert'].trigger)
+    assert not w.editor.dirty()
+    assert (zone / 'S24E126_Tenmetre.osm.xz').read_bytes() == before, 'not on the server: its saved file'
+    east = w.working_set.squares[SquareName(126, -24)]
+    assert not any(x.tags.get('ele') == '999' for x in east.ways.values())
+    qtbot.waitUntil(lambda: 'S24E126 not on the server' in w.statusBar().currentMessage(), timeout=5000)

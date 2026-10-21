@@ -435,6 +435,10 @@ class MainWindow(QMainWindow):
         self.importer = Importer(self, self)
         self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
         self.importer.finished.connect(self._imported)
+        # File › Revert square to the server's: the squares whose changes here
+        # are being thrown away, until the set opens again without them
+        self._reverting: set | None = None
+        self.importer.failed.connect(lambda _why: setattr(self, '_reverting', None))
         # the open square to the data drop (#190, N5b), and a refused one's copy over it
         self.sender = Sender(self, self)
         self.sender.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
@@ -923,7 +927,7 @@ class MainWindow(QMainWindow):
             self.importer.failed.disconnect(done)
         self.importer.finished.connect(imported)
         self.importer.failed.connect(done)
-        if not self.importer.refresh(zone_dir, None):
+        if not self.importer.refresh(zone_dir):
             done()
 
     def _write_blank(self, zone_dir: Path, name: SquareName) -> None:
@@ -1108,7 +1112,8 @@ class MainWindow(QMainWindow):
         for name, text, slot in (('drop.upload', '&Upload square…', self.sender.upload),
                                  ('drop.rename', 'Re&name square…', self.sender.rename),
                                  ('drop.delete', '&Delete square from server…', self.sender.delete),
-                                 ('drop.discard', 'Discard re&fused version…', self.sender.discard)):
+                                 ('drop.discard', 'Discard re&fused version…', self.sender.discard),
+                                 ('drop.revert', 'Re&vert square to the server\'s…', self.sender.revert)):
             a = QAction(text, self)
             a.triggered.connect(slot)
             file.addAction(a)
@@ -1421,6 +1426,20 @@ class MainWindow(QMainWindow):
         # renamed among them: the set's file for it is under the old name, gone (#190)
         replaced = {n.split('_')[0].split('.')[0]
                     for n in (*done['new'], *done['updated'], *done['overwritten'], *done.get('renamed', ()))}
+        if self._reverting is not None:
+            # opened again whatever was replaced: an unsaved edit to a square
+            # the server has as it is here goes too
+            held = {n.split('_')[0].split('.')[0] for n in (*replaced, *done['current'])}
+            gone = sorted(str(n) for n in self._reverting if str(n) not in held)
+            said = (f'{", ".join(sorted(str(n) for n in self._reverting))} reverted to the server\'s'
+                    + (f' - {", ".join(gone)} not on the server, so as last saved here' if gone else ''))
+
+            def reverted(*_):
+                self.loader.finished.disconnect(reverted)
+                self.statusBar().showMessage(said)
+            self.loader.finished.connect(reverted)
+            self.open_working_set(self.zone_dir, ws.centre, ws.size)
+            return
         if any(str(name) in replaced for name in ws.squares):
             said = self.statusBar().currentMessage()
 
@@ -1447,13 +1466,18 @@ class MainWindow(QMainWindow):
         False if a read is already running; the status line says so."""
         zone_dir = Path(zone_dir)
         self.wait_for_writes()                           # what is read is what was saved
-        if self.autosave is not None and self.editor.dirty():
+        # every edit left unsaved is one being reverted: thrown away, autosave
+        # and all - once the read has started, so one refused keeps them
+        reverting, self._reverting = self._reverting is not None, None
+        if not reverting and self.autosave is not None and self.editor.dirty():
             # the set being left has edits nobody saved: kept, and offered
             # back the next time it is opened
             self.autosave.flush()
         if not self.loader.load(zone_dir, centre, size):
             self.statusBar().showMessage('still reading the last square - a moment')
             return False
+        if reverting and self.autosave is not None:
+            self.autosave.discard()
         self._pending = (zone_dir, centre, size)
         self.surface_wanted = False
         self.zone_dir = zone_dir

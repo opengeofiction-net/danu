@@ -140,28 +140,28 @@ class Importer(QObject):
         self.runner(job)
         return True
 
-    def refresh(self, zone_dir: Path, square) -> bool:
+    def refresh(self, zone_dir: Path, squares=frozenset()) -> bool:
         """One zone fetched again without a question (#190, N5b): the server's
-        ``square`` put in place whatever is here - a refused upload's copy is
-        kept beside it first - and the rest as any import has them, a square
-        changed here kept as it is."""
+        copy of each of ``squares`` put in place whatever is here - unsaved
+        edits to it too, which the caller is throwing away - and the rest as
+        any import has them, a square changed here kept as it is."""
         if self.busy:
             self.message.emit('an import is already running')
             return False
         zone_dir = Path(zone_dir)
         base, api = self.window.settings.url('squares/mirror'), self.window.settings.url('drop/url')
         self.job = Job(lambda: mirror.fetch(zone_dir.name, zone_dir.parent, base, api=api, **self._kw()),
-                       lambda f: self._fetched(f, square), self._failed)
+                       lambda f: self._fetched(f, frozenset(squares)), self._failed)
         self.runner(self.job)
         return True
 
-    def _fetched(self, f: mirror.Fetched, square=None) -> None:
+    def _fetched(self, f: mirror.Fetched, squares=frozenset()) -> None:
         self.job = None
-        keep = self._held(f.zone_dir)
+        keep = {n for n in self._held(f.zone_dir) if mirror._cell(n) not in squares}
         changed = sorted(n for n in f.changed if n not in keep)
         overwrite: set[str] = set()
-        if square is not None:
-            overwrite = {n for n in changed if mirror._cell(n) == square}
+        if squares:
+            overwrite = {n for n in changed if mirror._cell(n) in squares}
             changed = []
         if changed:
             answer = self.ask(f.zone, changed)

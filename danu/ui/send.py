@@ -14,7 +14,13 @@ A square the server holds that was never imported here - edited before Danu
 anybody else made: the mapper is asked whether to replace the server's copy,
 told when it last changed, and the server keeps the one replaced.
 
-``confirm``, ``ask_label`` and ``runner`` are the tests' to replace.
+Revert square to the server's throws the open square's changes here away -
+unsaved, and saved but not uploaded - and takes the server's copy, or the
+saved file where the server has none. Other squares of the set with unsaved
+edits are saved first, or reverted with it: the mapper chooses.
+
+``confirm``, ``ask_label``, ``ask_revert`` and ``runner`` are the tests' to
+replace.
 """
 
 from __future__ import annotations
@@ -34,6 +40,28 @@ def _confirm(parent, title: str, text: str) -> bool:
     return QMessageBox.question(parent, title, text) == QMessageBox.StandardButton.Yes
 
 
+def _ask_revert(parent, square: str, others: list[str]) -> str | None:
+    """'one' - the others saved first, if any - 'all', or None."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle('Revert square to the server\'s')
+    box.setText(f'Revert {square} to the server\'s copy? Its changes here - unsaved, and saved but not '
+                'uploaded - are lost.')
+    every = None
+    if others:
+        them = 'it' if len(others) == 1 else 'them'
+        box.setInformativeText(f'{", ".join(others)} {"has" if len(others) == 1 else "have"} unsaved edits too: '
+                               f'save {them} first, or revert {them} as well.')
+        one = box.addButton(f'Save {them}, revert {square}', QMessageBox.ButtonRole.AcceptRole)
+        every = box.addButton(f'Revert all {len(others) + 1}', QMessageBox.ButtonRole.DestructiveRole)
+    else:
+        one = box.addButton('Revert', QMessageBox.ButtonRole.AcceptRole)
+    box.addButton(QMessageBox.StandardButton.Cancel)
+    box.exec()
+    clicked = box.clickedButton()
+    return 'one' if clicked is one else 'all' if every is not None and clicked is every else None
+
+
 def _ask_label(parent, current: str) -> str | None:
     text, ok = QInputDialog.getText(parent, 'Rename square', 'Its name - letters, digits, spaces and -; '
                                     'empty for none:', QLineEdit.EchoMode.Normal, current.replace('_', ' '))
@@ -49,6 +77,7 @@ class Sender(QObject):
         self.runner = QThreadPool.globalInstance().start
         self.confirm = lambda title, text: _confirm(window, title, text)
         self.ask_label = lambda current: _ask_label(window, current)
+        self.ask_revert = lambda square, others: _ask_revert(window, square, others)
         self.opener = None                  # urllib's, unless a test's
         self.job = None
 
@@ -85,7 +114,12 @@ class Sender(QObject):
                 return
             if not w.save_all():
                 return
+        self._after_writes(go, lambda: not w.editor.dirty(), 'not sent: the open squares were not all saved')
 
+    def _after_writes(self, go, ok, why: str) -> None:
+        """``go()`` once the last save asked for has landed - saves are
+        written on a worker - if ``ok()`` then; ``why`` said otherwise."""
+        w = self.window
         tries = 0
 
         def when_written():
@@ -93,8 +127,8 @@ class Sender(QObject):
             if w._writes and tries < 3000:
                 tries += 1
                 QTimer.singleShot(100, when_written)
-            elif w.editor.dirty():
-                self.message.emit('not sent: the open squares were not all saved')
+            elif not ok():
+                self.message.emit(why)
             else:
                 go()
         when_written()
@@ -113,7 +147,7 @@ class Sender(QObject):
         kept = dropclient.keep_mine(path)
         self.message.emit(f'{square} changed on the server since you imported it - your version is kept as '
                           f'{kept.name} and shown over theirs; the server\'s is being imported')
-        if not self.window.importer.refresh(path.parent, square):
+        if not self.window.importer.refresh(path.parent, {square}):
             self.message.emit(f'{square}: your version is kept as {kept.name} - import the zone to fetch theirs')
 
     def _again(self, said: str) -> None:
@@ -218,6 +252,40 @@ class Sender(QObject):
             else:
                 self.message.emit(f'{square} not deleted: {reply.why}')
         self._run(lambda: dropclient.delete(api, token, path, **self._kw()), done)
+
+    def revert(self) -> None:
+        """The open square's changes here thrown away, and the server's copy
+        taken - asked first; the set's other unsaved squares saved first or
+        reverted too, as the mapper says."""
+        w = self.window
+        if w.working_set is None or w.zone_dir is None:
+            self.message.emit('open a square first')
+            return
+        if w.importer.busy:
+            self.message.emit('an import is already running')
+            return
+        centre = w.working_set.centre
+        dirty = {sq.name: sq for sq in w.editor.history.dirty_squares()}
+        others = sorted((n for n in dirty if n != centre), key=str)
+        choice = self.ask_revert(str(centre), [str(n) for n in others])
+        if choice is None:
+            return
+        targets = {centre, *others} if choice == 'all' else {centre}
+        unfiled = [n for n in others if choice == 'one' and dirty[n].path is None]
+        if unfiled:
+            self.message.emit(f'not reverted: {", ".join(map(str, unfiled))} has no file yet - '
+                              'save it, or revert all')
+            return
+
+        def go():
+            w._reverting = targets
+            if not w.importer.refresh(w.zone_dir, targets):
+                w._reverting = None
+        for n in others if choice == 'one' else ():
+            w._save(dirty[n], dirty[n].path)
+        w._saved()
+        self._after_writes(go, lambda: {sq.name for sq in w.editor.history.dirty_squares()} <= targets,
+                           'not reverted: the other squares were not all saved')
 
     def discard(self) -> None:
         """The refused copy of the open square, deleted, and its drawing gone."""

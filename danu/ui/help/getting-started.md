@@ -110,7 +110,9 @@ theirs. A square in no zone can't be uploaded yet; its status line links to
 message admin to set one up, and an account blocked on OGF uploads nothing
 while the block lasts. **File › Rename square…** changes its name on
 the server and here, and **File › Delete square from server…** takes it off
-the server, leaving your copy.
+the server, leaving your copy. **File › Revert square to the server's…**
+throws your changes to the open square away - unsaved, and saved but not
+uploaded - and takes the server's copy.
 
 An upload is made from the version you last imported. If somebody else's
 upload has gone in since, yours is refused: your version is kept beside the
