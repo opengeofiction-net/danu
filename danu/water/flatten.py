@@ -9,9 +9,12 @@ So flattening a lake is four edits, one step:
 
 - **The level on the outline.** A closed way's own ``ele``; a relation's on
   each of its member ways, outer and inner, so an island's shore is at the
-  lake's level too and the island's own contours rise from it. A member way
-  another relation also names is refused: a lake's edge that is a river area's
-  bank as well would carry a level onto flowing water (R27), and a ring two
+  lake's level too and the island's own contours rise from it. A member way a
+  river area's relation names as well is where the river meets the lake, water
+  on both sides - its mouth, or its source - and the river's surface there is
+  the lake's: it takes the level too (#240). Refused: a member that is a
+  waterway itself, a river area that is all the lake's outline - the lake is
+  the river (R27) - and a member another relation names, where a ring two
   lakes share has two levels to choose from.
 - **Contours inside the water deleted.** They describe the lake bed, which the
   surface does not show; kept, they make the water anything but flat. Inside
@@ -243,13 +246,21 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
         raise Refused('it has no level yet - G grades it from the contours, '
                       'L or the panel sets one')
     node_rings, outline_ways = rings(square, feature)
+    outline_ids = {w.id for w in outline_ways}
     for w in outline_ways:
         if w is feature:
             continue
         others = [r for r in square.relations.values()
                   if r is not feature and any(m.type == 'way' and m.ref == w.id for m in r.members)]
-        if flows(w.tags) or any(flows(r.tags) for r in others):
-            raise Refused(f'way {w.id} of its outline is the bank of flowing water too')
+        if flows(w.tags):
+            raise Refused(f'way {w.id} of its outline is a {w.tags.get("waterway") or "river"} itself: '
+                          'flowing water has no one level')
+        rivers = [r for r in others if flows(r.tags)]
+        for r in rivers:
+            if all(m.type != 'way' or m.ref in outline_ids for m in r.members):
+                raise Refused(f'{r.tags.get("name") or f"relation {r.id}"} is a river with all of its '
+                              'outline the lake\'s: flowing water has no one level')
+        others = [r for r in others if not flows(r.tags)]
         if others:
             raise Refused(f'way {w.id} of its outline is shared with '
                           f'{others[0].tags.get("name") or f"relation {others[0].id}"}')
@@ -272,7 +283,6 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             per_square.setdefault(square.name, []).append(
                 edits.SetTags(w.id, dict(w.tags), {**w.tags, 'ele': text}))
             out.outline_ways += w is not feature
-    outline_ids = {w.id for w in outline_ways}
     by_name = {sq.name: sq for sq in working_set.squares.values()}
     for sq in working_set.squares.values():
         watery = {m.ref for r in sq.relations.values() if water_tags(r.tags)
