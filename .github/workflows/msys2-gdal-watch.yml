@@ -1,0 +1,49 @@
+name: MSYS2 GDAL watch
+# #235: the Windows builds pin MSYS2's hdf5 to 2.2.0-2, the one its GDAL
+# 3.13.3-3 was built against - hdf5 2.2.0-4 (19 Oct 2026) broke the load of
+# osgeo's _gdal. Once MSYS2 builds GDAL again the pin can go: this looks
+# daily and says so on #235, once. While #235 is open it runs; closed, it
+# does nothing, and goes with the pin.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  look:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE: '235'
+      PINNED_AGAINST: '3.13.3-3'
+      MARK: '<!-- msys2-gdal-watch -->'
+    steps:
+      - name: look
+        run: |
+          state=$(gh issue view "$ISSUE" --json state --jq .state)
+          if [ "$state" != OPEN ]; then
+            echo "#$ISSUE is $state: nothing to watch"
+            exit 0
+          fi
+          listing=$(curl -fsS --retry 3 https://repo.msys2.org/mingw/ucrt64/)
+          latest=$(grep -oE 'mingw-w64-ucrt-x86_64-gdal-[0-9][0-9.]*-[0-9]+-any\.pkg\.tar\.zst' <<<"$listing" |
+            sed -E 's/^mingw-w64-ucrt-x86_64-gdal-//; s/-any\.pkg\.tar\.zst$//' | sort -uV | tail -1)
+          echo "latest GDAL in ucrt64: ${latest:-none found}"
+          if [ -z "$latest" ]; then
+            echo "::warning::no GDAL package found in the listing - its format changed?"
+            exit 0
+          fi
+          if [ "$latest" = "$PINNED_AGAINST" ]; then
+            echo "still $PINNED_AGAINST: the pin stays"
+            exit 0
+          fi
+          if gh issue view "$ISSUE" --json comments --jq '.comments[].body' | grep -qF "$MARK"; then
+            echo "already said on #$ISSUE"
+            exit 0
+          fi
+          gh issue comment "$ISSUE" --body "$MARK
+          MSYS2 has built GDAL again: \`mingw-w64-ucrt-x86_64-gdal-$latest\` is in ucrt64, after the $PINNED_AGAINST the hdf5 pin is for. Take the \`pins\` step out of \`ci.yml\` (windows-stack) and \`release.yml\` (windows), and this workflow with it, and see windows-stack pass without them."
