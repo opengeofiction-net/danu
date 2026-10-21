@@ -46,4 +46,4 @@ jobs:
             exit 0
           fi
           gh issue comment "$ISSUE" --body "$MARK
-          MSYS2 has built GDAL again: \`mingw-w64-ucrt-x86_64-gdal-$latest\` is in ucrt64, after the $PINNED_AGAINST the hdf5 pin is for. Take the \`pins\` step out of \`ci.yml\` (windows-stack) and \`release.yml\` (windows), and this workflow with it, and see windows-stack pass without them."
+          MSYS2 has built GDAL again: \`mingw-w64-ucrt-x86_64-gdal-$latest\` is in ucrt64, after the $PINNED_AGAINST the hdf5 pin is for, so likely built against the hdf5 MSYS2 has now. Try without the pin: take the \`pins\` step out of \`ci.yml\` (windows-stack) and \`release.yml\` (windows) in a PR, and if windows-stack passes, this workflow goes with them."
