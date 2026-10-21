@@ -47,6 +47,8 @@ CLAIMED = {'owned', 'reserved', 'marked for withdrawal'}
 
 # a delegate for the elevation: a constraint "dem:Alice;Bob" (#190)
 DEM = 'dem:'
+# the project's account, the owner of every territory nobody holds
+ADMIN = 'admin'
 
 # A territory is in a square when more than this share of the square is
 # under it: slivers where two neighbours' polygons disagree by a few metres
@@ -70,6 +72,11 @@ class Territory:
     constraints: tuple[str, ...] = ()
 
     @property
+    def owners(self) -> frozenset[str]:
+        """Each of the ``;`` separated owners, trimmed."""
+        return frozenset(n.strip() for n in self.owner.split(';') if n.strip())
+
+    @property
     def editors(self) -> frozenset[str]:
         """Who may draw it: each of the ``;`` separated owners, and each
         delegate a ``dem:`` constraint names, trimmed. Exact, as OGF's names
@@ -89,6 +96,10 @@ class Territory:
             return f'unknown territory (relation {self.rel})'
         if self.status in CLAIMED and self.owner:
             return f'{self.name} ({self.ogf_id}), {self.status} by {self.owner}'
+        # a collaborative territory has an owner who runs it, unless it is
+        # the project's own - admin, which holds everything nobody does
+        if self.status == 'collaborative' and self.owner and self.owners != {ADMIN}:
+            return f'{self.name} ({self.ogf_id}), {self.status}, owned by {self.owner}'
         return f'{self.name} ({self.ogf_id}), {self.status}'
 
 
@@ -294,8 +305,11 @@ def describe(found: list[Territory], user: str = '', admin: bool = False) -> tup
     is - so as to know - and told they are one."""
     if not found:
         return 'no territory here', False
-    line = '; '.join(t.describe() for t in found)
-    if admin and user:
+    line = '; '.join(t.describe() + (' - delegated to you' if user and user in t.editors - t.owners else '')
+                     for t in found)
+    # an administrator on their own ground is its owner or delegate, and
+    # the line says so: told they are one only where some of it is another's
+    if admin and user and any(user not in t.editors for t in found):
         line += ' (administrator)'
     # not somebody else's to the owners, 'Alessa;Leowezy', nor to a dem:
     # delegate (#190) - Territory.editors. The CLAIMED gate stays, unlike in

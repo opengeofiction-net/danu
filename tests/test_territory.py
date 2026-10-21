@@ -71,8 +71,16 @@ def test_describe_warns_only_for_ground_claimed_by_somebody_else():
     assert T.describe([three], 'Leowezy')[1] is False                                  # one of several owners
     assert T.describe([three], 'wangi')[1] is True
     assert T.describe([one], 'wangi', admin=True) == ('not yours to draw: One (AR001), owned by Luciano (administrator)', True)
-    assert T.describe([one], 'Luciano', admin=True) == ('One (AR001), owned by Luciano (administrator)', False)
+    assert T.describe([one], 'Luciano', admin=True) == ('One (AR001), owned by Luciano', False), 'their own: no admin'
     assert T.describe([one], '', admin=True)[0] == 'One (AR001), owned by Luciano', 'no user, no admin'
+    # a collaborative territory's owner named, but not admin's; a delegate told (#245's Gobrassanya)
+    gob = T.Territory(5, 'UL05a', 'Gobrassanya', 'collaborative', 'wangi')
+    assert T.describe([gob], 'wangi', admin=True) == ('Gobrassanya (UL05a), collaborative, owned by wangi', False)
+    assert T.describe([gob], 'Luciano', admin=True)[0] == 'Gobrassanya (UL05a), collaborative, owned by wangi (administrator)'
+    assert T.describe([two], 'wangi')[0] == 'Two (AR002), collaborative'
+    led = T.Territory(6, 'X2', 'Led', 'owned', 'Luciano', ('dem:wangi',))
+    assert T.describe([led], 'wangi') == ('Led (X2), owned by Luciano - delegated to you', False)
+    assert T.describe([led], 'Luciano')[0] == 'Led (X2), owned by Luciano'
     line, warn = T.describe([T.Territory(9), one], 'wangi')
     assert line.startswith('not yours to draw: unknown territory (relation 9); One') and warn
 
