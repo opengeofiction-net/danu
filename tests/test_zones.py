@@ -160,3 +160,58 @@ def test_rects_for_a_block_is_one_and_a_shape_is_few():
     assert [str(r) for r in Z.rects_for(ell)] == ['N18E086-N18E091', 'N19E086-N21E089']
     across = {S(179, 10), S(-180, 10)}
     assert sorted(str(r) for r in Z.rects_for(across)) == ['N10E179', 'N10W180'], 'a rectangle each side'
+
+
+# ------------------------------------------------- the outline the wiki draws
+
+def _area(ring):
+    return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1], strict=True)) / 2
+
+
+def test_the_outline_of_squares_is_its_corners_pieces_and_holes():
+    sq = lambda *xy: {S(x, y) for x, y in xy}  # noqa: E731
+    assert Z.outline(sq((0, 0))) == [[(0, 0), (1, 0), (1, 1), (0, 1)]]
+    assert Z.outline(sq((0, 0), (1, 0), (0, 1))) == [[(0, 0), (2, 0), (2, 1), (1, 1), (1, 2), (0, 2)]]
+    ring = Z.outline({S(x, y) for x in range(3) for y in range(3)} - sq((1, 1)))
+    assert [_area(r) for r in ring] == [9, -1], 'a piece anticlockwise, its hole clockwise'
+    assert len(Z.outline(sq((0, 0), (5, 5)))) == 2, 'two pieces, two rings'
+    (diag,) = Z.outline(sq((0, 0), (1, 1)))
+    assert diag.count((1, 1)) == 2 and _area(diag) == 2, 'through the corner twice, never across'
+    assert Z.outline(set()) == []
+
+
+@given(st.sets(st.tuples(st.integers(-4, 4), st.integers(-4, 4)), max_size=30))
+def test_the_outlines_area_is_its_squares(cells):
+    rings = Z.outline({S(x, y) for x, y in cells})
+    assert sum(_area(r) for r in rings) == len(cells)
+    for r in rings:
+        assert len(set(r)) >= 4 or not r
+
+
+def test_the_wiki_draws_each_zone_as_zones_has_it(tmp_path):
+    """The outline of its rectangles, as the editor's Zones map - not the box
+    round the squares held - and a zone with none held yet too."""
+    import json
+
+    from danu.core.square import write_square
+    from danu.report import zones_to_multimap as M
+    from tests.test_topo_style import square
+    (tmp_path / 'zones').write_text('ell    N00E000-N00E001 N01E000\nnew    N10E010\n')
+    (tmp_path / 'osm-squares' / 'ell').mkdir(parents=True)
+    (tmp_path / 'osm-squares' / 'old').mkdir()
+    write_square(square('0', '125'), tmp_path / 'osm-squares' / 'ell' / 'N00E000_A.osm.xz')
+    write_square(square('0', '125'), tmp_path / 'osm-squares' / 'old' / 'N30E030_B.osm.xz')
+    out = tmp_path / 'out'
+    out.mkdir()
+    import sys
+    argv, sys.argv = sys.argv, ['zones_to_multimap', str(tmp_path), '-copyto', str(out)]
+    try:
+        M.main()
+    finally:
+        sys.argv = argv
+    polygons = json.loads((out / 'elevation-polygons.json').read_text())
+    assert polygons['zone:ell'] == [[0, 0], [0, 2], [1, 2], [1, 1], [2, 1], [2, 0]], 'an L, [lat, lon]'
+    assert polygons['zone:new'] == [[10, 10], [10, 11], [11, 11], [11, 10]], 'no squares yet, drawn all the same'
+    assert polygons['zone:old'] == [[31, 30], [31, 31], [30, 31], [30, 30]], 'not in zones: its box'
+    records = {r['key']: r for r in json.loads((out / 'elevation.json').read_text()) if 'key' in r}
+    assert records['zone:ell']['degrees'] == '3' and records['zone:new']['drawn'] == '0'
