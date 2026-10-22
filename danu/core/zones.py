@@ -183,6 +183,53 @@ def rects_for(cells) -> list[Rect]:
     return [Rect(SquareName(w, s), SquareName(e, n)) for w, s, e, n in sorted(done, key=lambda r: (r[1], r[0]))]
 
 
+# the way round a ring, turning at a corner: east, north, west, south
+_STEPS = ((1, 0), (0, 1), (-1, 0), (0, -1))
+
+
+def outline(cells) -> list[list[tuple[int, int]]]:
+    """The squares' edge as rings of (lon, lat) corners, a ring's first not
+    repeated at its end: one for each piece, anticlockwise, and one for each
+    hole, clockwise - what the Zones map draws, for a map that fills even-odd
+    as Leaflet does. Two squares touching only at a corner are one ring
+    through that corner twice, touching itself there and never crossing."""
+    cells = {(c.lon, c.lat) for c in cells}
+    edges: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    # each square's sides that no square shares, the square on their left
+    for x, y in cells:
+        for (dx, dy), (a, b) in zip(_STEPS, (((x, y), (x + 1, y)), ((x + 1, y), (x + 1, y + 1)),
+                                            ((x + 1, y + 1), (x, y + 1)), ((x, y + 1), (x, y))), strict=True):
+            if (x + dy, y - dx) not in cells:          # the square to that side's right
+                edges.setdefault(a, []).append(b)
+    rings = []
+    while edges:
+        start = min(edges)
+        ring, at, heading = [start], start, None
+        while True:
+            outs = edges[at]
+            if len(outs) > 1 and heading is not None:
+                # a pinch, two squares meeting at a corner: on round the
+                # next one, so the ring touches itself here and never crosses
+                right = (heading[1], -heading[0])
+                nxt = next((o for o in outs if (o[0] - at[0], o[1] - at[1]) == right), outs[0])
+            else:
+                nxt = outs[0]
+            outs.remove(nxt)
+            if not outs:
+                del edges[at]
+            heading = (nxt[0] - at[0], nxt[1] - at[1])
+            at = nxt
+            if at == start:
+                break
+            ring.append(at)
+        # corners only: a point on a straight run between two others goes
+        n = len(ring)
+        rings.append([p for i, p in enumerate(ring)
+                      if (ring[i - 1][0] - p[0]) * (ring[(i + 1) % n][1] - p[1])
+                      != (ring[i - 1][1] - p[1]) * (ring[(i + 1) % n][0] - p[0])])
+    return rings
+
+
 def seed(squares_dir: str | Path, report=None) -> Zones:
     """``zones`` for the zones that exist: one rectangle each, round the
     squares each holds. Raises where two would overlap - an admin draws

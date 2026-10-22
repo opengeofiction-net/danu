@@ -25,6 +25,12 @@
 # terrain, and calling it drawn tells a mapper the ground is done when all of it
 # is still to do.
 #
+# A zone is drawn as the editor's Zones map draws it: the outline of its degree
+# squares in `zones`, the data drop's record of which squares each zone takes -
+# an L where its rectangles make one, a ring for each piece apart, and no box
+# round more than it is. A zone with no squares yet is drawn too, as Danu does;
+# a zone directory `zones` does not name keeps the box round its squares.
+#
 # Whether a square holds contours is decided by reading it for an ele tag, the
 # same test has_constraints uses to pick the squares a zone is built on. Taking
 # it from the filename instead would be quicker and would eventually disagree
@@ -39,6 +45,7 @@ import sys
 import time
 
 from danu.core import topo_style
+from danu.core import zones as Z
 
 NAME = re.compile(r'([NS])(\d{2})([EW])(\d{3})')
 ELE_TAG = re.compile(rb"""k=["']ele["']\s+v=["']([^"']*)["']""")
@@ -113,6 +120,14 @@ def square_ring(lon, lat):
     return [[lat + 1, lon], [lat + 1, lon + 1], [lat, lon + 1], [lat, lon]]
 
 
+def zone_rings(cells):
+    """The zone's outline as the polygons file holds one: a ring of
+    [lat, lon] alone, or a list of them - its pieces and holes, which the
+    wiki's Leaflet fills even-odd."""
+    rings = [[[lat, lon] for lon, lat in ring] for ring in Z.outline(cells)]
+    return rings[0] if len(rings) == 1 else rings
+
+
 def main():
     args = [a for a in sys.argv[1:]]
     publish = None
@@ -128,15 +143,19 @@ def main():
         sys.exit(f'no {squares_dir}')
 
     inactive = read_inactive(os.path.join(base, 'inactive'))
+    try:
+        cells = {z.name: z.cells() for z in Z.Zones.read(os.path.join(base, 'zones')).zones.values()}
+    except (OSError, Z.ZoneError) as e:
+        print(f'  zones not read, each zone the box round its squares: {e}', file=sys.stderr)
+        cells = {}
     polygons, records = {}, []
     n_zones = n_drawn = n_shore = n_blank = 0
 
-    for zone in sorted(os.listdir(squares_dir)):
+    held = {z for z in os.listdir(squares_dir) if os.path.isdir(os.path.join(squares_dir, z))}
+    for zone in sorted(held | set(cells)):
         zdir = os.path.join(squares_dir, zone)
-        if not os.path.isdir(zdir):
-            continue
         drawn, shore, blank = [], [], []
-        for name in sorted(os.listdir(zdir)):
+        for name in sorted(os.listdir(zdir)) if zone in held else ():
             if not name.endswith('.osm.xz'):
                 continue
             m = NAME.match(name)
@@ -157,25 +176,29 @@ def main():
             else:
                 blank.append((lon, lat, label, title))
 
-        if not drawn and not shore and not blank:
+        if not drawn and not shore and not blank and zone not in cells:
             continue
         n_zones += 1
         n_drawn += len(drawn)
         n_shore += len(shore)
         n_blank += len(blank)
 
-        # The zone as built is the box round the squares holding any constraint,
-        # a lone coastline included - that is the question has_constraints asks
-        # and this box has to agree with what was actually built
-        extent = (drawn + shore) or blank
-        west = min(s[0] for s in extent)
-        east = max(s[0] for s in extent) + 1
-        south = min(s[1] for s in extent)
-        north = max(s[1] for s in extent) + 1
+        if zone in cells:
+            polygons[f'zone:{zone}'] = zone_rings(cells[zone])
+            degrees = len(cells[zone])
+        else:
+            # not in `zones`: the box round the squares holding any
+            # constraint, a lone coastline included, as has_constraints asks
+            extent = (drawn + shore) or blank
+            west = min(s[0] for s in extent)
+            east = max(s[0] for s in extent) + 1
+            south = min(s[1] for s in extent)
+            north = max(s[1] for s in extent) + 1
+            polygons[f'zone:{zone}'] = [[north, west], [north, east],
+                                        [south, east], [south, west]]
+            degrees = (east - west) * (north - south)
 
         reason = inactive.get(zone)
-        polygons[f'zone:{zone}'] = [[north, west], [north, east],
-                                    [south, east], [south, west]]
         records.append({
             'key': f'zone:{zone}',
             'class': CLASS_ZONE_INACTIVE if reason else CLASS_ZONE_ACTIVE,
@@ -183,7 +206,7 @@ def main():
             'drawn': str(len(drawn)),
             'shore': str(len(shore)),
             'blank': str(len(blank)),
-            'degrees': str((east - west) * (north - south)),
+            'degrees': str(degrees),
             'reason': reason or '',
         })
 
