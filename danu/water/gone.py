@@ -35,10 +35,11 @@ to its neighbours is. Kept, it is not the mapper's old river but a line
 through nodes upstream has since moved, drawn in its old order: a straight
 jump of a kilometre and a half across the valley in the case reported, and
 a second river under every profile. So it is said here with the ways that
-took it - ``merged_into`` - and the import removes it. Merged is at least
-two of its nodes, and more than half, on ways the answer has: a stream truly
-deleted takes its middle with it, and keeps at most the ends it met other
-water at.
+took it - ``merged_into`` - and the import removes it. Merged is more than
+half of its nodes on ways the answer has, one of its middle ones among them:
+a stream truly deleted takes its middle with it, and keeps at most the ends
+it met other water at. A lake's ring is left to its lake, which is reported
+or reconciled whole.
 """
 
 from __future__ import annotations
@@ -91,10 +92,11 @@ def nodes_on(ways) -> dict[int, frozenset[int]]:
 
 def _merged_into(way, on: dict) -> tuple[int, ...]:
     """The answer's ways a gone way's nodes are on, if it was merged into
-    them: two or more of its nodes, and more than half, there."""
+    them: more than half of its nodes there, a middle one among them - its
+    ends alone are where it met other water."""
     nodes = list(dict.fromkeys(way.refs))
     kept = [r for r in nodes if r in on]
-    if len(kept) < 2 or 2 * len(kept) <= len(nodes):
+    if 2 * len(kept) <= len(nodes) or not any(r in on for r in way.refs[1:-1]):
         return ()
     return tuple(sorted({w for r in kept for w in on[r]}))
 
