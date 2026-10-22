@@ -18,12 +18,13 @@ bandwidth and no correctness.
 from __future__ import annotations
 
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ..core.square import Square
 from ..water import coast, overpass, peaks
+from ..water import gone as gone_mod
 
 
 @dataclass(frozen=True)
@@ -41,12 +42,16 @@ class Answer:
     nodes: frozenset = frozenset()
     skipped: tuple = ()
     beyond: int = 0                    # spot heights beyond the contours, not imported
+    # which of the answer's ways each of their nodes is on: a held way gone
+    # from it with its nodes on others was merged into them (#250)
+    on: dict = field(default_factory=dict)
 
 
 def water_work(payload: bytes, working_set, held: dict) -> Answer:
     water = overpass.parse(payload)
     return Answer(overpass.place(water, working_set, held),
-                  frozenset(water.ways), frozenset(water.relations))
+                  frozenset(water.ways), frozenset(water.relations),
+                  on=gone_mod.nodes_on(water.ways.values()))
 
 
 def heights_held(working_set) -> tuple:

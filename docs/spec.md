@@ -149,7 +149,8 @@ the tools for everything else.
 - **R40** A second import reconciles rather than duplicates. A feature the
   square already holds is matched by its OSM identity, takes its geometry and
   version from upstream and keeps the elevation set on it here; a feature gone
-  from upstream is reported rather than deleted, and keeps its version. An
+  from upstream is reported rather than deleted, and keeps its version - but a
+  way merged upstream, its nodes now on other ways, is removed and said so. An
   import is one undoable step.
 - **R28** Water anchors inside the squares are first-class and editable. The
   separate `water/<zone>.osm` overlay is a legacy artefact to read, never a

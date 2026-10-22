@@ -127,6 +127,25 @@ def test_a_held_river_the_answer_does_not_name_is_gone(ws):
     assert 'Bosco' in got[0].describe() and str(HERE) in got[0].describe()
 
 
+def test_a_river_merged_upstream_into_other_ways_says_which(ws):
+    """#250, c1630797: 43155852 deleted, all 63 of its nodes now on
+    43155849 and 45282504 - merged, not deleted. A stream truly deleted keeps
+    at most the ends it met other water at, and is not."""
+    from danu.water.gone import nodes_on
+    hold(ws, HERE, Way(id=100, refs=[1, 2, 3, 4, 5, 6], tags={'waterway': 'stream'}),
+         Way(id=101, refs=[11, 12, 13, 14, 15, 16], tags={'waterway': 'stream'}),
+         Way(id=103, refs=[21, 22], tags={'waterway': 'stream'}))
+    upstream = [Way(id=200, refs=[1, 2, 3, 4]), Way(id=201, refs=[4, 5, 6, 7]),     # 100's nodes, all
+                Way(id=202, refs=[9, 11]), Way(id=203, refs=[16, 30]),            # 101's two ends
+                Way(id=204, refs=[21, 22, 23])]
+    got = {g.id: g for g in gone(ws, frozenset({200, 201, 202, 203, 204}), frozenset(), nodes_on(upstream))}
+    assert got[100].merged_into == (200, 201)
+    assert got[100].describe().endswith('merged upstream into way 200, way 201, removed')
+    assert got[101].merged_into == (), 'its ends at other water are not a merge'
+    assert got[103].merged_into == (204,), 'two of two'
+    assert gone(ws, frozenset(), frozenset())[0].merged_into == (), 'not told where nodes are: nothing merged'
+
+
 def test_a_held_river_the_answer_names_is_not_gone(ws):
     hold(ws, HERE, Way(id=100, refs=[], tags={'waterway': 'river'}))
     assert gone(ws, frozenset({100}), frozenset()) == []

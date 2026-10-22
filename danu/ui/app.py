@@ -1822,14 +1822,20 @@ class MainWindow(QMainWindow):
         placed = answer.placed
         # compared before the import is applied, while a held lake relation
         # still names the ring upstream has since replaced - see water/gone.py
-        self.gone_from_upstream = gone(working_set, answer.ways, answer.relations)
+        self.gone_from_upstream = gone(working_set, answer.ways, answer.relations, answer.on)
         # and the lakes flattened here, as they stand, to see which the
         # import reshapes - their fill lines and clipped contours were laid
         # against the old outline (G7a-bis)
         was_flat = flatten.flattened(working_set)
-        kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
-                if self.gone_from_upstream else '')
+        merged = [g for g in self.gone_from_upstream if g.merged_into]
+        held = len(self.gone_from_upstream) - len(merged)
+        kept = (f'; {held} held no longer upstream, kept' if held else '') + (
+            f'; {len(merged)} merged upstream into other ways, removed' if merged else '')
         steps = water_commands(placed, working_set)
+        # after the import, which has moved their nodes where upstream has
+        # them: a merged way's nodes are its new ways', and only the ones
+        # nothing in the square holds go with it (#250)
+        steps += [(working_set.squares[g.square], edits.DeleteWay(g.id)) for g in merged]
         if steps:
             # the editor's own path, not a copy of it: see EditController.do_across
             self.editor.do_across(steps)
