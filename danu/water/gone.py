@@ -28,6 +28,18 @@ Three limits on what counts, as `docs/implementation.md` lists them:
 - **The whole answer, not the square's share of it.** Placement is per
   square and identity is not, and a feature placed into a neighbour is not
   gone.
+
+One exception to *reported rather than deleted* (#250): a way **merged**
+upstream - deleted, its nodes kept on other ways, as a river cut and joined
+to its neighbours is. Kept, it is not the mapper's old river but a line
+through nodes upstream has since moved, drawn in its old order: a straight
+jump of a kilometre and a half across the valley in the case reported, and
+a second river under every profile. So it is said here with the ways that
+took it - ``merged_into`` - and the import removes it. Merged is more than
+half of its nodes on ways the answer has, one of its middle ones among them:
+a stream truly deleted takes its middle with it, and keeps at most the ends
+it met other water at. A lake's ring is left to its lake, which is reported
+or reconciled whole.
 """
 
 from __future__ import annotations
@@ -49,10 +61,16 @@ class Gone:
     # for a ring: the held water relation naming it, lowest id first, so the
     # dock can list the ring under its lake rather than beside it
     of: int | None = None
+    # the answer's ways now holding its nodes, when it was merged into them:
+    # removed by the import rather than kept
+    merged_into: tuple[int, ...] = ()
 
     def describe(self) -> str:
         label = f'{self.what} "{self.name}"' if self.name else self.what
-        return f'{label} - {self.kind} {self.id} in {self.square}'
+        line = f'{label} - {self.kind} {self.id} in {self.square}'
+        if self.merged_into:
+            line += f' - merged upstream into {", ".join(f"way {i}" for i in self.merged_into)}, removed'
+        return line
 
 
 def _what(kind: str, tags: dict, member: bool) -> str:
@@ -63,10 +81,33 @@ def _what(kind: str, tags: dict, member: bool) -> str:
     return 'lake ring' if member else kind
 
 
-def gone(working_set, answered_ways, answered_relations) -> list[Gone]:
+def nodes_on(ways) -> dict[int, frozenset[int]]:
+    """Which of ``ways`` each of their nodes is on."""
+    on: dict[int, set[int]] = {}
+    for way in ways:
+        for r in way.refs:
+            on.setdefault(r, set()).add(way.id)
+    return {r: frozenset(w) for r, w in on.items()}
+
+
+def _merged_into(way, on: dict) -> tuple[int, ...]:
+    """The answer's ways a gone way's nodes are on, if it was merged into
+    them: more than half of its nodes there, a middle one among them - its
+    ends alone are where it met other water."""
+    nodes = list(dict.fromkeys(way.refs))
+    kept = [r for r in nodes if r in on]
+    if 2 * len(kept) <= len(nodes) or not any(r in on for r in way.refs[1:-1]):
+        return ()
+    return tuple(sorted({w for r in kept for w in on[r]}))
+
+
+def gone(working_set, answered_ways, answered_relations, on: dict | None = None) -> list[Gone]:
     """Every held water feature the answer did not name, in a stable order:
-    by square, then relations before ways, then id."""
+    by square, then relations before ways, then id. ``on`` is which of the
+    answer's ways each of its nodes is on - ``nodes_on`` - and without it
+    nothing is found merged."""
     out: list[Gone] = []
+    on = on or {}
     for name in sorted(working_set.squares, key=str):
         square = working_set.squares[name]
         rings: dict[int, int] = {}            # ring way -> a relation naming it
@@ -85,6 +126,7 @@ def gone(working_set, answered_ways, answered_relations) -> list[Gone]:
             member = way.id in rings
             if member or asked_for('way', way.tags):
                 out.append(Gone(name, 'way', way.id, way.tags.get('name'),
-                                _what('way', way.tags, member), rings.get(way.id)))
+                                _what('way', way.tags, member), rings.get(way.id),
+                                () if member else _merged_into(way, on)))
     out.sort(key=lambda g: (str(g.square), g.kind != 'relation', g.id))
     return out

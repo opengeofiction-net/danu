@@ -175,6 +175,32 @@ def test_an_import_that_finds_something_gone_raises_the_dock(window):
     assert len(w.gone_dock.report) == 3
 
 
+def test_a_river_merged_upstream_goes_with_the_import_and_comes_back_with_its_undo(window):
+    """#250: upstream deleted 9400 and put its nodes on 9500, moving one -
+    kept, 9400 would run through it in its old order. The import removes it,
+    one step with the rest, and says so."""
+    from danu.ui.water import Answer
+    from danu.water import overpass
+    from danu.water.gone import nodes_on
+    w = window
+    sq = w.working_set.squares[HERE]
+    a_gone_lake(sq)
+    up = overpass.Water()
+    for i, lon in enumerate((125.20, 125.25, 125.31), 9111):
+        up.nodes[i] = Node(id=i, lon=lon, lat=-23.30 if i != 9112 else -23.40)
+    up.ways[9500] = Way(id=9500, refs=[9111, 9112, 9113], tags={'waterway': 'stream'})
+    w._water_imported(Answer({HERE: up}, frozenset({9500}), frozenset(), on=nodes_on(up.ways.values())),
+                      w.working_set)
+    assert 9400 not in sq.ways and 9500 in sq.ways
+    assert all(n in sq.nodes for n in (9111, 9112, 9113)), 'its nodes are the new way\'s'
+    merged = [g for g in w.gone_dock.report if g.merged_into]
+    assert [(g.id, g.merged_into) for g in merged] == [(9400, (9500,))]
+    assert 'merged upstream into other ways, removed' in w.statusBar().currentMessage()
+    assert 9200 in sq.ways and 9300 in sq.relations, 'the lake gone upstream is kept, as R40 says'
+    w.editor.undo()
+    assert 9400 in sq.ways and 9500 not in sq.ways, 'one step'
+
+
 def test_an_import_that_finds_nothing_gone_does_not(window):
     from danu.ui.water import Answer
     w = window
