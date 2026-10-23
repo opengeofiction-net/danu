@@ -3,7 +3,8 @@
 # Recover editable contour squares from a DEM, for a zone whose source .osm
 # squares have been lost - see Admin:Elevation process.
 #
-#   recover_squares.py <dem.tif> <outdir> [--interval 10] [--simplify 0.0003]
+#   recover_squares.py <dem.tif> <outdir> [--interval 10 | --levels 10:50,25:200,50]
+#                      [--simplify 0.0003]
 #
 # One .osm per degree square, named by its south west corner in the SRTM
 # convention, holding contour ways tagged ele plus a frame way carrying the
@@ -330,8 +331,89 @@ def water_rings(dem_path, lon, lat, water_lines, min_cells=16, keep_away=3,
     return rings, dropped
 
 
-def contours_for_square(dem, lon, lat, interval, simplify, min_vertices):
+def parse_levels(spec):
+    """``10:50,25:200,50`` -> [(10, 50), (25, 200), (50, None)]: every 10 m
+    to 50, every 25 to 200, every 50 above. The last band runs on for ever;
+    each band starts where the one before stopped."""
+    bands = []
+    for part in spec.split(','):
+        step, colon, top = part.strip().partition(':')
+        step = float(step)
+        if step <= 0:
+            raise ValueError(f'{part!r}: an interval is positive')
+        bands.append((step, float(top) if colon else None))
+    if any(top is None for _, top in bands[:-1]):
+        raise ValueError(f'{spec!r}: only the last band runs on without a top')
+    if bands[-1][1] is not None:
+        raise ValueError(f'{spec!r}: the last band has no top - it runs on above')
+    tops = [top for _, top in bands[:-1]]
+    if tops != sorted(set(tops)):
+        raise ValueError(f'{spec!r}: each band\'s top above the one before')
+    return bands
+
+
+def levels_for(bands, hi):
+    """The levels up to ``hi``, 0 first - the zero line - from the bands."""
+    out, at = [0.0], 0.0
+    for step, top in bands:
+        top = hi if top is None else min(top, hi)
+        k = math.floor(at / step) + 1
+        while k * step <= top + 1e-9:
+            out.append(k * step)
+            k += 1
+        at = top
+        if at >= hi:
+            break
+    return sorted(set(out))
+
+
+def as_written(geom):
+    """The line at the 7 decimal places a square file holds."""
+    line = ogr.Geometry(ogr.wkbLineString)
+    for i in range(geom.GetPointCount()):
+        line.AddPoint_2D(round(geom.GetX(i), 7), round(geom.GetY(i), 7))
+    return line
+
+
+def uncross(drawn, made):
+    """Where simplifying made a line cross another, or itself, it goes back to
+    the line the DEM drew, until Danu's own checks find nothing simplifying
+    caused: two lines from one raster never cross. SimplifyPreserveTopology
+    keeps a line from crossing itself and nothing more, so on steep ground
+    neighbours a cell apart cross - 38 pairs in roantra's N44E030 - and a
+    small ring folds onto itself, touching in memory and crossing once
+    written to 7 places, 17 in N46E030. Asked of the lines as written, and
+    of Danu's checks rather than GEOS's, whose touching is not their
+    crossing. Only those lines go back; the rest keep their quarter of the
+    vertices. ``made`` is changed in place."""
+    from ..checks import crossings, loops
+    from .square import Node, Square, SquareName, Way, WorkingSet
+
+    name = SquareName(0, 0)
+    while True:
+        sq = Square(name=name, present=True, attrs={})
+        nid = 0
+        for i, g in enumerate(made):
+            refs = []
+            for k in range(g.GetPointCount()):
+                nid += 1
+                sq.nodes[nid] = Node(id=nid, lon=g.GetX(k), lat=g.GetY(k))
+                refs.append(nid)
+            sq.ways[i + 1] = Way(id=i + 1, refs=refs, tags={'ele': str(drawn[i][0])})
+        ws = WorkingSet(centre=name, size=1, squares={name: sq})
+        hit = {c.a[1] - 1 for c in crossings.find(ws)} | {c.b[1] - 1 for c in crossings.find(ws)}
+        hit |= {lp.contour[1] - 1 for lp in loops.find(ws)}
+        back = [i for i in hit if made[i] is not drawn[i][1]]
+        if not back:
+            return
+        for i in back:
+            made[i] = drawn[i][1]
+
+
+def contours_for_square(dem, lon, lat, interval, simplify, min_vertices, bands=None):
     """Contour one degree square of the DEM. Returns {elevation: [ring, ...]}.
+    At every ``interval``, or at the levels ``bands`` gives - see
+    ``parse_levels``.
 
     The square is cut on exact degree lines so that neighbouring squares share
     their boundary vertices, which is what stops the edges glitching when the
@@ -356,16 +438,28 @@ def contours_for_square(dem, lon, lat, interval, simplify, min_vertices):
     layer = ds.CreateLayer('contour', geom_type=ogr.wkbLineString)
     layer.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
 
-    gdal.ContourGenerate(band, interval, 0, [], 1, nodata, layer, -1, 0)
+    if bands:
+        gdal.ContourGenerate(band, 0, 0, levels_for(bands, hi), 1, nodata, layer, -1, 0)
+    else:
+        gdal.ContourGenerate(band, interval, 0, [], 1, nodata, layer, -1, 0)
+
+    drawn, made = [], []                      # each line as the DEM drew it, and simplified
+    for feat in layer:
+        geom = feat.GetGeometryRef().Clone()
+        if geom.GetPointCount() < min_vertices:
+            continue
+        thin = geom.SimplifyPreserveTopology(simplify) if simplify else geom
+        if thin is None or thin.GetPointCount() < 2:
+            thin = geom
+        # as the file will hold them, to the 7 places OsmFile writes: a ring
+        # simplified to a fold that only touches itself here crosses there
+        drawn.append((feat.GetField('ele'), as_written(geom)))
+        made.append(as_written(thin))
+    if simplify:
+        uncross(drawn, made)
 
     out = {}
-    for feat in layer:
-        ele = feat.GetField('ele')
-        geom = feat.GetGeometryRef()
-        if simplify:
-            geom = geom.SimplifyPreserveTopology(simplify)
-        if geom is None or geom.GetPointCount() < min_vertices:
-            continue
+    for (ele, _), geom in zip(drawn, made, strict=True):
         pts = [(geom.GetX(i), geom.GetY(i)) for i in range(geom.GetPointCount())]
         out.setdefault(int(round(ele)), []).append(pts)
 
@@ -380,6 +474,13 @@ def main():
     ap.add_argument('outdir')
     ap.add_argument('--interval', type=float, default=10.0,
                     help='contour interval in metres (default 10)')
+    ap.add_argument('--levels', metavar='SPEC',
+                    help='the interval by height band in place of --interval: '
+                         '10:50,25:200,50 is every 10 m to 50, every 25 to 200 '
+                         'and every 50 above. The interval the original drawing '
+                         'had, where the DEM shows it: values pile up at the '
+                         'levels it was drawn at, and the lines between them '
+                         'are only the DEM\'s interpolation')
     ap.add_argument('--simplify', type=float, default=None,
                     help='simplify tolerance in degrees, 0 to keep every vertex. '
                          'Defaults to a quarter of the source DEM cell, which is '
@@ -422,6 +523,10 @@ def main():
     ap.add_argument('--suffix', default='recovered',
                     help="filename suffix after the square name")
     args = ap.parse_args()
+    try:
+        bands = parse_levels(args.levels) if args.levels else None
+    except ValueError as e:
+        ap.error(f'--levels {e}')
 
     dem_path = args.dem
     if args.smooth:
@@ -481,8 +586,8 @@ def main():
             total_sq += 1
             name = square_name(lon, lat)
             rings, lo, hi = contours_for_square(dem_path, lon, lat, args.interval,
-                                                args.simplify, args.min_vertices)
-            levels = sorted(k for k in rings if k >= args.interval)
+                                                args.simplify, args.min_vertices, bands)
+            levels = sorted(k for k in rings if k >= (bands[0][0] if bands else args.interval))
             path = os.path.join(args.outdir, f'{name}_{args.suffix}.osm.xz')
             osm = OsmFile(path, 'recover_squares.py')
             for ele in levels:
