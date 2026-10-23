@@ -1,3 +1,19 @@
+danu (1.3.4-1) unstable; urgency=medium
+
+  * Import: a river deleted upstream with its nodes put on other ways - cut
+    and joined to its neighbours - is removed, and listed as merged in the
+    gone panel, rather than kept drawing through moved nodes (#250).
+  * Contours burned as the cells a line runs through, not every cell it
+    touches: the surface no longer terraces at each contour - the fine stair
+    texture in the hillshade, the editor's and the build's alike.
+  * Server: every zone's DEM shifts slightly on its next build, by the burn.
+  * Server: the wiki's elevation map draws each zone as Danu does, the
+    outline of its squares, zones with no squares yet included.
+  * Server: recover_squares --levels, the contour interval by height band,
+    and no recovered square crosses.
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Fri, 23 Oct 2026 23:33:52 +0100
+
 danu (1.3.3-1) unstable; urgency=medium
 
   * File › Revert square to the server's: the open square's changes here -
