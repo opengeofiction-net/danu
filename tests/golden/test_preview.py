@@ -93,7 +93,7 @@ def test_a_box_burned_from_the_layer_is_the_whole_rasters_burn(tmp_path):
 
     cons = b['constraints']
     drawn = np.argwhere(cons != b['nodata'])
-    assert len(drawn) > 500, 'the fixture drew almost nothing'
+    assert len(drawn) > 950, 'the fixture drew almost nothing'
     y, x = (int(v) for v in drawn[len(drawn) // 2])
 
     checked = 0
