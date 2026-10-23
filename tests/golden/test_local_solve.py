@@ -189,7 +189,14 @@ def test_a_box_solved_against_a_held_rim_is_the_whole_rasters_answer(tmp_path):
     # pass answering a different domain - it diffuses across a region of
     # unanswered ground that runs past any box worth solving. Until isofill
     # 0.11.0 it also ran a fixed number of sweeps rather than to convergence.
-    assert solve(slack=0)[0] > wrong, 'slack made no difference, so it is not being tested here'
+    # Asked where the rim is near, with no cover: there slack is the whole
+    # of what keeps the first pass off the crop. Asked of the defaults it is
+    # micrometres either way - 61 in slack's favour on contours burned all
+    # touched, 4 against it burned thin - and that is a tie, not a test.
+    no_cover = solve(cover=0)
+    assert no_cover[0] < bare_wrong, (
+        f'slack made no difference with the rim close: {no_cover[0]:.4f} m against {bare_wrong:.4f} m '
+        'without it, so it is not being tested here')
 
 
 
