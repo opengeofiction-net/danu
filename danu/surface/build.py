@@ -637,9 +637,17 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     Int16, not Int32: elevations fit with room to spare and so does the nodata,
     and at 1 arcsecond the wider type costs 1.7 GB of the clamp's working set.
 
-    All touched, not only the cells a line passes through the middle of: a thin
-    line leaves diagonal gaps, and the fill's sight test threads them - a ray
-    reaches the ground behind a coastline without crossing it.
+    The cells a line runs through, not every cell it touches. A thin line
+    leaves diagonal gaps, which the fill's sight test would thread - a ray
+    reaching the ground behind a coastline without crossing it - but isofill's
+    ``--barrier`` widens every constraint for the sight test alone, and that
+    closes them. Burned all touched, as it was until October 2026, every cell
+    a line so much as clipped was held at the line's level: a strip two to four
+    cells wide at each contour, 16% of steep ground, flat. The hillshade drew
+    each strip as a band - roantra at 50 m terraced at every contour - and the
+    10 m zones as a fine stair texture. The sea is unaffected: the land
+    clamp's flood is 4-connected, which a diagonal step stops, and sea_mask
+    steps clear of a line either way.
 
     The spot heights go in after the contours - one Rasterize call each, in
     that order - so a spot height standing on a contour wins the cell. That is
@@ -693,7 +701,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     for i, name in enumerate(layers):
         if i == 0:
             gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
-                format='GTiff', allTouched=True, attribute='ele', noData=NODATA,
+                format='GTiff', allTouched=False, attribute='ele', noData=NODATA,
                 initValues=[NODATA], layers=[name],
                 outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res,
                 outputBounds=list(grid.te), creationOptions=CREATE))
@@ -702,7 +710,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
             continue
         into = gdal.Open(str(out), gdal.GA_Update)
         gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
-            allTouched=True, attribute='ele', layers=[name]))
+            allTouched=False, attribute='ele', layers=[name]))
         into.FlushCache()
         into = None
     return out

@@ -269,8 +269,8 @@ class Contours:
         all touched, last writer wins, in FID order, and the spot heights after
         the contours so a spot height standing on one wins its cell.
 
-        All touched, as ``rasterise()`` does - a thin line otherwise leaves
-        diagonal gaps, and the fill's sight test threads them. ``spots`` False
+        The cells a line runs through, as ``rasterise()`` burns them - the
+        two must agree cell for cell (R35). ``spots`` False
         burns the contours alone, which is what the drawn area's envelope is
         taken from."""
         from osgeo import gdal
@@ -289,7 +289,7 @@ class Contours:
             layer.SetSpatialFilterRect(west, south, east, north)
             try:
                 gdal.RasterizeLayer(out, [1], layer,
-                                    options=['ATTRIBUTE=ele', 'ALL_TOUCHED=TRUE'])
+                                    options=['ATTRIBUTE=ele', 'ALL_TOUCHED=FALSE'])
             finally:
                 layer.SetSpatialFilter(None)
         return band.ReadAsArray()
