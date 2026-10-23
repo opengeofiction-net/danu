@@ -71,5 +71,7 @@ def test_simplified_contours_never_cross_once_written(tmp_path, monkeypatch):
     nodes = lambda r: sum(len(p) for ls in r.values() for p in ls)  # noqa: E731
     full, _, _ = R.contours_for_square(str(path), 30, 45, 10, 0, 4, bands)
     assert nodes(rings) < nodes(full) * 0.6, 'most lines kept their simplification'
+    # two runs of ContourGenerate over one raster give the same lines, so the
+    # counts are comparable
     count = lambda r: len([p for ls in r.values() for p in ls])  # noqa: E731
     assert count(rings) == count(bare), 'putting lines back lost or gained some'

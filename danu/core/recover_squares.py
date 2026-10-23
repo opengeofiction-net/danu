@@ -388,7 +388,12 @@ def uncross(drawn, made):
     written to 7 places, 17 in N46E030. Asked of the lines as written, and
     of Danu's checks rather than GEOS's, whose touching is not their
     crossing. Only those lines go back; the rest keep their quarter of the
-    vertices. ``made`` is changed in place."""
+    vertices. ``made`` is changed in place.
+
+    It ends: each round puts back at least one line not yet back, or
+    returns. Should GDAL ever draw two lines that cross - one raster's never
+    have - there is nothing to put back, and they are left for the square's
+    checks to show, as any crossing in a square is."""
     from ..checks import crossings, loops
     from .square import Node, Square, SquareName, Way, WorkingSet
 
@@ -402,7 +407,7 @@ def uncross(drawn, made):
                 nid += 1
                 sq.nodes[nid] = Node(id=nid, lon=g.GetX(k), lat=g.GetY(k))
                 refs.append(nid)
-            sq.ways[i + 1] = Way(id=i + 1, refs=refs, tags={'ele': str(drawn[i][0])})
+            sq.ways[i + 1] = Way(id=i + 1, refs=refs, tags={'ele': str(int(round(drawn[i][0])))})
         ws = WorkingSet(centre=name, size=1, squares={name: sq})
         # each finding names its contour as (square, way id, elevation), and
         # way i + 1 is line i
@@ -481,12 +486,12 @@ def main():
     spacing.add_argument('--interval', type=float, default=10.0,
                          help='contour interval in metres (default 10)')
     spacing.add_argument('--levels', metavar='SPEC',
-                         help='the interval by height band in place of --interval: '
+                         help='the interval by height band, in place of --interval: '
                               '10:50,25:200,50 is every 10 m to 50, every 25 to 200 '
-                              'and every 50 above. The interval the original drawing '
-                              'had, where the DEM shows it: values pile up at the '
-                              'levels it was drawn at, and the lines between them '
-                              'are only the DEM\'s interpolation')
+                              'and every 50 above. Choose the bands the original '
+                              'drawing had: a DEM interpolated from contours piles its '
+                              'values up at the levels they were drawn at, and lines '
+                              'between those are only the interpolation')
     ap.add_argument('--simplify', type=float, default=None,
                     help='simplify tolerance in degrees, 0 to keep every vertex. '
                          'Defaults to a quarter of the source DEM cell, which is '
