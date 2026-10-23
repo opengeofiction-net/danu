@@ -1,8 +1,6 @@
 """recover_squares: the interval by height band, and contours that a coarse
 simplification would make cross put back as the DEM drew them."""
 
-import math
-
 import numpy as np
 import pytest
 
@@ -73,5 +71,5 @@ def test_simplified_contours_never_cross_once_written(tmp_path, monkeypatch):
     nodes = lambda r: sum(len(p) for ls in r.values() for p in ls)  # noqa: E731
     full, _, _ = R.contours_for_square(str(path), 30, 45, 10, 0, 4, bands)
     assert nodes(rings) < nodes(full) * 0.6, 'most lines kept their simplification'
-    assert math.isclose(len([p for ls in rings.values() for p in ls]),
-                        len([p for ls in full.values() for p in ls]), rel_tol=0.05)
+    count = lambda r: len([p for ls in r.values() for p in ls])  # noqa: E731
+    assert count(rings) == count(bare), 'putting lines back lost or gained some'

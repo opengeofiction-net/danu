@@ -40,6 +40,9 @@ ogr.UseExceptions()
 
 
 SRTM_VOID = -32768
+# the decimal places a square file holds a coordinate to - OsmFile writes
+# them, and uncross() checks the lines as they will be written
+DECIMALS = 7
 
 
 
@@ -96,7 +99,7 @@ class OsmFile:
         for lon, lat in coords:
             i = self._id()
             self.node_buf.write(f"  <node id='{i}' action='modify' "
-                                f"lat='{lat:.7f}' lon='{lon:.7f}' />\n")
+                                f"lat='{lat:.{DECIMALS}f}' lon='{lon:.{DECIMALS}f}' />\n")
             ids.append(i)
             self.nodes += 1
         if closed and ids:
@@ -368,10 +371,10 @@ def levels_for(bands, hi):
 
 
 def as_written(geom):
-    """The line at the 7 decimal places a square file holds."""
+    """The line at the DECIMALS places a square file holds."""
     line = ogr.Geometry(ogr.wkbLineString)
     for i in range(geom.GetPointCount()):
-        line.AddPoint_2D(round(geom.GetX(i), 7), round(geom.GetY(i), 7))
+        line.AddPoint_2D(round(geom.GetX(i), DECIMALS), round(geom.GetY(i), DECIMALS))
     return line
 
 
@@ -401,7 +404,10 @@ def uncross(drawn, made):
                 refs.append(nid)
             sq.ways[i + 1] = Way(id=i + 1, refs=refs, tags={'ele': str(drawn[i][0])})
         ws = WorkingSet(centre=name, size=1, squares={name: sq})
-        hit = {c.a[1] - 1 for c in crossings.find(ws)} | {c.b[1] - 1 for c in crossings.find(ws)}
+        # each finding names its contour as (square, way id, elevation), and
+        # way i + 1 is line i
+        crossed = crossings.find(ws)
+        hit = {c.a[1] - 1 for c in crossed} | {c.b[1] - 1 for c in crossed}
         hit |= {lp.contour[1] - 1 for lp in loops.find(ws)}
         back = [i for i in hit if made[i] is not drawn[i][1]]
         if not back:
@@ -446,11 +452,10 @@ def contours_for_square(dem, lon, lat, interval, simplify, min_vertices, bands=N
     drawn, made = [], []                      # each line as the DEM drew it, and simplified
     for feat in layer:
         geom = feat.GetGeometryRef().Clone()
-        if geom.GetPointCount() < min_vertices:
-            continue
         thin = geom.SimplifyPreserveTopology(simplify) if simplify else geom
-        if thin is None or thin.GetPointCount() < 2:
-            thin = geom
+        # fewer vertices than this once simplified is speckle, as it always was
+        if thin is None or thin.GetPointCount() < min_vertices:
+            continue
         # as the file will hold them, to the 7 places OsmFile writes: a ring
         # simplified to a fold that only touches itself here crosses there
         drawn.append((feat.GetField('ele'), as_written(geom)))
@@ -472,15 +477,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dem')
     ap.add_argument('outdir')
-    ap.add_argument('--interval', type=float, default=10.0,
-                    help='contour interval in metres (default 10)')
-    ap.add_argument('--levels', metavar='SPEC',
-                    help='the interval by height band in place of --interval: '
-                         '10:50,25:200,50 is every 10 m to 50, every 25 to 200 '
-                         'and every 50 above. The interval the original drawing '
-                         'had, where the DEM shows it: values pile up at the '
-                         'levels it was drawn at, and the lines between them '
-                         'are only the DEM\'s interpolation')
+    spacing = ap.add_mutually_exclusive_group()
+    spacing.add_argument('--interval', type=float, default=10.0,
+                         help='contour interval in metres (default 10)')
+    spacing.add_argument('--levels', metavar='SPEC',
+                         help='the interval by height band in place of --interval: '
+                              '10:50,25:200,50 is every 10 m to 50, every 25 to 200 '
+                              'and every 50 above. The interval the original drawing '
+                              'had, where the DEM shows it: values pile up at the '
+                              'levels it was drawn at, and the lines between them '
+                              'are only the DEM\'s interpolation')
     ap.add_argument('--simplify', type=float, default=None,
                     help='simplify tolerance in degrees, 0 to keep every vertex. '
                          'Defaults to a quarter of the source DEM cell, which is '
@@ -587,7 +593,7 @@ def main():
             name = square_name(lon, lat)
             rings, lo, hi = contours_for_square(dem_path, lon, lat, args.interval,
                                                 args.simplify, args.min_vertices, bands)
-            levels = sorted(k for k in rings if k >= (bands[0][0] if bands else args.interval))
+            levels = sorted(k for k in rings if k > 0)
             path = os.path.join(args.outdir, f'{name}_{args.suffix}.osm.xz')
             osm = OsmFile(path, 'recover_squares.py')
             for ele in levels:
