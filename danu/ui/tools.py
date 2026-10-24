@@ -2606,7 +2606,8 @@ class EditController(QObject):
         """F: flatten the selected lake at its level - G7a, R26 - proposed, not
         applied. The level goes on its outline, which the build reads as a
         contour; the contours in the water are deleted and those crossing its
-        shore drawn back from it by ``pull_back_m``. Enter accepts it as one
+        shore drawn back from it by ``pull_back_m`` - or, at the level next to
+        its either side, pushed round it that far out. Enter accepts it as one
         step across every square it touches.
 
         At the level the lake has: G grades one from its outlet or rim, L or
@@ -2638,6 +2639,9 @@ class EditController(QObject):
             parts.append(f'the level on its outline, {p.outline_ways} way{"s" * (p.outline_ways != 1)}')
         if p.deleted:
             parts.append(f'{p.deleted} contour{"s" * (p.deleted != 1)} in the water removed')
+        if p.wrapped:
+            parts.append(f'{p.wrapped} at the level next to its pushed round it, '
+                         f'up to {self.pull_back_m:g} m out')
         if p.pulled:
             parts.append(f'{p.pulled} crossing its shore drawn back {self.pull_back_m:g} m')
         if p.clipped:
@@ -2655,6 +2659,7 @@ class EditController(QObject):
             chain_paths=[[m.lonlat_to_scene(lon, lat) for lon, lat in ring] for ring in p.outline],
             removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
             fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
+            added=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.added] or None,
             pull_back_m=self.pull_back_m, kind='flatten', strength_label='Draw back from the shore'))
 
     def _propose_lake(self, sq: Square, feature) -> None:
