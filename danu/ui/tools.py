@@ -1116,7 +1116,8 @@ class EditController(QObject):
         """E: the contour picked made one line with the pieces of it picked
         beside it - a valley's tip and the rings up the river from it - by
         danu.core.absorb, the pieces gone, one step. The open contour
-        picked is the one kept; two open is refused. Under G8b's rule: one that crossed nothing
+        picked is the one kept, or the largest ring if all are rings; two
+        open is refused. Under G8b's rule: one that crossed nothing
         may not be made to cross."""
         ws = self.working_set
         if not self.picked or ws is None:
@@ -1133,14 +1134,18 @@ class EditController(QObject):
         if len(ways) < 2:
             self.message.emit('not absorbed: pick a contour and at least one piece of it')
             return
-        # the one kept: the open contour - the pieces are rings. Two open is
-        # a contour picked by mistake, which absorbing would delete
+        # the one kept: the open contour - the pieces are rings - or, all
+        # rings, the largest. Two open is a contour picked by mistake, which
+        # absorbing would delete
         open_ = [w for w in ways if not w.closed]
         if len(open_) > 1:
             self.message.emit(f'not absorbed: {len(open_)} open contours picked - absorb keeps one, '
                               'and takes the rings beside it')
             return
-        main = open_[0] if open_ else ways[0]
+        def area(w):
+            xy = [(square.nodes[r].lon, square.nodes[r].lat) for r in w.refs if r in square.nodes]
+            return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(xy)))
+        main = open_[0] if open_ else max(ways, key=area)
         # GDAL's geometry, asked for when it is used: the editor runs without it
         from ..core import absorb as absorb_
         got = absorb_.absorb(square, main.id, [w.id for w in ways if w is not main], self.history.alloc(square))

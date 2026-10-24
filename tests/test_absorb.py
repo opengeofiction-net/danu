@@ -117,3 +117,27 @@ def test_where_the_line_meets_the_outline_on_its_own_node_that_node_is_kept():
     assert tip[0] in refs and tip[1] in refs
     at = [(round(sq.nodes[r].lon, 9), round(sq.nodes[r].lat, 9)) for r in refs]
     assert len(at) == len(set(at)), 'a node drawn twice at one place'
+
+
+def test_a_ring_absorbs_its_pieces_too_whichever_node_it_begins_at():
+    """A hill's ring with the pieces off one end: closed again round them all,
+    though its first node is the one at the pieces."""
+    sq, _, pieces = valley()
+    ids = iter(range(-20_000, -30_000, -1))
+    ring = way(sq, [(0, 20), (-200, 120), (-400, 0), (-200, -120), (0, -20)], 30, ids)
+    ring.refs.append(ring.refs[0])
+    nodes, ways = dict(sq.nodes), {i: list(w.refs) for i, w in sq.ways.items()}
+    cmd, coords = absorb.absorb(sq, ring.id, [p.id for p in pieces], edits.IdAllocator(sq))
+    cmd.apply(sq)
+    refs = sq.ways[ring.id].refs
+    assert refs[0] == refs[-1] and len(set(refs)) == len(refs) - 1
+    region = polygon(sq, refs).Buffer(1.0)
+    for p in pieces:
+        for r in p.refs:
+            pt = ogr.Geometry(ogr.wkbPoint)
+            pt.AddPoint_2D(nodes[r].lon * KX, nodes[r].lat * KY)
+            assert region.Contains(pt)
+    assert {r for r in ways[ring.id]} - set(refs) <= {ways[ring.id][0], ways[ring.id][-1]}, \
+        'the far side of the ring kept as it was'
+    cmd.undo(sq)
+    assert {i: list(w.refs) for i, w in sq.ways.items()} == ways and sq.nodes == nodes

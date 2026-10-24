@@ -108,8 +108,6 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
     other = sorted({p.ele for p in pieces if p.ele != main.ele})
     if other:
         return f'the pieces are not all at {main.ele:g} m - {other[0]:g} m among them'
-    if main.closed:
-        return 'the contour is a ring - absorb into an open contour'
     nodes = square.nodes
     lats = [nodes[r].lat for p in pieces for r in p.refs if r in nodes]
     if not lats:
@@ -146,6 +144,20 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
     blob = blob.Buffer(_EDGE_M, _MITRE).SimplifyPreserveTopology(SIMPLIFY_M)
     if blob.GetGeometryName() != 'POLYGON':
         return 'the pieces do not make one shape'
+    mrefs = list(main.refs)
+    if main.closed:
+        # a ring begun again at its node furthest from the pieces, so the
+        # stretch replaced never runs across where it begins and ends
+        def off(r):
+            pt = ogr.Geometry(ogr.wkbPoint)
+            pt.AddPoint_2D(*f.m(nodes[r].lon, nodes[r].lat))
+            return pt.Distance(blob)
+        k = max(range(len(mrefs) - 1), key=lambda k: off(mrefs[k]))
+        if off(mrefs[k]) <= 0:
+            return 'the ring lies within the pieces'
+        mrefs = [*mrefs[k:-1], *mrefs[:k], mrefs[k]]
+        L = [f.m(nodes[r].lon, nodes[r].lat) for r in mrefs]
+        line = _line(L)
     cum = [0.0]
     for a, b in pairwise(L):
         cum.append(cum[-1] + math.dist(a, b))
@@ -196,7 +208,7 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         nid = alloc.take()
         new_nodes[nid] = f.deg(x, y)
         mid.append(nid)
-    refs = [*main.refs[:i_in + 1], *mid, *main.refs[i_out + 1:]]
+    refs = [*mrefs[:i_in + 1], *mid, *mrefs[i_out + 1:]]
     steps: list[Command] = [ReplaceWay(main_id, [(main_id, refs)], new_nodes)]
     steps += [DeleteWay(p.id) for p in pieces]
     coords = [new_nodes[r] if r in new_nodes else (nodes[r].lon, nodes[r].lat) for r in refs]

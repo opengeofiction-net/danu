@@ -95,3 +95,20 @@ def test_two_open_contours_picked_is_refused(valley):
 def test_nothing_picked_says_how(window):
     window.edit_actions['edit.absorb'].trigger()
     assert 'Shift-lasso' in window.statusBar().currentMessage()
+
+
+def test_rings_only_the_largest_is_kept(window):
+    """No open contour among the picks: the largest ring is the one kept, and
+    runs round the rest."""
+    hill = add(window, [(0, 20), (-200, 120), (-400, 0), (-200, -120), (0, -20)], 30, ring=True)
+    pieces = [add(window, pts, 30, ring=True) for pts in (
+        [(0, 20), (50, 40), (100, 0), (50, -40), (0, -20)],
+        [(130, 0), (180, 40), (230, 0), (180, -40)])]
+    sq = window.working_set.squares[NORTH]
+    window.editor.selection = Selection(sq, sq.ways[pieces[0]])      # a piece selected, not the hill
+    pts = [QPointF(*m.lonlat_to_scene(*deg(x, y))) for x, y in ((-450, -150), (250, -150), (250, 150), (-450, 150))]
+    window.editor._pick_within('lasso', 'add', pts)
+    window.edit_actions['edit.absorb'].trigger()
+    said = window.statusBar().currentMessage()
+    assert [x.id for x in contours(window, 30)] == [hill], said
+    assert contours(window, 30)[0].closed

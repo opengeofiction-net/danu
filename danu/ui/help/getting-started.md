@@ -79,7 +79,8 @@ page back over whatever is open.
 - **Absorb pieces** of a contour into it with **E**: select the contour,
   **Shift**-lasso round the small pieces at its level beside it - a valley's tip
   and the rings up the river from it - and the contour runs round them all
-  as one line, the pieces gone. Pieces more than 100 m apart are not joined.
+  as one line, the pieces gone. A ring absorbs its pieces as well; with only
+  rings picked, the largest is kept. Pieces more than 100 m apart are not joined.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
   **Alt** it scales it there. The keys can be pressed or let go during the
