@@ -1,7 +1,7 @@
 """Saves and the checks' first scan, off the UI thread.
 
 Both were seconds of it on gobras - 21.6 s to save the 3x3, 9.3 s to open the
-checks panel - and the desktop offered to kill the window. The window fixture
+Validation panel - and the desktop offered to kill the window. The window fixture
 runs both where they are asked for; these run them on their workers, or hold
 them, to see what happens in between.
 """

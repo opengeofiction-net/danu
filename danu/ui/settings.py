@@ -53,7 +53,7 @@ DEFAULT_KEYS = {
     # burn a climb the grade found into the terrain, or every one - G7b
     'edit.burn': 'B',
     'edit.burn_all': 'Shift+B',
-    # O for loop: a contour crossing itself, chosen in the checks panel, the
+    # O for loop: a contour crossing itself, chosen in the Validation panel, the
     # loop cut out - G8c
     'edit.cut_loop': 'O',
     # P splits a contour at the node selected, as JOSM's does - G8d; the

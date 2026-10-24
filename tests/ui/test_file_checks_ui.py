@@ -1,4 +1,4 @@
-"""The checks panel's file findings - H1a. In the fixture's blank square to
+"""The Validation panel's file findings - H1a. In the fixture's blank square to
 the north."""
 
 import pytest

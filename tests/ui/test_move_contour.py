@@ -1,6 +1,6 @@
 """Moving a contour whole - shift and drag (G8b).
 
-A contour whose shape is right and whose place is not - the checks panel
+A contour whose shape is right and whose place is not - the Validation panel
 finds them crossing their neighbours - is carried to where it belongs as one
 step. In the fixture's blank square to the north, with real mouse events.
 """
@@ -142,7 +142,7 @@ def test_the_checks_panel_follows_a_contour_carried_clear(board, qtbot):
 
 
 def test_the_contour_selected_is_carried_though_another_runs_nearer(board):
-    """Chosen in the checks panel, then shift-dragged: in a massif a press is
+    """Chosen in the Validation panel, then shift-dragged: in a massif a press is
     near several contours, and the selected one is the one meant."""
     w, sq, a, b, rogue = board
     from danu.ui.tools import Selection

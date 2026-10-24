@@ -2170,7 +2170,7 @@ class MainWindow(QMainWindow):
         self.editor.overlay.update()
 
     def _choose_crossing(self, key, found) -> None:
-        """A row of the checks panel chosen: its contour selected, its
+        """A row of the Validation panel chosen: its contour selected, its
         crossings ringed and brought into view."""
         ws = self.working_set
         square = ws.squares.get(key[0]) if ws is not None else None
@@ -2190,7 +2190,7 @@ class MainWindow(QMainWindow):
             'delete it or redraw over it, whichever of the two is wrong')
 
     def _choose_loop(self, loop) -> None:
-        """A contour crossing itself, chosen in the checks panel: it
+        """A contour crossing itself, chosen in the Validation panel: it
         selected, the place ringed and brought into view - G8c."""
         ws = self.working_set
         square = ws.squares.get(loop.contour[0]) if ws is not None else None
@@ -2207,7 +2207,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f'{loop.explain()} - ringed; {key} proposes the loop cut out')
 
     def _choose_touch(self, touch) -> None:
-        """Contours that touch, chosen in the checks panel: the first of
+        """Contours that touch, chosen in the Validation panel: the first of
         them selected - at the node, for one two levels share, so U unglues
         it - the place ringed and brought into view (G8e)."""
         ws = self.working_set

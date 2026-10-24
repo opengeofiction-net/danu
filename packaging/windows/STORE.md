@@ -103,7 +103,7 @@ hillshade, JOSM
 
 **Screenshots:** at least one, and up to ten, PNG at 1366×768 or larger, of
 Danu on Windows. Suggested: a square drawn with the surface under it; the
-checks panel with its findings; the start page.
+Validation panel with its findings; the start page.
 
 **Store logos:** none needed. The package's own tiles from `packaging/icon`
 are used.

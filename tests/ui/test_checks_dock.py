@@ -1,4 +1,4 @@
-"""The checks panel, its first check - contours that cross (G8a, R16).
+"""The Validation panel, its first check - contours that cross (G8a, R16).
 
 In the fixture's blank square to the north: a rogue contour drawn across
 three others, through the editor so the panel follows the edits as it would

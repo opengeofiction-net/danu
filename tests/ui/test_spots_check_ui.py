@@ -1,4 +1,4 @@
-"""The checks panel's fourth list - a spot height the rings round it
+"""The Validation panel's fourth list - a spot height the rings round it
 contradict (R38). In the fixture's blank square to the north."""
 
 import pytest
