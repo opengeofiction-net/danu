@@ -29,6 +29,7 @@ from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
+from ..checks.files import API_LIMIT
 from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
@@ -1400,6 +1401,8 @@ class EditController(QObject):
             cmd = cmds[0] if len(cmds) == 1 else edits.Compound(cmds, f'draw {tag} m')
             self.pending = None
             self.drawing = (square, wid, True)
+            if second is not None and self._join_onto(square, wid, cmd, second, ele):
+                return True
             self.do(square, cmd)
             self.overlay.update()
             return True
@@ -1460,13 +1463,52 @@ class EditController(QObject):
                               'not another - or Escape drops it')
             self.overlay.update()
             return
-        self.do(square, edits.ExtendWayWithExisting(wid, at_end, node))
+        step = edits.ExtendWayWithExisting(wid, at_end, node)
+        if self._join_onto(square, wid, step, node, ele):
+            return
+        self.do(square, step)
         if square.ways[wid].closed:
             self.message.emit(f'closed the {format_ele(ele)} m contour')
             self.redraw_origin = None            # finished, a ring: nothing to take back
             self._stop_drawing()
             return
         self.overlay.update()
+
+    def _join_onto(self, square: Square, wid: int, step: edits.Command, node: int, ele: float) -> bool:
+        """A line ended on the free end of another contour at its level: the
+        two made one way, as Ctrl and a drag of an end onto it does - in one
+        step with what put the node on, so one undo takes both back, and the
+        line is finished. The contour already there keeps its id - or, when
+        the line continued one from the main map onto a new one, that one
+        does: a way uploaded is not deleted for one that never was. Not past
+        the API's limit on one way, and not a coastline, whose direction is
+        where the sea is. False, and the line shares the node as before."""
+        if self.redraw_origin is not None:
+            return False
+        ends = [w for w in square.ways.values() if w.id != wid and w.ele == ele and not w.closed
+                and not is_coastline(w) and node in (w.refs[0], w.refs[-1])]
+        if len(ends) != 1:
+            return False
+        other, name = ends[0], f'the {format_ele(ele)} m contour'
+        step.apply(square)                         # join_ways reads the line as it will be
+        try:
+            drawn = square.ways[wid]
+            n = len(drawn.refs) + len(other.refs) - 1
+            keep, gone = (wid, other.id) if other.version is None and drawn.version is not None else (other.id, wid)
+            cmd = edits.join_ways(square, keep, node, gone, node) if n <= API_LIMIT else None
+        finally:
+            step.undo(square)
+        if not isinstance(cmd, edits.Command):
+            why = cmd or f'one way would be {n:,} nodes, past the {API_LIMIT:,} the API takes'
+            self.message.emit(f'ended on {name}, way {other.id}, not joined: {why}')
+            return False
+        self.do(square, edits.Compound([step, cmd], f'join {name}'))
+        self.drawing = self.pending = None
+        self.crossing = []
+        self.selection = Selection(square, square.ways[keep])
+        self.message.emit(f'joined {name} - one way now, way {keep}')
+        self.overlay.update()
+        return True
 
     def _fast_draw(self, stroke: list[tuple[float, float]]):
         """The button was held and dragged: the stroke, simplified to what

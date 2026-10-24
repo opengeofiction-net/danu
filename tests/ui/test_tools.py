@@ -117,15 +117,18 @@ def test_a_click_on_the_end_of_a_contour_at_this_elevation_continues_it(w):
 def test_snapping_shares_the_node_and_backspace_takes_the_last_one_back(w):
     square = w.working_set.squares[TEN]
     (twenty,) = ways_at(square, 20)
-    a = square.nodes[twenty.refs[0]]
+    first, last = (square.nodes[r] for r in (twenty.refs[0], twenty.refs[-1]))
+    mid = w.editor.history.alloc(square).take()
+    w.editor.do(square, edits.InsertNode(twenty.id, 1, mid, ((first.lon + last.lon) / 2, first.lat)))
+    a = square.nodes[mid]
     w.elevation.set(20)
     w.editor.set_tool('draw')
     nodes_before = len(square.nodes)
-    click(w, 126.3, -23.75)                                  # fresh
-    click(w, a.lon, a.lat)                                   # snapped onto the 20 m line's start node
+    click(w, a.lon, a.lat - 0.05)                            # fresh
+    click(w, a.lon, a.lat)                                   # snapped onto a middle node of the 20 m line
     (new,) = [x for x in ways_at(square, 20) if x is not twenty]
-    assert new.refs[-1] == twenty.refs[0] and len(square.nodes) == nodes_before + 1   # one fresh node, one shared
-    click(w, 126.3, -23.72)
+    assert new.refs[-1] == mid and len(square.nodes) == nodes_before + 1   # one fresh node, one shared
+    click(w, a.lon + 0.03, a.lat - 0.03)
     assert len(new.refs) == 3
     key(w, Qt.Key.Key_Backspace)
     assert len(new.refs) == 2 and w.editor.drawing == (square, new.id, True)
@@ -139,7 +142,8 @@ def test_a_stroke_snapped_onto_a_node_is_not_refused_whatever_libm_says(w, monke
     node was read by the one while the contour it sits on was made by the
     other: a millionth of a unit off its own line, and refused as crossing
     it, on some views and not others. Pushed apart here on purpose, the
-    snap still shares the node, since the node is read as the layer has it."""
+    snap still lands on the node - and joins there, at its end - since the
+    node is read as the layer has it."""
     real = m.lonlat_to_scene
     monkeypatch.setattr(m, 'lonlat_to_scene', lambda lon, lat: (real(lon, lat)[0] + 1e-6, real(lon, lat)[1] - 1e-6))
     square = w.working_set.squares[TEN]
@@ -151,8 +155,37 @@ def test_a_stroke_snapped_onto_a_node_is_not_refused_whatever_libm_says(w, monke
     w.editor.set_tool('draw')
     click(w, 126.3, -23.75)
     click(w, a.lon, a.lat)
-    (new,) = [x for x in ways_at(square, 20) if x is not twenty]
-    assert new.refs[-1] == twenty.refs[0], w.statusBar().currentMessage()
+    (one,) = ways_at(square, 20)
+    assert one.id == twenty.id and len(one.refs) == 3, w.statusBar().currentMessage()
+
+
+def test_a_line_ended_on_the_end_of_a_contour_at_its_level_joins_it(w, monkeypatch):
+    """As Ctrl and a drag of an end does: one way, the one already there
+    keeping its id, in one step with the click that ended the line."""
+    from danu.ui import tools
+    square = w.working_set.squares[TEN]
+    (twenty,) = ways_at(square, 20)
+    end = twenty.refs[-1]
+    a = square.nodes[end]
+    w.elevation.set(20)
+    w.editor.set_tool('draw')
+    click(w, a.lon + 0.1, a.lat - 0.03); click(w, a.lon + 0.05, a.lat - 0.02); click(w, a.lon, a.lat)
+    (one,) = ways_at(square, 20)
+    assert one.id == twenty.id and len(one.refs) == 4 and one.refs[1] == end
+    assert 'joined the 20 m contour' in w.statusBar().currentMessage() and w.editor.drawing is None
+    assert w.editor.selection.way is one
+    w.editor.undo()                                          # the last click and the join, together
+    (new,) = [x for x in ways_at(square, 20) if x.id != twenty.id]
+    assert square.ways[twenty.id].refs == twenty.refs and len(new.refs) == 2
+    w.editor.undo()
+    assert [x.id for x in ways_at(square, 20)] == [twenty.id]
+    # past the API's limit on one way, the line only shares the node
+    monkeypatch.setattr(tools, 'API_LIMIT', 3)
+    w.editor.set_tool('draw')
+    click(w, a.lon + 0.1, a.lat - 0.03); click(w, a.lon + 0.05, a.lat - 0.02); click(w, a.lon, a.lat)
+    said = w.statusBar().currentMessage()
+    (new,) = [x for x in ways_at(square, 20) if x.id != twenty.id]
+    assert new.refs[-1] == end and square.ways[twenty.id].refs == twenty.refs and 'not joined' in said and '3' in said, said
 
 
 def test_a_crossing_is_warned_live_and_refused_on_the_click(w):
