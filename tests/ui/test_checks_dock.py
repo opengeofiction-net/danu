@@ -118,6 +118,28 @@ def test_the_rings_follow_an_edit_and_go_once_it_is_mended(crossed):
     assert w.editor.marks_focus == []
 
 
+def test_the_row_chosen_stays_chosen_and_open_across_an_edit(crossed):
+    """Working down the list: a row opened stays open, and the row under it
+    chosen stays chosen - its rings still its own, not its contour's."""
+    w, rogue = crossed
+    dock = w.checks_dock
+    top = dock.rows('crossings')[0]
+    top.setExpanded(True)
+    partner = top.child(1).text(0)
+    dock.tree.setCurrentItem(top.child(1))
+    assert len(w.editor.marks_focus) == 1
+    sq = w.working_set.squares[NORTH]
+    end = sq.ways[rogue].refs[-1]
+    n = sq.nodes[end]
+    w.editor.do(sq, edits.MoveNode(end, (n.lon, n.lat), (n.lon + 0.01, n.lat)))
+    w._refresh_checks()
+    top = dock.rows('crossings')[0]
+    cur = dock.tree.currentItem()
+    assert top.isExpanded() and cur.parent() is top and cur.text(0) == partner
+    assert len(w.editor.marks_focus) == 1
+    assert not any(r.isExpanded() for r in dock.rows('crossings')[1:])
+
+
 def test_the_panel_follows_an_edit_and_its_undo(crossed, qtbot):
     w, rogue = crossed
     sq = w.working_set.squares[NORTH]
