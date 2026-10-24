@@ -149,6 +149,12 @@ class ChecksDock(QDockWidget):
         node = self.nodes[check]
         return [node.child(i) for i in range(node.childCount())]
 
+    def current_finding(self):
+        """The row chosen, as (check, what it holds), or None."""
+        item = self.tree.currentItem()
+        f = item.data(0, _ROW) if item is not None else None
+        return (item.data(0, _CHECK), f) if f is not None else None
+
     def current_loop(self):
         item = self.tree.currentItem()
         return item.data(0, _ROW) if item is not None and item.data(0, _CHECK) == 'loops' else None

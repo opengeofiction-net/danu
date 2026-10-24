@@ -96,6 +96,28 @@ def test_choosing_a_row_selects_the_contour_and_rings_its_crossings(crossed):
     assert len(w.editor.marks_focus) == 1, 'a partner row rings only the crossings with it'
 
 
+def test_the_rings_follow_an_edit_and_go_once_it_is_mended(crossed):
+    """The row chosen keeps its rings round what it finds after each edit,
+    and they go with the row once the contour crosses nothing."""
+    w, rogue = crossed
+    dock = w.checks_dock
+    dock.tree.setCurrentItem(dock.rows('crossings')[0])
+    assert len(w.editor.marks_focus) == 3
+    sq = w.working_set.squares[NORTH]
+    end = sq.ways[rogue].refs[-1]
+
+    def move_end(lon):
+        n = sq.nodes[end]
+        w.editor.do(sq, edits.MoveNode(end, (n.lon, n.lat), (lon, n.lat)))
+        w._refresh_checks()                       # as the timer after an edit does
+    move_end(125.35)                              # back across one of the three
+    assert len(w.editor.marks_focus) == 2
+    move_end(125.15)                              # across none
+    assert w.editor.marks_focus == []
+    move_end(125.6)                               # across them again: no row chosen, no rings
+    assert w.editor.marks_focus == []
+
+
 def test_the_panel_follows_an_edit_and_its_undo(crossed, qtbot):
     w, rogue = crossed
     sq = w.working_set.squares[NORTH]
