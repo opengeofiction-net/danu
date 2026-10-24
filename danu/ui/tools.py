@@ -1468,7 +1468,9 @@ class EditController(QObject):
         """A line ended on the free end of another contour at its level: the
         two made one way, as Ctrl and a drag of an end onto it does - in one
         step with what put the node on, so one undo takes both back, and the
-        line is finished. The contour already there keeps its id. Not past
+        line is finished. The contour already there keeps its id - or, when
+        the line continued one from the main map onto a new one, that one
+        does: a way uploaded is not deleted for one that never was. Not past
         the API's limit on one way, and not a coastline, whose direction is
         where the sea is. False, and the line shares the node as before."""
         if self.redraw_origin is not None:
@@ -1494,7 +1496,7 @@ class EditController(QObject):
         self.drawing = self.pending = None
         self.crossing = []
         self.selection = Selection(square, square.ways[keep])
-        self.message.emit(f'joined {name} to way {other.id} - one way now')
+        self.message.emit(f'joined {name} - one way now, way {keep}')
         self.overlay.update()
         return True
 
