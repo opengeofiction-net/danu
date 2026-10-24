@@ -214,3 +214,56 @@ def test_saved_then_edited_again_is_against_the_file_saved(run):
     w.autosave.flush()
     w2 = run()
     assert frozen(w2.working_set.squares[TEN]) == want
+
+
+# ------------------------------------------------- #258: the set moved mid-edit
+
+def test_moving_the_set_carries_its_edits_without_asking(run, zone, qtbot):
+    """Alt and an arrow, or Ctrl and a double-click: the set is read again
+    round another square, and the edits made in this run go with it - put
+    straight back, not offered as if a run had died."""
+    w = run()
+    want = frozen(edit(w))
+
+    def asked(entries, window):
+        raise AssertionError(f'offered back {len(entries)} of its own edits')
+    run.answers.append(asked)
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.open_working_set(zone, TEN, 3)
+    qtbot.waitUntil(lambda: w.editor.dirty(), timeout=5000)
+    assert frozen(w.working_set.squares[TEN]) == want
+    assert 'unsaved edits carried: S24E126' in w.statusBar().currentMessage()
+    assert run.answers == [asked], 'the offer was asked'
+    assert [e.square for e in w.autosave.store.entries()] == [TEN], 'and they are still autosaved'
+
+
+def test_an_offered_change_is_read_before_the_dialog_can_lose_it(run):
+    """#258: the dialog's event loop ran the autosave's timer, which took
+    away the very files being offered, and choosing to recover them raised.
+    Read first, they survive their files going."""
+    w = run()
+    want = frozen(edit(w))
+    w.autosave.flush()
+
+    def files_gone(entries, window):
+        window.autosave.flush()                    # held: does nothing
+        assert window.autosave.store.entries() != [], 'a flush took them'
+        for e in entries:
+            e.change_path.unlink()                 # whatever else might
+        return list(entries)
+    run.answers.append(files_gone)
+    w2 = run()
+    assert frozen(w2.working_set.squares[TEN]) == want
+
+
+def test_ctrl_and_a_double_click_does_not_move_the_set_while_drawing(run, zone):
+    """Ctrl snaps a line, a double-click ends one: with the draw tool they
+    are the tool's, not a move of the set."""
+    from danu.ui import mercator as m
+    w = run()
+    x, y = m.lonlat_to_scene(126.5, -23.5)
+    from PySide6.QtCore import QPointF
+    w.editor.set_tool('draw')
+    assert w.open_square_at(QPointF(x, y)) is False and w._pending is None
+    w.editor.set_tool('select')
+    assert w.open_square_at(QPointF(x, y)) is True and w._pending is not None

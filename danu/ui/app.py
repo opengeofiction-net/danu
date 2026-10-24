@@ -1514,16 +1514,22 @@ class MainWindow(QMainWindow):
             return
         self.open_working_set(self.zone_dir, to, ws.size)
 
-    def open_square_at(self, p) -> None:
+    def open_square_at(self, p) -> bool:
         """Ctrl and a double-click: the square under it opened. One of the
         open set's - drawn or absent - the set moves onto it, from this zone's
         directory; another, the zones map's open, its zone imported first if
-        need be; no zones read, from this zone's directory as well."""
+        need be; no zones read, from this zone's directory as well.
+
+        Not with the draw tool: Ctrl snaps a line there, and a double-click
+        ends one - a line drawn with Ctrl held moved the set mid-stroke (#258).
+        False, and the double-click is the tool's."""
+        if self.editor.tool == 'draw':
+            return False
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         try:
             cell = SquareName(int(np.floor(lon)), int(np.floor(lat)))
         except ValueError:
-            return
+            return True
         ws = self.working_set
         if ws is not None and self.zone_dir is not None and cell in ws.squares:
             self.open_working_set(self.zone_dir, cell, ws.size)
@@ -1533,6 +1539,7 @@ class MainWindow(QMainWindow):
             self.open_working_set(self.zone_dir, cell, ws.size if ws is not None else self.settings.size)
         else:
             self.statusBar().showMessage(f'{cell} is in no zone: open a square first, or import its zone')
+        return True
 
     def browse_zones(self) -> None:
         """The start page's way in (#190): the card put away, the Zones panel
@@ -1608,8 +1615,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._offer_recovery)
 
     def _offer_recovery(self) -> None:
-        """What an earlier run autosaved for this set and never saved, offered
-        back square by square; what is not taken is set aside, not lost."""
+        """This run's own unsaved edits to the set carried back onto it - the
+        set moved - and what an earlier run autosaved for it and never saved
+        offered, square by square; what is not taken is set aside, not lost."""
         ws, zone = self.working_set, self.zone_dir
         if ws is None or zone is None:
             return
@@ -1618,14 +1626,29 @@ class MainWindow(QMainWindow):
         elsewhere = [e for e in store.entries() if e not in mine]
         said = []
         if mine:
-            chosen = autosave_ui.offer(mine, self) or []
-            steps = autosave_ui.recovery_steps(chosen, ws)
-            if steps:
-                self.editor.do_across(steps)
-                said.append('put back the autosaved edits to ' + ', '.join(str(sq.name) for sq, _ in steps))
-            aside = [store.set_aside(e) for e in mine if e not in chosen]
-            if aside:
-                said.append(f'set aside {len(aside)} in {aside[0].parent}')
+            with self.autosave.held():
+                # read before anything is shown: the dialog's event loop runs
+                # timers, and a change taken from under it was #258
+                mine, unreadable = autosave_ui.readable(mine)
+                for e, why in unreadable:
+                    store.set_aside(e)
+                    said.append(f'the autosave of {e.square} could not be read ({why}), set aside')
+                carried = [e for e in mine if self.autosave.wrote(zone, e.square) and e.refused() is None]
+                offered = [e for e in mine if e not in carried]
+                chosen = (autosave_ui.offer(offered, self) or []) if offered else []
+                steps = autosave_ui.recovery_steps(carried + chosen, ws)
+                if steps:
+                    self.editor.do_across(steps)
+                    back = [str(sq.name) for sq, _ in steps]
+                    kept = [n for n in back if any(str(e.square) == n for e in carried)]
+                    if kept:
+                        said.append('unsaved edits carried: ' + ', '.join(kept))
+                    if len(kept) < len(back):
+                        said.append('put back the autosaved edits to '
+                                    + ', '.join(n for n in back if n not in kept))
+                aside = [store.set_aside(e) for e in offered if e not in chosen]
+                if aside:
+                    said.append(f'set aside {len(aside)} in {aside[0].parent}')
             self.autosave.flush()                        # the recovery is the autosave now
         if elsewhere:
             names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])

@@ -7,6 +7,11 @@ square's last save (``danu.core.change``), the size of the edit; nothing is
 written over the mapper's files. A save takes the square's autosave away, and
 so does a close that throws the edits away.
 
+A set opened with unsaved edits in this run - the set moved, by Alt and an
+arrow or Ctrl and a double-click - carries them: what the flush on leaving
+wrote is put straight back on the squares as they are read, no question
+asked (#258). The run's own edits are not something to recover.
+
 Opening a working set offers back, square by square, what an earlier run
 autosaved for it and never saved: each put onto the square as read, as one
 step an undo takes back, and the square dirty until it is saved. A change
@@ -17,6 +22,8 @@ under ``set-aside/`` as an ``.osc`` JOSM can open, as is one not chosen.
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QScrollArea, QVBoxLayout, QWidget
@@ -43,6 +50,7 @@ class AutoSaver(QObject):
         # been offered back - a flush on opening the set would otherwise see
         # the square clean and delete the very edits it was kept for
         self._mine: set = set()
+        self._held = False                 # a recovery being offered: no flush till it is done
         self._idle = QTimer(self)
         self._idle.setSingleShot(True)
         self._idle.setInterval(IDLE_MS)
@@ -52,10 +60,29 @@ class AutoSaver(QObject):
         self._every.setInterval(EVERY_MS)
         self._every.timeout.connect(self.flush)
 
+    def wrote(self, zone, name) -> bool:
+        """Whether this run wrote the square's autosave - its own edits, to
+        carry, not an earlier run's to offer."""
+        here = Path(zone).resolve()
+        return any(z is not None and Path(z).resolve() == here and n == name for z, n in self._mine)
+
+    @contextmanager
+    def held(self):
+        """No flush while a recovery is offered: one would see the squares
+        just read as clean and take away the very autosaves being offered -
+        a modal dialog's event loop runs the timers (#258)."""
+        self._held = True
+        self._idle.stop()
+        self._every.stop()
+        try:
+            yield
+        finally:
+            self._held = False
+
     def edited(self) -> None:
         # a set opened is an edited() with nothing dirty; an undo back to
         # clean still wants the flush that takes its autosave away
-        if self.window.working_set is None or not (self.window.editor.dirty() or self._mine):
+        if self._held or self.window.working_set is None or not (self.window.editor.dirty() or self._mine):
             return
         self._idle.start()
         if not self._every.isActive():
@@ -71,6 +98,8 @@ class AutoSaver(QObject):
         self._idle.stop()
         self._every.stop()
         self.written = 0
+        if self._held:
+            return
         ws, zone = self.window.working_set, self.window.zone_dir
         if ws is None or zone is None:
             return
@@ -158,6 +187,19 @@ class RecoveryDialog(QDialog):
 
     def chosen(self) -> list[Entry]:
         return [e for e, b in zip(self.entries, self.boxes, strict=True) if b.isChecked() and b.isEnabled()]
+
+
+def readable(entries: list[Entry]) -> tuple[list[Entry], list[tuple[Entry, str]]]:
+    """The entries whose change could be read - and read, kept on the entry
+    - and those that could not, with why."""
+    ok, bad = [], []
+    for e in entries:
+        try:
+            e.change()
+            ok.append(e)
+        except (OSError, ValueError) as why:
+            bad.append((e, str(why)))
+    return ok, bad
 
 
 def recovery_steps(entries: list[Entry], ws) -> list:

@@ -32,7 +32,9 @@ not on this machine yet. **Import** imports the zone chosen.
 
 **Ctrl and a double-click** on a square opens it: one of the open set's, and
 the set moves onto it; one in a zone, imported first if need be. **Alt and
-an arrow** moves the set a square west, east, north or south. Each zone's
+an arrow** moves the set a square west, east, north or south. Unsaved edits
+go with the set. With the draw tool, Ctrl and a double-click stay the line's:
+Ctrl snaps it, a double-click ends it. Each zone's
 squares are drawn as the wiki's map draws them: **green** with contours,
 **orange** a coastline only, **grey** blank. An
 administrator edits them there: **New zone…**, and **Edit squares**, which

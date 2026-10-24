@@ -22,7 +22,7 @@ import json
 import os
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .change import Change, change_text, read_change
@@ -56,6 +56,9 @@ class Entry:
     """One square's autosave: its manifest, read."""
     manifest: Path
     data: dict
+    # the change, once read: a recovery reads it before its dialog shows, so
+    # nothing done while the mapper chooses can take the file from under it
+    _change: Change | None = field(default=None, compare=False, repr=False)
 
     @property
     def square(self) -> SquareName:
@@ -78,8 +81,10 @@ class Entry:
         return float(self.data['written'])
 
     def change(self) -> Change:
-        return read_change(self.change_path.read_text(encoding='utf-8'),
-                           {k: list(v) for k, v in self.data.get('tail', {}).items()})
+        if self._change is None:
+            self._change = read_change(self.change_path.read_text(encoding='utf-8'),
+                                       {k: list(v) for k, v in self.data.get('tail', {}).items()})
+        return self._change
 
     def refused(self) -> str | None:
         """Why this change cannot go back onto its square, or None: the file
