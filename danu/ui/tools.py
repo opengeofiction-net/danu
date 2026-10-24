@@ -30,7 +30,6 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
 from ..checks.files import API_LIMIT
-from ..core import absorb as absorb_
 from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
@@ -960,7 +959,7 @@ class EditController(QObject):
         else:
             picked = {n: set(ids) for n, ids in self.picked.items()}
             sel = self.selection
-            if op == 'add' and sel is not None and sel.relation is None and (sel.way is not None or sel.node):
+            if op == 'add' and sel is not None and sel.relation is None and (sel.way is not None or sel.node is not None):
                 # added to what is selected: a contour chosen, then its pieces lassoed (Absorb)
                 ids = {sel.node} if sel.node is not None else set(sel.way.refs)
                 picked.setdefault(sel.square.name, set()).update(ids)
@@ -1117,7 +1116,7 @@ class EditController(QObject):
         """E: the contour picked made one line with the pieces of it picked
         beside it - a valley's tip and the rings up the river from it - by
         danu.core.absorb, the pieces gone, one step. The open contour
-        picked is the one kept, the longest if there are more. Under G8b's rule: one that crossed nothing
+        picked is the one kept; two open is refused. Under G8b's rule: one that crossed nothing
         may not be made to cross."""
         ws = self.working_set
         if not self.picked or ws is None:
@@ -1134,8 +1133,16 @@ class EditController(QObject):
         if len(ways) < 2:
             self.message.emit('not absorbed: pick a contour and at least one piece of it')
             return
-        # the one kept: an open contour - the pieces are rings - the longest if more than one
-        main = max(ways, key=lambda w: (not w.closed, len(w.refs), -w.id))
+        # the one kept: the open contour - the pieces are rings. Two open is
+        # a contour picked by mistake, which absorbing would delete
+        open_ = [w for w in ways if not w.closed]
+        if len(open_) > 1:
+            self.message.emit(f'not absorbed: {len(open_)} open contours picked - absorb keeps one, '
+                              'and takes the rings beside it')
+            return
+        main = open_[0] if open_ else ways[0]
+        # GDAL's geometry, asked for when it is used: the editor runs without it
+        from ..core import absorb as absorb_
         got = absorb_.absorb(square, main.id, [w.id for w in ways if w is not main], self.history.alloc(square))
         if isinstance(got, str):
             self.message.emit(f'not absorbed: {got}')

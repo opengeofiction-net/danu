@@ -77,7 +77,7 @@ page back over whatever is open.
   have no one level and are left out.
   The status bar says when a filter is on.
 - **Absorb pieces** of a contour into it with **E**: select the contour,
-  **Shift**-lasso the small pieces at its level beside it - a valley's tip
+  **Shift**-lasso round the small pieces at its level beside it - a valley's tip
   and the rings up the river from it - and the contour runs round them all
   as one line, the pieces gone. Pieces more than 100 m apart are not joined.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and

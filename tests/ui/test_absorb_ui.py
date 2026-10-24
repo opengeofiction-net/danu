@@ -6,6 +6,7 @@ import math
 import pytest
 
 pytest.importorskip('PySide6')
+pytest.importorskip('osgeo.ogr')               # the absorb is GDAL's geometry; the ui job has none
 from PySide6.QtCore import QPointF
 
 from danu.core import edits
@@ -76,6 +77,19 @@ def test_it_is_refused_when_a_contour_that_crossed_nothing_would_cross(valley):
     said = w.statusBar().currentMessage()
     assert said.startswith('not absorbed') and 'would cross 1 contour' in said, said
     assert len(contours(w, 30)) == 4
+
+
+def test_two_open_contours_picked_is_refused(valley):
+    """Absorbing keeps one and deletes the rest: a second open contour
+    picked is a mistake, not a piece."""
+    w, main, _ = valley
+    add(w, [(100, -500), (200, -30)], 30)                     # open, its end in the lasso
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[main])
+    lasso_pieces(w)
+    w.edit_actions['edit.absorb'].trigger()
+    assert '2 open contours picked' in w.statusBar().currentMessage()
+    assert len(contours(w, 30)) == 5
 
 
 def test_nothing_picked_says_how(window):

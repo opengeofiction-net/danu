@@ -112,6 +112,8 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         return 'the contour is a ring - absorb into an open contour'
     nodes = square.nodes
     lats = [nodes[r].lat for p in pieces for r in p.refs if r in nodes]
+    if not lats:
+        return 'the pieces are no longer there'
     f = _Frame(sum(lats) / len(lats))
     polys = []
     for p in pieces:
@@ -160,8 +162,9 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         return 'the contour ends among the pieces - it has to run in and out of them'
     i_in, P = _at(L, cum, s_in)
     i_out, Q = _at(L, cum, s_out)
-    # met on the far node of its segment, at either end: that node is the
-    # line's own, kept, not taken out and drawn again at its place
+    # met on the far node of its segment, at either end: the cut moved past
+    # that node, so it stays the line's own - the keeps below then reuse it
+    # rather than drawing a node again at its place
     if i_in < i_out and math.dist(P, L[i_in + 1]) <= SNAP_M:
         i_in += 1
     if i_out > i_in and math.dist(Q, L[i_out]) <= SNAP_M:
