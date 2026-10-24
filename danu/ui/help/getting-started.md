@@ -53,7 +53,9 @@ page back over whatever is open.
   its nodes, draw the new course, and finish it with **Enter** or a right
   click near another of its nodes. The stretch between the two is replaced.
   A redraw has to come back to the contour it began on; **Escape** drops it.
-- **Continue a contour** by starting a line on its end.
+- **Continue a contour** by starting a line on its end. A line ended on the
+  end of a contour at its level joins it - one way, as long as that stays
+  within the 2,000 nodes the main map takes in a way.
 - **Move a node** by dragging it; drag it onto another node with **Ctrl**
   held to join the two.
 - **Move a whole contour** by dragging it with **Shift** held.
