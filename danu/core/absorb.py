@@ -45,6 +45,8 @@ class _Frame:
 
 def _polygon(pts) -> ogr.Geometry | None:
     pts = list(pts)
+    if not pts:
+        return None
     if pts[0] != pts[-1]:
         pts.append(pts[0])
     if len(set(pts)) < 3:
@@ -158,6 +160,12 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         return 'the contour ends among the pieces - it has to run in and out of them'
     i_in, P = _at(L, cum, s_in)
     i_out, Q = _at(L, cum, s_out)
+    # met on the far node of its segment, at either end: that node is the
+    # line's own, kept, not taken out and drawn again at its place
+    if i_in < i_out and math.dist(P, L[i_in + 1]) <= SNAP_M:
+        i_in += 1
+    if i_out > i_in and math.dist(Q, L[i_out]) <= SNAP_M:
+        i_out -= 1
     ring = blob.GetGeometryRef(0)
     R = [ring.GetPoint_2D(k) for k in range(ring.GetPointCount() - 1)]
     kP = min(range(len(R)), key=lambda k: math.dist(R[k], P))
@@ -167,6 +175,8 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
     cut = L[i_in + 1:i_out + 1]
 
     def wraps(arc) -> float:
+        # asked of the pieces themselves, not of the hulls that bridged them:
+        # the side meant is the one round the pieces
         g = _polygon([P, *cut, Q, *reversed(arc)])
         return g.Intersection(pieces_area).GetArea() if g is not None else 0.0
     arc = max(arcs, key=wraps)

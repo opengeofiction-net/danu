@@ -104,3 +104,16 @@ def test_pieces_short_of_the_contour_are_bridged_to_it():
     cmd, _ = absorb.absorb(sq, main.id, rest, edits.IdAllocator(sq), gap_m=150)
     cmd.apply(sq)
     assert list(sq.ways) == [main.id]
+
+
+def test_where_the_line_meets_the_outline_on_its_own_node_that_node_is_kept():
+    """The tip's two nodes lie on the first piece's edge: both kept, the
+    outline run between them, none drawn again at their place."""
+    sq, main, pieces = valley()
+    tip = main.refs[2:4]
+    cmd, _ = absorb.absorb(sq, main.id, [p.id for p in pieces], edits.IdAllocator(sq))
+    cmd.apply(sq)
+    refs = sq.ways[main.id].refs
+    assert tip[0] in refs and tip[1] in refs
+    at = [(round(sq.nodes[r].lon, 9), round(sq.nodes[r].lat, 9)) for r in refs]
+    assert len(at) == len(set(at)), 'a node drawn twice at one place'
