@@ -39,36 +39,86 @@ from ..water.overpass import flows
 from .files import Finding
 from .spots import spot_heights
 
+CHUNK = 64                       # a ring's edges asked a chunk at a time, each by its own box
 
-def inside(px, py, rings) -> np.ndarray:
-    """Which of the points lie inside the rings, even-odd over all of them."""
+
+def _box(X, Y) -> tuple:
+    return (X.min(), Y.min(), X.max(), Y.max())
+
+
+def _chunks(X, Y) -> np.ndarray:
+    """A ring's chunks of edges, the box of each as a row (x0, y0, x1, y1):
+    chunk k is the edges from node k * CHUNK to node (k + 1) * CHUNK."""
+    n = len(X) - 1
+    out = np.empty((-(-n // CHUNK), 4))
+    for k, j in enumerate(range(0, n, CHUNK)):
+        cx, cy = X[j:j + CHUNK + 1], Y[j:j + CHUNK + 1]
+        out[k] = cx.min(), cy.min(), cx.max(), cy.max()
+    return out
+
+
+def inside(px, py, rings, boxes=None, chunks=None) -> np.ndarray:
+    """Which of the points lie inside the rings, even-odd over all of them.
+    The rings are closed, so a point outside one's box crosses it an even
+    number of times: each ring is asked only of the points in its box, and
+    each chunk of its edges only of the points level with it and to its
+    left, which a ray to the east could cross it from. ``boxes`` and
+    ``chunks``, a ring's each, are worked out here if not given."""
     px, py = np.asarray(px, float), np.asarray(py, float)
     odd = np.zeros(px.shape, bool)
-    for X, Y in rings:
-        for j in range(0, len(X) - 1, 256):          # a chunk of edges at a time
-            ax, ay = X[j:j + 257][:-1, None], Y[j:j + 257][:-1, None]
-            bx, by = X[j + 1:j + 257][:, None], Y[j + 1:j + 257][:, None]
-            crosses = (ay > py) != (by > py)
+    for k, (X, Y) in enumerate(rings):
+        x0, y0, x1, y1 = boxes[k] if boxes is not None else _box(X, Y)
+        sel = np.flatnonzero((px >= x0) & (px <= x1) & (py >= y0) & (py <= y1))
+        if not len(sel):
+            continue
+        qx, qy = px[sel], py[sel]
+        o = np.zeros(len(sel), bool)
+        ch = chunks[k] if chunks is not None else _chunks(X, Y)
+        for c in np.flatnonzero((ch[:, 1] <= qy.max()) & (ch[:, 3] >= qy.min()) & (ch[:, 2] >= qx.min())):
+            _cx0, cy0, cx1, cy1 = ch[c]
+            near = np.flatnonzero((qy >= cy0) & (qy <= cy1) & (qx <= cx1))
+            if not len(near):
+                continue
+            j = c * CHUNK
+            ax, ay = X[j:j + CHUNK + 1][:-1, None], Y[j:j + CHUNK + 1][:-1, None]
+            bx, by = X[j + 1:j + CHUNK + 1][:, None], Y[j + 1:j + CHUNK + 1][:, None]
+            nx, ny = qx[near], qy[near]
+            crosses = (ay > ny) != (by > ny)
             with np.errstate(divide='ignore', invalid='ignore'):
-                at = ax + (py - ay) * (bx - ax) / (by - ay)
-            odd ^= (np.count_nonzero(crosses & (px < at), axis=0) % 2).astype(bool)
+                at = ax + (ny - ay) * (bx - ax) / (by - ay)
+            o[near] ^= (np.count_nonzero(crosses & (nx < at), axis=0) % 2).astype(bool)
+        odd[sel] ^= o
     return odd
 
 
-def crosses(X, Y, rings, box) -> bool:
+def crosses(X, Y, rings, box, boxes=None, chunks=None) -> bool:
     """Whether a line's segments properly cross any edge of the rings - a
     contour across a lake with no vertex in the water. Touching at a vertex
-    is not a crossing, so a contour snapped to a shore is not one."""
+    is not a crossing, so a contour snapped to a shore is not one. Each ring,
+    and each chunk of its edges, is asked only of the segments over its own
+    box - ``boxes`` and ``chunks`` as for ``inside``."""
     ax, ay, bx, by = X[:-1], Y[:-1], X[1:], Y[1:]
-    m = ((np.minimum(ax, bx) <= box[2]) & (np.maximum(ax, bx) >= box[0])
-         & (np.minimum(ay, by) <= box[3]) & (np.maximum(ay, by) >= box[1]))
-    if not m.any():
+    sx0, sx1, sy0, sy1 = np.minimum(ax, bx), np.maximum(ax, bx), np.minimum(ay, by), np.maximum(ay, by)
+    near = np.flatnonzero((sx0 <= box[2]) & (sx1 >= box[0]) & (sy0 <= box[3]) & (sy1 >= box[1]))
+    if not len(near):
         return False
-    ax, ay, bx, by = ax[m][:, None], ay[m][:, None], bx[m][:, None], by[m][:, None]
-    for RX, RY in rings:
-        for j in range(0, len(RX) - 1, 256):
-            cx, cy = RX[j:j + 257][:-1], RY[j:j + 257][:-1]
-            dx, dy = RX[j + 1:j + 257], RY[j + 1:j + 257]
+    for k, (RX, RY) in enumerate(rings):
+        r = boxes[k] if boxes is not None else _box(RX, RY)
+        sel = near[(sx0[near] <= r[2]) & (sx1[near] >= r[0]) & (sy0[near] <= r[3]) & (sy1[near] >= r[1])]
+        if not len(sel):
+            continue
+        ch = chunks[k] if chunks is not None else _chunks(RX, RY)
+        lo_x, hi_x, lo_y, hi_y = sx0[sel].min(), sx1[sel].max(), sy0[sel].min(), sy1[sel].max()
+        for c in np.flatnonzero((ch[:, 0] <= hi_x) & (ch[:, 2] >= lo_x) & (ch[:, 1] <= hi_y) & (ch[:, 3] >= lo_y)):
+            cx0, cy0, cx1, cy1 = ch[c]
+            seg = sel[(sx0[sel] <= cx1) & (sx1[sel] >= cx0) & (sy0[sel] <= cy1) & (sy1[sel] >= cy0)]
+            if not len(seg):
+                continue
+            ax, ay, bx, by = (X[:-1][seg][:, None], Y[:-1][seg][:, None],
+                              X[1:][seg][:, None], Y[1:][seg][:, None])
+            j = c * CHUNK
+            cx, cy = RX[j:j + CHUNK + 1][:-1], RY[j:j + CHUNK + 1][:-1]
+            dx, dy = RX[j + 1:j + CHUNK + 1], RY[j + 1:j + CHUNK + 1]
             d1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
             d2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax)
             d3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx)
@@ -125,6 +175,8 @@ class _Body:
     ways: set                    # the ways of its outline - what an edit names
     box: tuple
     what: str
+    boxes: list                  # each ring's own: a lake of 189 rings asks each only near it
+    chunks: list                 # each ring's chunks of edges, by box (_chunks)
 
 
 def _bodies(square) -> dict:
@@ -161,7 +213,8 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
     name = tags.get('name')
     what = f'lake "{name}"' if name else f'lake, {key[0]} {key[1]}'
     return _Body(key, parse_ele(tags.get('ele')), rings, np.array(on, dtype=np.int64), ways,
-                 (xs.min(), ys.min(), xs.max(), ys.max()), what)
+                 (xs.min(), ys.min(), xs.max(), ys.max()), what, [_box(X, Y) for X, Y in rings],
+                 [_chunks(X, Y) for X, Y in rings])
 
 
 class _Square:
@@ -178,6 +231,11 @@ class _Square:
         self.bodies = _bodies(square)
         self.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
         self._arrays = None
+        # body key -> line id -> whether that line lies in or across it: what
+        # spanned() found, kept so that an edit asks again only the lines it
+        # changed - a line not edited cannot have moved into or out of a lake
+        # that was not. Roantra's estuary, asked whole, is seconds
+        self.held: dict = {}
 
     def arrays(self):
         if self._arrays is None:
@@ -193,17 +251,33 @@ class _Square:
         return [self.lines[ids[k]] for k in np.flatnonzero(_overlap(box, boxes)) if ids[k] != but]
 
     # -------------------------------------------------------------- R33
-    def spanned(self, body) -> Finding | None:
-        levels = set()
+    def _in(self, body, ln) -> bool:
+        """Whether a line lies in or across a body, at a level not its own."""
+        if body.level is not None and abs(ln.ele - body.level) < 1e-6:
+            return False
         x0, y0, x1, y1 = body.box
-        for ln in self.lines_near(body.box):
-            if body.level is not None and abs(ln.ele - body.level) < 1e-6:
-                continue
-            m = (ln.X >= x0) & (ln.X <= x1) & (ln.Y >= y0) & (ln.Y <= y1)
-            if m.any():
-                m[m] = ~np.isin(ln.refs[m], body.on)
-            if (m.any() and inside(ln.X[m], ln.Y[m], body.rings).any()) or crosses(ln.X, ln.Y, body.rings, body.box):
-                levels.add(ln.ele)
+        m = (ln.X >= x0) & (ln.X <= x1) & (ln.Y >= y0) & (ln.Y <= y1)
+        if m.any():
+            m[m] = ~np.isin(ln.refs[m], body.on)
+        return bool((m.any() and inside(ln.X[m], ln.Y[m], body.rings, body.boxes, body.chunks).any())
+                    or crosses(ln.X, ln.Y, body.rings, body.box, body.boxes, body.chunks))
+
+    def spanned(self, body, only=None) -> Finding | None:
+        """R33 for a body: the levels of the contours in it. ``only``, the
+        ids of the lines an edit changed, asks just those again - the body
+        itself unchanged - and the rest as held."""
+        held = self.held.get(body.key)
+        if only is None or held is None:
+            held = self.held[body.key] = {ln.id: True for ln in self.lines_near(body.box) if self._in(body, ln)}
+        else:
+            x0, y0, x1, y1 = body.box
+            for i in only:
+                held.pop(i, None)
+                ln = self.lines.get(i)
+                if (ln is not None and ln.box[0] <= x1 and ln.box[2] >= x0 and ln.box[1] <= y1
+                        and ln.box[3] >= y0 and self._in(body, ln)):
+                    held[i] = True
+        levels = {self.lines[i].ele for i in held if i in self.lines}
         if not levels:
             return None
         lo, hi = min(levels), max(levels)
@@ -310,6 +384,7 @@ class Index:
         # the whole square read, 15 ms of N20E087's spot heights
         if way_ids & (water | {i for b in bodies_before for i in b.ways}):
             s.bodies = _bodies(square)
+            s.held = {k: v for k, v in s.held.items() if k in s.bodies}
         touched = {r for i in way_ids for r in getattr(square.ways.get(i), 'refs', ())}
         touched |= {int(r) for ln in before.values() for r in ln.refs}
         if spot_ids or touched & (set(s.spots) | {i for i, n in ((r, square.nodes.get(r)) for r in touched)
@@ -325,26 +400,44 @@ class Index:
                 moved |= set(zip(X, Y, strict=True))
         for i in spot_ids:
             moved |= {p for p in (spots_before.get(i), s.spots.get(i)) if p is not None}
+        # and the boxes of the segments edited, as they were and are: a node
+        # moved outside a lake's box can still take its segment across it
+        spans = _segments_at([*before.values(), *(s.lines[i] for i in way_ids if i in s.lines)], moved)
         found = self._found[square.name]
         for key in [k for k in found if k[0] == 'bare' and k[1] in way_ids and k[1] not in s.lines]:
             del found[key]
         for key in [k for k in found if k[0] == 'lake' and k[1] not in s.bodies]:
             del found[key]
-        if not moved:
+        if not moved and not len(spans):
             return
-        P = np.array(sorted(moved), float)
+        P = np.array(sorted(moved), float).reshape(-1, 2)
         for key, body in s.bodies.items():
-            if body.ways & way_ids or _holds_any(body.box, P):
-                f = s.spanned(body)
+            if body.ways & way_ids or _holds_any(body.box, P) or _overlap(body.box, spans).any():
+                # the body edited is asked whole; one only edited near, of the lines edited
+                f = s.spanned(body, None if body.ways & way_ids else way_ids)
                 found.pop(('lake', key), None)
                 if f is not None:
                     found[('lake', key)] = f
         for ln in s.lines.values():
-            if ln.id in way_ids or _holds_any(ln.box, P):
+            if ln.id in way_ids or _holds_any(ln.box, P) or _overlap(ln.box, spans).any():
                 f = s.bare(ln)
                 found.pop(('bare', ln.id), None)
                 if f is not None:
                     found[('bare', ln.id)] = f
+
+
+def _segments_at(lines, moved) -> np.ndarray:
+    """The boxes of the lines' segments with an end among the points moved,
+    as rows (x0, y0, x1, y1) - what an edit can have taken across a ring
+    without a vertex inside its box."""
+    out = []
+    for ln in lines:
+        at = np.array([(x, y) in moved for x, y in zip(ln.X, ln.Y, strict=True)])
+        k = np.flatnonzero(at[:-1] | at[1:])
+        if len(k):
+            ax, ay, bx, by = ln.X[k], ln.Y[k], ln.X[k + 1], ln.Y[k + 1]
+            out.append(np.column_stack([np.minimum(ax, bx), np.minimum(ay, by), np.maximum(ax, bx), np.maximum(ay, by)]))
+    return np.concatenate(out) if out else np.empty((0, 4))
 
 
 def _holds_any(box, P) -> bool:

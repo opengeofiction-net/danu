@@ -172,3 +172,96 @@ def test_the_index_follows_edits_and_agrees_with_a_fresh_scan():
         cmd.apply(sq)
         index.update(sq, cmd.ways(sq), cmd.spots(sq))
         assert sorted(f.text for f in index.findings()) == sorted(f.text for f in inside.find(w)), f'step {step}'
+
+
+def wiggly(cx, cy, r, n, rnd):
+    """A ring of n nodes round a point, its radius wandering - a shore of
+    many chunks, each with a box of its own."""
+    import math
+    pts = []
+    for k in range(n):
+        a = 2 * math.pi * k / n
+        rr = r * (1 + 0.3 * math.sin(7 * a) + 0.1 * rnd.uniform(-1, 1))
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    return pts
+
+
+def test_inside_and_crosses_by_chunks_agree_with_every_edge_asked():
+    """A ring's edges asked a chunk at a time, by the chunk's box, give what
+    asking every edge of it gives: points in and out, lines across or not."""
+    import numpy as np
+    rnd = random.Random(3)
+    rings = []
+    for cx, cy, r in ((0.0, 0.0, 1.0), (0.2, 0.1, 0.25), (2.5, 0.0, 0.5)):    # a lake, an island, another
+        pts = wiggly(cx, cy, r, 400, rnd)
+        X = np.array([p[0] for p in pts] + [pts[0][0]]); Y = np.array([p[1] for p in pts] + [pts[0][1]])
+        rings.append((X, Y))
+
+    def odd(x, y):                                      # every edge of every ring, one point at a time
+        c = False
+        for X, Y in rings:
+            for ax, ay, bx, by in zip(X[:-1], Y[:-1], X[1:], Y[1:], strict=True):
+                if (ay > y) != (by > y) and x < ax + (y - ay) * (bx - ax) / (by - ay):
+                    c = not c
+        return c
+    px = np.array([rnd.uniform(-1.5, 3.2) for _ in range(400)]); py = np.array([rnd.uniform(-1.5, 1.5) for _ in range(400)])
+    assert list(inside.inside(px, py, rings)) == [odd(x, y) for x, y in zip(px, py, strict=True)]
+    box = (min(X.min() for X, _ in rings), min(Y.min() for _, Y in rings),
+           max(X.max() for X, _ in rings), max(Y.max() for _, Y in rings))
+    hits = 0
+    for _ in range(300):
+        x0, y0 = rnd.uniform(-1.5, 3.2), rnd.uniform(-1.5, 1.5)
+        X = np.array([x0, x0 + rnd.uniform(-0.4, 0.4)]); Y = np.array([y0, y0 + rnd.uniform(-0.4, 0.4)])
+        whole = inside.crosses(X, Y, rings, box, boxes=[(-9, -9, 9, 9)] * 3,
+                               chunks=[np.array([[-9, -9, 9, 9]] * -(-(len(R) - 1) // inside.CHUNK)) for R, _ in rings])
+        assert inside.crosses(X, Y, rings, box) == whole
+        hits += whole
+    assert 30 < hits < 270, 'both answers asked'
+
+
+def test_a_lake_of_many_rings_kept_as_edited_agrees_with_a_fresh_scan():
+    """The lines a lake holds kept, and only those an edit changed asked
+    again: random edits through a two-ring lake of many chunks - its own
+    outline moved too - and after each the index says what a fresh scan
+    says."""
+    w, sq = ws()
+    rnd = random.Random(11)
+    outer = Way(id=next(_ids), refs=[], tags={})
+    outer.refs = [*(r := nodes(sq, wiggly(125.5, -22.5, 0.2, 300, rnd))), r[0]]
+    island = Way(id=next(_ids), refs=[], tags={})
+    island.refs = [*(r := nodes(sq, wiggly(125.55, -22.45, 0.04, 80, rnd))), r[0]]
+    sq.ways[outer.id], sq.ways[island.id] = outer, island
+    sq.relations[-7] = Relation(id=-7, members=[Member('way', outer.id, 'outer'), Member('way', island.id, 'inner')],
+                                tags={'natural': 'water', 'ele': '0'})
+    for _ in range(40):
+        x, y = rnd.uniform(125.2, 125.8), rnd.uniform(-22.8, -22.2)
+        line(sq, [(x, y), (x + rnd.uniform(-0.05, 0.05), y + rnd.uniform(-0.05, 0.05)), (x + 0.02, y + 0.03)],
+             rnd.choice((0, 10, 20, 50)))
+    index = inside.Index(w)
+    shore = [*outer.refs[:-1], *island.refs[:-1]]
+    for step in range(150):
+        contours = [i for i in sq.nodes if i not in shore and any(i in x.refs for x in sq.ways.values())]
+        nid = rnd.choice(shore if rnd.random() < 0.15 else contours)
+        n = sq.nodes[nid]
+        cmd = edits.MoveNode(nid, (n.lon, n.lat), (n.lon + rnd.uniform(-0.05, 0.05), n.lat + rnd.uniform(-0.05, 0.05)))
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq), cmd.spots(sq))
+        assert sorted(f.text for f in index.findings()) == sorted(f.text for f in inside.find(w)), f'step {step}'
+
+
+def test_a_segment_moved_across_a_lake_its_ends_outside_its_box_is_seen():
+    """A node moved so that its segment crosses a lake, neither end within
+    the lake's box: the lake is asked again all the same, as a fresh scan
+    would find it."""
+    w, sq = ws()
+    ring(sq, 125.5, -22.5, 0.02, {'natural': 'water', 'ele': '0'})
+    way = line(sq, [(125.40, -22.5), (125.45, -22.6)], 50)
+    index = inside.Index(w)
+    assert [f.kind for f in index.findings()] == []
+    end = way.refs[-1]
+    n = sq.nodes[end]
+    cmd = edits.MoveNode(end, (n.lon, n.lat), (125.60, -22.5))     # straight through it
+    cmd.apply(sq)
+    index.update(sq, cmd.ways(sq), cmd.spots(sq))
+    assert [f.kind for f in inside.find(w)] == ['lake']
+    assert [f.kind for f in index.findings()] == ['lake']
