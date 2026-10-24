@@ -69,16 +69,17 @@ def test_centre_square_only_keeps_the_centre_squares_findings(crossed):
     w, _ = crossed
     dock = w.checks_dock
     assert w.working_set.centre != NORTH and len(dock.rows('crossings')) == 4
-    marks = len(w.editor.marks)
-    dock.centre_only.setChecked(True)
-    assert dock.rows('crossings') == [] and dock.node('crossings').text(0) == 'Crossing contours (0)'
-    assert len(w.editor.marks) <= marks - 3 and w.settings.checks_centre_only
     west, south, east, north = w.working_set.centre.bounds
     x0, y0 = m.lonlat_to_scene(west, north)
     x1, y1 = m.lonlat_to_scene(east, south)
-    assert all(x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1 for x, y in w.editor.marks), 'a mark outside it'
+    marks = list(w.editor.marks)
+    inside = [(x, y) for x, y in marks if x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1]
+    assert len(inside) <= len(marks) - 3                     # the rogue's three are outside
+    dock.centre_only.setChecked(True)
+    assert dock.rows('crossings') == [] and dock.node('crossings').text(0) == 'Crossing contours (0)'
+    assert sorted(w.editor.marks) == sorted(inside) and w.settings.checks_centre_only
     dock.centre_only.setChecked(False)
-    assert len(dock.rows('crossings')) == 4 and len(w.editor.marks) == marks
+    assert len(dock.rows('crossings')) == 4 and w.editor.marks == marks
     assert not w.settings.checks_centre_only
 
 
