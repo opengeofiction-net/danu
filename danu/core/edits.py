@@ -1208,7 +1208,8 @@ class CloseRings(Command):
 def close_rings(square: Square) -> CloseRings | None:
     """The command that closes the square's rings closed by position only -
     a way of at least four nodes whose last is not its first but stands at
-    its place, and carries no tags of its own. None when there are none."""
+    its place, that last node carrying no tags of its own - a spot height is
+    not a ring's end. None when there are none."""
     closes = []
     for wid in sorted(square.ways):
         refs = square.ways[wid].refs
