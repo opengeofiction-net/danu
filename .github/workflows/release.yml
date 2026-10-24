@@ -207,6 +207,7 @@ jobs:
             mingw-w64-ucrt-x86_64-python-numpy
             mingw-w64-ucrt-x86_64-pyside6
             mingw-w64-ucrt-x86_64-ntldd
+            mingw-w64-ucrt-x86_64-ca-certificates
       # pinned 2026-10-20: MSYS2's hdf5 2.2.0-4 (19 Oct) came after its GDAL
       # 3.13.3-3 (15 Oct) was built against 2.2.0-2, and osgeo's _gdal then
       # fails to load - "The specified procedure could not be found". The hdf5
@@ -273,6 +274,17 @@ jobs:
           $env:PROJ_DATA = "$env:RUNNER_TEMP\Danu\share\proj"
           & "$env:RUNNER_TEMP\Danu\bin\python.exe" packaging\smoke.py `
             tests\golden\S24E125_Los_Pizarrales.osm.xz tests\golden\expected.tif "$env:RUNNER_TEMP\smoke"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: the drop reached with the tree's CA certificates alone
+        # not the Windows store: a machine whose store lacks a root Windows has
+        # not yet fetched said "certificate has expired" (#262)
+        run: |
+          & "$env:RUNNER_TEMP\Danu\bin\python.exe" -c @'
+          import ssl, sys, urllib.request
+          ctx = ssl.create_default_context(cafile=sys.argv[1])
+          with urllib.request.urlopen('https://data.opengeofiction.net/dem/', context=ctx, timeout=60) as r:
+              print('reached the drop:', r.status)
+          '@ "$env:RUNNER_TEMP\Danu\ssl\cacert.pem"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Danu.exe starts the editor
         run: |
