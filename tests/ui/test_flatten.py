@@ -47,6 +47,7 @@ def lake(window):
     sq.relations[rel.id] = rel
     way(sq, box(125.51, -22.49, 0.01), {'ele': '90'}, closed=True)         # in the water
     way(sq, [(125.45, -22.48), (125.59, -22.48)], {'ele': '120'})           # across the shore
+    way(sq, [(125.52, -22.5005), (125.525, -22.5005)], {'ele': '110'})      # beside it: 120 is cut
     way(sq, [(125.45, -22.60), (125.59, -22.60)], {'ele': '75'})            # nowhere near
     window.contours.set_working_set(window.working_set)
     return window, sq, rel, ring
@@ -86,6 +87,26 @@ def test_the_draw_back_distance_is_tried_before_it_is_accepted(lake):
                key=lambda x: sq.nodes[x.refs[0]].lon)
     end = max(sq.nodes[r].lon for r in west.refs)
     assert (125.50 - end) * 111320 * 0.9235 == pytest.approx(300, abs=2)
+
+
+def test_the_level_next_to_the_lakes_wandering_over_its_shore_is_pushed_round_it(lake):
+    """The 110 m contour beside it dipping into the water: shown as the line
+    it would become, and one line after Enter."""
+    pytest.importorskip('osgeo.ogr')
+    w, sq, rel, _ = lake
+    near = next(x for x in sq.ways.values() if x.tags.get('ele') == '110')
+    for r, lon, lat in ((near.refs[0], 125.52, -22.51), (near.refs[-1], 125.525, -22.51)):
+        sq.nodes[r] = Node(id=r, lon=lon, lat=lat)
+    mid = node(sq, 125.5225, -22.49)                                      # in the water
+    near.refs.insert(1, mid)
+    select(w, sq, rel)
+    w.editor.flatten()
+    p = w.editor.proposal
+    assert '1 at the level next to its pushed round it, up to 100 m out' in p.summary, p.summary
+    assert p.added
+    w.editor.accept_proposal()
+    assert [x.id for x in sq.ways.values() if x.tags.get('ele') == '110'] == [near.id]
+    assert all(sq.nodes[r].lat < -22.50 for r in sq.ways[near.id].refs), 'still in the water'
 
 
 def test_a_lake_with_no_level_is_refused_with_the_way_to_give_it_one(lake):

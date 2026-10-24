@@ -56,6 +56,13 @@ def contour(sq, pts, ele, closed=False):
     return way(sq, pts, {'ele': str(ele)}, closed=closed)
 
 
+def beside(sq, ele=110):
+    """A contour 50 m south of the shore, crossing nothing: a level nearer
+    the lake's than the one under test, which is then cut, not pushed round."""
+    lat = -22.50 - 50 / 110540
+    return contour(sq, [(125.52, lat), (125.525, lat)], ele)
+
+
 def allocator(square):
     alloc = {}
 
@@ -95,6 +102,7 @@ def test_a_contour_inside_the_water_is_deleted():
 def test_a_contour_crossing_at_another_level_is_clipped_and_drawn_back():
     w, sq = ws()
     lk = lake(sq)
+    beside(sq)
     c = contour(sq, [(125.45, LAT), (125.59, LAT)], 120)
     p = run(w, sq, lk, pull_back_m=100)
     pieces = contours(sq, 120)
@@ -144,6 +152,7 @@ def test_a_closed_contour_cut_open_is_one_piece_across_its_closing_vertex():
     way closes are one stretch of ground, and one way afterwards."""
     w, sq = ws()
     lk = lake(sq)
+    beside(sq)
     # closes at its south-west corner, outside; its east side runs through the water
     contour(sq, [(125.45, -22.52), (125.52, -22.52), (125.52, -22.44), (125.45, -22.44)], 120, closed=True)
     run(w, sq, lk, pull_back_m=100)
@@ -346,6 +355,7 @@ def test_a_contour_in_and_out_of_the_water_twice_keeps_its_three_dry_runs():
     runs on land, two in the water, each shore crossing drawn back."""
     w, sq = ws()
     lk = lake(sq)
+    beside(sq)
     contour(sq, [(125.51, -22.52), (125.51, -22.48), (125.51, -22.44),       # in and out
                  (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)  # in and out again
     p = run(w, sq, lk, pull_back_m=100)
@@ -450,3 +460,74 @@ def test_a_coastline_crossing_a_lagoon_at_sea_level_is_left_as_it_runs():
     run(w, sq, lk)
     assert plain.id in sq.ways and len(contours(sq, 0)) == 2, 'the plain contour is clipped in two'
     assert sq.ways[shore.id].refs == refs
+
+
+# ------------------------------------------------- pushed round, the nearest level
+
+def off_shore(sq, r):
+    """How far a node is outside the lake's box, in metres; negative inside."""
+    n = sq.nodes[r]
+    dx = max(125.50 - n.lon, 0.0, n.lon - 125.54) * KX
+    dy = max(-22.50 - n.lat, 0.0, n.lat + 22.46) * 110540
+    if dx == dy == 0:
+        return -1.0
+    return math.hypot(dx, dy)
+
+
+def test_the_nearest_level_in_and_out_of_the_water_is_pushed_round_it_as_one_line():
+    pytest.importorskip('osgeo.ogr')
+    w, sq = ws()
+    lk = lake(sq)
+    c = contour(sq, [(125.51, -22.52), (125.51, -22.48), (125.51, -22.44),
+                     (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)
+    nodes, ways = dict(sq.nodes), {i: list(x.refs) for i, x in sq.ways.items()}
+    p = flatten.plan(w, sq, lk, allocator(sq), pull_back_m=100)
+    for s, cmd in p.steps:
+        cmd.apply(s)
+    assert [x.id for x in contours(sq, 120)] == [c.id] and p.wrapped == 1 and p.pulled == 0
+    refs = sq.ways[c.id].refs
+    assert refs[0] == ways[c.id][0] and refs[-1] == ways[c.id][-1], 'its ends are its own'
+    drawn = [r for r in refs if r not in nodes]
+    assert drawn and all(off_shore(sq, r) == pytest.approx(100, abs=3) for r in drawn)
+    assert p.added and p.removed
+    for s, cmd in reversed(p.steps):
+        cmd.undo(s)
+    assert {i: list(x.refs) for i, x in sq.ways.items()} == ways and sq.nodes == nodes
+
+
+def test_where_another_contour_is_in_the_way_the_stretch_there_is_pushed_nearer():
+    """Across the lake near its south shore, so pushed round the south; a
+    150 m contour 60 m off that shore, crossing nothing: the contour comes in
+    to 50 m rather than pass it by, and the wall is left as it was."""
+    pytest.importorskip('osgeo.ogr')
+    w, sq = ws()
+    lk = lake(sq)
+    south = -22.50 - 60 / 110540
+    wall = contour(sq, [(125.51, south), (125.53, south)], 150)
+    c = contour(sq, [(125.45, -22.49), (125.59, -22.49)], 120)
+    p = run(w, sq, lk, pull_back_m=100)
+    assert [x.id for x in contours(sq, 120)] == [c.id] and p.wrapped == 1
+    assert sq.ways[wall.id].refs == wall.refs
+    lats = [sq.nodes[r].lat for r in sq.ways[c.id].refs]
+    assert min(lats) > south, 'it passes the 150 m contour by'
+    assert (-22.50 - min(lats)) * 110540 == pytest.approx(50, abs=3)
+
+
+def test_a_ring_dipping_into_the_water_is_pushed_round_and_stays_a_ring():
+    pytest.importorskip('osgeo.ogr')
+    w, sq = ws()
+    lk = lake(sq)
+    c = contour(sq, [(125.45, -22.52), (125.52, -22.52), (125.52, -22.44), (125.45, -22.44)], 120, closed=True)
+    p = run(w, sq, lk, pull_back_m=100)
+    assert [x.id for x in contours(sq, 120)] == [c.id] and p.wrapped == 1
+    refs = sq.ways[c.id].refs
+    assert refs[0] == refs[-1] and all(off_shore(sq, r) > 0 for r in refs)
+
+
+def test_without_gdal_the_nearest_level_is_cut(monkeypatch):
+    monkeypatch.setitem(__import__('sys').modules, 'osgeo', None)
+    w, sq = ws()
+    lk = lake(sq)
+    contour(sq, [(125.45, LAT), (125.59, LAT)], 120)
+    p = run(w, sq, lk, pull_back_m=100)
+    assert len(contours(sq, 120)) == 2 and p.pulled == 1 and p.wrapped == 0

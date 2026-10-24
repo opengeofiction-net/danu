@@ -24,6 +24,14 @@ So flattening a lake is four edits, one step:
   water by ``pull_back_m``, so the ground climbs from the shore over that
   distance rather than standing as a step at the water's edge. A contour at the
   lake's own level is clipped at the shore and left touching it.
+- **The nearest level either side pushed round.** A contour at the level
+  next below or above the lake's, of those near it, that strays in and out of
+  the water is the shore's neighbour drawn a little off, not the lake bed: cut,
+  it is left as bits along the shore. It is pushed out round the water
+  instead, ``pull_back_m`` from it - the shore offset, on the side the contour
+  ran - and stays one line. Where that would cross or touch another contour it
+  is tried at half the distance, and half again, and failing that is cut as
+  above. The offset is GDAL's; a build without it cuts.
 - **Fill lines across the water, at its level.** Straight lines every
   ``FILL_SPACING_M``, clipped to the water so an island is left out, tagged
   ``danu:fill`` with the lake they belong to. They are an interim measure. The
@@ -37,8 +45,9 @@ So flattening a lake is four edits, one step:
   one-level enclosure flat, every way tagged ``danu:fill`` is deleted in one
   pass.
 
-No Qt and no GDAL: geometry in metres on a local projection about the lake,
-which over a lake's extent is exact enough to say what is inside it.
+No Qt, and GDAL only to push a contour round: geometry in metres on a local
+projection about the lake, which over a lake's extent is exact enough to say
+what is inside it.
 """
 
 from __future__ import annotations
@@ -56,6 +65,8 @@ from ..core.square import Relation, Square, Way, is_coastline, parse_ele, water_
 from .overpass import flows
 
 PULL_BACK_M = 100.0
+WRAP_MIN_M = 5.0           # a contour pushed round no nearer the water than this
+WRAP_SIMPLIFY_M = 2.0      # the offset shore drawn to within this
 FILL_SPACING_M = 120.0
 FILL = 'danu:fill'
 # two cut positions closer than this along a contour are one - a contour that
@@ -74,6 +85,8 @@ class Plan:
     deleted: int = 0                                 # contours wholly inside
     clipped: int = 0                                 # crossing the shore at the lake's level
     pulled: int = 0                                  # crossing it at another, drawn back
+    wrapped: int = 0                                 # the nearest level, pushed round the water
+    added: list = field(default_factory=list)        # what a push round draws, as [(lon, lat)] runs
     outline_ways: int = 0
     fill: list = field(default_factory=list)         # the fill lines, as [(lon, lat)] pairs
 
@@ -156,6 +169,9 @@ class _Projection:
 
     def lonlat(self, x: float, y: float) -> tuple[float, float]:
         return x / self.kx, y / self.ky
+
+    def xy_of(self, lon: float, lat: float) -> tuple[float, float]:
+        return lon * self.kx, lat * self.ky
 
 
 class _Shore:
@@ -284,6 +300,7 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
                 edits.SetTags(w.id, dict(w.tags), {**w.tags, 'ele': text}))
             out.outline_ways += w is not feature
     by_name = {sq.name: sq for sq in working_set.squares.values()}
+    near = []
     for sq in working_set.squares.values():
         watery = {m.ref for r in sq.relations.values() if water_tags(r.tags)
                   for m in r.members if m.type == 'way'}
@@ -298,9 +315,44 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             if (max(x for x, _ in pts) < box[0] or min(x for x, _ in pts) > box[2]
                     or max(y for _, y in pts) < box[1] or min(y for _, y in pts) > box[3]):
                 continue
-            cmd = _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out)
-            if cmd is not None:
-                per_square.setdefault(sq.name, []).append(cmd)
+            near.append((sq, way, pts, e))
+    below = max((e for *_, e in near if e < level), default=None)
+    above = min((e for *_, e in near if e > level), default=None)
+    pushed = _Pusher.make(polys, pull_back_m)
+    wrap = []
+    for sq, way, pts, e in near:
+        if pushed is not None and e in (below, above):
+            wrap.append((sq, way, pts, e))
+            continue
+        cmd = _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out)
+        if cmd is not None:
+            per_square.setdefault(sq.name, []).append(cmd)
+        if pushed is not None:
+            pushed.stays(way.id, _after(sq, way, pts, cmd, proj))
+    tried = [[sq, way, pts, e, pushed.round(sq, way, pts, proj, alloc)] for sq, way, pts, e in wrap]
+    cut: dict = {}
+    while True:
+        for k, (sq, way, pts, e, got) in enumerate(tried):
+            if got is None and k not in cut:
+                cut[k] = _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out)
+                pushed.stays(way.id, _after(sq, way, pts, cut[k], proj))
+        # one cut after all can run across one pushed round before it was:
+        # that one is tried again, nearer the water, against what is known now
+        crossed = [t for t in tried if t[4] is not None and not pushed.clear(t[1].id, t[4][1], t[4][2])]
+        if not crossed:
+            break
+        for t in crossed:
+            pushed.drop(t[1].id)
+            t[4] = pushed.round(t[0], t[1], t[2], proj, alloc)
+    for k, (sq, _, _, _, got) in enumerate(tried):
+        cmd = cut.get(k)
+        if got is not None:
+            cmd, arcs, gone = got
+            out.wrapped += 1
+            out.added += [[proj.lonlat(*q) for q in arc] for arc in arcs]
+            out.removed += [[proj.lonlat(*q) for q in run] for run in gone]
+        if cmd is not None:
+            per_square.setdefault(sq.name, []).append(cmd)
     # the lake's fill lines: the old ones out, new ones across the water
     lines = [edits.DeleteWay(w.id) for w in fills(square, feature)]
     ids = alloc(square)
@@ -396,6 +448,209 @@ def _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out):
         out.clipped -= at_level
         return edits.ReplaceWay(way.id, [], {})
     return edits.ReplaceWay(way.id, pieces, new_nodes)
+
+
+def _after(sq, way, pts, cmd, proj) -> list[list[tuple[float, float]]]:
+    """A contour as a flatten leaves it, in metres: its pieces, or itself
+    when it is left alone."""
+    if cmd is None:
+        return [pts]
+    return [[proj.xy(sq.nodes[r]) if r not in cmd.new_nodes else proj.xy_of(*cmd.new_nodes[r]) for r in refs]
+            for _, refs in cmd.pieces]
+
+
+class _Pusher:
+    """Contours pushed out round the water: the shore offset, and what is
+    around it to keep clear of."""
+
+    def __init__(self, ogr, water, pull_back_m):
+        self.ogr, self.water = ogr, water
+        self.dists = []
+        d = pull_back_m
+        while d >= WRAP_MIN_M:
+            self.dists.append(d)
+            d /= 2
+        self.zones = {}
+        self.guard = []                    # (way id, envelope, line) of every contour as it will stand
+
+    @classmethod
+    def make(cls, polys, pull_back_m):
+        try:
+            from osgeo import ogr
+        except ImportError:                # a build without GDAL cuts instead
+            return None
+        water = None
+        for ring in polys:
+            r = ogr.Geometry(ogr.wkbLinearRing)
+            for x, y in ring:
+                r.AddPoint_2D(x, y)
+            g = ogr.Geometry(ogr.wkbPolygon)
+            g.AddGeometry(r)
+            g = g.Buffer(0)
+            water = g if water is None else water.SymDifference(g)     # an island is a hole
+        return cls(ogr, water, pull_back_m) if water is not None and not water.IsEmpty() else None
+
+    def _line(self, pts):
+        g = self.ogr.Geometry(self.ogr.wkbLineString)
+        for x, y in pts:
+            g.AddPoint_2D(x, y)
+        return g
+
+    def stays(self, wid, lines) -> None:
+        """A contour as the flatten leaves it, to keep clear of."""
+        for pts in lines:
+            if len(pts) >= 2:
+                g = self._line(pts)
+                self.guard.append((wid, g.GetEnvelope(), g))
+
+    def drop(self, wid) -> None:
+        self.guard = [g for g in self.guard if g[0] != wid]
+
+    def clear(self, wid, arcs, between=None) -> bool:
+        """Whether arcs drawn for way ``wid`` cross or touch no other
+        contour - nor, with the stretches they replace, pass one by: the
+        ground between the two is all one side of the contour."""
+        for k, arc in enumerate(arcs):
+            g = self._line(arc)
+            if between is not None:
+                g = self._polygon([*between[k], *reversed(arc)]) or g
+            x0, x1, y0, y1 = g.GetEnvelope()
+            for other, (a0, a1, b0, b1), h in self.guard:
+                if other != wid and a0 <= x1 and x0 <= a1 and b0 <= y1 and y0 <= b1 and g.Intersects(h):
+                    return False
+        return True
+
+    def _zone(self, d):
+        if d not in self.zones:
+            z = self.water.Buffer(d).SimplifyPreserveTopology(WRAP_SIMPLIFY_M)
+            polys = [z] if z.GetGeometryName() == 'POLYGON' else [z.GetGeometryRef(i) for i in range(z.GetGeometryCount())]
+            rings = [[p.GetGeometryRef(k).GetPoint_2D(j) for j in range(p.GetGeometryRef(k).GetPointCount() - 1)]
+                     for p in polys for k in range(p.GetGeometryCount())]
+            self.zones[d] = z, [(r, self._line([*r, r[0]])) for r in rings]
+        return self.zones[d]
+
+    def round(self, sq, way, pts, proj, alloc):
+        """The contour pushed round the water, each stretch at the furthest
+        distance that keeps it clear of the others, as (command, arcs
+        drawn, runs replaced); or None."""
+        refs, L = list(way.refs), list(pts)
+        if way.refs[0] == way.refs[-1] and len(way.refs) > 3:
+            # begun again at its node furthest from the water, so no stretch
+            # replaced runs across where it begins and ends
+            far = self._zone(self.dists[0])[0]
+            k = max(range(len(L) - 1), key=lambda k: self._point(L[k]).Distance(far))
+            if self._point(L[k]).Distance(far) <= 0:
+                return None                              # it lies all within it
+            refs, L = [*refs[k:-1], *refs[:k], refs[k]], [*L[k:-1], *L[:k], L[k]]
+        cum = _length(L)
+        line = self._line(L)
+        runs = self._runs(L, cum, line, 0, 0.0, cum[-1], way.id)
+        if not runs:
+            return None
+        ids = alloc(sq)
+        new_nodes, out, now, arcs, gone, k = {}, [], [], [], [], 0
+        for i_in, i_out, arc in runs:
+            out += refs[k:i_in + 1]
+            now += L[k:i_in + 1]
+            for q in arc:
+                if math.dist(q, L[i_in]) < 0.01 or math.dist(q, L[i_out + 1]) < 0.01:
+                    continue                             # met on a node of its own
+                nid = ids.take()
+                new_nodes[nid] = proj.lonlat(*q)
+                out.append(nid)
+                now.append(q)
+            arcs.append(arc)
+            gone.append([arc[0], *L[i_in + 1:i_out + 1], arc[-1]])
+            k = i_out + 1
+        out += refs[k:]
+        now += L[k:]
+        self.stays(way.id, [now])
+        return edits.ReplaceWay(way.id, [(way.id, out)], new_nodes), arcs, gone
+
+    def _runs(self, L, cum, line, level, lo, hi, wid):
+        """The stretches of L between ``lo`` and ``hi`` along it that reach
+        the water, each with the arc of the shore offset that replaces it:
+        at ``dists[level]``, or for a stretch whose arc there is not clear,
+        at the next distance in. None when one cannot be pushed at all."""
+        if level == len(self.dists):
+            return None
+        zone, rings = self._zone(self.dists[level])
+        inside = line.Intersection(zone)
+        parts = ([inside.GetGeometryRef(i) for i in range(inside.GetGeometryCount())]
+                 if inside.GetGeometryCount() else [inside])
+        spans = sorted(sorted(_along(L, cum, g.GetPoint_2D(j)) for j in (0, g.GetPointCount() - 1))
+                       for g in parts if not g.IsEmpty() and g.GetGeometryName() == 'LINESTRING'
+                       and g.Intersects(self.water))
+        spans = [s for s in spans if lo - 1e-6 <= s[0] and s[1] <= hi + 1e-6]
+        out = []
+        for s_in, s_out in spans:
+            if s_in <= 1e-6 or s_out >= cum[-1] - 1e-6:
+                return None                              # it ends by the water
+            i_in, P = _point(L, cum, s_in)
+            i_out, Q = _point(L, cum, s_out)
+            arc = self._arc(rings, P, Q, L[i_in + 1:i_out + 1])
+            if arc is not None and self.clear(wid, [arc], [[P, *L[i_in + 1:i_out + 1], Q]]):
+                out.append((i_in, i_out, arc))
+                continue
+            inner = self._runs(L, cum, line, level + 1, s_in, s_out, wid)
+            if inner is None:
+                return None
+            out += inner
+        return out
+
+    def _arc(self, rings, P, Q, between):
+        """The offset shore from P to Q on the side the contour ran - the one
+        it and the offset enclose least between - or None when P and Q are
+        on different rings of it."""
+        ring = min(rings, key=lambda r: r[1].Distance(self._point(P)))[0]
+        if min(rings, key=lambda r: r[1].Distance(self._point(Q)))[0] is not ring:
+            return None
+        kP = min(range(len(ring)), key=lambda j: math.dist(ring[j], P))
+        kQ = min(range(len(ring)), key=lambda j: math.dist(ring[j], Q))
+        n = len(ring)
+        sides = ([ring[(kP + j) % n] for j in range((kQ - kP) % n + 1)],
+                 [ring[(kP - j) % n] for j in range((kP - kQ) % n + 1)])
+
+        def apart(side):
+            g = self._polygon([P, *between, Q, *reversed(side)])
+            return g.GetArea() if g is not None else math.inf
+        return [P, *min(sides, key=apart)[1:-1], Q]
+
+    def _point(self, q):
+        g = self.ogr.Geometry(self.ogr.wkbPoint)
+        g.AddPoint_2D(*q)
+        return g
+
+    def _polygon(self, pts):
+        if len(pts) < 3:
+            return None
+        r = self.ogr.Geometry(self.ogr.wkbLinearRing)
+        for x, y in [*pts, pts[0]]:
+            r.AddPoint_2D(x, y)
+        g = self.ogr.Geometry(self.ogr.wkbPolygon)
+        g.AddGeometry(r)
+        return g.Buffer(0)
+
+
+def _along(L, cum, pt) -> float:
+    """How far along the run of points L a point on it is."""
+    best, at = math.inf, 0.0
+    for i, (a, b) in enumerate(pairwise(L)):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1.0)))
+        d = math.hypot(a[0] + t * dx - pt[0], a[1] + t * dy - pt[1])
+        if d < best:
+            best, at = d, cum[i] + t * math.dist(a, b)
+    return at
+
+
+def _point(L, cum, s) -> tuple[int, tuple[float, float]]:
+    """The segment of L a distance along it falls in, and the point there."""
+    for i in range(len(L) - 1):
+        if cum[i + 1] >= s:
+            t = (s - cum[i]) / ((cum[i + 1] - cum[i]) or 1.0)
+            return i, (L[i][0] + t * (L[i + 1][0] - L[i][0]), L[i][1] + t * (L[i + 1][1] - L[i][1]))
+    return len(L) - 2, L[-1]
 
 
 def _drawn_back(pts, a, b, cut_a, cut_b, d, proj, out):
