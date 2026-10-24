@@ -46,6 +46,7 @@ Source: "{#Tree}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ig
 Type: filesandordirs; Name: "{app}\lib"
 Type: filesandordirs; Name: "{app}\share"
 Type: filesandordirs; Name: "{app}\bin"
+Type: filesandordirs; Name: "{app}\ssl"
 
 [Icons]
 Name: "{group}\Danu"; Filename: "{app}\Danu.exe"

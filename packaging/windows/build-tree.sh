@@ -56,6 +56,14 @@ printf '[Paths]\nPrefix = ..\nPlugins = share/qt6/plugins\n' > "$T/bin/qt.conf"
 # GDAL's and PROJ's data: the CRS database and the driver tables
 cp -r "$PREFIX/share/gdal" "$PREFIX/share/proj" "$T/share/"
 
+# CA certificates, which the launcher points OpenSSL at. Python reads the
+# Windows store as well, but only what is in it: Windows adds a root such as
+# ISRG Root X1 when its own TLS first needs one, so a browser reaches the
+# drop where Python, with the expired DST Root CA X3 still in the store,
+# said "certificate has expired" (#262)
+mkdir -p "$T/ssl"
+cp "$PREFIX/etc/ssl/certs/ca-bundle.crt" "$T/ssl/cacert.pem"
+
 # isofill, built here against the GDAL being shipped
 make -C "$ROOT/extern/isofill" isofill libisofill.dll >/dev/null
 cp "$ROOT/extern/isofill/isofill.exe" "$ROOT/extern/isofill/libisofill.dll" "$T/bin/"

@@ -58,6 +58,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR args, int show)
     SetEnvironmentVariableW(L"PATH", cmd);
     set(L"GDAL_DATA", L"share\\gdal");
     set(L"PROJ_DATA", L"share\\proj");
+    /* the tree's CA certificates as well as the Windows store's, which holds
+     * only the roots Windows' own TLS has fetched so far (#262) */
+    if (!GetEnvironmentVariableW(L"SSL_CERT_FILE", NULL, 0) && !GetEnvironmentVariableW(L"SSL_CERT_DIR", NULL, 0))
+        set(L"SSL_CERT_FILE", L"ssl\\cacert.pem");
     /* a PYTHONHOME or PYTHONPATH meant for another Python would be read */
     SetEnvironmentVariableW(L"PYTHONHOME", NULL);
     SetEnvironmentVariableW(L"PYTHONPATH", NULL);
