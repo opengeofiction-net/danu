@@ -1616,8 +1616,9 @@ class MainWindow(QMainWindow):
 
     def _offer_recovery(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
-        set moved - and what an earlier run autosaved for it and never saved
-        offered, square by square; what is not taken is set aside, not lost."""
+        set read again in this run, moved or reopened - and what an earlier run
+        autosaved for it and never saved offered, square by square; what is
+        not taken is set aside, not lost."""
         ws, zone = self.working_set, self.zone_dir
         if ws is None or zone is None:
             return
