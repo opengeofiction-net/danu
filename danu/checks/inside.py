@@ -400,27 +400,44 @@ class Index:
                 moved |= set(zip(X, Y, strict=True))
         for i in spot_ids:
             moved |= {p for p in (spots_before.get(i), s.spots.get(i)) if p is not None}
+        # and the boxes of the segments edited, as they were and are: a node
+        # moved outside a lake's box can still take its segment across it
+        spans = _segments_at([*before.values(), *(s.lines[i] for i in way_ids if i in s.lines)], moved)
         found = self._found[square.name]
         for key in [k for k in found if k[0] == 'bare' and k[1] in way_ids and k[1] not in s.lines]:
             del found[key]
         for key in [k for k in found if k[0] == 'lake' and k[1] not in s.bodies]:
             del found[key]
-        if not moved:
+        if not moved and not len(spans):
             return
-        P = np.array(sorted(moved), float)
+        P = np.array(sorted(moved), float).reshape(-1, 2)
         for key, body in s.bodies.items():
-            if body.ways & way_ids or _holds_any(body.box, P):
+            if body.ways & way_ids or _holds_any(body.box, P) or _overlap(body.box, spans).any():
                 # the body edited is asked whole; one only edited near, of the lines edited
                 f = s.spanned(body, None if body.ways & way_ids else way_ids)
                 found.pop(('lake', key), None)
                 if f is not None:
                     found[('lake', key)] = f
         for ln in s.lines.values():
-            if ln.id in way_ids or _holds_any(ln.box, P):
+            if ln.id in way_ids or _holds_any(ln.box, P) or _overlap(ln.box, spans).any():
                 f = s.bare(ln)
                 found.pop(('bare', ln.id), None)
                 if f is not None:
                     found[('bare', ln.id)] = f
+
+
+def _segments_at(lines, moved) -> np.ndarray:
+    """The boxes of the lines' segments with an end among the points moved,
+    as rows (x0, y0, x1, y1) - what an edit can have taken across a ring
+    without a vertex inside its box."""
+    out = []
+    for ln in lines:
+        at = np.array([(x, y) in moved for x, y in zip(ln.X, ln.Y, strict=True)])
+        k = np.flatnonzero(at[:-1] | at[1:])
+        if len(k):
+            ax, ay, bx, by = ln.X[k], ln.Y[k], ln.X[k + 1], ln.Y[k + 1]
+            out.append(np.column_stack([np.minimum(ax, bx), np.minimum(ay, by), np.maximum(ax, bx), np.maximum(ay, by)]))
+    return np.concatenate(out) if out else np.empty((0, 4))
 
 
 def _holds_any(box, P) -> bool:

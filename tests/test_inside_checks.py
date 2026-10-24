@@ -247,3 +247,21 @@ def test_a_lake_of_many_rings_kept_as_edited_agrees_with_a_fresh_scan():
         cmd.apply(sq)
         index.update(sq, cmd.ways(sq), cmd.spots(sq))
         assert sorted(f.text for f in index.findings()) == sorted(f.text for f in inside.find(w)), f'step {step}'
+
+
+def test_a_segment_moved_across_a_lake_its_ends_outside_its_box_is_seen():
+    """A node moved so that its segment crosses a lake, neither end within
+    the lake's box: the lake is asked again all the same, as a fresh scan
+    would find it."""
+    w, sq = ws()
+    ring(sq, 125.5, -22.5, 0.02, {'natural': 'water', 'ele': '0'})
+    way = line(sq, [(125.40, -22.5), (125.45, -22.6)], 50)
+    index = inside.Index(w)
+    assert [f.kind for f in index.findings()] == []
+    end = way.refs[-1]
+    n = sq.nodes[end]
+    cmd = edits.MoveNode(end, (n.lon, n.lat), (125.60, -22.5))     # straight through it
+    cmd.apply(sq)
+    index.update(sq, cmd.ways(sq), cmd.spots(sq))
+    assert [f.kind for f in inside.find(w)] == ['lake']
+    assert [f.kind for f in index.findings()] == ['lake']
