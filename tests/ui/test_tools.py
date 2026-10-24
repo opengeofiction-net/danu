@@ -299,16 +299,17 @@ def test_a_node_of_a_contour_that_already_crosses_moves_freely(w):
     w.editor.do(square, edits.MoveNode(nid, home, (n.lon, y_thirty - 0.06)))    # across the 30 m only
     px_per_deg = abs(w.map.mapFromScene(QPointF(*m.lonlat_to_scene(n.lon, n.lat))).y()
                      - w.map.mapFromScene(QPointF(*m.lonlat_to_scene(n.lon, y_thirty))).y()) / abs(n.lat - y_thirty)
-    crossed = (n.lon, n.lat)
+    start = n.lat
     drag(w, n.lon, n.lat, 0, -round(px_per_deg * 0.02))     # north, still south of the 30 m
     said = w.statusBar().currentMessage()
-    assert n.lat > crossed[1] and 'still crosses 1 contour' in said, said
+    assert start < n.lat < y_thirty and 'still crosses 1 contour' in said, said
     drag(w, n.lon, n.lat, 0, -round(px_per_deg * 0.1))      # north of it again
     said = w.statusBar().currentMessage()
     assert n.lat > y_thirty and 'crosses nothing now' in said, said
     # and crossing nothing again, it is held to R16
+    clear = (n.lon, n.lat)
     drag(w, n.lon, n.lat, 0, round(px_per_deg * 0.2))
-    assert n.lat > y_thirty and w.statusBar().currentMessage().startswith('not moved')
+    assert (n.lon, n.lat) == clear and w.statusBar().currentMessage().startswith('not moved')
 
 
 def test_a_double_click_on_a_segment_inserts_a_node_there(w):
