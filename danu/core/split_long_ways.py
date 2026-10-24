@@ -129,12 +129,15 @@ def split_file(path, limit, backup_dir, dry_run):
                 tags.append(line)
             elif '</way>' in line:
                 if way in over:
-                    step = limit - 1
-                    start = 0
+                    # as few pieces as will do, all of a size - 2,500 nodes
+                    # are two of 1,250, not 2,000 and 501 - as
+                    # danu.core.edits.even_cuts
+                    k = -(-(len(nds) - 1) // (limit - 1))
+                    cuts = [i * (len(nds) - 1) // k for i in range(k + 1)]
                     first = True
                     pieces[way] = []
-                    while start < len(nds) - 1:
-                        chunk = nds[start:start + limit]
+                    for a, b in zip(cuts, cuts[1:], strict=False):
+                        chunk = nds[a:b + 1]
                         if first:
                             out.write(header); first = False
                             pieces[way].append(way)
@@ -146,7 +149,6 @@ def split_file(path, limit, backup_dir, dry_run):
                         out.writelines(chunk)
                         out.writelines(tags)
                         out.write(line)
-                        start += step
                 else:
                     out.write(header); out.writelines(nds); out.writelines(tags)
                     out.write(line)
