@@ -132,6 +132,12 @@ CHECKS = (('crossings', lambda ws, _: crossings.Index(ws)),
           ('what lies inside the rings', lambda ws, bare_min: inside.Index(ws, bare_min)))
 
 
+# an edit of more ways than this has the checks found again whole, on the
+# worker, rather than put to them way by way on the UI thread - about 14 ms a
+# way there on roantra, and a whole scan of its six squares 23 s off it
+WIDE_EDIT = 500
+
+
 def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report=None):
     """The checks' indexes over a working set - on a worker, while the set
     goes on being edited on the UI thread. ``report`` is told (step, of,
@@ -230,6 +236,8 @@ class MainWindow(QMainWindow):
         self._checks_runner = QThreadPool.globalInstance().start
         self._checks_job = None
         self._checks_missed: list = []
+        self._checks_redo = False               # the scan running is to be done again when it lands
+        self._checks_wide = False               # a whole scan is due, after a wide edit
         # saves compress and write on a thread of their own, one at a time and
         # in the order asked, so two saves of one square land in that order
         self._write_pool = QThreadPool(self)
@@ -2083,6 +2091,11 @@ class MainWindow(QMainWindow):
                 if ws is not self.working_set:
                     self._checks_shown(self.checks_dock.isVisible())   # a set opened meanwhile
                     return
+                if self._checks_redo or sum(len(w) + len(s) for _, w, s in self._checks_missed) > WIDE_EDIT:
+                    # edited too widely meanwhile to put to it way by way: found again
+                    self._checks_redo, self._checks_missed = False, []
+                    self._checks_shown(self.checks_dock.isVisible())
+                    return
                 (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
                  self.file_index, self.inside_index) = indexes
                 missed, self._checks_missed = self._checks_missed, []
@@ -2109,9 +2122,21 @@ class MainWindow(QMainWindow):
     def _checks_edited(self, square, ways, spot_ids) -> None:
         """An edit's ways asked again at once - milliseconds a way - and the
         panel redrawn a moment later, once a drag has stopped. One made while
-        the first scan runs is kept for it."""
+        the first scan runs is kept for it. One of more than WIDE_EDIT ways
+        has them found again whole, on the worker."""
+        wide = len(ways or ()) + len(spot_ids or ()) > WIDE_EDIT
         if self._checks_job is not None:
-            self._checks_missed.append((square, set(ways or ()), set(spot_ids or ())))
+            if wide or self._checks_redo:
+                self._checks_redo, self._checks_missed = True, []
+            else:
+                self._checks_missed.append((square, set(ways or ()), set(spot_ids or ())))
+            return
+        if self.crossing_index is not None and (wide or self._checks_wide):
+            if self.surface_findings is not None and (ways or spot_ids):
+                self._surface_stale = True
+            if not self._checks_wide:
+                self._checks_wide = True             # once for the step, whatever squares it spans
+                QTimer.singleShot(0, self._checks_again)
             return
         if self.file_index is not None and (ways or spot_ids):
             self.file_index.update(square)               # the square asked again, 12 ms at most
@@ -2151,6 +2176,14 @@ class MainWindow(QMainWindow):
             return found
         w, s, e, n = ws.centre.bounds
         return [f for f in found if w <= f.lon <= e and s <= f.lat <= n]
+
+    def _checks_again(self) -> None:
+        """The checks found again whole, on the worker, after an edit too wide
+        to put to them way by way."""
+        self._checks_wide = False
+        (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
+         self.file_index, self.inside_index) = (None,) * 6
+        self._checks_shown(self.checks_dock.isVisible())
 
     def _refresh_checks(self) -> None:
         sh = self._shown

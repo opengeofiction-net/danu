@@ -164,3 +164,34 @@ def test_nothing_is_built_until_the_panel_is_opened(window):
 
 def test_the_panel_is_in_the_view_menu(window):
     assert window.checks_dock.toggleViewAction() in menu(window.menuBar(), 'View').actions()
+
+
+def test_an_edit_too_wide_to_put_way_by_way_has_the_checks_found_again(crossed, qtbot, monkeypatch):
+    """Past WIDE_EDIT ways - the rings closed on open, 8,027 on roantra, were
+    110 s put way by way - the checks are found again whole, on the worker;
+    one made while a scan runs has that scan done again when it lands."""
+    from danu.ui import app as A
+    w, rogue = crossed
+    monkeypatch.setattr(A, 'WIDE_EDIT', 2)
+    before = w.crossing_index
+    for k in range(3):                                   # three ways in one step
+        draw(w, [(125.8 + 0.01 * k, -22.9), (125.8 + 0.01 * k, -22.85)], 500)
+    assert w.crossing_index is before, 'one way at a time is put to them'
+    sq = w.working_set.squares[NORTH]
+    alloc = w.editor.history.alloc(sq)
+    w.editor.do(sq, edits.Compound([edits.AddWay(alloc.take(), [alloc.take(), alloc.take()],
+                                                 [(125.9, -22.9 + 0.01 * k), (125.95, -22.9 + 0.01 * k)], {'ele': '600'})
+                                    for k in range(3)], 'three'))
+    qtbot.waitUntil(lambda: w.crossing_index is not None and w.crossing_index is not before, timeout=5000)
+    assert top_rows(w.checks_dock)[0].startswith(f'425 m contour, way {rogue}')
+    # and while a scan runs: it is done again when it lands, not the edit put to it
+    held = []
+    w._checks_runner = held.append
+    w._checks_again()
+    assert len(held) == 1 and w.crossing_index is None
+    w.editor.undo()                                      # the three ways again, as wide
+    assert w._checks_redo and w._checks_missed == []
+    held[0].run()
+    assert len(held) == 2 and w.crossing_index is None, 'found again, the first scan set aside'
+    held[1].run()
+    assert w.crossing_index is not None and not w._checks_redo
