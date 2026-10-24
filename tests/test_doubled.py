@@ -59,3 +59,15 @@ def test_two_negative_copies_of_each_other_are_left_to_the_panel():
     way(sq, -1, COAST, {'ele': '0'})
     way(sq, -2, COAST, {'ele': '0'})
     assert removed(w) == []
+
+
+def test_a_copy_of_a_water_relations_ring_goes_at_the_relations_level():
+    """Roantra's estuary: ele on the relation, none on its rings - an island's
+    negative copy, at 0 m, lies on a ring at the relation's level."""
+    w, sq = ws()
+    island = way(sq, 5000, [*COAST, COAST[0]], {})
+    sq.relations[470435] = Relation(id=470435, members=[Member('way', island.id, 'inner')],
+                                    tags={'natural': 'water', 'ele': '0'})
+    way(sq, -1, [*COAST, COAST[0]], {'natural': 'water', 'ele': '0'})
+    way(sq, -2, [*COAST, COAST[0]], {'natural': 'water', 'ele': '10'})               # another level
+    assert removed(w) == [-1]

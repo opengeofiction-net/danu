@@ -1,6 +1,7 @@
 """Contours an import has doubled: a negative way - drawn here, or recovered -
 lying wholly on top of a positive one at its level, the main map's own way,
-which an import of water or coastline has just brought in.
+which an import of water or coastline has just brought in - or on a ring of
+a water relation at the relation's level.
 
 Recovered squares carry their own copies of the coastline and the lakes'
 shores, negative ways tagged like the real ones; the import then lays the
@@ -22,6 +23,7 @@ from collections import defaultdict
 import numpy as np
 
 from . import edits
+from .square import parse_ele, water_tags
 
 NEAR_M = 1.0
 FILL = 'danu:fill'          # a flattened lake's fill line - water.flatten.FILL
@@ -38,13 +40,22 @@ def commands(working_set) -> list:
     if not squares:
         return []
     k = _metres(sum(sq.name.lat + 0.5 for sq in squares) / len(squares))
-    # the positive ways' segments, by level, in metres
+    # the positive ways' segments, by level, in metres. A ring of a water
+    # relation is at the relation's level when it carries none of its own:
+    # roantra's estuary, relation 470435, has ele=0 on the relation and on 5
+    # of its 248 rings, and its islands' recovered copies were left doubled
     segs: dict = defaultdict(list)
     for sq in squares:
+        ringed = {}
+        for rel in sq.relations.values():
+            e = parse_ele(rel.tags.get('ele'))
+            if e is not None and water_tags(rel.tags):
+                ringed.update({m.ref: e for m in rel.members if m.type == 'way'})
         for w in sq.ways.values():
-            if w.id > 0 and w.ele is not None and len(w.refs) >= 2 and all(r in sq.nodes for r in w.refs):
+            e = w.ele if w.ele is not None else ringed.get(w.id)
+            if w.id > 0 and e is not None and len(w.refs) >= 2 and all(r in sq.nodes for r in w.refs):
                 P = np.array([(sq.nodes[r].lon, sq.nodes[r].lat) for r in w.refs]) * k
-                segs[w.ele].append((P[:-1], P[1:]))
+                segs[e].append((P[:-1], P[1:]))
     level = {e: (np.concatenate([a for a, _ in s]), np.concatenate([b for _, b in s])) for e, s in segs.items()}
     out = []
     for sq in squares:
