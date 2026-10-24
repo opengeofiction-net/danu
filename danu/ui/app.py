@@ -2502,6 +2502,10 @@ def main(argv: list[str] | None = None) -> int:
     # issue; a fault in C at the next start (J6)
     reporter = crash.Reporter(user_data_dir() / 'crashes')
     reporter.install()
+    # garbage collected on this thread alone, never on a worker that would
+    # free a Qt object the window is painting with - danu.ui.collector
+    from .collector import MainThreadCollector
+    collector = MainThreadCollector(app)
     # the theme before the first widget, which would be drawn in the desktop's
     settings = Settings()
     theme.apply(app, settings.theme)
@@ -2541,4 +2545,5 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return app.exec()
     finally:
+        collector.stop()
         reporter.uninstall()
