@@ -788,15 +788,25 @@ class EditController(QObject):
         n = square.nodes[nid]
         after = (n.lon, n.lat)
         bad = self._node_crossings(square, nid)
-        if bad:
+        # a contour that already crosses moves freely, as a picked one does
+        # (G8b): the mapper is mending it, a node at a time
+        was = self._node_contours_crossed(square, nid, before)
+        if bad and not was:
             n.lon, n.lat = before                  # R16: refused on commit, put back
             self.layer.refresh(square, self._ways_holding(square, nid))
             self.message.emit('not moved: ' + self._describe_crossing(bad))
             self.overlay.update()
             return True
+        now = self._node_contours_crossed(square, nid) if was else set()
         n.lon, n.lat = before                      # the command does the move, so undo has it exact
         self.do(square, edits.MoveNode(nid, before, after))
-        self.message.emit(self._moved_what())
+        said = self._moved_what()
+        if was:
+            c = f'{len(now)} contour{"s" * (len(now) != 1)}'
+            said += ('; it crosses nothing now' if not now else
+                     f'; it still crosses {c}' if len(now) == len(was) else
+                     f'; it crosses {c}, was {len(was)}')
+        self.message.emit(said)
         return True
 
     def _start_transform(self, event, pos: QPointF) -> bool:
@@ -2658,6 +2668,16 @@ class EditController(QObject):
             if nid in w.refs and w.ele is not None:
                 return w
         return None
+
+    def _node_contours_crossed(self, square: Square, nid: int, at=None) -> set:
+        """What the contours holding a node cross, the node where it is or
+        at ``at`` (lon, lat) - the measure a picked move is held to."""
+        keys = {(square.name, wid) for wid in self._ways_holding(square, nid)
+                if square.ways[wid].ele is not None and (square.name, wid) not in self.layer.water}
+        p = m.lonlat_to_scene_array([at[0]], [at[1]])[0] if at is not None else None
+        courses = {k: [(float(p[0]), float(p[1])) if r == nid and p is not None else self.layer.node_xy(square, r)
+                       for r in square.ways[k[1]].refs if r in square.nodes] for k in keys}
+        return self._crossed(courses, keys)
 
     def _node_crossings(self, square: Square, nid: int) -> list:
         """R16 for the segments either side of a node, after a move - the only
