@@ -286,6 +286,32 @@ def test_a_drag_that_would_cross_another_contour_is_put_back(w):
     assert not w.editor.history.can_undo
 
 
+def test_a_node_of_a_contour_that_already_crosses_moves_freely(w):
+    """As a picked move does (G8b): the mapper mending a crossing a node at a
+    time may pass through a drag that still crosses."""
+    square = w.working_set.squares[TEN]
+    (forty,) = ways_at(square, 40)
+    (thirty,) = ways_at(square, 30)
+    nid = forty.refs[1]
+    n = square.nodes[nid]
+    home = (n.lon, n.lat)
+    y_thirty = square.nodes[thirty.refs[0]].lat
+    w.editor.do(square, edits.MoveNode(nid, home, (n.lon, y_thirty - 0.06)))    # across the 30 m only
+    px_per_deg = abs(w.map.mapFromScene(QPointF(*m.lonlat_to_scene(n.lon, n.lat))).y()
+                     - w.map.mapFromScene(QPointF(*m.lonlat_to_scene(n.lon, y_thirty))).y()) / abs(n.lat - y_thirty)
+    start = n.lat
+    drag(w, n.lon, n.lat, 0, -round(px_per_deg * 0.02))     # north, still south of the 30 m
+    said = w.statusBar().currentMessage()
+    assert start < n.lat < y_thirty and 'still crosses 1 contour' in said, said
+    drag(w, n.lon, n.lat, 0, -round(px_per_deg * 0.1))      # north of it again
+    said = w.statusBar().currentMessage()
+    assert n.lat > y_thirty and 'crosses nothing now' in said, said
+    # and crossing nothing again, it is held to R16
+    clear = (n.lon, n.lat)
+    drag(w, n.lon, n.lat, 0, round(px_per_deg * 0.2))
+    assert (n.lon, n.lat) == clear and w.statusBar().currentMessage().startswith('not moved')
+
+
 def test_a_double_click_on_a_segment_inserts_a_node_there(w):
     square = w.working_set.squares[TEN]
     (ten,) = ways_at(square, 10)

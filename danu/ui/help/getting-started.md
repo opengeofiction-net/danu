@@ -55,7 +55,9 @@ page back over whatever is open.
   A redraw has to come back to the contour it began on; **Escape** drops it.
 - **Continue a contour** by starting a line on its end.
 - **Move a node** by dragging it; drag it onto another node with **Ctrl**
-  held to join the two.
+  held to join the two. A node of a contour that crossed nothing is not put
+  down crossing another; one of a contour that already crosses moves, so a
+  crossing can be mended a node at a time.
 - **Move a whole contour** by dragging it with **Shift** held.
 - **Insert a node** with a double click on a line.
 - Where lines and nodes lie together, **click again** in the same place for
