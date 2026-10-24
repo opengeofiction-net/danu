@@ -61,6 +61,8 @@ DEFAULT_KEYS = {
     'edit.split': 'P',
     # U unglues a node contours of two levels share - G8e
     'edit.unglue': 'U',
+    # E: the contour picked made to enclose the pieces picked beside it, as one
+    'edit.absorb': 'E',
     # R reverses the coastline selected, the sea to its other side; and the
     # main map's coastlines imported, beside water's and the spot heights'
     'edit.reverse_coastline': 'R',

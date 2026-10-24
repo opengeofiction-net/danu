@@ -1062,6 +1062,7 @@ class MainWindow(QMainWindow):
                 ('edit.burn_all', 'Burn &all climbs', lambda: ed.burn(every=True)),
                 ('edit.split', 'S&plit', ed.split),
                 ('edit.unglue', 'U&nglue', ed.unglue),
+                ('edit.absorb', '&Absorb pieces', ed.absorb),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
                 ('view.josm', 'Show in &JOSM', self.show_in_josm),
@@ -1140,7 +1141,7 @@ class MainWindow(QMainWindow):
 
         edit = self.menuBar().addMenu('&Edit')
         for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
-                     None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
+                     'edit.absorb', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
             if name:
                 edit.addAction(e[name])
             else:

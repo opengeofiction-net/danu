@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
 from ..checks.files import API_LIMIT
+from ..core import absorb as absorb_
 from ..core import edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
@@ -958,6 +959,11 @@ class EditController(QObject):
             picked = found
         else:
             picked = {n: set(ids) for n, ids in self.picked.items()}
+            sel = self.selection
+            if op == 'add' and sel is not None and sel.relation is None and (sel.way is not None or sel.node):
+                # added to what is selected: a contour chosen, then its pieces lassoed (Absorb)
+                ids = {sel.node} if sel.node is not None else set(sel.way.refs)
+                picked.setdefault(sel.square.name, set()).update(ids)
             for n, ids in found.items():
                 if op == 'add':
                     picked.setdefault(n, set()).update(ids)
@@ -1105,6 +1111,55 @@ class EditController(QObject):
         self.selection = Selection(sel.square, sel.square.ways[sel.way.id], sel.node)
         self.message.emit(f'unglued {n} contour{"s" * (n != 1)} from the node, each drawn up to '
                           f'{edits.SPLIT_GAP_M:g} m back into its own line')
+        self.overlay.update()
+
+    def absorb(self):
+        """E: the contour picked made one line with the pieces of it picked
+        beside it - a valley's tip and the rings up the river from it - by
+        danu.core.absorb, the pieces gone, one step. The open contour
+        picked is the one kept, the longest if there are more. Under G8b's rule: one that crossed nothing
+        may not be made to cross."""
+        ws = self.working_set
+        if not self.picked or ws is None:
+            self.message.emit('pick the contour and the pieces beside it - select it and Shift-lasso '
+                              'the pieces, or lasso them all - then E absorbs them')
+            return
+        if len(self.picked) != 1:
+            self.message.emit('not absorbed: the picks are in more than one square')
+            return
+        (name, ids), = self.picked.items()
+        square = ws.squares[name]
+        ways = [w for w in square.ways.values() if w.ele is not None and w.id not in self.layer.water
+                and not w.tags.get('natural') and ids.intersection(w.refs)]
+        if len(ways) < 2:
+            self.message.emit('not absorbed: pick a contour and at least one piece of it')
+            return
+        # the one kept: an open contour - the pieces are rings - the longest if more than one
+        main = max(ways, key=lambda w: (not w.closed, len(w.refs), -w.id))
+        got = absorb_.absorb(square, main.id, [w.id for w in ways if w is not main], self.history.alloc(square))
+        if isinstance(got, str):
+            self.message.emit(f'not absorbed: {got}')
+            return
+        cmd, coords = got
+        keys = {(name, w.id) for w in ways}
+        here = [self.layer.node_xy(square, r) for r in main.refs if r in square.nodes]
+        there = [tuple(map(float, p)) for p in m.lonlat_to_scene_array([c[0] for c in coords], [c[1] for c in coords])]
+        before, after = self.layer.crossed_by(here, skip=keys), self.layer.crossed_by(there, skip=keys)
+        what = f'the {format_ele(main.ele)} m contour'
+        if after and not before:
+            self.marks_focus = [p for k in sorted(after, key=str)[:3] for p in self.layer.crossing_points(there, k)]
+            self.message.emit(f'not absorbed: {what} crosses nothing now, and would cross {len(after)} '
+                              f'contour{"s" * (len(after) != 1)} - ringed')
+            self.overlay.update()
+            return
+        self.marks_focus = []
+        self.do(square, cmd)
+        self.selection = Selection(square, square.ways[main.id])
+        n = len(ways) - 1
+        said = f'absorbed {n} piece{"s" * (n != 1)} into {what}'
+        if after:
+            said += f'; it crosses {len(after)} contour{"s" * (len(after) != 1)}, was {len(before)}'
+        self.message.emit(said)
         self.overlay.update()
 
     def mark_coastline(self, on: bool):
