@@ -1,4 +1,4 @@
-"""The checks panel, its first check - contours that cross (G8a, R16).
+"""The Validation panel, its first check - contours that cross (G8a, R16).
 
 In the fixture's blank square to the north: a rogue contour drawn across
 three others, through the editor so the panel follows the edits as it would
@@ -11,6 +11,7 @@ pytest.importorskip('PySide6')
 
 from danu.core import edits
 from danu.core.square import SquareName
+from danu.ui import mercator as m
 
 from .conftest import menu
 
@@ -62,6 +63,27 @@ def test_the_map_marks_crossings_only_while_the_panel_is_open(crossed):
     assert w.editor.marks == []
 
 
+def test_centre_square_only_keeps_the_centre_squares_findings(crossed):
+    """The rogue's crossings are in the square to the north: listed and
+    marked for the set, neither for its centre alone - and the choice kept."""
+    w, _ = crossed
+    dock = w.checks_dock
+    assert w.working_set.centre != NORTH and len(dock.rows('crossings')) == 4
+    west, south, east, north = w.working_set.centre.bounds
+    x0, y0 = m.lonlat_to_scene(west, north)
+    x1, y1 = m.lonlat_to_scene(east, south)
+    marks = list(w.editor.marks)
+    # the projection keeps order, so in the scene is in the square: _shown's own test
+    inside = [(x, y) for x, y in marks if x0 <= x <= x1 and y0 <= y <= y1]
+    assert len(inside) <= len(marks) - 3                     # the rogue's three are outside
+    dock.centre_only.setChecked(True)
+    assert dock.rows('crossings') == [] and dock.node('crossings').text(0) == 'Crossing contours (0)'
+    assert sorted(w.editor.marks) == sorted(inside) and w.settings.checks_centre_only
+    dock.centre_only.setChecked(False)
+    assert len(dock.rows('crossings')) == 4 and w.editor.marks == marks
+    assert not w.settings.checks_centre_only
+
+
 def test_choosing_a_row_selects_the_contour_and_rings_its_crossings(crossed):
     w, rogue = crossed
     dock = w.checks_dock
@@ -72,6 +94,50 @@ def test_choosing_a_row_selects_the_contour_and_rings_its_crossings(crossed):
     child = dock.rows('crossings')[0].child(0)
     dock.tree.setCurrentItem(child)
     assert len(w.editor.marks_focus) == 1, 'a partner row rings only the crossings with it'
+
+
+def test_the_rings_follow_an_edit_and_go_once_it_is_mended(crossed):
+    """The row chosen keeps its rings round what it finds after each edit,
+    and they go with the row once the contour crosses nothing."""
+    w, rogue = crossed
+    dock = w.checks_dock
+    dock.tree.setCurrentItem(dock.rows('crossings')[0])
+    assert len(w.editor.marks_focus) == 3
+    sq = w.working_set.squares[NORTH]
+    end = sq.ways[rogue].refs[-1]
+
+    def move_end(lon):
+        n = sq.nodes[end]
+        w.editor.do(sq, edits.MoveNode(end, (n.lon, n.lat), (lon, n.lat)))
+        w._refresh_checks()                       # as the timer after an edit does
+    move_end(125.35)                              # back across one of the three
+    assert len(w.editor.marks_focus) == 2
+    move_end(125.15)                              # across none
+    assert w.editor.marks_focus == []
+    move_end(125.6)                               # across them again: no row chosen, no rings
+    assert w.editor.marks_focus == []
+
+
+def test_the_row_chosen_stays_chosen_and_open_across_an_edit(crossed):
+    """Working down the list: a row opened stays open, and the row under it
+    chosen stays chosen - its rings still its own, not its contour's."""
+    w, rogue = crossed
+    dock = w.checks_dock
+    top = dock.rows('crossings')[0]
+    top.setExpanded(True)
+    partner = top.child(1).text(0)
+    dock.tree.setCurrentItem(top.child(1))
+    assert len(w.editor.marks_focus) == 1
+    sq = w.working_set.squares[NORTH]
+    end = sq.ways[rogue].refs[-1]
+    n = sq.nodes[end]
+    w.editor.do(sq, edits.MoveNode(end, (n.lon, n.lat), (n.lon + 0.01, n.lat)))
+    w._refresh_checks()
+    top = dock.rows('crossings')[0]
+    cur = dock.tree.currentItem()
+    assert top.isExpanded() and cur.parent() is top and cur.text(0) == partner
+    assert len(w.editor.marks_focus) == 1
+    assert not any(r.isExpanded() for r in dock.rows('crossings')[1:])
 
 
 def test_the_panel_follows_an_edit_and_its_undo(crossed, qtbot):

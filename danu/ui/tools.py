@@ -362,7 +362,7 @@ class EditController(QObject):
         self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
         self._burn_job: list | None = None            # what the last burn was asked to burn
         self._last_grade: str | None = None           # 'chain' or 'network': what G last did
-        # where contours cross, for the map to mark while the checks panel is
+        # where contours cross, for the map to mark while the Validation panel is
         # open (G8a): scene points, and those of the row chosen
         self.marks: list = []
         self.marks_focus: list = []
@@ -572,7 +572,7 @@ class EditController(QObject):
             return True
         whole = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if whole and self._on_selected_contour(pos):
-            # the contour already selected - from the checks panel, as a rule
+            # the contour already selected - from the Validation panel, as a rule
             # - is the one carried, though another runs nearer the press: in
             # a massif's thirty contours a press is near several (G8b)
             sel = self.selection
@@ -1835,12 +1835,12 @@ class EditController(QObject):
         self.overlay.update()
 
     def cut_loop(self, loop):
-        """O: the loop chosen in the checks panel cut out of its contour - G8c.
+        """O: the loop chosen in the Validation panel cut out of its contour - G8c.
         Proposed with what goes struck through, accepted as one step: on a
         closed contour it is the shorter of the two sides that goes, and
         which that is should be seen before it is done."""
         if loop is None:
-            self.message.emit('choose a contour that crosses itself in the checks panel, '
+            self.message.emit('choose a contour that crosses itself in the Validation panel, '
                               'then O cuts out the loop')
             return
         square = self.working_set.squares.get(loop.contour[0]) if self.working_set else None
@@ -2859,7 +2859,7 @@ class EditOverlay(QGraphicsItem):
 
     def _paint_marks(self, painter: QPainter, ctl, rect: QRectF, px: float) -> None:
         """Every crossing in view as a small red cross, and those of the row
-        chosen in the checks panel larger, ringed - G8a. In pixels, as a
+        chosen in the Validation panel larger, ringed - G8a. In pixels, as a
         spot height is: a crossing is a point at any zoom."""
         pen = QPen(QColor(210, 20, 20), 1.6)
         pen.setCosmetic(True)

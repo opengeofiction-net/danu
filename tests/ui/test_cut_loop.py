@@ -1,4 +1,4 @@
-"""The checks panel's second check - a contour crossing itself - and cutting
+"""The Validation panel's second check - a contour crossing itself - and cutting
 the loop out (G8c, R16).
 
 In the fixture's blank square to the north: a figure of eight's crossing,

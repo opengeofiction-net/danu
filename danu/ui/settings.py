@@ -53,7 +53,7 @@ DEFAULT_KEYS = {
     # burn a climb the grade found into the terrain, or every one - G7b
     'edit.burn': 'B',
     'edit.burn_all': 'Shift+B',
-    # O for loop: a contour crossing itself, chosen in the checks panel, the
+    # O for loop: a contour crossing itself, chosen in the Validation panel, the
     # loop cut out - G8c
     'edit.cut_loop': 'O',
     # P splits a contour at the node selected, as JOSM's does - G8d; the
@@ -301,6 +301,16 @@ class Settings:
     @auto_rebuild.setter
     def auto_rebuild(self, v: bool):
         self.q.setValue('surface/auto_rebuild', bool(v))
+
+    @property
+    def checks_centre_only(self) -> bool:
+        """The Validation panel lists the centre square's findings only, not
+        the whole set's."""
+        return self._flag('checks/centre_only', False)
+
+    @checks_centre_only.setter
+    def checks_centre_only(self, v: bool):
+        self.q.setValue('checks/centre_only', bool(v))
 
     @property
     def menu_offered(self) -> bool:

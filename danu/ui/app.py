@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
         self._surface_found_at = ''             # when that build landed
         self._surface_stale = False             # edits since it
         self._surface_pending = False           # a build running that will say them
+        self._panel_focus = None                # the rings the panel's row put up, while they are its
         # the first scan over a set runs on a worker - 9.3 s on gobras - and
         # the edits made while it runs are put to it when it lands
         self._checks_runner = QThreadPool.globalInstance().start
@@ -249,6 +250,8 @@ class MainWindow(QMainWindow):
         # the editor is made below: looked up when the button is pressed
         self.checks_dock.cutLoop.connect(lambda loop: self.editor.cut_loop(loop))
         self.checks_dock.visibilityChanged.connect(self._checks_shown)
+        self.checks_dock.centre_only.setChecked(self.settings.checks_centre_only)
+        self.checks_dock.centre_only.toggled.connect(self._checks_centre_only)
         # opened from the menu, it comes to the front of the tabs it shares:
         # shown alone it stayed behind the surface panel, and was never seen
         self.checks_dock.toggleViewAction().toggled.connect(self._checks_opened)
@@ -2111,46 +2114,85 @@ class MainWindow(QMainWindow):
                 self.touch_index.update(square, ways)
             self._checks_due.start()
 
+    def _checks_centre_only(self, on: bool) -> None:
+        self.settings.checks_centre_only = on
+        # a surface build's findings can be there with no scan yet; one
+        # running fills the panel itself when it lands
+        if self._checks_job is None:
+            self._refresh_checks()
+
+    def _shown(self, found):
+        """What the panel lists and the map marks of a check's findings: all
+        the set's, or with Centre square only, those in the centre square -
+        one on its edge counts."""
+        ws = self.working_set
+        if found is None or ws is None or not self.checks_dock.centre_only.isChecked():
+            return found
+        w, s, e, n = ws.centre.bounds
+        return [f for f in found if w <= f.lon <= e and s <= f.lat <= n]
+
     def _refresh_checks(self) -> None:
-        found = self.crossing_index.crossings() if self.crossing_index is not None else []
-        self.checks_dock.show_crossings(found)
-        self.checks_dock.show_loops(self.loop_index.loops() if self.loop_index is not None else [])
-        self.checks_dock.show_touches(self.touch_index.touches() if self.touch_index is not None else [])
-        self.checks_dock.show_spots(self.spot_index.contradictions() if self.spot_index is not None else [])
-        self.checks_dock.show_files(self.file_index.findings() if self.file_index is not None else [])
-        self.checks_dock.show_inside(self.inside_index.findings() if self.inside_index is not None else [])
-        self.checks_dock.show_surface(self.surface_findings, self._surface_found_at, self._surface_stale,
+        sh = self._shown
+        self.checks_dock.show_crossings(sh(self.crossing_index.crossings() if self.crossing_index is not None else []))
+        self.checks_dock.show_loops(sh(self.loop_index.loops() if self.loop_index is not None else []))
+        self.checks_dock.show_touches(sh(self.touch_index.touches() if self.touch_index is not None else []))
+        self.checks_dock.show_spots(sh(self.spot_index.contradictions() if self.spot_index is not None else []))
+        self.checks_dock.show_files(sh(self.file_index.findings() if self.file_index is not None else []))
+        self.checks_dock.show_inside(sh(self.inside_index.findings() if self.inside_index is not None else []))
+        self.checks_dock.show_surface(sh(self.surface_findings), self._surface_found_at, self._surface_stale,
                                       self._surface_pending)
+        self._refocus()
         self._refresh_marks()
+
+    def _focus(self, pts: list) -> None:
+        """The rings round the row chosen in the panel - kept as the panel's,
+        so a refresh after an edit can follow them."""
+        self.editor.marks_focus = self._panel_focus = pts
+
+    def _refocus(self) -> None:
+        """The panel's rings, after a refresh: round what the row chosen finds
+        now, or gone with the row once what it found is mended. Rings a tool
+        put up - a move refused - are the tool's, and stay. The selection and
+        the view are left as they are: the mapper is mid-edit."""
+        if self._panel_focus is None or self.editor.marks_focus is not self._panel_focus:
+            return
+        found = self.checks_dock.current_finding()
+        if found is None:
+            self._panel_focus = None
+            self.editor.marks_focus = []
+            return
+        check, f = found
+        self._focus([m.lonlat_to_scene(c.lon, c.lat) for c in (f[1] if check == 'crossings' else [f])])
 
     def _refresh_marks(self) -> None:
         """The crossings marked on the map while the panel is open, and not
         otherwise: 6,714 red crosses over gobras are what the panel is for,
         not what drawing a contour is."""
         on = self.checks_dock.isVisible() and self.crossing_index is not None
-        self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in self.crossing_index.crossings()]
+        sh = self._shown
+        self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in sh(self.crossing_index.crossings())]
                              + [m.lonlat_to_scene(lp.lon, lp.lat)
-                                for lp in (self.loop_index.loops() if self.loop_index is not None else [])]
+                                for lp in sh(self.loop_index.loops() if self.loop_index is not None else [])]
                              + [m.lonlat_to_scene(t.lon, t.lat)
-                                for t in (self.touch_index.touches() if self.touch_index is not None else [])]
+                                for t in sh(self.touch_index.touches() if self.touch_index is not None else [])]
                              + [m.lonlat_to_scene(c.lon, c.lat)
-                                for c in (self.spot_index.contradictions() if self.spot_index is not None else [])]
+                                for c in sh(self.spot_index.contradictions() if self.spot_index is not None else [])]
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.file_index.findings() if self.file_index is not None else [])]
+                                for f in sh(self.file_index.findings() if self.file_index is not None else [])]
                              # the lakes, and not the report: 3,882 rings over gobras would be
                              # crosses over every hill
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.inside_index.findings('lake') if self.inside_index is not None else [])]
+                                for f in sh(self.inside_index.findings('lake') if self.inside_index is not None else [])]
                              # a square of unreached ground is a row, not a place to mark
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.surface_findings or []) if f.kind != 'unreached']
+                                for f in sh(self.surface_findings or []) if f.kind != 'unreached']
                              if on else [])
         if not on:
             self.editor.marks_focus = []
         self.editor.overlay.update()
 
     def _choose_crossing(self, key, found) -> None:
-        """A row of the checks panel chosen: its contour selected, its
+        """A row of the Validation panel chosen: its contour selected, its
         crossings ringed and brought into view."""
         ws = self.working_set
         square = ws.squares.get(key[0]) if ws is not None else None
@@ -2160,7 +2202,7 @@ class MainWindow(QMainWindow):
             return
         self.editor.set_tool('select')
         self.editor.selection = Selection(square, way)
-        self.editor.marks_focus = [m.lonlat_to_scene(c.lon, c.lat) for c in found]
+        self._focus([m.lonlat_to_scene(c.lon, c.lat) for c in found])
         lons, lats = [c.lon for c in found], [c.lat for c in found]
         self._show_place(min(lons), min(lats), max(lons), max(lats))
         self.editor.overlay.update()
@@ -2170,7 +2212,7 @@ class MainWindow(QMainWindow):
             'delete it or redraw over it, whichever of the two is wrong')
 
     def _choose_loop(self, loop) -> None:
-        """A contour crossing itself, chosen in the checks panel: it
+        """A contour crossing itself, chosen in the Validation panel: it
         selected, the place ringed and brought into view - G8c."""
         ws = self.working_set
         square = ws.squares.get(loop.contour[0]) if ws is not None else None
@@ -2180,14 +2222,14 @@ class MainWindow(QMainWindow):
             return
         self.editor.set_tool('select')
         self.editor.selection = Selection(square, way)
-        self.editor.marks_focus = [m.lonlat_to_scene(loop.lon, loop.lat)]
+        self._focus([m.lonlat_to_scene(loop.lon, loop.lat)])
         self._show_place(loop.lon, loop.lat, loop.lon, loop.lat)
         self.editor.overlay.update()
         key = self.settings.key('edit.cut_loop') or 'O'
         self.statusBar().showMessage(f'{loop.explain()} - ringed; {key} proposes the loop cut out')
 
     def _choose_touch(self, touch) -> None:
-        """Contours that touch, chosen in the checks panel: the first of
+        """Contours that touch, chosen in the Validation panel: the first of
         them selected - at the node, for one two levels share, so U unglues
         it - the place ringed and brought into view (G8e)."""
         ws = self.working_set
@@ -2199,7 +2241,7 @@ class MainWindow(QMainWindow):
         self.editor.set_tool('select')
         node = touch.node if touch.kind in ('shared', 'fork') and touch.node in way.refs else None
         self.editor.selection = Selection(square, way, node)
-        self.editor.marks_focus = [m.lonlat_to_scene(touch.lon, touch.lat)]
+        self._focus([m.lonlat_to_scene(touch.lon, touch.lat)])
         self._show_place(touch.lon, touch.lat, touch.lon, touch.lat)
         self.editor.overlay.update()
         self.statusBar().showMessage(f'{touch.explain()} - ringed')
@@ -2215,7 +2257,7 @@ class MainWindow(QMainWindow):
             return
         self.editor.set_tool('select')
         self.editor.selection = Selection(square, None, c.node)
-        self.editor.marks_focus = [m.lonlat_to_scene(c.lon, c.lat)]
+        self._focus([m.lonlat_to_scene(c.lon, c.lat)])
         self._show_place(c.lon, c.lat, c.lon, c.lat)
         self.editor.overlay.update()
         self.statusBar().showMessage(f'{c.explain()} - ringed')
@@ -2227,7 +2269,7 @@ class MainWindow(QMainWindow):
         square = ws.squares.get(f.square) if ws is not None else None
         if f.way is None and f.relation is None and f.node is None:
             # a place and no feature - sea level off the shore, ground unreached
-            self.editor.marks_focus = [m.lonlat_to_scene(f.lon, f.lat)]
+            self._focus([m.lonlat_to_scene(f.lon, f.lat)])
             self._show_place(*f.box)
             self.editor.overlay.update()
             self.statusBar().showMessage(f.explain())
@@ -2242,7 +2284,7 @@ class MainWindow(QMainWindow):
         self.editor.selection = (Selection(square, square.ways[f.way]) if f.way is not None
                                  else Selection(square, None, relation=square.relations[f.relation])
                                  if f.relation is not None else Selection(square, None, f.node))
-        self.editor.marks_focus = [m.lonlat_to_scene(f.lon, f.lat)]
+        self._focus([m.lonlat_to_scene(f.lon, f.lat)])
         self._show_place(*f.box)
         self.editor.overlay.update()
         self.statusBar().showMessage(f.explain())

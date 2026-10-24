@@ -98,7 +98,9 @@ The Surface panel
 chooses how it is shown; **Help › Layers** says what each part of the map is.
 
 Look for *unknown ground*, which the contours do not describe, and for the
-checks panel's findings - crossings, loops, contours touching.
+Validation panel's findings - crossings, loops, contours touching. **Centre
+square only**, at the top of the panel, lists and marks just the centre
+square's.
 
 ## 6. Save, and send your squares in
 

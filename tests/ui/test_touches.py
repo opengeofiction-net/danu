@@ -1,4 +1,4 @@
-"""The checks panel's third check - contours that touch or lie on one
+"""The Validation panel's third check - contours that touch or lie on one
 another - and U to unglue a shared node (G8e).
 
 In the fixture's blank square to the north: a 125 m V whose tip is a node of

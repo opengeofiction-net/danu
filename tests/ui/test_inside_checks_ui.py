@@ -1,4 +1,4 @@
-"""The checks panel's inside-the-rings findings - H1b. In the fixture's blank
+"""The Validation panel's inside-the-rings findings - H1b. In the fixture's blank
 square to the north."""
 
 import pytest

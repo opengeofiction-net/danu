@@ -2,7 +2,7 @@
 
 What the save's compression and the checks' first scan share: each was
 seconds of the UI thread - 21.6 s to save the gobras 3x3, 9.3 s to open the
-checks panel over it - and the desktop called the window not responding. The
+Validation panel over it - and the desktop called the window not responding. The
 answer arrives as a signal, which Qt delivers on the thread the signals
 object lives on, the UI's.
 """

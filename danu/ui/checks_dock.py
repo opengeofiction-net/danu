@@ -32,6 +32,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDockWidget,
     QHBoxLayout,
     QLabel,
@@ -47,6 +48,7 @@ from ..checks.crossings import by_contour
 
 _ROW = Qt.ItemDataRole.UserRole
 _CHECK = Qt.ItemDataRole.UserRole + 1         # the check a node or a row is of
+_PART = Qt.ItemDataRole.UserRole + 2          # what a row under a row is of it - a partner contour
 
 # the checks, in the tree's order: the label, and what the tooltip says it is
 CHECKS = {
@@ -104,6 +106,11 @@ class ChecksDock(QDockWidget):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setVisible(False)
+        # the checks run over the whole set either way: a crossing at the
+        # square's edge needs its neighbour to be found
+        self.centre_only = QCheckBox('Centre square only')
+        self.centre_only.setToolTip('List and mark what is found in the centre square, '
+                                    'not in its neighbours as well')
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
@@ -118,6 +125,7 @@ class ChecksDock(QDockWidget):
         self.groups: list = []
         box.addWidget(self.progress)
         box.addWidget(self.status)
+        box.addWidget(self.centre_only)
         box.addWidget(self.tree, 1)
         buttons = QHBoxLayout()
         self.cut_btn = QPushButton('Cut out loop')
@@ -141,6 +149,12 @@ class ChecksDock(QDockWidget):
     def rows(self, check: str) -> list[QTreeWidgetItem]:
         node = self.nodes[check]
         return [node.child(i) for i in range(node.childCount())]
+
+    def current_finding(self):
+        """The row chosen, as (check, what it holds), or None."""
+        item = self.tree.currentItem()
+        f = item.data(0, _ROW) if item is not None else None
+        return (item.data(0, _CHECK), f) if f is not None else None
 
     def current_loop(self):
         item = self.tree.currentItem()
@@ -184,8 +198,14 @@ class ChecksDock(QDockWidget):
         working down the list after an edit keeps their place."""
         node = self.nodes[check]
         current = self.tree.currentItem()
+        # a row under a row chosen: its row kept, and it found again under it
+        part = current.data(0, _PART) if current is not None else None
+        if part is not None:
+            current = current.parent()
         was = (same(current.data(0, _ROW)) if current is not None and current.data(0, _CHECK) == check
                and current.data(0, _ROW) is not None else None)
+        opened = {same(node.child(i).data(0, _ROW)) for i in range(node.childCount())
+                  if node.child(i).isExpanded()}
         self.tree.blockSignals(True)
         node.takeChildren()
         keep = None
@@ -198,8 +218,14 @@ class ChecksDock(QDockWidget):
             for i in range(item.childCount()):
                 item.child(i).setData(0, _CHECK, check)
             node.addChild(item)
+            if same(f) in opened:
+                item.setExpanded(True)
             if was is not None and same(f) == was:
                 keep = item
+                if part is not None:
+                    # the partner no longer crossed - mended - leaves its contour's row chosen
+                    keep = next((item.child(i) for i in range(item.childCount())
+                                 if item.child(i).data(0, _PART) == part), item)
         label, what = CHECKS[check]
         node.setText(0, f'{label} ({len(rows):,})' if count is None else f'{label} ({count})')
         node.setToolTip(0, (tip + '\n' if tip else '') + what.format(ha=f'{self.bare_min_ha:g}'))
@@ -243,6 +269,7 @@ class ChecksDock(QDockWidget):
                 child = QTreeWidgetItem([f'crosses {ele:g} m contour, way {wid} in {sq}'
                                          + (f' - {times} times' if times > 1 else '')])
                 child.setData(0, _ROW, (g.contour, [c for c in g.crossings if other in (c.a, c.b)]))
+                child.setData(0, _PART, other)
                 top.addChild(child)
             return top
         self._fill('crossings', [(g.contour, g.crossings) for g in self.groups], lambda f: f[0][:2],
