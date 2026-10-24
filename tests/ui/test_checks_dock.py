@@ -73,7 +73,8 @@ def test_centre_square_only_keeps_the_centre_squares_findings(crossed):
     x0, y0 = m.lonlat_to_scene(west, north)
     x1, y1 = m.lonlat_to_scene(east, south)
     marks = list(w.editor.marks)
-    inside = [(x, y) for x, y in marks if x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1]
+    # the projection keeps order, so in the scene is in the square: _shown's own test
+    inside = [(x, y) for x, y in marks if x0 <= x <= x1 and y0 <= y <= y1]
     assert len(inside) <= len(marks) - 3                     # the rogue's three are outside
     dock.centre_only.setChecked(True)
     assert dock.rows('crossings') == [] and dock.node('crossings').text(0) == 'Crossing contours (0)'

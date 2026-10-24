@@ -2115,7 +2115,9 @@ class MainWindow(QMainWindow):
 
     def _checks_centre_only(self, on: bool) -> None:
         self.settings.checks_centre_only = on
-        if self.crossing_index is not None:
+        # a surface build's findings can be there with no scan yet; one
+        # running fills the panel itself when it lands
+        if self._checks_job is None:
             self._refresh_checks()
 
     def _shown(self, found):
