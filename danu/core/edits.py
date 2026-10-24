@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 from .reconcile import Reconciled, reconcile
 from .square import Member, Node, Relation, Square, Way, is_coastline
@@ -1229,8 +1230,9 @@ def close_rings(square: Square) -> CloseRings | None:
 # ---------------------------------------------------------------- split
 
 def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Compound | None:
-    """The command that splits every way over ``limit`` nodes into pieces of
-    at most ``limit``, consecutive pieces sharing their boundary node, tags
+    """The command that splits every way over ``limit`` nodes into as few
+    pieces as keep each within it, all of a size - 2,500 nodes are two of
+    1,250, not 2,000 and 501 - consecutive pieces sharing their boundary node, tags
     copied to each, direction kept - exactly as danu.core.split_long_ways does
     to a file, and a test holds the two equal. The first piece keeps the
     way's id; the rest take fresh ones. None when nothing is over the limit.
@@ -1244,13 +1246,20 @@ def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Co
         n = len(way.refs)
         if n <= limit:
             continue
-        step = limit - 1
-        pieces = [way.refs[s:s + limit] for s in range(0, n - 1, step)]
+        pieces = [way.refs[a:b + 1] for a, b in pairwise(even_cuts(n, limit))]
         new_ids = [wid] + [alloc.take() for _ in pieces[1:]]
         cmds.append(_ReplaceWays(wid, way, [(nid, refs, dict(way.tags)) for nid, refs in zip(new_ids, pieces, strict=True)]))
     if not cmds:
         return None
     return Compound(cmds, name=f'split {len(cmds)} long way(s)')
+
+
+def even_cuts(n: int, limit: int) -> list[int]:
+    """Where a way of ``n`` nodes is cut into as few pieces of at most
+    ``limit`` as will do, all of a size: the node index each piece begins
+    at, and the last node's."""
+    k = -(-(n - 1) // (limit - 1))
+    return [i * (n - 1) // k for i in range(k + 1)]
 
 
 @dataclass

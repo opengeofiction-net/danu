@@ -240,8 +240,8 @@ def test_splitting_matches_split_long_ways_on_the_file(tmp_path):
     cmd.apply(sq)
     long_model = [w for w in sq.ways.values() if w.tags.get('note') == 'long']
     long_tool = [w for w in from_tool.ways.values() if w.tags.get('note') == 'long']
-    assert len(long_model) == len(long_tool) == 3            # pieces of 10, 10 and 5 refs, sharing ends: 23 distinct nodes
-    assert sorted(len(w.refs) for w in long_model) == sorted(len(w.refs) for w in long_tool)
+    assert len(long_model) == len(long_tool) == 3            # 23 nodes, ends shared: pieces of 8, 8 and 9, not 10, 10 and 5
+    assert sorted(len(w.refs) for w in long_model) == sorted(len(w.refs) for w in long_tool) == [8, 8, 9]
     assert all(len(w.refs) <= 10 for w in long_model)
     # same geometry, in order, ends shared
     seq_model = [r for w in sorted(long_model, key=lambda w: -w.id) for r in w.refs]
@@ -270,6 +270,18 @@ def test_splitting_matches_split_long_ways_on_the_file(tmp_path):
     cmd.undo(sq)
     assert sq.ways[wid].refs == ids and len([w for w in sq.ways.values() if w.tags.get('note') == 'long']) == 1
     assert [(m.type, m.ref, m.role) for m in sq.relations[rid].members] == [('way', wid, 'outer')]
+
+
+def test_a_way_just_over_the_limit_is_halved():
+    """2,500 nodes are two of 1,250, not 2,000 and the 501 left over."""
+    sq = fresh_square()
+    alloc = edits.IdAllocator(sq)
+    wid = alloc.take()
+    ids = [alloc.take() for _ in range(2500)]
+    edits.AddWay(wid, ids, [(10.0 + i * 1e-5, 10.5) for i in range(2500)], {'ele': '150'}).apply(sq)
+    edits.split_long_ways(sq, alloc).apply(sq)
+    assert sorted(len(w.refs) for w in sq.ways.values() if set(w.refs) <= set(ids)) == [1250, 1251]
+    assert edits.even_cuts(4500, 2000) == [0, 1499, 2999, 4499]
 
 
 def test_nothing_to_split_is_none():
