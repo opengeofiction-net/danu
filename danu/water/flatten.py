@@ -5,7 +5,7 @@ squares: its level as ``ele`` on its outline, which the build already reads as
 a contour - a closed contour at the lake's level with nothing inside it, which
 the fill makes flat - and the contours that disagree with that taken away.
 
-So flattening a lake is four edits, one step:
+So flattening a lake is five edits, one step:
 
 - **The level on the outline.** A closed way's own ``ele``; a relation's on
   each of its member ways, outer and inner, so an island's shore is at the
@@ -540,7 +540,7 @@ class _Pusher:
             far = self._zone(self.dists[0])[0]
             k = max(range(len(L) - 1), key=lambda k: self._point(L[k]).Distance(far))
             if self._point(L[k]).Distance(far) <= 0:
-                return None                              # it lies all within it
+                return None                              # it lies all within reach of the water
             refs, L = [*refs[k:-1], *refs[:k], refs[k]], [*L[k:-1], *L[:k], L[k]]
         cum = _length(L)
         line = self._line(L)
