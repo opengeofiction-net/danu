@@ -1678,9 +1678,9 @@ class MainWindow(QMainWindow):
             return ''
         self.editor.do_across(steps)
         n = sum(len(cmd.closes) for _, cmd in steps)
-        what = 'ring that ended on a second node at its first' if n == 1 else 'rings that ended on a second node at their first'
-        return (f'closed {n:,} {what}\'s place, in ' + ', '.join(str(sq.name) for sq, _ in steps)
-                + ' - saving keeps it')
+        what = ('ring whose last node stood at its first node\'s place' if n == 1 else
+                'rings whose last node stood at their first node\'s place')
+        return f'closed {n:,} {what}, in ' + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it'
 
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:

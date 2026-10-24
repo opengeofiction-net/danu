@@ -1205,10 +1205,14 @@ class CloseRings(Command):
         return f'close {len(self.closes)} ring{"s" * (len(self.closes) != 1)}'
 
 
+SAME_PLACE = 1e-7               # degrees: a unit of the seventh place the files are written to, a centimetre
+
+
 def close_rings(square: Square) -> CloseRings | None:
     """The command that closes the square's rings closed by position only -
     a way of at least four nodes whose last is not its first but stands at
-    its place, that last node carrying no tags of its own - a spot height is
+    its place - to ``SAME_PLACE``, so a file another tool wrote again
+    still reads - that last node carrying no tags of its own - a spot height is
     not a ring's end. None when there are none."""
     closes = []
     for wid in sorted(square.ways):
@@ -1216,7 +1220,8 @@ def close_rings(square: Square) -> CloseRings | None:
         if len(refs) < 4 or refs[0] == refs[-1]:
             continue
         a, b = square.nodes.get(refs[0]), square.nodes.get(refs[-1])
-        if a is not None and b is not None and not b.tags and (a.lon, a.lat) == (b.lon, b.lat):
+        if (a is not None and b is not None and not b.tags
+                and abs(a.lon - b.lon) <= SAME_PLACE and abs(a.lat - b.lat) <= SAME_PLACE):
             closes.append((wid, refs[-1]))
     return CloseRings(closes) if closes else None
 

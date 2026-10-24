@@ -771,4 +771,12 @@ def test_rings_closed_by_position_only_are_closed_onto_their_first_node():
     assert before[ways['plain']][-1] not in sq.nodes and shared_end in sq.nodes
     assert edits.close_rings(sq) is None
     cmd.undo(sq)
+    # a centimetre off, as another tool writing the file again might leave it, still a ring;
+    # a metre off, an open line
+    last = sq.nodes[before[ways['plain']][-1]]
+    last.lon += 0.5e-7
+    assert ways['plain'] in [w for w, _ in edits.close_rings(sq).closes]
+    last.lon += 1e-5
+    assert ways['plain'] not in [w for w, _ in edits.close_rings(sq).closes]
+    last.lon -= 1e-5 + 0.5e-7
     assert {w: list(sq.ways[w].refs) for w in sq.ways} == before and set(sq.nodes) == nodes
