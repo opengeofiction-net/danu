@@ -365,8 +365,7 @@ class MapView(QGraphicsView):
     def mouseDoubleClickEvent(self, event):
         p = self.mapToScene(event.position().toPoint())
         if (self.recentre is not None and event.button() == Qt.MouseButton.LeftButton
-                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-            self.recentre(p)
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier and self.recentre(p) is not False):
             event.accept()
             return
         if self.browse is not None and self.browse.double_click(event, p):
