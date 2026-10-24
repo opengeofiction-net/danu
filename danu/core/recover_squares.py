@@ -603,7 +603,10 @@ def main():
             osm = OsmFile(path, 'recover_squares.py')
             for ele in levels:
                 for pts in rings[ele]:
-                    osm.way(pts, {'contour': 'elevation', 'ele': str(ele)})
+                    # a ring closed onto its first node, not a second node at
+                    # its place: Danu reads that as an open line
+                    ring = len(pts) > 3 and tuple(pts[0]) == tuple(pts[-1])
+                    osm.way(pts[:-1] if ring else pts, {'contour': 'elevation', 'ele': str(ele)}, closed=ring)
             shore = clip_lines(water, lon, lat) if water else []
             for pts, natural in shore:
                 tags = {'ele': '0'}

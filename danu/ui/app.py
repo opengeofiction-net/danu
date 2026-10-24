@@ -1616,6 +1616,10 @@ class MainWindow(QMainWindow):
         if self.autosave is not None:
             # once the set is on screen, so the offer is made over the squares it is about
             QTimer.singleShot(0, self._offer_recovery)
+        else:
+            said = self._close_rings()
+            if said:
+                self.statusBar().showMessage(said)
 
     def _offer_recovery(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
@@ -1658,8 +1662,24 @@ class MainWindow(QMainWindow):
             names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])
             said.append(f'autosaved edits are held for {names}{" and more" if len(elsewhere) > 4 else ""}'
                         ' - open there to recover them')
+        closed = self._close_rings()
+        if closed:
+            said.append(closed)
         if said:
             self.statusBar().showMessage('; '.join(said))
+
+    def _close_rings(self) -> str:
+        """The set's rings closed by position only, closed onto their first
+        node - one step, after any recovery, whose edits name the nodes as
+        the file had them. What it says, or ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values() if (cmd := edits.close_rings(sq)) is not None]
+        if not steps:
+            return ''
+        self.editor.do_across(steps)
+        n = sum(len(cmd.closes) for _, cmd in steps)
+        return (f'closed {n:,} ring{"s" * (n != 1)} that ended on a second node at their first\'s place, in '
+                + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it')
 
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:

@@ -1166,6 +1166,60 @@ class Compound(Command):
         return self.name
 
 
+# ---------------------------------------------------------------- close
+
+@dataclass
+class CloseRings(Command):
+    """Ways closed by position only - the last node a second one at the
+    first's place - closed onto their first node, and each second node
+    dropped where nothing else holds it. What recover_squares wrote of every
+    ring before it closed them: roantra's 39,971, which Danu took for open
+    lines. One command for a square's all, the square's ways read once."""
+    closes: list[tuple[int, int]]                 # (way id, the second node's id)
+    dropped: dict[int, Node] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return {wid for wid, _ in self.closes}
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return {nid for _, nid in self.closes}, self.ways(square), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.dropped), {}, {}
+
+    def apply(self, square: Square) -> None:
+        for wid, _ in self.closes:
+            refs = square.ways[wid].refs
+            refs[-1] = refs[0]
+        used = {r for w in square.ways.values() for r in w.refs}
+        self.dropped = {nid: square.nodes.pop(nid) for _, nid in self.closes
+                        if nid not in used and nid in square.nodes}
+
+    def undo(self, square: Square) -> None:
+        square.nodes.update(self.dropped)
+        for wid, nid in self.closes:
+            square.ways[wid].refs[-1] = nid
+        self.dropped = {}
+
+    def describe(self) -> str:
+        return f'close {len(self.closes)} ring{"s" * (len(self.closes) != 1)}'
+
+
+def close_rings(square: Square) -> CloseRings | None:
+    """The command that closes the square's rings closed by position only -
+    a way of at least four nodes whose last is not its first but stands at
+    its place, and carries no tags of its own. None when there are none."""
+    closes = []
+    for wid in sorted(square.ways):
+        refs = square.ways[wid].refs
+        if len(refs) < 4 or refs[0] == refs[-1]:
+            continue
+        a, b = square.nodes.get(refs[0]), square.nodes.get(refs[-1])
+        if a is not None and b is not None and not b.tags and (a.lon, a.lat) == (b.lon, b.lat):
+            closes.append((wid, refs[-1]))
+    return CloseRings(closes) if closes else None
+
+
 # ---------------------------------------------------------------- split
 
 def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Compound | None:

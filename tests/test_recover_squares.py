@@ -75,3 +75,22 @@ def test_simplified_contours_never_cross_once_written(tmp_path, monkeypatch):
     # counts are comparable
     count = lambda r: len([p for ls in r.values() for p in ls])  # noqa: E731
     assert count(rings) == count(bare), 'putting lines back lost or gained some'
+
+
+def test_rings_are_written_closed_onto_their_first_node(tmp_path, monkeypatch):
+    """A ring's last point is its first node, not a second node at its
+    place: Danu reads the second as an open line, and roantra's 39,971 rings
+    were."""
+    import sys
+
+    from danu.core.square import read_square
+    out = tmp_path / 'out'
+    out.mkdir()
+    monkeypatch.setattr(sys, 'argv', ['recover_squares', str(dem(tmp_path)), str(out), '--levels', '10:50,25:200,50'])
+    R.main()
+    (f,) = out.glob('*.osm.xz')
+    sq = read_square(f)
+    pos = lambda r: (sq.nodes[r].lon, sq.nodes[r].lat)  # noqa: E731
+    contours = [w for w in sq.ways.values() if w.ele is not None and w.ele > 0]
+    assert any(w.refs[0] == w.refs[-1] for w in contours), 'the hills make rings'
+    assert not [w for w in contours if w.refs[0] != w.refs[-1] and pos(w.refs[0]) == pos(w.refs[-1])]

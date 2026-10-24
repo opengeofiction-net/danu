@@ -741,3 +741,34 @@ def test_a_rings_closing_node_is_moved_once():
     sq.ways[10] = Way(id=10, refs=[1, 2, 3, 1], tags={'ele': '100'})
     edits.translate_way(sq, 10, lambda lon, lat: (lon + 0.01, lat), edits.IdAllocator(sq)).apply(sq)
     assert sq.nodes[1].lon == pytest.approx(125.11), 'moved twice, or not at all'
+
+
+def test_rings_closed_by_position_only_are_closed_onto_their_first_node():
+    """A way ending on a second node at its first's place is a ring: closed
+    onto the first, the second dropped - unless another way holds it, or it
+    is tagged - and the undo puts it all back."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    square4 = [(10.1, 10.1), (10.2, 10.1), (10.2, 10.2), (10.1, 10.2), (10.1, 10.1)]
+    ways = {}
+    for name in ('plain', 'shared', 'tagged', 'open'):
+        pts = square4 if name != 'open' else square4[:-1] + [(10.1, 10.15)]
+        ids = [alloc.take() for _ in pts]
+        wid = alloc.take()
+        edits.AddWay(wid, ids, pts, {'ele': '30'}).apply(sq)
+        ways[name] = wid
+    shared_end = sq.ways[ways['shared']].refs[-1]
+    sq.ways[ways['open']].refs.insert(2, shared_end)            # another way holds the second node
+    sq.nodes[sq.ways[ways['tagged']].refs[-1]].tags['ele'] = '31'  # a spot height: not a ring's end
+    before = {w: list(sq.ways[w].refs) for w in sq.ways}
+    nodes = set(sq.nodes)
+    cmd = edits.close_rings(sq)
+    assert sorted(w for w, _ in cmd.closes) == sorted([ways['plain'], ways['shared']])
+    cmd.apply(sq)
+    for name in ('plain', 'shared'):
+        refs = sq.ways[ways[name]].refs
+        assert refs[0] == refs[-1] and len(refs) == 5
+    assert before[ways['plain']][-1] not in sq.nodes and shared_end in sq.nodes
+    assert edits.close_rings(sq) is None
+    cmd.undo(sq)
+    assert {w: list(sq.ways[w].refs) for w in sq.ways} == before and set(sq.nodes) == nodes
