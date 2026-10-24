@@ -158,6 +158,14 @@ def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report
                 raise
 
 
+
+def _undo_hint(doubled: str) -> str:
+    """How an import comes back off the history: one step, or two when the
+    copies it doubled were removed after it."""
+    if doubled:
+        return 'Ctrl+Z puts the doubled back, and again takes the import'
+    return 'Ctrl+Z takes them all back'
+
 class MainWindow(QMainWindow):
     def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None,
                  settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None,
@@ -1812,7 +1820,7 @@ class MainWindow(QMainWindow):
             return
         where = ', '.join(f'{name} {len(answer.placed[name].ways)}' for name in sorted(answer.placed, key=str))
         self.statusBar().showMessage(f'imported {n} coastline way{"s" * (n != 1)} at 0 m - {where}{kept}'
-                                     f'{kept_doubled}. Ctrl+Z takes them all back')
+                                     f'{kept_doubled}. {_undo_hint(kept_doubled)}')
 
     def _doubled(self, working_set) -> str:
         """After an import: the negative contours lying wholly on top of a
@@ -1824,7 +1832,7 @@ class MainWindow(QMainWindow):
             return ''
         self.editor.do_across(steps)
         n = sum(len(cmd.commands) for _, cmd in steps)
-        return f'; {n} contour{"s" * (n != 1)} doubled under them removed, the main map\'s kept'
+        return f'; {n} contour{"s" * (n != 1)} doubled under the main map\'s removed, its kept'
 
     def _heights_imported(self, answer, working_set):
         """One spot-height import, one step on the history, reconciled as
@@ -1909,7 +1917,8 @@ class MainWindow(QMainWindow):
         if steps:
             # the editor's own path, not a copy of it: see EditController.do_across
             self.editor.do_across(steps)
-        kept += self._doubled(working_set)
+        kept_doubled = self._doubled(working_set)
+        kept += kept_doubled
         self.reshaped = flatten.reshaped(was_flat, working_set)
         self.gone_dock.show_report(self.gone_from_upstream, reshaped=self.reshaped)
         if self.gone_from_upstream or self.reshaped:
@@ -1926,8 +1935,7 @@ class MainWindow(QMainWindow):
         # one square takes seventy per cent of them
         where = ', '.join(f'{name} {len(placed[name])}' for name in sorted(placed, key=str))
         self.statusBar().showMessage(
-            f'imported {features} water features - {where}{kept}. '
-            f'Ctrl+Z takes them all back')
+            f'imported {features} water features - {where}{kept}. {_undo_hint(kept_doubled)}')
 
     def show_in_josm(self) -> str | None:
         """JOSM to the place the map shows, selecting what is selected here

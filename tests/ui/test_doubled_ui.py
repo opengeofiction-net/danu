@@ -26,7 +26,8 @@ def test_the_import_removes_the_copy_under_the_lake_it_brings(window):
     window._water_imported(Answer({NORTH: water}, frozenset(water.ways), frozenset()), window.working_set)
     said = window.statusBar().currentMessage()
     assert 200 in sq.ways and copy not in sq.ways, said
-    assert "1 contour doubled under them removed, the main map's kept" in said
+    assert "1 contour doubled under the main map's removed, its kept" in said
+    assert 'Ctrl+Z puts the doubled back, and again takes the import' in said
     window.editor.undo()
     assert 200 in sq.ways and copy in sq.ways, 'the first undo puts the copy back'
     window.editor.undo()
