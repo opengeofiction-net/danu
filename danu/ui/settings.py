@@ -303,6 +303,16 @@ class Settings:
         self.q.setValue('surface/auto_rebuild', bool(v))
 
     @property
+    def checks_centre_only(self) -> bool:
+        """The Validation panel lists the centre square's findings only, not
+        the whole set's."""
+        return self._flag('checks/centre_only', False)
+
+    @checks_centre_only.setter
+    def checks_centre_only(self, v: bool):
+        self.q.setValue('checks/centre_only', bool(v))
+
+    @property
     def menu_offered(self) -> bool:
         """The start page has offered the AppImage a place in the
         applications menu, and been answered (J5c): it asks once."""

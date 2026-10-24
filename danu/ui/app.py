@@ -249,6 +249,8 @@ class MainWindow(QMainWindow):
         # the editor is made below: looked up when the button is pressed
         self.checks_dock.cutLoop.connect(lambda loop: self.editor.cut_loop(loop))
         self.checks_dock.visibilityChanged.connect(self._checks_shown)
+        self.checks_dock.centre_only.setChecked(self.settings.checks_centre_only)
+        self.checks_dock.centre_only.toggled.connect(self._checks_centre_only)
         # opened from the menu, it comes to the front of the tabs it shares:
         # shown alone it stayed behind the surface panel, and was never seen
         self.checks_dock.toggleViewAction().toggled.connect(self._checks_opened)
@@ -2111,15 +2113,30 @@ class MainWindow(QMainWindow):
                 self.touch_index.update(square, ways)
             self._checks_due.start()
 
+    def _checks_centre_only(self, on: bool) -> None:
+        self.settings.checks_centre_only = on
+        if self.crossing_index is not None:
+            self._refresh_checks()
+
+    def _shown(self, found):
+        """What the panel lists and the map marks of a check's findings: all
+        the set's, or with Centre square only, those in the centre square -
+        one on its edge counts."""
+        ws = self.working_set
+        if found is None or ws is None or not self.checks_dock.centre_only.isChecked():
+            return found
+        w, s, e, n = ws.centre.bounds
+        return [f for f in found if w <= f.lon <= e and s <= f.lat <= n]
+
     def _refresh_checks(self) -> None:
-        found = self.crossing_index.crossings() if self.crossing_index is not None else []
-        self.checks_dock.show_crossings(found)
-        self.checks_dock.show_loops(self.loop_index.loops() if self.loop_index is not None else [])
-        self.checks_dock.show_touches(self.touch_index.touches() if self.touch_index is not None else [])
-        self.checks_dock.show_spots(self.spot_index.contradictions() if self.spot_index is not None else [])
-        self.checks_dock.show_files(self.file_index.findings() if self.file_index is not None else [])
-        self.checks_dock.show_inside(self.inside_index.findings() if self.inside_index is not None else [])
-        self.checks_dock.show_surface(self.surface_findings, self._surface_found_at, self._surface_stale,
+        sh = self._shown
+        self.checks_dock.show_crossings(sh(self.crossing_index.crossings() if self.crossing_index is not None else []))
+        self.checks_dock.show_loops(sh(self.loop_index.loops() if self.loop_index is not None else []))
+        self.checks_dock.show_touches(sh(self.touch_index.touches() if self.touch_index is not None else []))
+        self.checks_dock.show_spots(sh(self.spot_index.contradictions() if self.spot_index is not None else []))
+        self.checks_dock.show_files(sh(self.file_index.findings() if self.file_index is not None else []))
+        self.checks_dock.show_inside(sh(self.inside_index.findings() if self.inside_index is not None else []))
+        self.checks_dock.show_surface(sh(self.surface_findings), self._surface_found_at, self._surface_stale,
                                       self._surface_pending)
         self._refresh_marks()
 
@@ -2128,22 +2145,23 @@ class MainWindow(QMainWindow):
         otherwise: 6,714 red crosses over gobras are what the panel is for,
         not what drawing a contour is."""
         on = self.checks_dock.isVisible() and self.crossing_index is not None
-        self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in self.crossing_index.crossings()]
+        sh = self._shown
+        self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in sh(self.crossing_index.crossings())]
                              + [m.lonlat_to_scene(lp.lon, lp.lat)
-                                for lp in (self.loop_index.loops() if self.loop_index is not None else [])]
+                                for lp in sh(self.loop_index.loops() if self.loop_index is not None else [])]
                              + [m.lonlat_to_scene(t.lon, t.lat)
-                                for t in (self.touch_index.touches() if self.touch_index is not None else [])]
+                                for t in sh(self.touch_index.touches() if self.touch_index is not None else [])]
                              + [m.lonlat_to_scene(c.lon, c.lat)
-                                for c in (self.spot_index.contradictions() if self.spot_index is not None else [])]
+                                for c in sh(self.spot_index.contradictions() if self.spot_index is not None else [])]
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.file_index.findings() if self.file_index is not None else [])]
+                                for f in sh(self.file_index.findings() if self.file_index is not None else [])]
                              # the lakes, and not the report: 3,882 rings over gobras would be
                              # crosses over every hill
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.inside_index.findings('lake') if self.inside_index is not None else [])]
+                                for f in sh(self.inside_index.findings('lake') if self.inside_index is not None else [])]
                              # a square of unreached ground is a row, not a place to mark
                              + [m.lonlat_to_scene(f.lon, f.lat)
-                                for f in (self.surface_findings or []) if f.kind != 'unreached']
+                                for f in sh(self.surface_findings or []) if f.kind != 'unreached']
                              if on else [])
         if not on:
             self.editor.marks_focus = []

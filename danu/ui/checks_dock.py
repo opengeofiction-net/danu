@@ -32,6 +32,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDockWidget,
     QHBoxLayout,
     QLabel,
@@ -104,6 +105,11 @@ class ChecksDock(QDockWidget):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setVisible(False)
+        # the checks run over the whole set either way: a crossing at the
+        # square's edge needs its neighbour to be found
+        self.centre_only = QCheckBox('Centre square only')
+        self.centre_only.setToolTip('List and mark what is found in the centre square, '
+                                    'not in its neighbours as well')
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
@@ -118,6 +124,7 @@ class ChecksDock(QDockWidget):
         self.groups: list = []
         box.addWidget(self.progress)
         box.addWidget(self.status)
+        box.addWidget(self.centre_only)
         box.addWidget(self.tree, 1)
         buttons = QHBoxLayout()
         self.cut_btn = QPushButton('Cut out loop')
