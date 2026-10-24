@@ -153,6 +153,9 @@ def test_the_window_shows_the_contours_of_what_it_opened(qtbot, zone, tmp_path):
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)
+    # the zones asked of the drop as the window opened: answered first, or on
+    # a slow runner its "not reached" lands on the status bar after the levels
+    qtbot.waitUntil(lambda: 'drop not reached' in w.zone_editor.dock.status.text(), timeout=10000)
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.open_working_set(zone, SquareName(125, -24))
     qtbot.waitUntil(lambda: w.working_set is not None, timeout=5000)
