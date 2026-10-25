@@ -9,6 +9,8 @@ import pytest
 
 pytest.importorskip('PySide6')
 
+from PySide6.QtWidgets import QApplication
+
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, SquareName, Way
 from danu.ui import mercator as m
@@ -234,3 +236,31 @@ def test_f_from_the_menu_flattens_at_the_distance_set_not_at_none(lake):
     select(w, sq, rel)
     w.edit_actions['edit.flatten'].trigger()
     assert w.editor.pull_back_m == 100 and 'drawn back 100 m' in w.editor.proposal.summary
+
+
+def test_a_lake_reaching_a_square_not_open_says_so(lake):
+    """Roantra's estuary is held in one square and reaches four more: what
+    is not open has its contours left as they are, and the proposal says so."""
+    w, sq, rel, ring = lake
+    sq.nodes[ring.refs[1]].lon = 128.2                   # the outline run out east, past the set
+    select(w, sq, rel)
+    w.editor.flatten()
+    assert 'it reaches S23E128, not open here' in w.editor.proposal.summary, w.editor.proposal.summary
+
+
+def test_an_edit_while_it_is_worked_out_drops_it(lake):
+    """F works on a worker: a big lake took seconds and held the window. What
+    comes back after an edit was worked out on what is no longer there."""
+    w, sq, rel, _ = lake
+    held = []
+    w.editor.runner = held.append                      # the job kept, not run yet
+    select(w, sq, rel)
+    w.editor.flatten()
+    assert w.editor.proposal is None and 'flattening Kinser' in w.statusBar().currentMessage()
+    other = next(x for x in sq.ways.values() if x.tags.get('ele') == '75')
+    w.editor.do(sq, edits.SetTags(other.id, dict(other.tags), {**other.tags, 'ele': '76'}))
+    select(w, sq, rel)
+    held[0].run()
+    QApplication.processEvents()
+    assert w.editor.proposal is None
+    assert 'F again' in w.statusBar().currentMessage()

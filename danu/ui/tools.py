@@ -33,7 +33,7 @@ from ..checks.files import API_LIMIT
 from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
-from ..core.square import Relation, Square, Way, WorkingSet, is_coastline, parse_ele
+from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele
 from ..water import burn, contradict, flatten
 from ..water.overpass import flows
 from . import mercator as m
@@ -2615,7 +2615,11 @@ class EditController(QObject):
 
         At the level the lake has: G grades one from its outlet or rim, L or
         the panel sets one by hand - which is R26's "a chosen level" without a
-        second way of choosing it."""
+        second way of choosing it.
+
+        Worked out on a worker: roantra's estuary, relation 470435, takes
+        seconds, and the window said it was not responding. An edit, or
+        another selection, made meanwhile drops it."""
         if pull_back_m is not None:
             self.pull_back_m = float(pull_back_m)
         sel = self.selection
@@ -2630,12 +2634,35 @@ class EditController(QObject):
             return
         sq = sel.square
         name = feature.tags.get('name') or 'the lake'
-        try:
-            p = flatten.plan(self.working_set, sq, feature, self.history.alloc,
-                             pull_back_m=self.pull_back_m)
-        except flatten.Refused as why:
-            self.message.emit(f'{name} cannot be flattened: {why}')
-            return
+        ws, gen, at = self.working_set, self.history.generation, self.pull_back_m
+
+        def work():
+            try:
+                return flatten.plan(ws, sq, feature, self.history.alloc, pull_back_m=at)
+            except flatten.Refused as why:
+                return why
+
+        def done(p):
+            if self._flatten_job is not job:
+                return                     # a later F is the one asked
+            if isinstance(p, flatten.Refused):
+                self.message.emit(f'{name} cannot be flattened: {p}')
+                return
+            now = self.selection
+            if (self.working_set is not ws or self.history.generation != gen or now is None
+                    or (now.relation if now.relation is not None else now.way) is not feature):
+                self.message.emit(f'{name} changed, or another was chosen, while it was worked out - F again')
+                return
+            self._propose_flatten(sq, feature, name, p, at)
+
+        def failed(why):
+            self.message.emit(f'{name} not flattened: {why.splitlines()[0]}')
+        from .background import Job
+        self.message.emit(f'flattening {name}…')
+        job = self._flatten_job = Job(work, done, failed)
+        self.runner(job)
+
+    def _propose_flatten(self, sq, feature, name, p, at) -> None:
         text = format_ele(p.level)
         parts = [f'{name} flattened at {text} m']
         if p.outline_ways:
@@ -2644,9 +2671,9 @@ class EditController(QObject):
             parts.append(f'{p.deleted} contour{"s" * (p.deleted != 1)} in the water removed')
         if p.wrapped:
             parts.append(f'{p.wrapped} at the level next to its pushed round it, '
-                         f'up to {self.pull_back_m:g} m out')
+                         f'up to {at:g} m out')
         if p.pulled:
-            parts.append(f'{p.pulled} crossing its shore drawn back {self.pull_back_m:g} m')
+            parts.append(f'{p.pulled} crossing its shore drawn back {at:g} m')
         if p.clipped:
             parts.append(f'{p.clipped} at its level cut at the shore')
         if p.fill:
@@ -2654,6 +2681,14 @@ class EditController(QObject):
                          f'{flatten.FILL_SPACING_M:g} m apart, to hold it flat')
         if not p.steps:
             parts = [f'{name} is already flat at {text} m - nothing to change']
+        # a lake reaching squares not open has contours in its water this
+        # cannot see: roantra's estuary, held in N46E028, reaches four more
+        ws = self.working_set
+        reach = {SquareName(math.floor(lon), math.floor(lat)) for ring in p.outline for lon, lat in ring}
+        unseen = sorted(str(n) for n in reach if n not in ws.squares)
+        if unseen:
+            parts.append(f'it reaches {", ".join(unseen)}, not open here - their contours are left as '
+                         'they are; open a set holding them to flatten it there too')
         pts = [m.lonlat_to_scene(lon, lat) for ring in p.outline for lon, lat in ring]
         centre = (sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts))
         self._set_proposal(Proposal(
@@ -2663,7 +2698,7 @@ class EditController(QObject):
             removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
             fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
             added=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.added] or None,
-            pull_back_m=self.pull_back_m, kind='flatten', strength_label='Draw back from the shore'))
+            pull_back_m=at, kind='flatten', strength_label='Draw back from the shore'))
 
     def push_crossings(self, push_m: float | None = None):
         """Shift+P: the open square's contours that stray across the line at
