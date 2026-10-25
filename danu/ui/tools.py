@@ -2680,11 +2680,13 @@ class EditController(QObject):
         self.message.emit('pushing back crossing contours…')
 
         def done(p):
+            if self._push_job is not job:
+                return                     # a later Shift+P is the one asked
             if self.working_set is not ws or self.history.generation != gen:
                 self.message.emit('the set changed while crossings were looked at - Shift+P again')
                 return
             if not p.pushed:
-                self.message.emit(f'no crossing to push back in {ws.centre} - '
+                self.message.emit(f'no crossing in {ws.centre} could be pushed back - '
                                   f'{p.left:,} left to the Validation panel' if p.left else
                                   f'no crossings in {ws.centre}')
                 return
@@ -2701,9 +2703,9 @@ class EditController(QObject):
         def failed(why):
             self.message.emit(f'crossings not pushed back: {why.splitlines()[0]}')
         from .background import Job
-        self._push_job = Job(lambda: crossfix.plan(ws, self.history.alloc, only={ws.centre}, pull_back_m=at),
-                             done, failed)
-        self.runner(self._push_job)
+        job = self._push_job = Job(lambda: crossfix.plan(ws, self.history.alloc, only={ws.centre}, pull_back_m=at),
+                                   done, failed)
+        self.runner(job)
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'

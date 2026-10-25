@@ -53,4 +53,5 @@ def test_shift_p_proposes_and_enter_pushes_back_as_one_step(window):
 def test_nothing_to_push_says_so(window):
     window.edit_actions['edit.push_crossings'].trigger()
     assert window.editor.proposal is None
-    assert 'no crossing' in window.statusBar().currentMessage()
+    said = window.statusBar().currentMessage()
+    assert said.startswith('no crossing'), said

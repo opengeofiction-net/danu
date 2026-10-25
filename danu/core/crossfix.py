@@ -104,7 +104,7 @@ def plan(working_set, alloc, only=None, pull_back_m: float = PUSH_M) -> Plan:
                 continue
             partners[(me[0], me[1])].add((other[0], other[1]))
             counted[(me[0], me[1])] += 1
-    lat0 = working_set.centre.lat + 0.5
+    lat0 = working_set.centre.lat + 0.5            # metres about the centre square's middle
     proj = _Projection(lat0)
 
     def metres(sq, way):
