@@ -432,18 +432,9 @@ class ContourLayer(QGraphicsItem):
                     self._geoms[(square.name, way.id)] = geom
             self._add_water_fills(square, members)
         for key, geom in self._geoms.items():
-            self._add_coast(key, geom)
-            if geom.ele is not None:
-                self._add_way(key, geom)
-            elif 'danu:fill' in geom.way.tags:
-                self._add_fill(key, geom)
-            else:
-                # whatever is not a contour and was kept is water or a
-                # coastline; a coastline's line and direction are _add_coast's,
-                # and `_project` is what decided either of them was worth
-                # keeping at all
-                if geom.way.tags.get('natural') != 'coastline':
-                    self._add_water(key, geom)
+            self._add_geom(key, geom)
+        for square in getattr(ws, 'extra', {}).values():
+            self._alongside(square)
         # the spots after the water, not with the ways: whether a node is a
         # spot height or a level on a river depends on the water's vertices
         # having been counted, and they are counted as the water is added
@@ -452,6 +443,47 @@ class ContourLayer(QGraphicsItem):
                 self._project_spot(square, nid)
         self._reindex()
         self._levels_moved = False
+        self._arrays_stale = True
+        self.update()
+
+    def _add_geom(self, key, geom) -> None:
+        self._add_coast(key, geom)
+        if geom.ele is not None:
+            self._add_way(key, geom)
+        elif 'danu:fill' in geom.way.tags:
+            self._add_fill(key, geom)
+        else:
+            # whatever is not a contour and was kept is water or a
+            # coastline; a coastline's line and direction are _add_coast's,
+            # and `_project` is what decided either of them was worth
+            # keeping at all
+            if geom.way.tags.get('natural') != 'coastline':
+                self._add_water(key, geom)
+
+    def _alongside(self, square: Square) -> None:
+        """A square of the zone read alongside the set: its water and no
+        more - all of that square's water, projected whole, and painted where
+        it falls within the set, as everything here is; the sea, held two
+        squares away, so shows where it reaches in. That square's contours
+        are not the set's."""
+        members = _water_members(square)
+        for way in square.ways.values():
+            t = way.tags
+            if not (way.id in members or t.get('natural') in ('water', 'coastline') or 'waterway' in t
+                    or 'danu:fill' in t):
+                continue
+            geom = self._project(square, way, members)
+            if geom is not None:
+                key = (square.name, way.id)
+                self._geoms[key] = geom
+                self._add_geom(key, geom)
+        self._add_water_fills(square, members)
+
+    def add_alongside(self, squares) -> None:
+        """Squares read alongside the set since it was drawn."""
+        for square in squares:
+            self._alongside(square)
+        self._reindex()
         self._arrays_stale = True
         self.update()
 

@@ -50,6 +50,10 @@ class Answer:
     # the zone's squares outside the set read for it, by name
     moved: dict = field(default_factory=dict)
     loaded: dict = field(default_factory=dict)
+    # the other copies of a feature held more than once - imports before
+    # #278 left the estuary's ways in N46E027 and N46E029 as well as its
+    # home - as ((kind, id), square holding the copy, its home)
+    stale: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,7 @@ class Snapshot:
     folder, whose other squares the worker reads for the rest."""
     held: dict
     zone_dir: object = None
+    copies: dict = field(default_factory=dict)      # (kind, id): every square of the set or alongside holding it
 
 
 def water_work(payload: bytes, working_set, held) -> Answer:
@@ -71,13 +76,28 @@ def water_work(payload: bytes, working_set, held) -> Answer:
     if snap.zone_dir is not None:
         files = zone_index.squares(snap.zone_dir)
         open_ = set(working_set.squares) | set(getattr(working_set, 'extra', {}))
-        zone = (set(files), zone_index.held(snap.zone_dir, skip=open_))
+        every = zone_index.held_all(snap.zone_dir, skip=open_)
+        zone = (set(files), {k: v[0] for k, v in every.items()})
+    else:
+        every = {}
     placed, moved = overpass.homes(water, working_set, snap.held, zone)
-    need = set(placed) | {n for pair in moved.values() for n in pair}
+    # every copy that is not where the feature now lives, nor the one the move
+    # takes out already, goes too
+    stale = []
+    for home, got in placed.items():
+        for kind, ids in (('way', got.ways), ('relation', got.relations)):
+            for fid in ids:
+                key = (kind, fid)
+                was = moved.get(key, (None,))[0]
+                for holder in {*snap.copies.get(key, ()), *every.get(key, ())}:
+                    if holder not in (home, was):
+                        stale.append((key, holder, home))
+    need = set(placed) | {n for pair in moved.values() for n in pair} | {h for _, h, _ in stale}
     loaded = {n: read_square(files[n]) for n in sorted(need, key=str)
               if n in files and n not in working_set.squares and n not in getattr(working_set, 'extra', {})}
     return Answer(placed, frozenset(water.ways), frozenset(water.relations),
-                  on=gone_mod.nodes_on(water.ways.values()), moved=moved, loaded=loaded)
+                  on=gone_mod.nodes_on(water.ways.values()), moved=moved, loaded=loaded,
+                  stale=tuple(sorted(stale, key=str)))
 
 
 def heights_held(working_set) -> tuple:
@@ -144,6 +164,18 @@ def held_by(working_set) -> dict:
         out.update((('way', i), name) for i in square.ways)
         out.update((('relation', i), name) for i in square.relations)
     return out
+
+
+def copies_by(working_set) -> dict:
+    """Every square of the set, and alongside it, holding each feature held
+    more than once - what ``held_by`` names one of."""
+    out: dict = {}
+    for name, square in [*working_set.squares.items(), *getattr(working_set, 'extra', {}).items()]:
+        for kind, ids in (('way', square.ways), ('relation', square.relations)):
+            for i in ids:
+                if i > 0:
+                    out.setdefault((kind, i), []).append(name)
+    return {k: v for k, v in out.items() if len(v) > 1}
 
 
 class _Signals(QObject):
@@ -303,7 +335,8 @@ def move_commands(answer, working_set, alloc) -> list:
     out = []
     by_square: dict = {}
     staying: dict = {}                     # square: the rings its relations that stay name
-    for (kind, fid), (was, now) in sorted(answer.moved.items(), key=lambda kv: (str(kv[1][0]), kv[0])):
+    every = [(key, was, now) for key, (was, now) in answer.moved.items()] + list(answer.stale)
+    for (kind, fid), was, now in sorted(every, key=lambda kv: (str(kv[1]), kv[0])):
         # ``dst`` is the import's copy for the new home: its tags are given
         # the old copy's level here, before the import's commands are made
         src, dst = working_set.square(was), answer.placed.get(now)
@@ -311,7 +344,8 @@ def move_commands(answer, working_set, alloc) -> list:
             continue                       # nowhere loaded to move it to: left where it is, fill lines and all
         cmds = by_square.setdefault(was, [])
         if was not in staying:
-            staying[was] = {m.ref for r in src.relations.values() if ('relation', r.id) not in answer.moved
+            going = {k for k, w, _ in every if w == was}
+            staying[was] = {m.ref for r in src.relations.values() if ('relation', r.id) not in going
                             for m in r.members if m.type == 'way'}
         if kind == 'relation' and fid in src.relations:
             old = src.relations[fid]

@@ -128,7 +128,7 @@ def describe_picked(picked: dict, working_set, layer) -> Info:
     n = sum(len(ids) for ids in picked.values())
     contours, levels, rivers, coasts, spots = set(), set(), set(), set(), 0
     for name, ids in picked.items():
-        sq = working_set.squares.get(name) if working_set is not None else None
+        sq = working_set.square(name) if working_set is not None else None
         if sq is None:
             continue
         spots += sum((name, i) in layer.spots for i in ids)
