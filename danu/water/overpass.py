@@ -257,13 +257,15 @@ def parse(payload: bytes) -> Water:
 
 
 def place(water: Water, working_set, held: dict | None = None) -> dict:
-    """Which square each feature belongs to, as ``{SquareName: Water}`` -
-    among the open set's squares; ``homes`` is the whole of it."""
-    return homes(water, working_set, held)[0]
+    """Which square each feature belongs to, as ``{SquareName: Water}``,
+    among the open set's squares - a held feature where it is held, always:
+    a caller that does not take a moved feature out of where it was must not
+    have one moved. ``homes`` is the whole of it."""
+    return homes(water, working_set, held, move=False)[0]
 
 
 def homes(water: Water, working_set, held: dict | None = None,
-          zone: tuple | None = None) -> tuple[dict, dict]:
+          zone: tuple | None = None, move: bool = True) -> tuple[dict, dict]:
     """Which square each feature belongs to - its *home* - as ``{SquareName:
     Water}``, and the features whose home has moved, as ``{(kind, id): (the
     square that held it, its home now)}``.
@@ -293,7 +295,8 @@ def homes(water: Water, working_set, held: dict | None = None,
     across a degree line half and half does not flit between the two. ``held``
     is the open squares', snapshotted on the UI thread when the import was
     asked for; the zone's files say for the rest. A feature moved is the
-    caller's to take out of the square that held it.
+    caller's to take out of the square that held it - a relation's member
+    ways and relations moved with it each said too, as their own move.
     """
     held = held or {}
     zone_names, zone_held = zone if zone is not None else (set(), {})
@@ -307,7 +310,7 @@ def homes(water: Water, working_set, held: dict | None = None,
             return None
         best = max(sorted(counts, key=str), key=counts.get)
         was = held.get((kind, fid)) or zone_held.get((kind, fid))
-        if was is not None and counts.get(was, 0) >= counts[best]:
+        if was is not None and (not move or counts.get(was, 0) >= counts[best]):
             return was
         return best
 
@@ -347,7 +350,9 @@ def homes(water: Water, working_set, held: dict | None = None,
 
 def _nodes_of(water: Water, rel: Relation, seen=None) -> set[int]:
     """Every node a relation is made of, through its member ways and
-    relations."""
+    relations - each once, shared by two rings or not. ``seen`` is the whole
+    walk's: a relation reached twice adds nothing the first visit did not,
+    and a relation naming itself is stopped."""
     seen = set() if seen is None else seen
     if rel.id in seen:
         return set()

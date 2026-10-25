@@ -302,11 +302,17 @@ def move_commands(answer, working_set, alloc) -> list:
     from ..water.flatten import FILL
     out = []
     by_square: dict = {}
+    staying: dict = {}                     # square: the rings its relations that stay name
     for (kind, fid), (was, now) in sorted(answer.moved.items(), key=lambda kv: (str(kv[1][0]), kv[0])):
+        # ``dst`` is the import's copy for the new home: its tags are given
+        # the old copy's level here, before the import's commands are made
         src, dst = working_set.square(was), answer.placed.get(now)
         if src is None or dst is None:
             continue
         cmds = by_square.setdefault(was, [])
+        if was not in staying:
+            staying[was] = {m.ref for r in src.relations.values() if ('relation', r.id) not in answer.moved
+                            for m in r.members if m.type == 'way'}
         if kind == 'relation' and fid in src.relations:
             old = src.relations[fid]
             if fid in dst.relations:
@@ -317,9 +323,7 @@ def move_commands(answer, working_set, alloc) -> list:
             if fid in dst.ways:
                 dst.ways[fid].tags = merge_tags(old.tags, dst.ways[fid].tags, overpass.UPSTREAM_OWNS)
             # a ring another relation staying there still names, stays too
-            staying = {m.ref for r in src.relations.values() if ('relation', r.id) not in answer.moved
-                       for m in r.members if m.type == 'way'}
-            if fid not in staying:
+            if fid not in staying[was]:
                 cmds.append(edits.DeleteWay(fid))
         # its fill lines, which say whose they are
         key = f'{kind}/{fid}'

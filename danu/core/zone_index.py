@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .square import SquareName, list_squares
 
-_ID = re.compile(rb"<(way|relation) id='(\d+)'")
+_ID = re.compile(rb"""<(way|relation)\s[^>]*?\bid=['"](\d+)['"]""")
 _CACHE: dict[str, tuple[int, int, frozenset]] = {}      # path: (size, mtime_ns, its (kind, id)s)
 _LOCK = threading.Lock()
 
@@ -40,8 +40,12 @@ def _held_in(path: Path) -> frozenset:
     with opener(path, 'rb') as f:
         text = f.read()
     found = frozenset((kind.decode(), int(i)) for kind, i in _ID.findall(text))
-    with _LOCK:
-        _CACHE[key] = (st.st_size, st.st_mtime_ns, found)
+    # kept only if the file is as it was when stat'd: one rewritten while it
+    # was read is read again next time
+    after = path.stat()
+    if (after.st_size, after.st_mtime_ns) == (st.st_size, st.st_mtime_ns):
+        with _LOCK:
+            _CACHE[key] = (st.st_size, st.st_mtime_ns, found)
     return found
 
 
