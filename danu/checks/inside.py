@@ -46,6 +46,22 @@ def _box(X, Y) -> tuple:
     return (X.min(), Y.min(), X.max(), Y.max())
 
 
+def _near(boxes, n, x0, y0, x1, y1):
+    """Which of n rings' boxes overlap a box - every ring when none are
+    given. A sea of 683 rings asks a contour of the few near it."""
+    if boxes is None:
+        return range(n)
+    B = np.asarray(boxes, float).reshape(-1, 4)
+    return np.flatnonzero((B[:, 0] <= x1) & (B[:, 2] >= x0) & (B[:, 1] <= y1) & (B[:, 3] >= y0))
+
+
+def _among(ids, sorted_ids) -> np.ndarray:
+    """Which of the ids are in an array of them kept sorted - np.isin sorts
+    the second afresh each call, 15 ms a contour for the sea's 114k nodes."""
+    k = np.searchsorted(sorted_ids, ids)
+    return sorted_ids[np.minimum(k, len(sorted_ids) - 1)] == ids if len(sorted_ids) else np.zeros(len(ids), bool)
+
+
 def _chunks(X, Y) -> np.ndarray:
     """A ring's chunks of edges, the box of each as a row (x0, y0, x1, y1):
     chunk k is the edges from node k * CHUNK to node (k + 1) * CHUNK."""
@@ -66,7 +82,10 @@ def inside(px, py, rings, boxes=None, chunks=None) -> np.ndarray:
     ``chunks``, a ring's each, are worked out here if not given."""
     px, py = np.asarray(px, float), np.asarray(py, float)
     odd = np.zeros(px.shape, bool)
-    for k, (X, Y) in enumerate(rings):
+    if not px.size:
+        return odd
+    for k in _near(boxes, len(rings), px.min(), py.min(), px.max(), py.max()):
+        X, Y = rings[k]
         x0, y0, x1, y1 = boxes[k] if boxes is not None else _box(X, Y)
         sel = np.flatnonzero((px >= x0) & (px <= x1) & (py >= y0) & (py <= y1))
         if not len(sel):
@@ -102,7 +121,8 @@ def crosses(X, Y, rings, box, boxes=None, chunks=None) -> bool:
     near = np.flatnonzero((sx0 <= box[2]) & (sx1 >= box[0]) & (sy0 <= box[3]) & (sy1 >= box[1]))
     if not len(near):
         return False
-    for k, (RX, RY) in enumerate(rings):
+    for k in _near(boxes, len(rings), sx0[near].min(), sy0[near].min(), sx1[near].max(), sy1[near].max()):
+        RX, RY = rings[k]
         r = boxes[k] if boxes is not None else _box(RX, RY)
         sel = near[(sx0[near] <= r[2]) & (sx1[near] >= r[0]) & (sy0[near] <= r[3]) & (sy1[near] >= r[1])]
         if not len(sel):
@@ -171,11 +191,11 @@ class _Body:
     key: tuple                   # ('way' | 'relation', id)
     level: float | None
     rings: list                  # [(X, Y)]
-    on: np.ndarray               # the node ids of its outline
+    on: np.ndarray               # the node ids of its outline, sorted, once each
     ways: set                    # the ways of its outline - what an edit names
     box: tuple
     what: str
-    boxes: list                  # each ring's own: a lake of 189 rings asks each only near it
+    boxes: np.ndarray            # each ring's own, a row each: a contour asks only the rings near it
     chunks: list                 # each ring's chunks of edges, by box (_chunks)
 
 
@@ -212,8 +232,8 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
     xs = np.concatenate([X for X, _ in rings]); ys = np.concatenate([Y for _, Y in rings])
     name = tags.get('name')
     what = f'lake "{name}"' if name else f'lake, {key[0]} {key[1]}'
-    return _Body(key, parse_ele(tags.get('ele')), rings, np.array(on, dtype=np.int64), ways,
-                 (xs.min(), ys.min(), xs.max(), ys.max()), what, [_box(X, Y) for X, Y in rings],
+    return _Body(key, parse_ele(tags.get('ele')), rings, np.unique(np.array(on, dtype=np.int64)), ways,
+                 (xs.min(), ys.min(), xs.max(), ys.max()), what, np.array([_box(X, Y) for X, Y in rings]),
                  [_chunks(X, Y) for X, Y in rings])
 
 
@@ -258,7 +278,7 @@ class _Square:
         x0, y0, x1, y1 = body.box
         m = (ln.X >= x0) & (ln.X <= x1) & (ln.Y >= y0) & (ln.Y <= y1)
         if m.any():
-            m[m] = ~np.isin(ln.refs[m], body.on)
+            m[m] = ~_among(ln.refs[m], body.on)
         return bool((m.any() and inside(ln.X[m], ln.Y[m], body.rings, body.boxes, body.chunks).any())
                     or crosses(ln.X, ln.Y, body.rings, body.box, body.boxes, body.chunks))
 
