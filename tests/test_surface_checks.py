@@ -130,3 +130,30 @@ def test_worst_first():
     found = surface.climbs(snap([river(1, [(125.4, -22.2), (125.6, -22.2)]),
                                  river(2, [(125.4, -22.8), (125.6, -22.8)])]), dem, GT)
     assert [f.way for f in found] == [2, 1]
+
+
+def test_the_nearest_drawn_shore_indexed_once_is_what_every_point_asked_gives():
+    """One index asked many times, each at a latitude of its own, the search
+    widening ring by ring where nothing is near: the distances every reference
+    point asked in turn gives - near a crowded shore, and tens of km out."""
+    from danu.checks.zero_line import Nearest
+    rng = np.random.default_rng(7)
+    shore = np.c_[rng.uniform(30, 30.3, 3000), rng.uniform(45, 46, 3000)]           # crowded in the west
+    shore = np.r_[shore, [[31.4, 44.2], [29.1, 46.8]]]                              # and two alone, far out
+    near = Nearest(shore, 45.5)
+    for lat in (44.0, 45.5, 47.0, 70.0):
+        pts = np.c_[rng.uniform(28.5, 32.0, 500), rng.uniform(43.5, 47.5, 500)]
+        k = np.array([111320.0 * np.cos(np.radians(lat)), 111320.0])
+        brute = np.hypot(*((pts[:, None, :] - shore[None, :, :]) * k).transpose(2, 0, 1)).min(axis=1)
+        assert np.allclose(near(pts, lat), brute), lat
+    # a shore of a dozen points over four degrees: every ask widens many rings,
+    # at latitudes either side of the index's, where a cell is wider or narrower
+    sparse = np.c_[rng.uniform(28.5, 32.0, 12), rng.uniform(43.5, 47.5, 12)]
+    far = Nearest(sparse, 45.5)
+    for lat in (43.5, 45.5, 47.5):
+        pts = np.c_[rng.uniform(28.0, 32.5, 400), rng.uniform(43.0, 48.0, 400)]
+        k = np.array([111320.0 * np.cos(np.radians(lat)), 111320.0])
+        brute = np.hypot(*((pts[:, None, :] - sparse[None, :, :]) * k).transpose(2, 0, 1)).min(axis=1)
+        assert np.allclose(far(pts, lat), brute), lat
+    assert np.isinf(Nearest(np.zeros((0, 2)), 45.0)(shore)).all()
+    assert not len(near(np.zeros((0, 2))))
