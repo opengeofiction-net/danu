@@ -44,7 +44,10 @@ SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
 DRAG_PX = 3.0                   # a press that moves less is a click
-CYCLE_PX = 8.0                  # a click again this near the last is the next thing there - as near as a pick
+# a click again this near the last is the next thing there: a click meant for
+# the same spot drifts by several pixels, and within a pick's reach the same
+# things are under it
+CYCLE_PX = 8.0
 FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
 SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within this of itself on release
 MARQUEE_PX = 3.0                # a lasso takes a point each time the cursor has gone this far

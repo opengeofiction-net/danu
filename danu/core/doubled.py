@@ -39,8 +39,9 @@ def commands(working_set) -> list:
     one at its level, across the set and the squares read alongside it:
     (square, Compound) a square.
 
-    And a negative way with a level wholly on the rings of a water relation
-    with none - the sea, r470432, imported in N46E030 with no level, and 254
+    And a negative way with a level wholly on the rings - those the square
+    holds - of exactly one water relation with none - the sea, r470432,
+    imported in N46E030 with no level, and 254
     recovered copies of its shore at 0 m lying on it, which matched nothing
     and stood between a click and the sea. The copies go, and the relation
     and its rings take the level they held: the shore stays at 0 m, and is
@@ -79,6 +80,7 @@ def commands(working_set) -> list:
                 segs[e].append((P[:-1], P[1:]))
     level = {e: _Segments(np.concatenate([a for a, _ in s]), np.concatenate([b for _, b in s]))
              for e, s in segs.items()}
+    # a square is read alongside only when the set has none of that name
     by_name = {sq.name: sq for sq in squares}
     gone: dict = defaultdict(list)          # square: [DeleteWay]
     given: dict = defaultdict(set)          # relation: the levels the copies on it carry
@@ -118,7 +120,9 @@ def commands(working_set) -> list:
     for name in sorted(set(gone) | set(levels), key=str):
         cmds = [*levels.get(name, []), *gone.get(name, [])]
         n = len(gone.get(name, []))
-        out.append((by_name[name], edits.Compound(cmds, name=f'remove {n} doubled contour{"s" * (n != 1)}')))
+        what = (f'remove {n} doubled contour{"s" * (n != 1)}' if n else
+                'level water from its recovered shore')          # its copies in another square
+        out.append((by_name[name], edits.Compound(cmds, name=what)))
     return out
 
 

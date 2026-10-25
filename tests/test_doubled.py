@@ -101,3 +101,4 @@ def test_copies_on_a_water_relation_saying_different_levels_are_left():
     way(sq, -1, COAST[:2], {'ele': '0'})
     way(sq, -2, COAST[1:], {'ele': '10'})
     assert doubled.commands(w) == []
+    assert -1 in sq.ways and -2 in sq.ways and 'ele' not in sq.relations[470432].tags
