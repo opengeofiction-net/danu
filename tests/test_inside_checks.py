@@ -240,6 +240,7 @@ def test_a_sea_of_many_rings_asks_only_those_near_and_says_what_asking_all_does(
         assert list(inside.inside(X, Y, rings, boxes, chunks)) == list(inside.inside(X, Y, rings))
         assert inside.crosses(X, Y, rings, box, boxes, chunks) == inside.crosses(X, Y, rings, box)
     assert not inside.inside([], [], rings, boxes, chunks).size
+    assert len(inside._near(boxes, len(rings), -0.1, -0.1, 0.1, 0.1)) < 20, 'the islands far off are asked'
     on = np.unique(np.array([rnd.randrange(10**6) for _ in range(5000)], dtype=np.int64))
     ids = np.array([rnd.randrange(10**6) for _ in range(3000)] + list(on[:50]) + [-1, 10**7], dtype=np.int64)
     assert (inside._among(ids, on) == np.isin(ids, on)).all()
