@@ -3,6 +3,13 @@ lying wholly on top of a positive one at its level, the main map's own way,
 which an import of water or coastline has just brought in - or on a ring of
 a water relation at the relation's level.
 
+Or on a bare one: a water relation held in a square outside the set - the
+sea, r470432, anchored far to the south-west of roantra's N46E030 - is not
+imported, and its member ways come in alone, with no tags and no level, under
+the recovered copies of them. The copy goes, and its level goes onto the
+main map's way, which then holds the ground as the copy did - where every
+copy on it says the same level.
+
 Recovered squares carry their own copies of the coastline and the lakes'
 shores, negative ways tagged like the real ones; the import then lays the
 main map's way over each, and the touches check lists every pair as a
@@ -39,6 +46,7 @@ def commands(working_set) -> list:
     squares = list(working_set.squares.values())
     if not squares:
         return []
+    by_name = {sq.name: sq for sq in squares}
     k = _metres(sum(sq.name.lat + 0.5 for sq in squares) / len(squares))
     # the positive ways' segments, by level, in metres. A ring of a water
     # relation is at the relation's level when it carries none of its own:
@@ -57,20 +65,70 @@ def commands(working_set) -> list:
                 P = np.array([(sq.nodes[r].lon, sq.nodes[r].lat) for r in w.refs]) * k
                 segs[e].append((P[:-1], P[1:]))
     level = {e: (np.concatenate([a for a, _ in s]), np.concatenate([b for _, b in s])) for e, s in segs.items()}
-    out = []
+    bare = _bare(squares, k)
+    gone: dict = defaultdict(list)          # square: [DeleteWay]
+    given: dict = defaultdict(set)          # (square, positive way id): the levels the copies on it carry
+    on_bare: dict = defaultdict(list)       # (square, positive way id): (square, copy's id)
     for sq in squares:
-        gone = []
         named = {m.ref for r in sq.relations.values() for m in r.members if m.type == 'way'}
         for w in list(sq.ways.values()):
-            if (w.id > 0 or w.ele not in level or w.id in named or FILL in w.tags
+            if (w.id > 0 or w.ele is None or w.id in named or FILL in w.tags
                     or len(w.refs) < 2 or any(r not in sq.nodes for r in w.refs)):
                 continue
             P = np.array([(sq.nodes[r].lon, sq.nodes[r].lat) for r in w.refs]) * k
-            if _on(P, *level[w.ele]):
-                gone.append(edits.DeleteWay(w.id))
-        if gone:
-            out.append((sq, edits.Compound(gone, name=f'remove {len(gone)} doubled contour{"s" * (len(gone) != 1)}')))
+            if w.ele in level and _on(P, *level[w.ele]):
+                gone[sq.name].append(edits.DeleteWay(w.id))
+                continue
+            under = _under(P, bare)
+            if under is not None:
+                given[under].add(w.ele)
+                on_bare[under].append((sq.name, w.id))
+    # a bare way of the main map's under a copy with a level takes the
+    # level and the copy goes - where every copy on it says the same
+    level_up: dict = defaultdict(list)
+    for (name, pid), eles in given.items():
+        if len(eles) != 1:
+            continue
+        way = by_name[name].ways[pid]
+        level_up[name].append(edits.SetTags(pid, dict(way.tags), {**way.tags, 'ele': _text(next(iter(eles)))}))
+        for cname, cid in on_bare[(name, pid)]:
+            gone[cname].append(edits.DeleteWay(cid))
+    by = {sq.name: sq for sq in squares}
+    out = []
+    for name in sorted(set(gone) | set(level_up), key=str):
+        cmds = [*level_up.get(name, []), *gone.get(name, [])]
+        n = len(gone.get(name, []))
+        out.append((by[name], edits.Compound(cmds, name=f'remove {n} doubled contour{"s" * (n != 1)}')))
     return out
+
+
+def _text(e: float) -> str:
+    return f'{e:g}'
+
+
+def _bare(squares, k) -> list:
+    """The main map's ways with nothing on them: a water relation's member
+    imported without it - the relation held in a square outside the set -
+    as (square name, way id, envelope, start points, end points)."""
+    out = []
+    for sq in squares:
+        ringed = {m.ref for r in sq.relations.values() if water_tags(r.tags) for m in r.members}
+        for w in sq.ways.values():
+            if (w.id > 0 and not w.tags and w.id not in ringed and len(w.refs) >= 2
+                    and all(r in sq.nodes for r in w.refs)):
+                P = np.array([(sq.nodes[r].lon, sq.nodes[r].lat) for r in w.refs]) * k
+                lo, hi = P.min(axis=0), P.max(axis=0)
+                out.append((sq.name, w.id, (lo, hi), P[:-1], P[1:]))
+    return out
+
+
+def _under(P, bare):
+    """The one bare way all of P lies on, as (square name, way id), or None."""
+    lo, hi = P.min(axis=0), P.max(axis=0)
+    for name, wid, (blo, bhi), A, B in bare:
+        if (lo >= blo - NEAR_M).all() and (hi <= bhi + NEAR_M).all() and _on(P, A, B):
+            return name, wid
+    return None
 
 
 def _on(P, A, B) -> bool:

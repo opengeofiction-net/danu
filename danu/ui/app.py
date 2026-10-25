@@ -1834,7 +1834,7 @@ class MainWindow(QMainWindow):
         if not steps:
             return ''
         self.editor.do_across(steps)
-        n = sum(len(cmd.commands) for _, cmd in steps)
+        n = sum(isinstance(c, edits.DeleteWay) for _, cmd in steps for c in cmd.commands)
         return f'; {n} contour{"s" * (n != 1)} doubled under the main map\'s removed, its kept'
 
     def _heights_imported(self, answer, working_set):

@@ -71,3 +71,28 @@ def test_a_copy_of_a_water_relations_ring_goes_at_the_relations_level():
     way(sq, -1, [*COAST, COAST[0]], {'natural': 'water', 'ele': '0'})
     way(sq, -2, [*COAST, COAST[0]], {'natural': 'water', 'ele': '10'})               # another level
     assert removed(w) == [-1]
+
+
+def test_a_copy_on_a_bare_way_of_the_main_map_gives_it_its_level_and_goes():
+    """The sea, r470432, held in a square outside the set: its member ways
+    come in bare, under the recovered copies. The copy goes; its level goes
+    onto the main map's way."""
+    w, sq = ws()
+    way(sq, 37901776, COAST, {})
+    way(sq, -1, COAST[:2], {'natural': 'water', 'ele': '0'})
+    way(sq, -2, COAST[1:], {'natural': 'water', 'ele': '0'})
+    steps = doubled.commands(w)
+    for s, step in steps:
+        step.apply(s)
+    assert list(sq.ways) == [37901776] and sq.ways[37901776].tags == {'ele': '0'}
+    for s, step in reversed(steps):
+        step.undo(s)
+    assert sq.ways[37901776].tags == {} and -1 in sq.ways
+
+
+def test_copies_on_a_bare_way_saying_different_levels_are_left():
+    w, sq = ws()
+    way(sq, 37901776, COAST, {})
+    way(sq, -1, COAST[:2], {'ele': '0'})
+    way(sq, -2, COAST[1:], {'ele': '10'})
+    assert doubled.commands(w) == []
