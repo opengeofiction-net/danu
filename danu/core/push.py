@@ -61,7 +61,7 @@ class Pusher:
         self.guard = defaultdict(list)     # cell: [(way id, envelope, line)] of every contour as it will stand
 
     @classmethod
-    def make(cls, polys, pull_back_m):
+    def make(cls, polys, pull_back_m, partial=False):
         try:
             from osgeo import ogr
         except ImportError:                # a build without GDAL cuts instead
@@ -75,7 +75,7 @@ class Pusher:
             g.AddGeometry(r)
             g = g.Buffer(0)
             water = g if water is None else water.SymDifference(g)     # an island is a hole
-        return cls(ogr, water, pull_back_m) if water is not None and not water.IsEmpty() else None
+        return cls(ogr, water, pull_back_m, partial=partial) if water is not None and not water.IsEmpty() else None
 
     def _line(self, pts):
         g = self.ogr.Geometry(self.ogr.wkbLineString)

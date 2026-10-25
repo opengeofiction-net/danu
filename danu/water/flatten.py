@@ -309,7 +309,15 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             near.append((sq, way, pts, e))
     below = max((e for *_, e in near if e < level), default=None)
     above = min((e for *_, e in near if e > level), default=None)
-    pushed = Pusher.make(polys, pull_back_m)
+    # what it can of each contour, pushed round: a stretch the next
+    # contour up crowds against the shore is cut as a deeper one is, the
+    # rest of it one line still (r239 in roantra's N46E029: its 30 m touches
+    # the water here and there, and the 20 m was cut into seventeen)
+    pushed = Pusher.make(polys, pull_back_m, partial=True)
+
+    def push_round(sq, way, pts):
+        got = pushed.round(sq, way, pts, proj, alloc)
+        return None if got is None else (*got, pushed.last)
     wrap = []
     for sq, way, pts, e in near:
         if pushed is not None and e in (below, above):
@@ -320,7 +328,7 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             per_square.setdefault(sq.name, []).append(cmd)
         if pushed is not None:
             pushed.stays(way.id, _after(sq, way, pts, cmd, proj))
-    tried = [[sq, way, pts, e, pushed.round(sq, way, pts, proj, alloc)] for sq, way, pts, e in wrap]
+    tried = [[sq, way, pts, e, push_round(sq, way, pts)] for sq, way, pts, e in wrap]
     cut: dict = {}
     while True:
         for k, (sq, way, pts, e, got) in enumerate(tried):
@@ -334,14 +342,25 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             break
         for t in crossed:
             pushed.drop(t[1].id)
-            t[4] = pushed.round(t[0], t[1], t[2], proj, alloc)
-    for k, (sq, _, _, _, got) in enumerate(tried):
+            t[4] = push_round(t[0], t[1], t[2])
+    for k, (sq, way, _, e, got) in enumerate(tried):
         cmd = cut.get(k)
         if got is not None:
-            cmd, arcs, gone = got
+            cmd, arcs, gone, _ = got
             out.wrapped += 1
             out.added += [[proj.lonlat(*q) for q in arc] for arc in arcs]
             out.removed += [[proj.lonlat(*q) for q in run] for run in gone]
+            # what was not pushed and still reaches the water, cut there: the
+            # cut worked out on the contour as pushed, then the push taken back
+            cmd.apply(sq)
+            now = sq.ways[way.id]
+            aside = Plan(level)
+            rest = _reshape(sq, now, [proj.xy(sq.nodes[r]) for r in now.refs], e, level, shore, proj, alloc,
+                            pull_back_m, aside)
+            cmd.undo(sq)
+            if rest is not None:
+                cmd = edits.Compound([cmd, rest], name=cmd.describe())
+                out.removed += aside.removed
         if cmd is not None:
             per_square.setdefault(sq.name, []).append(cmd)
     # the lake's fill lines: the old ones out, new ones across the water
