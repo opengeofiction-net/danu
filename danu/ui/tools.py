@@ -538,7 +538,7 @@ class EditController(QObject):
             # the way with no node picked
             self.selection = None if self.selection.spot else replace(self.selection, node=None)
         if self.picked and self.working_set is not None:
-            kept = {n: {i for i in ids if n in self.working_set.squares and i in self.working_set.squares[n].nodes}
+            kept = {n: {i for i in ids if self.working_set.square(n) is not None and i in self.working_set.square(n).nodes}
                     for n, ids in self.picked.items()}
             if kept != self.picked:
                 self.set_picked(kept)
@@ -830,9 +830,9 @@ class EditController(QObject):
         return True
 
     def _picked_points(self) -> dict:
-        return {(name, i): self.layer.node_xy(self.working_set.squares[name], i)
-                for name, ids in self.picked.items() if name in self.working_set.squares
-                for i in ids if i in self.working_set.squares[name].nodes}
+        return {(name, i): self.layer.node_xy(self.working_set.square(name), i)
+                for name, ids in self.picked.items() if self.working_set.square(name) is not None
+                for i in ids if i in self.working_set.square(name).nodes}
 
     def _near_picked(self, points: dict, pos: QPointF) -> bool:
         near = self._px(SNAP_PX)
@@ -876,7 +876,7 @@ class EditController(QObject):
         squares = {name for name, _ in moved}
         ways = {}                                         # the contours whose course changes
         for name in squares:
-            sq = ws.squares[name]
+            sq = ws.square(name)
             ids = {i for (n, i) in moved if n == name}
             for wid, way in sq.ways.items():
                 if way.ele is not None and (name, wid) not in self.layer.water and ids.intersection(way.refs):
@@ -885,7 +885,7 @@ class EditController(QObject):
 
         def course(key, way, where):
             name = key[0]
-            sq = ws.squares[name]
+            sq = ws.square(name)
             return [where.get((name, r)) or self.layer.node_xy(sq, r) for r in way.refs if r in sq.nodes]
 
         old = {k: course(k, w, {}) for k, w in ways.items()}
@@ -904,7 +904,7 @@ class EditController(QObject):
         self.marks_focus = []
         steps = []
         for name in sorted(squares, key=str):
-            sq = ws.squares[name]
+            sq = ws.square(name)
             cmds = []
             for (nn, i), (x, y) in moved.items():
                 if nn != name or i not in sq.nodes:
@@ -1131,7 +1131,7 @@ class EditController(QObject):
             self.message.emit('not absorbed: the picks are in more than one square')
             return
         (name, ids), = self.picked.items()
-        square = ws.squares[name]
+        square = ws.square(name)
         ways = [w for w in square.ways.values() if w.ele is not None and w.id not in self.layer.water
                 and not w.tags.get('natural') and ids.intersection(w.refs)]
         if len(ways) < 2:
@@ -1280,7 +1280,7 @@ class EditController(QObject):
         name = f'the {format_ele(way.ele)} m contour'
         if after and not before:
             sq_name, wid = sorted(after, key=str)[0]
-            other = self.working_set.squares[sq_name].ways.get(wid)
+            other = self.working_set.square(sq_name).ways.get(wid)
             what = (f'the {format_ele(other.ele)} m contour, way {wid}' if other is not None
                     else f'way {wid}')
             self.marks_focus = self.layer.crossing_points(there, (sq_name, wid))
@@ -1986,7 +1986,7 @@ class EditController(QObject):
         (G5a), so they stay, and are said."""
         steps, gone, kept = [], 0, 0
         for name, ids in self.picked.items():
-            sq = self.working_set.squares.get(name)
+            sq = self.working_set.square(name)
             if sq is None:
                 continue
             river = {r for (sn, wid) in self.layer.water if sn == name and wid in sq.ways
@@ -3038,7 +3038,7 @@ class EditOverlay(QGraphicsItem):
             painter.setBrush(QColor(255, 140, 0))
             h = 2.5 * px                         # smaller than the one selected node's: there are hundreds
             for name, ids in ctl.picked.items():
-                sq = ctl.working_set.squares.get(name)
+                sq = ctl.working_set.square(name)
                 if sq is None:
                     continue
                 for i in ids:
@@ -3054,7 +3054,7 @@ class EditOverlay(QGraphicsItem):
             painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
             path = QPainterPath()
             for name, ids in ctl.picked.items():
-                sq = ctl.working_set.squares.get(name)
+                sq = ctl.working_set.square(name)
                 if sq is None:
                     continue
                 for way in sq.ways.values():

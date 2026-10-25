@@ -19,6 +19,7 @@ tenth of a second this way, against a second and more to parse it.
 from __future__ import annotations
 
 import lzma
+import math
 import os
 import re
 import threading
@@ -72,3 +73,100 @@ def held(zone_dir, skip=()) -> dict[tuple[str, int], SquareName]:
         for key in found:
             out.setdefault(key, name)      # held twice: the first, by name, until the next import settles it
     return out
+
+
+# ------------------------------------------------- where the water reaches
+
+_EXTENTS: dict[str, tuple[int, int, list]] = {}       # path: (size, mtime_ns, [(kind, id, [(lon, lat), ...])])
+
+
+def _water(way) -> bool:
+    t = way.tags
+    return bool(t.get('natural') in ('water', 'coastline') or 'waterway' in t)
+
+
+def water_extents(path: Path) -> list:
+    """Each water feature a square's file holds, with the degree squares
+    its nodes fall in: a water relation by its rings, a lake, a river or a
+    coastline by itself - as ``(kind, id, [(lon, lat), ...])``, each the
+    south-west corner of a degree. The degrees and not a box: a river's or a
+    coastline's box takes in squares it never reaches, and a set opened
+    beside roantra's coast read nine squares where it needed one or two.
+    Parsed, so kept by the file's size and time like the ids."""
+    from .square import read_square, water_tags
+    st = path.stat()
+    key = os.fspath(path)
+    with _LOCK:
+        hit = _EXTENTS.get(key)
+    if hit is not None and hit[:2] == (st.st_size, st.st_mtime_ns):
+        return hit[2]
+    sq = read_square(path)
+    out = []
+
+    def box(refs):
+        cells = sorted({(math.floor(sq.nodes[r].lon), math.floor(sq.nodes[r].lat)) for r in refs if r in sq.nodes})
+        return cells or None
+    members = set()
+    for rel in sq.relations.values():
+        if not water_tags(rel.tags):
+            continue
+        refs = [r for m in rel.members if m.type == 'way' and m.ref in sq.ways for r in sq.ways[m.ref].refs]
+        members.update(m.ref for m in rel.members if m.type == 'way')
+        b = box(refs)
+        if b is not None:
+            out.append(('relation', rel.id, b))
+    for way in sq.ways.values():
+        if way.id not in members and _water(way):
+            b = box(way.refs)
+            if b is not None:
+                out.append(('way', way.id, b))
+    after = path.stat()
+    if (after.st_size, after.st_mtime_ns) == (st.st_size, st.st_mtime_ns):
+        with _LOCK:
+            _EXTENTS[key] = (st.st_size, st.st_mtime_ns, out)
+    return out
+
+
+def load_extents(cache: Path) -> None:
+    """What an earlier session worked out, from ``cache``: a file is read
+    again only if it has changed since."""
+    import json
+    try:
+        got = json.loads(Path(cache).read_text())
+    except (OSError, ValueError):
+        return
+    with _LOCK:
+        for key, (size, mtime, found) in got.items():
+            _EXTENTS.setdefault(key, (size, mtime, [(k, i, [tuple(c) for c in b]) for k, i, b in found]))
+
+
+def save_extents(cache: Path) -> None:
+    import json
+    with _LOCK:
+        got = {k: [s, m, [[kind, i, [list(c) for c in b]] for kind, i, b in f]] for k, (s, m, f) in _EXTENTS.items()}
+    try:
+        Path(cache).parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(cache).with_suffix('.tmp')
+        tmp.write_text(json.dumps(got))
+        os.replace(tmp, cache)
+    except OSError:
+        pass                               # a cache: next time it is worked out again
+
+
+def reaching(zone_dir, bounds, skip=()) -> list:
+    """The zone's squares outside ``skip`` holding water with a node in a
+    degree of ``bounds`` (west, south, east, north) - the sea's home, two
+    squares from a set it reaches into - by name, nearest first."""
+    w, s, e, n = bounds
+    out = []
+    for name, path in squares(zone_dir).items():
+        if name in skip:
+            continue
+        try:
+            found = water_extents(path)
+        except (OSError, lzma.LZMAError, ValueError):
+            continue
+        if any(w <= lon < e and s <= lat < n for _, _, cells in found for lon, lat in cells):
+            out.append(name)
+    cx, cy = (w + e) / 2, (s + n) / 2
+    return sorted(out, key=lambda q: ((q.lon + 0.5 - cx) ** 2 + (q.lat + 0.5 - cy) ** 2, str(q)))

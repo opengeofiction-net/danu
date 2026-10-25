@@ -325,7 +325,9 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             per_square.setdefault(square.name, []).append(
                 edits.SetTags(w.id, dict(w.tags), {**w.tags, 'ele': text}))
             out.outline_ways += w is not feature
-    by_name = {sq.name: sq for sq in working_set.squares.values()}
+    # and a lake held in a square read alongside the set, outside it: its
+    # outline and fill lines are written there
+    by_name = {sq.name: sq for sq in [*working_set.squares.values(), *getattr(working_set, 'extra', {}).values()]}
     near = []
     for sq in working_set.squares.values():
         watery = {m.ref for r in sq.relations.values() if water_tags(r.tags)

@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
-from ..core import doubled, dropclient, edits, make_square, save, territory
+from ..core import doubled, dropclient, edits, make_square, save, territory, zone_index
 from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet, list_squares, read_square
 from ..surface import along, shade
@@ -422,6 +422,8 @@ class MainWindow(QMainWindow):
         self.legend.changed.connect(self.profile_dock.plot.update)       # the fill follows the map's colours
         # the difference (H3c): the published DEM fetched when it is first
         # asked for, and the exact build less it worked out on a worker
+        # where each zone square's water reaches, worked out once and kept
+        self._zone_water_cache = cache_dir.parent / 'zone-water.json' if cache_dir else None
         self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None,
                                       url=self.settings.url('published/dem'), parent=self)
         self.published.ready.connect(self._published_ready)
@@ -1646,6 +1648,47 @@ class MainWindow(QMainWindow):
             said = self._close_rings()
             if said:
                 self.statusBar().showMessage(said)
+        self._read_alongside(ws)
+
+    def _read_alongside(self, ws: WorkingSet) -> None:
+        """The zone's squares outside the set holding water that reaches into
+        it - the sea, whose home is two squares from N46E030 - read on a
+        worker and held alongside the set: their water drawn and chosen as
+        the set's is, an edit to it made in its home and saved with the set.
+        Their contours are not the set's and are not drawn."""
+        zone = self.zone_dir
+        if zone is None:
+            return
+        cache = self._zone_water_cache
+        skip = set(ws.squares) | set(ws.extra)
+        bounds = ws.bounds
+
+        def work():
+            if cache is not None:
+                zone_index.load_extents(cache)
+            names = zone_index.reaching(zone, bounds, skip)
+            files = zone_index.squares(zone)
+            got = {n: read_square(files[n]) for n in names}
+            if cache is not None:
+                zone_index.save_extents(cache)
+            return got
+
+        def done(got):
+            if self.working_set is not ws:
+                return                     # another set opened meanwhile
+            new = [sq for n, sq in got.items() if ws.square(n) is None]
+            for sq in new:
+                ws.extra[sq.name] = sq
+            if new:
+                self.contours.add_alongside(new)
+                self.statusBar().showMessage(
+                    f'water held in {", ".join(str(sq.name) for sq in new)}, outside the set, '
+                    'shown where it reaches in')
+
+        def failed(why):
+            self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
+        self._alongside_job = Job(work, done, failed)
+        self._checks_runner(self._alongside_job)
 
     def _offer_recovery(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
