@@ -78,6 +78,7 @@ from .water import (
     WaterImporter,
     coast_commands,
     coast_work,
+    copies_by,
     fetch_coast,
     fetch_heights,
     height_commands,
@@ -325,7 +326,7 @@ class MainWindow(QMainWindow):
         # the zone's folder with the set's holdings: a feature's home may be a
         # square of the zone outside the set, the sea's two squares away
         self.water = WaterImporter(self, fetch=lambda bounds: overpass.fetch(bounds, url=self.settings.overpass_url),
-                                   held=lambda ws: Snapshot(held_by(ws), self.zone_dir))
+                                   held=lambda ws: Snapshot(held_by(ws), self.zone_dir, copies_by(ws)))
         # what the last import found held and no longer upstream - R40's
         # "reported rather than deleted". G5c gives it a dock
         self.gone_from_upstream: list = []

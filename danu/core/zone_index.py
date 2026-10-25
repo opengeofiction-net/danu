@@ -58,6 +58,22 @@ def squares(zone_dir) -> dict[SquareName, Path]:
     return list_squares(zone_dir)
 
 
+def held_all(zone_dir, skip=()) -> dict[tuple[str, int], list]:
+    """``(kind, id)`` to every square whose file holds it - a feature held
+    twice, left so by imports before #278, is in both."""
+    out: dict = {}
+    for name, path in sorted(squares(zone_dir).items(), key=lambda kv: str(kv[0])):
+        if name in skip:
+            continue
+        try:
+            found = _held_in(path)
+        except (OSError, lzma.LZMAError):
+            continue
+        for key in found:
+            out.setdefault(key, []).append(name)
+    return out
+
+
 def held(zone_dir, skip=()) -> dict[tuple[str, int], SquareName]:
     """``(kind, id)`` to the square whose file holds it, over the zone's
     files - all but ``skip``'s, the squares the caller holds in memory and

@@ -8,7 +8,7 @@ pytest.importorskip('PySide6')
 
 from danu.core import edits
 from danu.core.square import Member, Node, Relation, Square, SquareName, Way, read_square, write_square
-from danu.ui.water import Snapshot, held_by, water_work
+from danu.ui.water import Snapshot, copies_by, held_by, water_work
 from danu.water.flatten import FILL
 
 HERE, FAR = SquareName(125, -24), SquareName(128, -24)       # FAR is in the zone, outside the 3x3
@@ -35,7 +35,7 @@ def zoned(window, zone):
 
 def imported(w, payload):
     ws = w.working_set
-    answer = water_work(payload, ws, Snapshot(held_by(ws), w.zone_dir))
+    answer = water_work(payload, ws, Snapshot(held_by(ws), w.zone_dir, copies_by(ws)))
     w._water_imported(answer, ws)
     return answer
 
@@ -87,3 +87,24 @@ def test_a_feature_whose_home_is_open_stays_in_the_set(zoned):
     imported(w, sea(lon0=125.6).replace(b'lon="128.5"', b'lon="125.7"').replace(b'lon="128.9"', b'lon="125.8"'))
     ws = w.working_set
     assert 470432 in ws.squares[HERE].relations and not ws.extra
+
+
+def test_a_copy_left_in_the_set_goes_when_the_home_is_read_alongside(zoned):
+    """Imports before #278 left the estuary's ways in N46E029 as well as in
+    N46E028, its home. With the home read alongside before the import, the
+    import saw the feature held at home and left the copy: every copy that
+    is not the home's now goes."""
+    w, zone = zoned
+    far = Square(name=FAR, present=True, attrs={'version': '0.6', 'upload': 'never'})
+    write_square(far, zone / 'S24E128.osm.xz')
+    imported(w, sea())                               # held in FAR, read alongside
+    ws = w.working_set
+    w.save_all()
+    here = ws.squares[HERE]
+    ring = ws.extra[FAR].ways[37901776]
+    for r in ring.refs:                              # a stale copy of the ring, left in the set
+        here.nodes[r] = ws.extra[FAR].nodes[r]
+    here.ways[37901776] = Way(id=37901776, refs=list(ring.refs), tags={})
+    imported(w, sea())
+    assert 37901776 not in here.ways, 'the copy left in the set stayed'
+    assert 37901776 in ws.extra[FAR].ways and 470432 in ws.extra[FAR].relations
