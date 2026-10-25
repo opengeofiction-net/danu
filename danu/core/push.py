@@ -16,6 +16,7 @@ on the caller's projection.
 
 from __future__ import annotations
 
+import bisect
 import math
 from collections import defaultdict
 from itertools import pairwise
@@ -25,6 +26,7 @@ from . import edits
 WRAP_MIN_M = 5.0           # a contour pushed round no nearer than this
 WRAP_SIMPLIFY_M = 2.0      # the offset drawn to within this
 _CELL_M = 1000.0           # the guard's index
+_MARGIN_M = 500.0          # the water clipped this far beyond twice the furthest push
 
 
 def _length(pts) -> list[float]:
@@ -59,6 +61,7 @@ class Pusher:
             d /= 2
         self.zones = {}
         self.guard = defaultdict(list)     # cell: [(way id, envelope, line)] of every contour as it will stand
+        self._stays_log = []               # what went into the guard, in order
 
     @classmethod
     def make(cls, polys, pull_back_m, partial=False):
@@ -97,6 +100,15 @@ class Pusher:
                 entry = (wid, g.GetEnvelope(), g)
                 for c in self._cells(entry[1]):
                     self.guard[c].append(entry)
+                self._stays_log.append(entry)
+
+    def _unstay(self, mark) -> None:
+        """Take back everything put in the guard since ``mark``: a contour
+        worked again starts from the guard as it was before it."""
+        for entry in self._stays_log[mark:]:
+            for c in self._cells(entry[1]):
+                self.guard[c] = [g for g in self.guard[c] if g is not entry]
+        del self._stays_log[mark:]
 
     def drop(self, wid) -> None:
         for c in list(self.guard):
@@ -136,7 +148,47 @@ class Pusher:
     def round(self, sq, way, pts, proj, alloc):
         """The contour pushed off, each stretch at the furthest distance that
         keeps it clear of the others, as (command, arcs drawn, runs
-        replaced); or None."""
+        replaced); or None.
+
+        Worked against the water - or the lines - about the contour only:
+        clipped to a box round it with room to spare, and the offsets made
+        from that. Roantra's estuary, relation 470435, is 147 km by 104 km
+        and 33,000 vertices, and every test of it whole, for each of the
+        hundreds of contours round it, held a flatten for a minute."""
+        whole, zones = self.water, self.zones
+        x0, x1, y0, y1 = self._line(pts).GetEnvelope()
+        reach = 2 * (self.dists[0] if self.dists else 0.0) + _MARGIN_M
+        bx0, bx1, by0, by1 = x0 - reach, x1 + reach, y0 - reach, y1 + reach
+        local = self.water.Intersection(self._box(bx0, bx1, by0, by1))
+        if local is None or local.IsEmpty():
+            return None
+        self.water, self.zones = local, {}
+        mark = len(self._stays_log)
+        try:
+            got = self._round(sq, way, pts, proj, alloc)
+        finally:
+            self.water, self.zones = whole, zones
+        # an arc with a vertex within half the margin of the box's edge
+        # followed the cut there, not a shore - the clipped water's edge is
+        # straight, its offset no further out than the push, so an arc along
+        # it has its vertices there. Round a lake the contour crosses whole,
+        # the far shore is outside the box: that one again, against all of it
+        edge = _MARGIN_M / 2
+        if got is not None and any(not (bx0 + edge < x < bx1 - edge and by0 + edge < y < by1 - edge)
+                                   for arc in got[1] for x, y in arc):
+            self._unstay(mark)
+            got = self._round(sq, way, pts, proj, alloc)
+        return got
+
+    def _box(self, x0, x1, y0, y1):
+        r = self.ogr.Geometry(self.ogr.wkbLinearRing)
+        for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)):
+            r.AddPoint_2D(x, y)
+        g = self.ogr.Geometry(self.ogr.wkbPolygon)
+        g.AddGeometry(r)
+        return g
+
+    def _round(self, sq, way, pts, proj, alloc):
         refs, L = list(way.refs), list(pts)
         if way.refs[0] == way.refs[-1] and len(way.refs) > 3:
             # begun again at its node furthest from the water, so no stretch
@@ -250,14 +302,16 @@ class Pusher:
             return None
         closed = [*ring, ring[0]]
         cum = _length(closed)
-        total = cum[-1]
         sp, sq = _along(closed, cum, P), _along(closed, cum, Q)
 
         def walk(a, b):
-            # the ring's vertices met going forward from position a to b
-            span = (b - a) % total
-            return [closed[i] for i in sorted(range(len(ring)), key=lambda i: (cum[i] - a) % total)
-                    if 0 < (cum[i] - a) % total < span]
+            # the ring's vertices met going forward from position a to b -
+            # found along it by bisection: a shore's offset can be 30,000
+            # vertices, and sorting them for every arc was most of the push
+            i, j = bisect.bisect_right(cum, a, 0, len(ring)), bisect.bisect_left(cum, b, 0, len(ring))
+            if a <= b:
+                return closed[i:j]
+            return closed[i:len(ring)] + closed[:j]
         sides = ([P, *walk(sp, sq), Q], [P, *reversed(walk(sq, sp)), Q])
         if self.side is not None:
             def on_side(arc):

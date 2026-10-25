@@ -53,6 +53,7 @@ what is inside it.
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import pairwise
 
@@ -176,28 +177,62 @@ class _Projection:
 class _Shore:
     """Every edge of a lake's rings, as arrays - asked of each contour near it
     at once rather than edge by edge, which on Lake Kinser's 3,000 shore
-    edges and 128 contours near it was most of five seconds."""
+    edges and 128 contours near it was most of five seconds. And indexed by
+    cell, so a contour is asked only of the edges near it: roantra's estuary,
+    relation 470435, has 32,918, and all of them asked of each of the 3,451
+    contours near it was three minutes of a four-minute flatten."""
+
+    CELL_M = 500.0
 
     def __init__(self, polys):
         self.a = np.array([p for ring in polys for p in ring[:-1]], dtype=float)
         self.b = np.array([p for ring in polys for p in ring[1:]], dtype=float)
+        lo = np.floor(np.minimum(self.a, self.b) / self.CELL_M).astype(np.int64)
+        hi = np.floor(np.maximum(self.a, self.b) / self.CELL_M).astype(np.int64)
+        cells, rows = defaultdict(list), defaultdict(list)
+        for k, ((x0, y0), (x1, y1)) in enumerate(zip(lo, hi, strict=True)):
+            for cy in range(y0, y1 + 1):
+                rows[cy].append(k)
+                for cx in range(x0, x1 + 1):
+                    cells[(cx, cy)].append(k)
+        self.cells = {c: np.array(v) for c, v in cells.items()}
+        self.rows = {r: np.array(v) for r, v in rows.items()}
 
     def inside(self, pt) -> bool:
         """Even-odd over every ring: inside an outer ring and not inside one
-        of its inner rings - an island is outside the water."""
+        of its inner rings - an island is outside the water. The ray runs
+        east, so only the edges in the point's row of cells can cross it."""
         x, y = pt
-        (x0, y0), (x1, y1) = self.a.T, self.b.T
+        k = self.rows.get(int(math.floor(y / self.CELL_M)))
+        if k is None:
+            return False
+        (x0, y0), (x1, y1) = self.a[k].T, self.b[k].T
         spans = (y0 > y) != (y1 > y)
         with np.errstate(divide='ignore', invalid='ignore'):
             xc = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
         return bool(np.count_nonzero(spans & (x < xc)) % 2)
 
+    def _near(self, pts) -> np.ndarray:
+        """The edges in the cells a run of points passes through."""
+        out = set()
+        for (ax, ay), (bx, by) in pairwise(pts):
+            for cx in range(math.floor(min(ax, bx) / self.CELL_M), math.floor(max(ax, bx) / self.CELL_M) + 1):
+                for cy in range(math.floor(min(ay, by) / self.CELL_M), math.floor(max(ay, by) / self.CELL_M) + 1):
+                    k = self.cells.get((cx, cy))
+                    if k is not None:
+                        out.update(k.tolist())
+        return np.array(sorted(out), dtype=np.int64)
+
     def cuts(self, pts) -> list[float]:
         """Where a run of points meets the shore, as positions along it."""
+        near = self._near(pts)
+        if not len(near):
+            return []
+        a, b = self.a[near], self.b[near]
         p = np.asarray(pts[:-1], dtype=float)[:, None, :]
         d = (np.asarray(pts[1:], dtype=float) - np.asarray(pts[:-1], dtype=float))[:, None, :]
-        e = (self.b - self.a)[None, :, :]
-        w = self.a[None, :, :] - p
+        e = (b - a)[None, :, :]
+        w = a[None, :, :] - p
         den = d[..., 0] * e[..., 1] - d[..., 1] * e[..., 0]
         with np.errstate(divide='ignore', invalid='ignore'):
             t = (w[..., 0] * e[..., 1] - w[..., 1] * e[..., 0]) / den
