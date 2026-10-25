@@ -326,18 +326,34 @@ def level_rings(path: Path, name: SquareName | None = None) -> list:
     driver assembles only a relation typed multipolygon, and an imported one
     keeps no ``type``. Flowing water is not a body (R27)."""
     from ..water.overpass import flows
-    with (lzma.open(path, 'rb') if path.suffix == '.xz' else open(path, 'rb')) as fh:
-        text = fh.read()
-    if b"'water'" not in text and b'"water"' not in text:           # quoted either way
+    if not _holds_water(path):
         return []
     sq = read_square(path, name)
-    members = {m.ref for r in sq.relations.values() for m in r.members if m.type == 'way'}
-    bodies = [closed_rings([w.refs]) for w in sq.ways.values() if w.id not in members
-              and w.tags.get('natural') == 'water' and not flows(w.tags) and parse_ele(w.tags.get('ele')) == 0]
-    bodies += [relation_rings(sq, r) for r in sq.relations.values()
-               if r.tags.get('natural') == 'water' and not flows(r.tags) and parse_ele(r.tags.get('ele')) == 0]
+
+    def level(tags):
+        return tags.get('natural') == 'water' and not flows(tags) and parse_ele(tags.get('ele')) == 0
+
+    # a ring of a water relation is that relation's, and read with it
+    members = {m.ref for r in sq.relations.values() if r.tags.get('natural') == 'water'
+               for m in r.members if m.type == 'way'}
+    bodies = [closed_rings([w.refs]) for w in sq.ways.values() if w.id not in members and level(w.tags)]
+    bodies += [relation_rings(sq, r) for r in sq.relations.values() if level(r.tags)]
     return [[[(sq.nodes[n].lon, sq.nodes[n].lat) for n in ring if n in sq.nodes] for ring in rings]
             for rings in bodies if rings]
+
+
+def _holds_water(path: Path, chunk: int = 1 << 20) -> bool:
+    """Whether a square names water at all, quoted either way - read a chunk
+    at a time, as the long-way guard is, and not parsed: most squares away
+    from a coast do not."""
+    tail = b''
+    with (lzma.open(path, 'rb') if path.suffix == '.xz' else open(path, 'rb')) as fh:
+        while block := fh.read(chunk):
+            text = tail + block
+            if b"'water'" in text or b'"water"' in text:
+                return True
+            tail = text[-8:]
+    return False
 
 
 # The tokens the long-way guard counts, and an overlap longer than the longest
