@@ -102,12 +102,12 @@ class Pusher:
                     self.guard[c].append(entry)
                 self._stays_log.append(entry)
 
-    def _unstay(self, wid, mark) -> None:
-        """Take back what way ``wid`` put in the guard since ``mark``."""
+    def _unstay(self, mark) -> None:
+        """Take back everything put in the guard since ``mark``: a contour
+        worked again starts from the guard as it was before it."""
         for entry in self._stays_log[mark:]:
-            if entry[0] == wid:
-                for c in self._cells(entry[1]):
-                    self.guard[c] = [g for g in self.guard[c] if g is not entry]
+            for c in self._cells(entry[1]):
+                self.guard[c] = [g for g in self.guard[c] if g is not entry]
         del self._stays_log[mark:]
 
     def drop(self, wid) -> None:
@@ -168,13 +168,15 @@ class Pusher:
             got = self._round(sq, way, pts, proj, alloc)
         finally:
             self.water, self.zones = whole, zones
-        # an arc that runs to the box's edge followed the cut there, not a
-        # shore: round a lake the contour crosses whole, the far shore is
-        # outside it - that one again, against all of the water
+        # an arc with a vertex within half the margin of the box's edge
+        # followed the cut there, not a shore - the clipped water's edge is
+        # straight, its offset no further out than the push, so an arc along
+        # it has its vertices there. Round a lake the contour crosses whole,
+        # the far shore is outside the box: that one again, against all of it
         edge = _MARGIN_M / 2
         if got is not None and any(not (bx0 + edge < x < bx1 - edge and by0 + edge < y < by1 - edge)
                                    for arc in got[1] for x, y in arc):
-            self._unstay(way.id, mark)
+            self._unstay(mark)
             got = self._round(sq, way, pts, proj, alloc)
         return got
 
