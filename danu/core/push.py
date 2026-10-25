@@ -21,12 +21,15 @@ import math
 from collections import defaultdict
 from itertools import pairwise
 
+import numpy as np
+
 from . import edits
 
 WRAP_MIN_M = 5.0           # a contour pushed round no nearer than this
 WRAP_SIMPLIFY_M = 2.0      # the offset drawn to within this
 _CELL_M = 1000.0           # the guard's index
 _MARGIN_M = 500.0          # the water clipped this far beyond twice the furthest push
+_PROBES = 64               # the points of an arc asked which side of a line it is on
 
 
 def _length(pts) -> list[float]:
@@ -142,7 +145,9 @@ class Pusher:
             polys = [z] if z.GetGeometryName() == 'POLYGON' else [z.GetGeometryRef(i) for i in range(z.GetGeometryCount())]
             rings = [[p.GetGeometryRef(k).GetPoint_2D(j) for j in range(p.GetGeometryRef(k).GetPointCount() - 1)]
                      for p in polys for k in range(p.GetGeometryCount())]
-            self.zones[d] = z, [(r, self._line([*r, r[0]])) for r in rings]
+            # each ring closed, as a line, and measured along once: an arc is
+            # placed on it by position, and a shore's offset is thousands long
+            self.zones[d] = z, [(r, self._line([*r, r[0]]), (c := [*r, r[0]]), _length(c)) for r in rings]
         return self.zones[d]
 
     def round(self, sq, way, pts, proj, alloc):
@@ -297,12 +302,12 @@ class Pusher:
         P and Q are placed along the ring where they fall, not at its
         nearest vertex: a straight shore's offset has a vertex only at each
         end."""
-        ring = min(rings, key=lambda r: r[1].Distance(self._point(P)))[0]
-        if min(rings, key=lambda r: r[1].Distance(self._point(Q)))[0] is not ring:
+        near = min(rings, key=lambda r: r[1].Distance(self._point(P)))
+        if min(rings, key=lambda r: r[1].Distance(self._point(Q))) is not near:
             return None
-        closed = [*ring, ring[0]]
-        cum = _length(closed)
+        ring, _, closed, cum = near
         sp, sq = _along(closed, cum, P), _along(closed, cum, Q)
+        forward = (sq - sp) % cum[-1]
 
         def walk(a, b):
             # the ring's vertices met going forward from position a to b -
@@ -315,12 +320,19 @@ class Pusher:
         sides = ([P, *walk(sp, sq), Q], [P, *reversed(walk(sq, sp)), Q])
         if self.side is not None:
             def on_side(arc):
+                # its vertices and its segments' middles, up to _PROBES of
+                # them spread along it: the long way round an offset ring can
+                # be thousands, each asked of every segment crossed - one
+                # contour in N46E030 sat on that for twenty minutes
                 probes = [*arc[1:-1], *(((x0 + x1) / 2, (y0 + y1) / 2) for (x0, y0), (x1, y1) in pairwise(arc))]
+                if len(probes) > _PROBES:
+                    probes = [probes[i * len(probes) // _PROBES] for i in range(_PROBES)]
                 return all(self.side(q, d) for q in probes)
-            ok = [s for s in sides if on_side(s)]
-            if not ok:
-                return None
-            return min(ok, key=lambda s: _length(s)[-1])
+            # the shorter way round first: the longer is asked only if it is not
+            for arc in (sides if forward <= cum[-1] - forward else sides[::-1]):
+                if on_side(arc):
+                    return arc
+            return None
 
         def apart(side):
             g = self._polygon([P, *between, Q, *reversed(side)])
@@ -344,15 +356,30 @@ class Pusher:
 
 
 def _along(L, cum, pt) -> float:
-    """How far along the run of points L a point on it is."""
-    best, at = math.inf, 0.0
-    for i, (a, b) in enumerate(pairwise(L)):
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        t = max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1.0)))
-        d = math.hypot(a[0] + t * dx - pt[0], a[1] + t * dy - pt[1])
-        if d < best:
-            best, at = d, cum[i] + t * math.dist(a, b)
-    return at
+    """How far along the run of points L a point on it is. In numpy, the
+    run's arrays kept for the few runs last asked of: the same contour and
+    the same offset ring are asked again and again, and a loop in Python
+    over 2,000 segments for each was most of a push in N46E030."""
+    for hit in _ARRAYS:
+        if hit[0] is L:
+            _, a, d, seg, sq, c = hit
+            break
+    else:
+        a = np.asarray(L[:-1], dtype=float)
+        d = np.asarray(L[1:], dtype=float) - a
+        seg = np.hypot(*d.T)
+        sq = np.where(seg > 0, seg * seg, 1.0)
+        c = np.asarray(cum[:-1], dtype=float)
+        _ARRAYS.insert(0, (L, a, d, seg, sq, c))
+        del _ARRAYS[8:]
+    q = np.asarray(pt, dtype=float)
+    t = np.clip(((q - a) * d).sum(axis=1) / sq, 0.0, 1.0)
+    dist = np.hypot(*(a + t[:, None] * d - q).T)
+    i = int(dist.argmin())
+    return float(c[i] + t[i] * seg[i])
+
+
+_ARRAYS: list = []          # (run, its arrays) of the runs last asked along
 
 
 def _spans(L, cum, piece) -> list[tuple[float, float]]:
