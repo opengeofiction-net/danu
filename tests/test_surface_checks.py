@@ -146,5 +146,14 @@ def test_the_nearest_drawn_shore_indexed_once_is_what_every_point_asked_gives():
         k = np.array([111320.0 * np.cos(np.radians(lat)), 111320.0])
         brute = np.hypot(*((pts[:, None, :] - shore[None, :, :]) * k).transpose(2, 0, 1)).min(axis=1)
         assert np.allclose(near(pts, lat), brute), lat
+    # a shore of a dozen points over four degrees: every ask widens many rings,
+    # at latitudes either side of the index's, where a cell is wider or narrower
+    sparse = np.c_[rng.uniform(28.5, 32.0, 12), rng.uniform(43.5, 47.5, 12)]
+    far = Nearest(sparse, 45.5)
+    for lat in (43.5, 45.5, 47.5):
+        pts = np.c_[rng.uniform(28.0, 32.5, 400), rng.uniform(43.0, 48.0, 400)]
+        k = np.array([111320.0 * np.cos(np.radians(lat)), 111320.0])
+        brute = np.hypot(*((pts[:, None, :] - sparse[None, :, :]) * k).transpose(2, 0, 1)).min(axis=1)
+        assert np.allclose(far(pts, lat), brute), lat
     assert np.isinf(Nearest(np.zeros((0, 2)), 45.0)(shore)).all()
     assert not len(near(np.zeros((0, 2))))
