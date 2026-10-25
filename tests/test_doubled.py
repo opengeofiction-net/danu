@@ -71,3 +71,34 @@ def test_a_copy_of_a_water_relations_ring_goes_at_the_relations_level():
     way(sq, -1, [*COAST, COAST[0]], {'natural': 'water', 'ele': '0'})
     way(sq, -2, [*COAST, COAST[0]], {'natural': 'water', 'ele': '10'})               # another level
     assert removed(w) == [-1]
+
+
+def test_copies_on_a_water_relation_without_a_level_give_it_theirs_and_go():
+    """The sea, r470432, imported with no level, and the recovered copies of
+    its shore at 0 m on its rings: they matched nothing and stood between a
+    click and the sea. They go, and the sea and its rings take 0 m."""
+    w, sq = ws()
+    ring = way(sq, 37901776, [*COAST, COAST[0]], {})
+    sq.relations[470432] = Relation(id=470432, members=[Member('way', ring.id, 'outer')],
+                                    tags={'natural': 'water'})
+    way(sq, -1, COAST[:2], {'natural': 'water', 'ele': '0'})
+    way(sq, -2, COAST[1:], {'natural': 'water', 'ele': '0'})
+    steps = doubled.commands(w)
+    for s_, step in steps:
+        step.apply(s_)
+    assert -1 not in sq.ways and -2 not in sq.ways
+    assert sq.relations[470432].tags.get('ele') == '0' and sq.ways[37901776].tags.get('ele') == '0'
+    for s_, step in reversed(steps):
+        step.undo(s_)
+    assert 'ele' not in sq.relations[470432].tags and -1 in sq.ways
+
+
+def test_copies_on_a_water_relation_saying_different_levels_are_left():
+    w, sq = ws()
+    ring = way(sq, 37901776, [*COAST, COAST[0]], {})
+    sq.relations[470432] = Relation(id=470432, members=[Member('way', ring.id, 'outer')],
+                                    tags={'natural': 'water'})
+    way(sq, -1, COAST[:2], {'ele': '0'})
+    way(sq, -2, COAST[1:], {'ele': '10'})
+    assert doubled.commands(w) == []
+    assert -1 in sq.ways and -2 in sq.ways and 'ele' not in sq.relations[470432].tags

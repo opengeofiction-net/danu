@@ -1884,8 +1884,16 @@ class MainWindow(QMainWindow):
         if not steps:
             return ''
         self.editor.do_across(steps)
-        n = sum(len(cmd.commands) for _, cmd in steps)
-        return f'; {n} contour{"s" * (n != 1)} doubled under the main map\'s removed, its kept'
+        n = sum(isinstance(c, edits.DeleteWay) for _, cmd in steps for c in cmd.commands)
+        said = f'; {n} contour{"s" * (n != 1)} doubled under the main map\'s removed, its kept'
+        # a water relation with no level of its own takes the one its
+        # recovered shore held: the sea, at 0 m
+        given = [(sq, c) for sq, cmd in steps for c in cmd.commands if isinstance(c, edits.SetRelationTags)]
+        if given:
+            names = [sq.relations[c.relation_id].tags.get('name') or f'relation {c.relation_id}' for sq, c in given]
+            said += (f'; {", ".join(names[:3])}{" and more" if len(names) > 3 else ""} given the level '
+                     f'{"its" if len(names) == 1 else "their"} recovered shore had')
+        return said
 
     def _heights_imported(self, answer, working_set):
         """One spot-height import, one step on the history, reconciled as
