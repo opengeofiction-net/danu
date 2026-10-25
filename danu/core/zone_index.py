@@ -146,7 +146,7 @@ def save_extents(cache: Path) -> None:
         got = {k: [s, m, [[kind, i, [list(c) for c in b]] for kind, i, b in f]] for k, (s, m, f) in _EXTENTS.items()}
     try:
         Path(cache).parent.mkdir(parents=True, exist_ok=True)
-        tmp = Path(cache).with_suffix('.tmp')
+        tmp = Path(cache).with_name(Path(cache).name + '.tmp')
         tmp.write_text(json.dumps(got))
         os.replace(tmp, cache)
     except OSError:

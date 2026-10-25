@@ -462,8 +462,10 @@ class ContourLayer(QGraphicsItem):
 
     def _alongside(self, square: Square) -> None:
         """A square of the zone read alongside the set: its water and no
-        more - the sea, held two squares away, drawn where it reaches into
-        the set; that square's contours are not the set's."""
+        more - all of that square's water, projected whole, and painted where
+        it falls within the set, as everything here is; the sea, held two
+        squares away, so shows where it reaches in. That square's contours
+        are not the set's."""
         members = _water_members(square)
         for way in square.ways.values():
             t = way.tags
