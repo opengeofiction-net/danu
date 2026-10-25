@@ -441,7 +441,7 @@ class WorkingSet:
 
     def square(self, name: SquareName) -> Square | None:
         """A square of the grid, or one read alongside it."""
-        return self.squares.get(name) or self.extra.get(name)
+        return self.squares[name] if name in self.squares else self.extra.get(name)
 
     @classmethod
     def open(cls, zone_dir: str | os.PathLike, centre: SquareName,

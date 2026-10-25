@@ -307,8 +307,8 @@ def move_commands(answer, working_set, alloc) -> list:
         # ``dst`` is the import's copy for the new home: its tags are given
         # the old copy's level here, before the import's commands are made
         src, dst = working_set.square(was), answer.placed.get(now)
-        if src is None or dst is None:
-            continue
+        if src is None or dst is None or working_set.square(now) is None:
+            continue                       # nowhere loaded to move it to: left where it is, fill lines and all
         cmds = by_square.setdefault(was, [])
         if was not in staying:
             staying[was] = {m.ref for r in src.relations.values() if ('relation', r.id) not in answer.moved

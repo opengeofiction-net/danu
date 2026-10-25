@@ -8,7 +8,9 @@ home two squares from N46E030, and an import from there has to find it.
 
 Read from the files themselves, so it is whatever the zone's squares say -
 saved here, imported from the drop, uploaded by another mapper - and kept by
-each file's size and time, so a file is read again only when it has changed.
+each file's size and modification time, so a file is read again when either
+changes - a rewrite that kept both, on a filesystem with coarse times, is not
+seen until the file changes again.
 Only the main map's ids: a way or relation with a positive id. The ids are
 found in the text, not by parsing the square: a roantra file is read in a
 tenth of a second this way, against a second and more to parse it.

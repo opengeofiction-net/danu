@@ -258,9 +258,9 @@ def parse(payload: bytes) -> Water:
 
 def place(water: Water, working_set, held: dict | None = None) -> dict:
     """Which square each feature belongs to, as ``{SquareName: Water}``,
-    among the open set's squares - a held feature where it is held, always:
-    a caller that does not take a moved feature out of where it was must not
-    have one moved. ``homes`` is the whole of it."""
+    among the open set's squares. A held feature stays where it is held,
+    always - this never moves one, for a caller that takes nothing out of
+    where it was, as the coastline import does. ``homes`` is the whole of it."""
     return homes(water, working_set, held, move=False)[0]
 
 
