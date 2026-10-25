@@ -434,6 +434,14 @@ class WorkingSet:
     centre: SquareName
     size: int
     squares: dict[SquareName, Square]
+    # squares of the zone outside the grid, read to be written: the home of
+    # a water feature the set reaches - the sea, held where most of it is.
+    # Edited and saved with the set, and not drawn or checked as part of it
+    extra: dict[SquareName, Square] = field(default_factory=dict)
+
+    def square(self, name: SquareName) -> Square | None:
+        """A square of the grid, or one read alongside it."""
+        return self.squares.get(name) or self.extra.get(name)
 
     @classmethod
     def open(cls, zone_dir: str | os.PathLike, centre: SquareName,

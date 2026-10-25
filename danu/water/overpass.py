@@ -32,13 +32,14 @@ move it and nothing a mapper draws can collide with one.
 
 from __future__ import annotations
 
+import math
 import urllib.request
 from dataclasses import dataclass, field
 from xml.etree import ElementTree
 
 from .. import USER_AGENT
 from ..core import chains
-from ..core.square import Member, Node, Relation, Way, xml_version
+from ..core.square import Member, Node, Relation, SquareName, Way, xml_version
 
 OVERPASS_URL = 'https://overpass.opengeofiction.net/api/interpreter'
 
@@ -256,11 +257,22 @@ def parse(payload: bytes) -> Water:
 
 
 def place(water: Water, working_set, held: dict | None = None) -> dict:
-    """Which square each feature belongs to, as ``{SquareName: Water}``.
+    """Which square each feature belongs to, as ``{SquareName: Water}`` -
+    among the open set's squares; ``homes`` is the whole of it."""
+    return homes(water, working_set, held)[0]
 
-    A feature goes whole into one square - the one holding its *anchor*, which
-    is a way's first node and a relation's first member that resolves to one.
-    Its nodes go with it, including the ones that fall in a neighbour.
+
+def homes(water: Water, working_set, held: dict | None = None,
+          zone: tuple | None = None) -> tuple[dict, dict]:
+    """Which square each feature belongs to - its *home* - as ``{SquareName:
+    Water}``, and the features whose home has moved, as ``{(kind, id): (the
+    square that held it, its home now)}``.
+
+    A feature goes whole into one square: the one holding most of its nodes,
+    among the zone's squares and the open set's - ``zone`` is the zone's
+    square names and what its files hold, ``(names, held)``; without it, the
+    set's alone. Its nodes go with it, including the ones that fall in a
+    neighbour, and a relation takes its members with it.
 
     Whole, rather than clipped at the boundary, for two reasons that are the
     same reason. A clipped river is two ways with two ids, and the next import
@@ -269,52 +281,100 @@ def place(water: Water, working_set, held: dict | None = None) -> dict:
     a lake at a degree line and the multipolygon it belonged to describes an
     open shape, which is how an island becomes a peninsula.
 
-    The cost is squares whose contents reach past their own degree, which
-    nothing here objects to - ``write_square`` writes a node where it is, and
-    the build reads the working set rather than a square. A feature whose
-    anchor is outside the set is dropped: Overpass answers a bounding box and
-    the set is not one, so some of what comes back is a river passing by.
+    **Most of its nodes**, not its first node, which was the rule until the
+    sea came: r470432's first node is two squares from N46E030, so opened
+    there it was dropped and its 916 ways came in bare, as lines. Where most
+    of a feature lies is the mapper's to see, and does not move when the main
+    map lists a relation's members in another order.
 
-    **A feature the set already holds goes back where it is held** - G5b -
-    whatever its anchor now says. ``held`` maps ``(kind, id)`` to the square
-    holding it, snapshotted on the UI thread when the import was asked for.
-    The anchor is a way's first node, and upstream redrawing a river from
-    the other end, or a relation listing a different member first, moves it
-    across a degree line without the feature having moved at all. Placed by
-    anchor, the new copy would land in the neighbour as a feature it had
-    never held, with none of the elevation set on the old one, and the old
-    one would stay where it was: the same id in two files, which is the
-    duplication R40 says a second import must not make.
+    **A feature already held stays where it is** - G5b - unless another square
+    now holds more of its nodes than that one: in a world being built the
+    sea grows and shrinks, and its home follows it. Never for a tie, so a lake
+    across a degree line half and half does not flit between the two. ``held``
+    is the open squares', snapshotted on the UI thread when the import was
+    asked for; the zone's files say for the rest. A feature moved is the
+    caller's to take out of the square that held it.
     """
     held = held or {}
+    zone_names, zone_held = zone if zone is not None else (set(), {})
+    cand = set(working_set.squares) | set(zone_names)
     out: dict = {}
+    moved: dict = {}
+
+    def home_of(kind, fid, counts):
+        counts = {n: c for n, c in counts.items() if n in cand}
+        if not counts:
+            return None
+        best = max(sorted(counts, key=str), key=counts.get)
+        was = held.get((kind, fid)) or zone_held.get((kind, fid))
+        if was is not None and counts.get(was, 0) >= counts[best]:
+            return was
+        return best
+
+    def note(kind, fid, home):
+        was = held.get((kind, fid)) or zone_held.get((kind, fid))
+        if was is not None and was != home:
+            moved[(kind, fid)] = (was, home)
+
     # Relations first, and everything they are made of goes with them rather
-    # than where its own first node happens to fall. Otherwise a lake's outer
-    # ring is placed twice - once on its own account and once as a member -
-    # and a square two degrees from the relation holds half its shape.
-    #
-    # Only a relation that was placed claims anything: one anchored outside
-    # the set is dropped, and a member way of it that *is* inside has to be
-    # left for the loop below to place on its own account.
+    # than where its own nodes would put it. Otherwise a lake's outer ring is
+    # placed twice - once on its own account and once as a member - and a
+    # square two degrees from the relation holds half its shape.
     claimed: set[int] = set()
     taken: set[int] = set()
     for rel in _outermost_first(water):
         if rel.id in taken:
             continue                 # already placed, with the relation that names it
-        square = (held.get(('relation', rel.id))
-                  or _square_of(working_set, _relation_anchor(water, rel)))
+        square = home_of('relation', rel.id, _counts(water, _nodes_of(water, rel)))
         if square is None:
             continue
         ways, rels = _put(out, square, water, relations=[rel])
         claimed |= ways
         taken |= rels
+        for wid in ways:
+            note('way', wid, square)
+        for rid in rels:
+            note('relation', rid, square)
     for way in water.ways.values():
         if way.id in claimed:
             continue
-        square = (held.get(('way', way.id))
-                  or _square_of(working_set, _way_anchor(water, way)))
+        square = home_of('way', way.id, _counts(water, set(way.refs)))
         if square is not None:
             _put(out, square, water, ways=[way])
+            note('way', way.id, square)
+    return out, moved
+
+
+def _nodes_of(water: Water, rel: Relation, seen=None) -> set[int]:
+    """Every node a relation is made of, through its member ways and
+    relations."""
+    seen = set() if seen is None else seen
+    if rel.id in seen:
+        return set()
+    seen.add(rel.id)
+    out: set[int] = set()
+    for mem in rel.members:
+        if mem.type == 'node':
+            out.add(mem.ref)
+        elif mem.type == 'way' and mem.ref in water.ways:
+            out.update(water.ways[mem.ref].refs)
+        elif mem.type == 'relation' and mem.ref in water.relations:
+            out |= _nodes_of(water, water.relations[mem.ref], seen)
+    return out
+
+
+def _counts(water: Water, node_ids) -> dict:
+    """How many of the nodes fall in each degree square."""
+    out: dict = {}
+    for i in node_ids:
+        n = water.nodes.get(i)
+        if n is None:
+            continue
+        try:
+            name = SquareName((math.floor(n.lon) + 180) % 360 - 180, math.floor(n.lat))
+        except ValueError:
+            continue
+        out[name] = out.get(name, 0) + 1
     return out
 
 
@@ -333,67 +393,6 @@ def _outermost_first(water: Water) -> list:
              for mem in rel.members if mem.type == 'relation'}
     loose = [r for r in water.relations.values() if r.id not in named]
     return loose + [r for r in water.relations.values() if r.id in named]
-
-
-def _way_anchor(water: Water, way: Way) -> Node | None:
-    for ref in way.refs:
-        node = water.nodes.get(ref)
-        if node is not None:
-            return node
-    return None
-
-
-def _relation_anchor(water: Water, rel: Relation, seen=None) -> Node | None:
-    """The first member that resolves to a node, following relation members.
-
-    ``seen`` is the path and not the walk: a relation is added on the way in
-    and taken out again on the way out, so a cycle is stopped without a second
-    branch being refused for having been down the same way.
-
-    Review asked for this, on the argument that an accumulating set would mark
-    an inner relation seen on a branch that found nothing and then refuse a
-    later branch that needed it. I could not build that case, and on reflection
-    it cannot exist: whether a relation resolves depends on what it can reach,
-    not on how it was reached, so a second visit returns exactly what the first
-    did. The shape here is the right one and costs nothing; it is not a fix for
-    a bug anyone has seen.
-    """
-    seen = set() if seen is None else seen
-    if rel.id in seen:
-        return None
-    seen.add(rel.id)
-    try:
-        return _anchor_in(water, rel, seen)
-    finally:
-        seen.discard(rel.id)
-
-
-def _anchor_in(water: Water, rel: Relation, seen) -> Node | None:
-    for mem in rel.members:
-        if mem.type == 'node':
-            node = water.nodes.get(mem.ref)
-            if node is not None:
-                return node
-        elif mem.type == 'way':
-            way = water.ways.get(mem.ref)
-            if way is not None:
-                node = _way_anchor(water, way)
-                if node is not None:
-                    return node
-        elif mem.type == 'relation':
-            inner = water.relations.get(mem.ref)
-            if inner is not None:
-                node = _relation_anchor(water, inner, seen)
-                if node is not None:
-                    return node
-    return None
-
-
-def _square_of(working_set, anchor: Node | None):
-    if anchor is None:
-        return None
-    square = working_set.at(anchor.lon, anchor.lat)
-    return square.name if square is not None else None
 
 
 def _put(out: dict, name, water: Water, ways=(), relations=(), seen=None) -> tuple[set, set]:

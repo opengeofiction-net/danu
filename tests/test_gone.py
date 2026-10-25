@@ -81,8 +81,8 @@ def test_a_remark_that_is_not_an_error_is_not_refused():
 # ---------------------------------------------------- kept where held
 
 def an_answer():
-    """A river whose first node is in EAST and a lake relation whose first
-    member's first node is in EAST - so by anchor both land there."""
+    """A river with one node in EAST and two HERE, and a lake relation all of
+    whose ring is in EAST."""
     w = overpass.Water()
     for i, lon in ((1, 126.2), (2, 125.8), (3, 125.6)):
         w.nodes[i] = Node(id=i, lat=-23.5, lon=lon)
@@ -95,26 +95,44 @@ def an_answer():
     return w
 
 
-def test_by_anchor_a_feature_lands_where_its_first_node_is(ws):
-    placed = overpass.place(an_answer(), ws)
-    assert 100 in placed[EAST].ways and 300 in placed[EAST].relations
+def test_a_feature_lands_where_most_of_its_nodes_are(ws):
+    """Not its first node: the river's is in EAST, two of its three HERE."""
+    placed, moved = overpass.homes(an_answer(), ws)
+    assert 100 in placed[HERE].ways and 300 in placed[EAST].relations and 200 in placed[EAST].ways
+    assert moved == {}
 
 
-def test_a_held_feature_goes_back_where_it_is_held(ws):
-    """Upstream redrew the river from its other end, so its anchor crossed a
-    degree line though the river did not move. Placed by anchor, the copy
-    lands in the neighbour without the elevation set on the held one, and the
-    held one stays: one id, two files."""
-    held = {('way', 100): HERE, ('relation', 300): HERE}
-    placed = overpass.place(an_answer(), ws, held)
-    assert 100 in placed[HERE].ways, 'the held river was placed by anchor instead'
-    assert 300 in placed[HERE].relations, 'the held lake was placed by anchor instead'
-    assert EAST not in placed or not (placed[EAST].ways or placed[EAST].relations), (
-        'a held feature was placed into the neighbour as well'
-    )
-    # and its geometry came with it, as an anchored feature's does
-    assert {1, 2, 3, 11, 12, 13} <= set(placed[HERE].nodes)
-    assert 200 in placed[HERE].ways, "the lake's ring did not go with the lake"
+def test_a_held_feature_stays_where_it_is_held_on_a_tie(ws):
+    """Half and half across a degree line: it does not flit between the two."""
+    w = an_answer()
+    w.nodes[4] = Node(id=4, lat=-23.5, lon=126.1)
+    w.ways[100].refs.append(4)                      # two HERE, two EAST
+    placed, moved = overpass.homes(w, ws, {('way', 100): EAST})
+    assert 100 in placed[EAST].ways and ('way', 100) not in moved
+
+
+def test_a_held_feature_moves_where_more_of_it_now_is(ws):
+    """The lake grew - or here, was held where none of it is: it moves, its
+    ring with it, and the move is said so its old copy can be taken out."""
+    held = {('way', 100): EAST, ('relation', 300): HERE, ('way', 200): HERE}
+    placed, moved = overpass.homes(an_answer(), ws, held)
+    assert 100 in placed[HERE].ways and 300 in placed[EAST].relations and 200 in placed[EAST].ways
+    assert moved == {('way', 100): (EAST, HERE), ('relation', 300): (HERE, EAST), ('way', 200): (HERE, EAST)}
+    assert {11, 12, 13} <= set(placed[EAST].nodes), "the lake's geometry went with it"
+
+
+def test_a_feature_mostly_outside_the_set_goes_to_its_zone_square(ws):
+    """The sea's home is two squares from the open set: it is placed there,
+    a square of the zone not open, and not dropped or brought in bare."""
+    w = an_answer()
+    far = SquareName(128, -24)
+    for i, lon in ((21, 128.1), (22, 128.2), (23, 128.3), (24, 128.4)):
+        w.nodes[i] = Node(id=i, lat=-23.5, lon=lon)
+    w.ways[400] = Way(id=400, refs=[21, 22, 23, 24, 11])
+    w.relations[300].members.append(Member('way', 400, 'outer'))
+    placed, _ = overpass.homes(w, ws, zone=({far}, {}))
+    assert 300 in placed[far].relations and 200 in placed[far].ways, 'four of its nodes are there, three EAST'
+    assert overpass.place(w, ws)[EAST].relations, 'without the zone, the set\'s best square'
 
 
 # ------------------------------------------------------------- gone

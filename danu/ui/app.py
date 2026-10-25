@@ -74,6 +74,7 @@ from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
 from .usage import UsageLog
 from .water import (
+    Snapshot,
     WaterImporter,
     coast_commands,
     coast_work,
@@ -82,6 +83,8 @@ from .water import (
     height_commands,
     heights_held,
     heights_work,
+    held_by,
+    move_commands,
 )
 from .water import commands as water_commands
 from .zones import ZoneEditor
@@ -319,7 +322,10 @@ class MainWindow(QMainWindow):
         self.builder.checks_snapshot = (
             lambda ws: surface_checks.snapshot(ws) if self.checks_dock.isVisible() else None)
         self.builder.failed.connect(self._surface_failed)
-        self.water = WaterImporter(self, fetch=lambda bounds: overpass.fetch(bounds, url=self.settings.overpass_url))
+        # the zone's folder with the set's holdings: a feature's home may be a
+        # square of the zone outside the set, the sea's two squares away
+        self.water = WaterImporter(self, fetch=lambda bounds: overpass.fetch(bounds, url=self.settings.overpass_url),
+                                   held=lambda ws: Snapshot(held_by(ws), self.zone_dir))
         # what the last import found held and no longer upstream - R40's
         # "reported rather than deleted". G5c gives it a dock
         self.gone_from_upstream: list = []
@@ -1912,7 +1918,21 @@ class MainWindow(QMainWindow):
         held = len(self.gone_from_upstream) - len(merged)
         kept = (f'; {held} held no longer upstream, kept' if held else '') + (
             f'; {len(merged)} merged upstream into other ways, removed' if merged else '')
-        steps = water_commands(placed, working_set)
+        # the zone's squares outside the set a home is in, or was, read on
+        # the worker: alongside the set from now, edited and saved with it
+        for name, sq in answer.loaded.items():
+            if working_set.square(name) is None:
+                working_set.extra[name] = sq
+        # a feature whose home moved: out of where it was, its level with it
+        steps = move_commands(answer, working_set, self.editor.history.alloc)
+        steps += water_commands(placed, working_set)
+        outside = sorted({str(n) for n in placed if n not in working_set.squares})
+        if outside:
+            kept += (f'; held in {", ".join(outside)}, outside the set where most of it lies - '
+                     'saved with the set')
+        if answer.moved:
+            n = sum(1 for kind, _ in answer.moved if kind == 'relation') or len(answer.moved)
+            kept += f'; {n} moved to where most of {"them" if n != 1 else "it"} now lies'
         # after the import, which has moved their nodes where upstream has
         # them: a merged way's nodes are its new ways', and only the ones
         # nothing in the square holds go with it (#250)
