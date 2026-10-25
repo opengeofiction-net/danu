@@ -63,6 +63,9 @@ DEFAULT_KEYS = {
     'edit.unglue': 'U',
     # E: the contour picked made to enclose the pieces picked beside it, as one
     'edit.absorb': 'E',
+    # Shift+P: the open square's contours straying over the line at the next
+    # level pushed back off it
+    'edit.push_crossings': 'Shift+P',
     # R reverses the coastline selected, the sea to its other side; and the
     # main map's coastlines imported, beside water's and the spot heights'
     'edit.reverse_coastline': 'R',
