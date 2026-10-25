@@ -118,49 +118,81 @@ def _grid(reference_m):
     return cells
 
 
-def nearest_metres(points, reference, lat):
-    """Distance from each point to the nearest reference point, in metres.
+class Nearest:
+    """Distance to the nearest of a set of reference points, in metres, the
+    index built once and asked as often as wanted - the surface check asks it
+    once a stretch of the zero line, and a zone's zero line can be thousands.
 
     Indexed on a 2 km grid, because the honest version of this is O(n*m) and a
     zone runs to a hundred thousand drawn vertices against fifty thousand
     published ones - 95 seconds for zone-axian, which is too much to hang on
     every build.
 
-    Exact, not approximate. A neighbour found in the surrounding nine cells is
-    only known to be the nearest if it is closer than one cell width, since
-    anything outside them is at least that far away; whatever fails that test
-    falls back to the full comparison, and in practice that is the handful of
-    vertices which are genuinely far from anything."""
-    m_lon = M_PER_DEG_LAT * np.cos(np.radians(lat))
-    scale = np.array([m_lon, M_PER_DEG_LAT])
-    q = points * scale
-    ref = reference * scale
-    cells = _grid(ref)
+    Exact, not approximate. A neighbour found within k cells either side is
+    only known to be the nearest if it is closer than k cell widths, since
+    anything further out is at least that far away; until it is, the search
+    widens a ring of cells at a time. It used to fall back to every reference
+    point instead, which a stretch of ground far from any drawn shore made the
+    whole of the cost: 193 of 237 s against the 171,561 vertices of an inland
+    sea drawn at 0 m.
 
-    out = np.full(len(q), np.inf)
-    qkeys = np.floor(q / CELL_M).astype(np.int64)
-    # queries grouped by cell, so each neighbourhood is gathered once
-    for key in {tuple(k) for k in qkeys}:
-        mine = np.flatnonzero((qkeys[:, 0] == key[0]) & (qkeys[:, 1] == key[1]))
-        near = [cells[(key[0] + dx, key[1] + dy)]
-                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-                if (key[0] + dx, key[1] + dy) in cells]
-        if not near:
-            continue
-        cand = np.concatenate(near)
-        d = np.hypot(q[mine, None, 0] - cand[None, :, 0],
-                     q[mine, None, 1] - cand[None, :, 1]).min(axis=1)
-        out[mine] = d
+    Each ask at a latitude of its own, as when the index was built for each:
+    the cells are laid out at ``lat`` and a degree of longitude measured at the
+    ask's, a cell then narrower or wider than 2 km by as much."""
 
-    # anything not settled within a cell width could have a nearer neighbour
-    # outside the nine, so those are measured against everything
-    unsure = np.flatnonzero(out > CELL_M)
-    for i in range(0, len(ref), 8192):
-        chunk = ref[i:i + 8192]
-        d = np.hypot(q[unsure, None, 0] - chunk[None, :, 0],
-                     q[unsure, None, 1] - chunk[None, :, 1]).min(axis=1)
-        out[unsure] = np.minimum(out[unsure], d)
-    return out
+    def __init__(self, reference, lat):
+        self.lat = lat
+        self.scale = _scale(lat)
+        ref = np.asarray(reference, float).reshape(-1, 2)
+        self.cells = _grid(ref * self.scale) if len(ref) else {}
+        keys = np.array(list(self.cells), np.int64).reshape(-1, 2)
+        self.lo, self.hi = (keys.min(0), keys.max(0)) if len(keys) else (None, None)
+
+    def _ring(self, key, k):
+        """The reference points in the cells k from ``key``, every way."""
+        x, y = key
+        at = ([(x + dx, y + dy) for dx in range(-k, k + 1) for dy in (-k, k)]
+              + [(x + dx, y + dy) for dx in (-k, k) for dy in range(-k + 1, k)]) if k else [key]
+        return [self.cells[c] for c in at if c in self.cells]
+
+    def __call__(self, points, lat=None):
+        """Metres from each point to the nearest reference point, a degree of
+        longitude as long as at ``lat`` - the index's own unless given."""
+        scale = _scale(self.lat if lat is None else lat)
+        ratio = scale / self.scale                 # the index's units to this ask's metres
+        width = CELL_M * min(ratio[0], 1.0)        # the narrowest a cell is, in them
+        q = np.asarray(points, float).reshape(-1, 2) * scale
+        out = np.full(len(q), np.inf)
+        if self.lo is None or not len(q):
+            return out
+        qkeys = np.floor(q / ratio / CELL_M).astype(np.int64)
+        # queries grouped by cell, so each neighbourhood is gathered once
+        for key in {tuple(k) for k in qkeys}:
+            mine = np.flatnonzero((qkeys[:, 0] == key[0]) & (qkeys[:, 1] == key[1]))
+            # how many rings out every cell holding a reference point is
+            last = int(max(abs(key[0] - self.lo[0]), abs(key[0] - self.hi[0]),
+                           abs(key[1] - self.lo[1]), abs(key[1] - self.hi[1])))
+            d = out[mine]
+            for k in range(last + 1):
+                near = self._ring(key, k)
+                if near:
+                    cand = np.concatenate(near) * ratio
+                    d = np.minimum(d, np.hypot(q[mine, None, 0] - cand[None, :, 0],
+                                               q[mine, None, 1] - cand[None, :, 1]).min(axis=1))
+                if k and (d <= k * width).all():
+                    break
+            out[mine] = d
+        return out
+
+
+def _scale(lat):
+    return np.array([M_PER_DEG_LAT * np.cos(np.radians(lat)), M_PER_DEG_LAT])
+
+
+def nearest_metres(points, reference, lat):
+    """Distance from each point to the nearest reference point, in metres -
+    ``Nearest``, for a caller asking once."""
+    return Nearest(reference, lat)(points)
 
 
 def main():

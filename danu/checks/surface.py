@@ -134,7 +134,7 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
     from osgeo import gdal, ogr
 
     from ..surface.land_clamp import ogr_memory_driver
-    from .zero_line import nearest_metres
+    from .zero_line import Nearest
     gdal.UseExceptions()
     ds = gdal.Open(str(dem_path))
     src = ogr_memory_driver().CreateDataSource('zero')     # MEM or, before GDAL 3.11, Memory
@@ -143,6 +143,8 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
     # between the sea's 0 and the land's 1 m, where the clamp puts the lowest land
     gdal.ContourGenerate(ds.GetRasterBand(1), 0, 0, [0.5], 0, 0, layer, -1, 0)
     rows, cols = mask.shape
+    # one index for the lot, each stretch asking at its own latitude
+    nearest = Nearest(snap.zero, float(snap.zero[:, 1].mean()))
     out = []
     for feat in layer:
         P = np.array(feat.GetGeometryRef().GetPoints(), float)[:, :2]
@@ -158,7 +160,7 @@ def sea_off_shore(snap: Snapshot, dem_path: Path, mask: np.ndarray, gt: tuple) -
         if not judged.any():
             continue
         d = np.zeros(len(P))
-        d[judged] = nearest_metres(P[judged], snap.zero, float(P[:, 1].mean()))
+        d[judged] = nearest(P[judged], float(P[:, 1].mean()))
         far = judged & (d > FAR_M)
         i = 0
         while i < len(P):
