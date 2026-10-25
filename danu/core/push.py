@@ -190,8 +190,9 @@ class Pusher:
         inside = line.Intersection(zone)
         parts = ([inside.GetGeometryRef(i) for i in range(inside.GetGeometryCount())]
                  if inside.GetGeometryCount() else [inside])
-        spans = sorted(_span(L, cum, g) for g in parts
-                       if not g.IsEmpty() and g.GetGeometryName() == 'LINESTRING' and g.Intersects(self.water))
+        spans = sorted(sp for g in parts
+                       if not g.IsEmpty() and g.GetGeometryName() == 'LINESTRING' and g.Intersects(self.water)
+                       for sp in _spans(L, cum, [g.GetPoint_2D(j) for j in range(g.GetPointCount())]))
         spans = [s for s in spans if lo - 1e-6 <= s[0] and s[1] <= hi + 1e-6]
         if self.side is not None:
             spans = self._joined(L, cum, spans, d)
@@ -300,20 +301,26 @@ def _along(L, cum, pt) -> float:
     return at
 
 
-def _span(L, cum, g) -> tuple[float, float]:
-    """Where a stretch of L - a piece GDAL cut from it - begins and ends
-    along it. On a ring the closing point is both 0 and the whole length:
-    taken as the end the rest of the stretch is nearer, or a stretch
+def _spans(L, cum, piece) -> list[tuple[float, float]]:
+    """Where a stretch of L - a piece GDAL cut from it, as points - begins
+    and ends along it. On a ring the closing point is both 0 and the whole
+    length: taken as the end the rest of the stretch is nearer, or a stretch
     running up to it would read as running from the start, over everything
-    between."""
-    n = g.GetPointCount()
+    between. A piece running through it - newer GEOS joins the two either
+    side - is two stretches, one to the end and one from the start."""
+    ring = L[0] == L[-1]
+    if ring:
+        for j in range(1, len(piece) - 1):
+            if math.dist(piece[j], L[0]) < 1e-6:
+                return _spans(L, cum, piece[:j + 1]) + _spans(L, cum, piece[j:])
+    n = len(piece)
     ends = []
     for j, nb in ((0, 1), (n - 1, n - 2)):
-        s = _along(L, cum, g.GetPoint_2D(j))
-        if L[0] == L[-1] and math.dist(g.GetPoint_2D(j), L[0]) < 1e-6 and 0 <= nb < n:
-            s = 0.0 if _along(L, cum, g.GetPoint_2D(nb)) < cum[-1] / 2 else cum[-1]
+        s = _along(L, cum, piece[j])
+        if ring and math.dist(piece[j], L[0]) < 1e-6 and 0 <= nb < n:
+            s = 0.0 if _along(L, cum, piece[nb]) < cum[-1] / 2 else cum[-1]
         ends.append(s)
-    return min(ends), max(ends)
+    return [(min(ends), max(ends))]
 
 
 def _point(L, cum, s) -> tuple[int, tuple[float, float]]:

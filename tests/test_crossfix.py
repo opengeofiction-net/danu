@@ -139,3 +139,15 @@ def test_an_islands_ring_begun_by_the_shore_is_pushed_round_as_one_ring():
     assert refs[0] == refs[-1]
     xy = [((sq.nodes[r].lon - 125.5) * KX, (sq.nodes[r].lat - LAT) * KY) for r in refs]
     assert all(-500 < x < 500 and -500 < y < 500 for x, y in xy), 'still out at sea'
+
+
+def test_a_piece_through_a_rings_closing_point_is_two_stretches():
+    """Newer GEOS (3.15, MSYS2's) joins the pieces either side of where a
+    ring closes into one: read as one stretch it would run over the whole
+    ring between."""
+    from danu.core import push
+    L = [(0, 0), (100, 0), (100, 100), (0, 100), (0, 0)]
+    cum = push._length(L)
+    assert push._spans(L, cum, [(0, 80), (0, 100), (0, 0), (20, 0)]) == [(320.0, 400.0), (0.0, 20.0)]
+    assert push._spans(L, cum, [(0, 20), (0, 0)]) == [(380.0, 400.0)]
+    assert push._spans(L, cum, [(0, 0), (30, 0)]) == [(0.0, 30.0)]
