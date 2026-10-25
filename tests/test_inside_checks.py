@@ -219,6 +219,33 @@ def test_inside_and_crosses_by_chunks_agree_with_every_edge_asked():
     assert 30 < hits < 270, 'both answers asked'
 
 
+def test_a_sea_of_many_rings_asks_only_those_near_and_says_what_asking_all_does():
+    """A sea of hundreds of islands, each ring asked only when its box is near
+    the points or the line: the same answers as every ring asked - and the
+    shore's nodes found among it as np.isin finds them."""
+    import numpy as np
+    rnd = random.Random(5)
+    rings = []
+    for cx, cy, r in [(0.0, 0.0, 3.0)] + [(rnd.uniform(-2, 2), rnd.uniform(-2, 2), 0.05) for _ in range(300)]:
+        pts = wiggly(cx, cy, r, 40, rnd)
+        X = np.array([p[0] for p in pts] + [pts[0][0]]); Y = np.array([p[1] for p in pts] + [pts[0][1]])
+        rings.append((X, Y))
+    boxes = np.array([inside._box(X, Y) for X, Y in rings])
+    chunks = [inside._chunks(X, Y) for X, Y in rings]
+    box = tuple(boxes[0])
+    for _ in range(200):
+        x0, y0 = rnd.uniform(-3.2, 3.2), rnd.uniform(-3.2, 3.2)
+        X = np.array([x0, x0 + rnd.uniform(-0.2, 0.2), x0 + rnd.uniform(-0.2, 0.2)])
+        Y = np.array([y0, y0 + rnd.uniform(-0.2, 0.2), y0 + rnd.uniform(-0.2, 0.2)])
+        assert list(inside.inside(X, Y, rings, boxes, chunks)) == list(inside.inside(X, Y, rings))
+        assert inside.crosses(X, Y, rings, box, boxes, chunks) == inside.crosses(X, Y, rings, box)
+    assert not inside.inside([], [], rings, boxes, chunks).size
+    on = np.unique(np.array([rnd.randrange(10**6) for _ in range(5000)], dtype=np.int64))
+    ids = np.array([rnd.randrange(10**6) for _ in range(3000)] + list(on[:50]) + [-1, 10**7], dtype=np.int64)
+    assert (inside._among(ids, on) == np.isin(ids, on)).all()
+    assert not inside._among(ids, on[:0]).any()
+
+
 def test_a_lake_of_many_rings_kept_as_edited_agrees_with_a_fresh_scan():
     """The lines a lake holds kept, and only those an edit changed asked
     again: random edits through a two-ring lake of many chunks - its own
