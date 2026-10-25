@@ -151,3 +151,17 @@ def test_a_piece_through_a_rings_closing_point_is_two_stretches():
     assert push._spans(L, cum, [(0, 80), (0, 100), (0, 0), (20, 0)]) == [(320.0, 400.0), (0.0, 20.0)]
     assert push._spans(L, cum, [(0, 20), (0, 0)]) == [(380.0, 400.0)]
     assert push._spans(L, cum, [(0, 0), (30, 0)]) == [(0.0, 30.0)]
+
+
+def test_a_lake_flattened_between_the_levels_is_no_level_between_them():
+    """N46E030's set: lakes flattened at 4 and 6 m, outline and fill lines at
+    their level, made 0 and 10 m look a level apart, and nothing was pushed."""
+    w, sq = ws()
+    coast(sq)
+    stepping(sq)
+    way(sq, 5000, [(3000, 3000), (3500, 3000), (3500, 3500), (3000, 3500), (3000, 3000)],
+        {'natural': 'water', 'ele': '4'})
+    sq.ways[5000].refs[-1] = sq.ways[5000].refs[0]
+    way(sq, -900, [(3000, 3200), (3500, 3200)], {'ele': '4', 'danu:fill': 'way/5000'})
+    p = run(w, sq)
+    assert p.pushed == 1 and crossings.find(w) == []

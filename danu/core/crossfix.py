@@ -86,7 +86,11 @@ def plan(working_set, alloc, only=None, pull_back_m: float = PUSH_M) -> Plan:
     if not found:
         return out
     squares = {sq.name: sq for sq in working_set.squares.values()}
-    levels = sorted({w.ele for sq in squares.values() for w in sq.ways.values() if w.ele is not None})
+    # the contours' levels only: a lake flattened at 4 m, its outline and its
+    # fill lines at 4 m, is no contour between 0 and 10 - and in N46E030's
+    # set two such lakes left every 0 m against 10 m crossing as if a level
+    # were missing between them, and nothing was pushed
+    levels = sorted({w.ele for sq in squares.values() for w in sq.contours() if 'waterway' not in w.tags})
 
     def between(a, b) -> bool:
         lo, hi = sorted((a, b))
