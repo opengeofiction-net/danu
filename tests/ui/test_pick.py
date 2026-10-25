@@ -183,3 +183,18 @@ def test_another_tool_between_starts_again(w):
     w.edit_actions['tool.select'].trigger()
     press(w, p)
     assert selected(w) == a
+
+
+def test_clicks_drifting_a_few_pixels_still_page_through_what_is_there(w):
+    """A recovered 0 m copy on the sea's ring: each click a pixel or three
+    from the last reordered the two by distance, and paging started again at
+    the first, for ever - only deleting the copy reached the ring."""
+    off = 1 / 110540.0
+    _sq, a, _ = way(w, [(125.30, LAT), (125.32, LAT)], {'ele': '0'})
+    _sq, b, _ = way(w, [(125.30, LAT + off), (125.32, LAT + off)], {'ele': '0', 'note': 'b'})
+    p = at(w, 125.305, LAT + off / 4)               # nearer a, every time
+    seen = []
+    for dx in (0, 4, -3):                           # each a few pixels along from the last
+        press(w, p + QPointF(dx, 0))
+        seen.append(selected(w))
+    assert seen == [a, b, a], f'the clicks did not page through what is there: {seen}'

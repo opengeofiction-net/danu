@@ -44,7 +44,7 @@ SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
 DRAG_PX = 3.0                   # a press that moves less is a click
-CYCLE_PX = 3.0                  # a click again this near the last is the next thing there
+CYCLE_PX = 8.0                  # a click again this near the last is the next thing there - as near as a pick
 FAST_PX = 4.0                   # a held button that travels this far is drawing, not clicking
 SIMPLIFY_PX = 2.0               # a fast-drawn stroke is simplified to within this of itself on release
 MARQUEE_PX = 3.0                # a lasso takes a point each time the cursor has gone this far
@@ -597,12 +597,19 @@ class EditController(QObject):
             return True
         # a click again where the last was, with nothing dragged between, is
         # the next of what is there - as JOSM's, though JOSM asks for alt
+        # the same things there, in whatever order the distances now put
+        # them: a click a pixel or two off reorders a recovered copy and the
+        # ring it lies on, and paging started again at the first, for ever
         keys = [key for key, _ in choices]
         k = 0
         c = self._cycle
-        if c is not None and not self._dragged and keys == c[1] \
+        if c is not None and not self._dragged and set(keys) == set(c[1]) \
                 and (pos - c[0]).manhattanLength() <= self._px(CYCLE_PX):
-            k = (c[2] + 1) % len(choices)
+            # the next after the one chosen last, in the order it was chosen in
+            want = c[1][(c[2] + 1) % len(c[1])]
+            keys = list(c[1])
+            choices = sorted(choices, key=lambda kv: keys.index(kv[0]))
+            k = keys.index(want)
         self._cycle = (pos, keys, k)
         self._dragged = False
         choices[k][1]()
