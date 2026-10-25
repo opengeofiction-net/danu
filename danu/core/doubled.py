@@ -30,6 +30,7 @@ from collections import defaultdict
 import numpy as np
 
 from . import edits
+from .ladder import format_ele
 from .square import parse_ele, water_tags
 
 NEAR_M = 1.0
@@ -90,26 +91,23 @@ def commands(working_set) -> list:
         if len(eles) != 1:
             continue
         way = by_name[name].ways[pid]
-        level_up[name].append(edits.SetTags(pid, dict(way.tags), {**way.tags, 'ele': _text(next(iter(eles)))}))
+        level_up[name].append(edits.SetTags(pid, dict(way.tags), {**way.tags, 'ele': format_ele(next(iter(eles)))}))
         for cname, cid in on_bare[(name, pid)]:
             gone[cname].append(edits.DeleteWay(cid))
-    by = {sq.name: sq for sq in squares}
     out = []
     for name in sorted(set(gone) | set(level_up), key=str):
         cmds = [*level_up.get(name, []), *gone.get(name, [])]
         n = len(gone.get(name, []))
-        out.append((by[name], edits.Compound(cmds, name=f'remove {n} doubled contour{"s" * (n != 1)}')))
+        out.append((by_name[name], edits.Compound(cmds, name=f'remove {n} doubled contour{"s" * (n != 1)}')))
     return out
 
 
-def _text(e: float) -> str:
-    return f'{e:g}'
-
-
 def _bare(squares, k) -> list:
-    """The main map's ways with nothing on them: a water relation's member
-    imported without it - the relation held in a square outside the set -
-    as (square name, way id, envelope, start points, end points)."""
+    """The main map's ways with nothing on them, not a member of a water
+    relation the set holds, as (square name, way id, envelope, start points,
+    end points). Danu imports only water, coastline and spot heights: a way
+    of the main map's with no tags is a relation's member imported without
+    it - the relation held in a square outside the set."""
     out = []
     for sq in squares:
         ringed = {m.ref for r in sq.relations.values() if water_tags(r.tags) for m in r.members}
@@ -123,12 +121,12 @@ def _bare(squares, k) -> list:
 
 
 def _under(P, bare):
-    """The one bare way all of P lies on, as (square name, way id), or None."""
+    """The one bare way all of P lies on, as (square name, way id); None
+    when none is, or more than one - which is the main map's to say."""
     lo, hi = P.min(axis=0), P.max(axis=0)
-    for name, wid, (blo, bhi), A, B in bare:
-        if (lo >= blo - NEAR_M).all() and (hi <= bhi + NEAR_M).all() and _on(P, A, B):
-            return name, wid
-    return None
+    found = [(name, wid) for name, wid, (blo, bhi), A, B in bare
+             if (lo >= blo - NEAR_M).all() and (hi <= bhi + NEAR_M).all() and _on(P, A, B)]
+    return found[0] if len(found) == 1 else None
 
 
 def _on(P, A, B) -> bool:
