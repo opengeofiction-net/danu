@@ -238,6 +238,18 @@ class Square:
     def bounds(self) -> tuple[float, float, float, float]:
         return self.name.bounds
 
+    @property
+    def label(self) -> str:
+        """The square's name, as its file has it and shown - with its
+        underscores as spaces: ``S24E125_Los_Pizarrales.osm.xz``, ``Los
+        Pizarrales`` - or '' for one without, or without a file."""
+        if self.path is None:
+            return ''
+        try:
+            return label_of(self.path).replace('_', ' ')
+        except ValueError:
+            return ''
+
     def contours(self) -> Iterator[Way]:
         """Ways with a usable elevation, in file order - and not water. A lake
         flattened at a level carries it on its outline (G7a), which the build

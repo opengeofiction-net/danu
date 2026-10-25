@@ -599,7 +599,8 @@ class MainWindow(QMainWindow):
         undo.setText(f'&Undo {h.describe_undo()}' if h.can_undo else '&Undo')
         redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
         if self.working_set is not None:
-            self.setWindowTitle(about.title(self.working_set.centre, self.editor.dirty()))
+            ws = self.working_set
+            self.setWindowTitle(about.title(ws.centre, self.editor.dirty(), ws.squares[ws.centre].label))
 
     # --------------------------------------------------------- territory
     def _territory_ready(self, index):
@@ -1618,7 +1619,7 @@ class MainWindow(QMainWindow):
             self.settings.size = size
             self._fill_recent()
         self._pending = None
-        self.setWindowTitle(about.title(ws.centre))
+        self.setWindowTitle(about.title(ws.centre, label=ws.squares[ws.centre].label))
         self._territory.setText('territory: looking…')
         self.territory.refresh()
         self.show_reference()

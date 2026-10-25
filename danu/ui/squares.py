@@ -11,8 +11,10 @@ absent square grey and hatched. The wiki's outlines, not its fills: a wash
 over every square would colour the ground and the contours drawn in their
 level's colour.
 
-Names are written in each square while a degree is small enough on screen
-to need naming, and move to the corner once it is not.
+Names are written in each square's top-left corner while a degree has room
+for them: the grid's, and under it the square's own, its file's -
+``N46E028_Taxhatro.osm.xz``, Taxhatro. The zones map writes its squares' the
+same way, in grey.
 
 Pattern brushes in Qt are drawn in device pixels regardless of the view
 transform, which is what makes hatching usable at every zoom.
@@ -30,7 +32,6 @@ from . import mercator as m
 from . import topo_style as style
 from .mapview import visible_rect
 
-NAME_CENTRED_BELOW_PX = 420.0     # a degree narrower than this gets its name in the middle
 NAME_MIN_PX = 80.0                # narrower than this, no name at all: it would not fit
 ABSENT_WORD_MIN_PX = 170.0        # narrower than this the hatching says it, the word would not fit
 
@@ -98,7 +99,7 @@ class SquaresItem(QGraphicsItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(r)
             if degree_px >= NAME_MIN_PX:
-                self._name(painter, r, name, sq.present, scale, degree_px, font)
+                self._name(painter, r, name, sq.present, scale, degree_px, font, sq.label)
 
     def _class(self, sq) -> str:
         """The square's class, worked out again only when its ways or nodes
@@ -112,27 +113,38 @@ class SquaresItem(QGraphicsItem):
             self._classes[id(sq)] = hit
         return hit[1]
 
-    def _name(self, painter, r: QRectF, name, present: bool, scale: float, degree_px: float, font: QFont):
+    def _name(self, painter, r: QRectF, name, present: bool, scale: float, degree_px: float, font: QFont,
+              label: str = ''):
         text = str(name) + ('' if present or degree_px < ABSENT_WORD_MIN_PX else '  (absent)')
-        painter.save()
-        # clipped to the square, so nothing is drawn outside boundingRect - which
-        # is what Qt culls and repaints by - and a name never strays into the
-        # neighbour it does not belong to
-        painter.setClipRect(r)
-        if degree_px < NAME_CENTRED_BELOW_PX:
-            anchor = r.center()
-            align = Qt.AlignmentFlag.AlignCenter
-        else:
-            anchor = QPointF(r.left(), r.top())
-            align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        painter.translate(anchor)
-        painter.scale(1.0 / scale, 1.0 / scale)          # pixels, whatever the zoom
-        painter.setFont(font)
-        box = QRectF(-200, -20, 400, 40) if align == Qt.AlignmentFlag.AlignCenter else QRectF(6, 4, 400, 40)
+        draw_name(painter, r, text, label, scale, font, QColor(40, 40, 40) if present else QColor(110, 110, 110))
+        self.drawn_names += 1
+
+
+def draw_name(painter, r: QRectF, text: str, label: str, scale: float, font: QFont, colour: QColor) -> None:
+    """A square's grid name, and under it the name its file gives it, in
+    its top-left corner, in pixels whatever the zoom - the open set's and
+    the zones map's alike, clear of a zone's own name in its middle."""
+    painter.save()
+    # clipped to the square, so nothing is drawn outside boundingRect - which
+    # is what Qt culls and repaints by - and a name never strays into the
+    # neighbour it does not belong to
+    painter.setClipRect(r)
+    painter.translate(QPointF(r.left(), r.top()))
+    painter.scale(1.0 / scale, 1.0 / scale)          # pixels, whatever the zoom
+    align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+    small = QFont(font)
+    small.setBold(False)
+    small.setPointSize(max(1, font.pointSize() - 1))
+    lines = [(text, font)] + ([(label, small)] if label else [])
+    y = 4
+    for line, f in lines:
+        painter.setFont(f)
+        h = painter.fontMetrics().height()
+        box = QRectF(6, y, 400, h)
         painter.setPen(QColor(255, 255, 255, 230))
         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            painter.drawText(box.translated(dx, dy), align, text)
-        painter.setPen(QColor(40, 40, 40) if present else QColor(110, 110, 110))
-        painter.drawText(box, align, text)
-        painter.restore()
-        self.drawn_names += 1
+            painter.drawText(box.translated(dx, dy), align, line)
+        painter.setPen(colour)
+        painter.drawText(box, align, line)
+        y += h
+    painter.restore()
