@@ -182,15 +182,13 @@ def test_a_feature_goes_whole_into_the_square_holding_its_anchor(ws):
 
 
 def test_a_member_way_goes_where_its_relation_goes(ws):
-    """Not where its own first node falls. Otherwise a lake's outer ring is
-    placed twice - once on its own account and once as a member - and a square
-    two degrees away holds half its shape.
+    """With its relation, not on its own account. Otherwise a lake's outer
+    ring is placed twice - once on its own account and once as a member - and
+    a square two degrees away holds half its shape.
 
-    The two anchors have to differ for this to be testing anything, and for a
-    relation of one way member they cannot: the relation's anchor *is* that
-    way's first node. So the relation gets a node member of its own, in
-    another square and listed first, which is what a label node on a lake
-    looks like.
+    The relation gets a label node of its own in the centre, listed first, and
+    its ring is moved east: most of its nodes are east, so it and its ring are
+    held there, and the ring nowhere else.
     """
     from danu.core.square import Member
 
@@ -206,8 +204,8 @@ def test_a_member_way_goes_where_its_relation_goes(ws):
 
     placed = overpass.place(water, ws)
     holding = [name for name, w in placed.items() if 301 in w.ways]
-    assert holding == [here], f'the ring landed in {holding}, not with its relation'
-    assert 401 in placed[here].relations
+    assert holding == [east], f'the ring landed in {holding}, not with its relation'
+    assert 401 in placed[east].relations
 
 
 def test_a_feature_outside_the_set_is_dropped(ws):
@@ -227,14 +225,12 @@ def test_a_way_with_no_geometry_is_dropped(ws):
 
 def test_a_relation_inside_a_relation_goes_in_its_parents_square(ws):
     """A multipolygon's outer may itself be a relation, which OSM really
-    holds. Placed on its own account it would land where *its* anchor falls -
-    which can be another square - and the parent would name a shape two
-    degrees away while also holding a copy of it.
+    holds. Placed on its own account it could land in another square, and the
+    parent would name a shape two degrees away while also holding a copy of it.
 
-    The anchors have to differ for this to test anything, so the parent gets a
-    node member in the centre square and the child's ring is moved east. The
-    first version of this test had them agree and passed with the whole rule
-    taken out.
+    The parent gets a node member in the centre square and the child's ring
+    is moved east: the parent goes east, where most of it is, and the child
+    with it and nowhere else.
     """
     from danu.core.square import Member, Relation
 
@@ -250,10 +246,10 @@ def test_a_relation_inside_a_relation_goes_in_its_parents_square(ws):
     assert ws.at(water.nodes[101].lon, water.nodes[101].lat).name == east
 
     placed = overpass.place(water, ws)
-    assert set(placed[here].relations) == {401, 402}, 'the child was not placed with its parent'
-    assert east not in placed or 401 not in placed[east].relations, 'the child was placed twice'
-    assert 301 in placed[here].ways, 'the ring inside the nested relation was dropped'
-    assert {101, 102, 103, 104} <= set(placed[here].nodes)
+    assert set(placed[east].relations) == {401, 402}, 'the child was not placed with its parent'
+    assert here not in placed or 401 not in placed[here].relations, 'the child was placed twice'
+    assert 301 in placed[east].ways, 'the ring inside the nested relation was dropped'
+    assert {101, 102, 103, 104} <= set(placed[east].nodes)
 
 
 def test_a_relation_that_names_itself_does_not_walk_for_ever(ws):
@@ -272,10 +268,10 @@ def test_a_relation_that_names_itself_does_not_walk_for_ever(ws):
     assert {403, 404} <= set(placed[here].relations)
 
 
-def test_a_way_whose_relation_was_dropped_is_still_placed_on_its_own(ws):
-    """Only a relation that was placed claims anything. One anchored outside
-    the set is dropped, and a member way of it that *is* inside has to be left
-    for the standalone pass - otherwise it is claimed by nothing and vanishes.
+def test_a_relation_reaching_into_the_set_is_held_with_its_ring_not_dropped(ws):
+    """The sea, r470432, began far from N46E030: by its first node it was
+    dropped and its ring came in alone, a bare line. Placed where most of its
+    nodes are, a relation with any of them in the set is held, ring and all.
     """
     from danu.core.square import Member, Relation
 
@@ -289,8 +285,8 @@ def test_a_way_whose_relation_was_dropped_is_still_placed_on_its_own(ws):
 
     placed = overpass.place(water, ws)
     here = SquareName(125, -24)
-    assert 405 not in placed.get(here, overpass.Water()).relations
-    assert 301 in placed[here].ways, 'the ring went with a relation that was never placed'
+    assert 405 in placed[here].relations, 'a relation four-fifths in the set was dropped'
+    assert 301 in placed[here].ways
 
 
 def test_an_anchor_walks_past_a_branch_that_leads_nowhere(ws):
@@ -299,7 +295,7 @@ def test_an_anchor_walks_past_a_branch_that_leads_nowhere(ws):
     member that gave nothing.
 
     This does *not* distinguish the path-scoped cycle guard from an
-    accumulating one; nothing does, and the docstring on ``_relation_anchor``
+    accumulating one; nothing does, and the docstring on ``_nodes_of``
     says why. It pins the thing that is actually testable.
     """
     from danu.core.square import Member, Relation

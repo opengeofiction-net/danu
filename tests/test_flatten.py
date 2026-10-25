@@ -551,3 +551,16 @@ def test_where_the_next_contour_crowds_the_shore_only_that_stretch_is_cut():
     assert p.wrapped == 1 and len(pieces) == 2, [len(x.refs) for x in pieces]
     for x in pieces:
         assert all(off_shore(sq, r) > 0 for r in x.refs), 'a piece reaches into the water'
+
+
+def test_a_sea_with_coastline_rings_at_0_m_is_no_flattened_lake():
+    """The sea, r470432, is partly made of coastline ways carrying 0 m: with
+    no level of its own it was taken for a flattened lake and said, on the
+    next import, to have been redrawn without its level."""
+    w, sq = ws()
+    coast = way(sq, box(125.50, -22.50, 0.04), {'natural': 'coastline', 'ele': '0'}, closed=True)
+    sq.relations[470432] = Relation(id=470432, members=[Member('way', coast.id, 'outer')],
+                                    tags={'natural': 'water', 'type': 'multipolygon'})
+    assert flatten.flattened(w) == {}
+    sq.relations[470432].tags['ele'] = '0'
+    assert (A, 'relation', 470432) in flatten.flattened(w)

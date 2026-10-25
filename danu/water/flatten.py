@@ -578,8 +578,10 @@ def flattened(working_set) -> dict:
         for rel in sq.relations.values():
             if not water_tags(rel.tags):
                 continue
-            ringed = any(m.type == 'way' and m.ref in sq.ways and 'ele' in sq.ways[m.ref].tags
-                         for m in rel.members)
+            # rings with a level, of a relation with one: the sea's coastline
+            # ways carry 0 m as coastlines, and the sea is no flattened lake
+            ringed = 'ele' in rel.tags and any(m.type == 'way' and m.ref in sq.ways and 'ele' in sq.ways[m.ref].tags
+                                               for m in rel.members)
             if ringed or fill_key(rel) in keys:
                 out[(sq.name, 'relation', rel.id)] = (rel.tags.get('name'), _outline(sq, rel))
         for way in sq.ways.values():

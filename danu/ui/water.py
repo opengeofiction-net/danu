@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
-from ..core.square import Square
+from ..core import zone_index
+from ..core.square import Square, read_square
 from ..water import coast, overpass, peaks
 from ..water import gone as gone_mod
 
@@ -45,13 +46,38 @@ class Answer:
     # which of the answer's ways each of their nodes is on: a held way gone
     # from it with its nodes on others was merged into them (#250)
     on: dict = field(default_factory=dict)
+    # features whose home is now another square, (kind, id): (was, is); and
+    # the zone's squares outside the set read for it, by name
+    moved: dict = field(default_factory=dict)
+    loaded: dict = field(default_factory=dict)
 
 
-def water_work(payload: bytes, working_set, held: dict) -> Answer:
+@dataclass(frozen=True)
+class Snapshot:
+    """What a water import takes from the UI thread: where the set - and
+    the squares read alongside it - holds each feature, and the zone's
+    folder, whose other squares the worker reads for the rest."""
+    held: dict
+    zone_dir: object = None
+
+
+def water_work(payload: bytes, working_set, held) -> Answer:
+    """The answer placed by home - among the zone's squares where the set
+    knows its zone - and the squares outside the set that a home, or a move
+    from one, needs, read here off the UI thread."""
     water = overpass.parse(payload)
-    return Answer(overpass.place(water, working_set, held),
-                  frozenset(water.ways), frozenset(water.relations),
-                  on=gone_mod.nodes_on(water.ways.values()))
+    snap = held if isinstance(held, Snapshot) else Snapshot(held)
+    zone, files = None, {}
+    if snap.zone_dir is not None:
+        files = zone_index.squares(snap.zone_dir)
+        open_ = set(working_set.squares) | set(getattr(working_set, 'extra', {}))
+        zone = (set(files), zone_index.held(snap.zone_dir, skip=open_))
+    placed, moved = overpass.homes(water, working_set, snap.held, zone)
+    need = set(placed) | {n for pair in moved.values() for n in pair}
+    loaded = {n: read_square(files[n]) for n in sorted(need, key=str)
+              if n in files and n not in working_set.squares and n not in getattr(working_set, 'extra', {})}
+    return Answer(placed, frozenset(water.ways), frozenset(water.relations),
+                  on=gone_mod.nodes_on(water.ways.values()), moved=moved, loaded=loaded)
 
 
 def heights_held(working_set) -> tuple:
@@ -114,7 +140,7 @@ def held_by(working_set) -> dict:
     there afresh - which is what importing it would have done anyway.
     """
     out = {}
-    for name, square in working_set.squares.items():
+    for name, square in [*working_set.squares.items(), *getattr(working_set, 'extra', {}).items()]:
         out.update((('way', i), name) for i in square.ways)
         out.update((('relation', i), name) for i in square.relations)
     return out
@@ -236,7 +262,7 @@ def commands(placed: dict, working_set) -> list[tuple[Square, object]]:
     from ..core import edits
     steps = []
     for name in sorted(placed, key=str):
-        square = working_set.squares.get(name)
+        square = working_set.square(name)        # a home outside the grid is read alongside it
         if square is None:
             continue
         water = placed[name]
@@ -261,3 +287,54 @@ def height_commands(placed: dict, working_set) -> list[tuple[Square, object]]:
                 upstream_owns=peaks.UPSTREAM_OWNS, new_nodes=dict(placed[name]),
                 name=f'import spot heights into {name}')))
     return steps
+
+
+def move_commands(answer, working_set, alloc) -> list:
+    """What moves a feature's home: out of the square that held it, its
+    level carried onto the copy the import writes in its new home - as a
+    re-import into its own square keeps it - and its fill lines (G7a) with
+    it. ``alloc(square)`` gives the id allocator for a square. As (square,
+    Compound) steps, to go on the history with the import's own; the placed
+    copies' tags are given the old copy's level here, before the import's
+    commands are made from them."""
+    from ..core import edits
+    from ..core.reconcile import merge_tags
+    from ..water.flatten import FILL
+    out = []
+    by_square: dict = {}
+    staying: dict = {}                     # square: the rings its relations that stay name
+    for (kind, fid), (was, now) in sorted(answer.moved.items(), key=lambda kv: (str(kv[1][0]), kv[0])):
+        # ``dst`` is the import's copy for the new home: its tags are given
+        # the old copy's level here, before the import's commands are made
+        src, dst = working_set.square(was), answer.placed.get(now)
+        if src is None or dst is None or working_set.square(now) is None:
+            continue                       # nowhere loaded to move it to: left where it is, fill lines and all
+        cmds = by_square.setdefault(was, [])
+        if was not in staying:
+            staying[was] = {m.ref for r in src.relations.values() if ('relation', r.id) not in answer.moved
+                            for m in r.members if m.type == 'way'}
+        if kind == 'relation' and fid in src.relations:
+            old = src.relations[fid]
+            if fid in dst.relations:
+                dst.relations[fid].tags = merge_tags(old.tags, dst.relations[fid].tags, overpass.UPSTREAM_OWNS)
+            cmds.insert(0, edits.DeleteRelation(fid))
+        elif kind == 'way' and fid in src.ways:
+            old = src.ways[fid]
+            if fid in dst.ways:
+                dst.ways[fid].tags = merge_tags(old.tags, dst.ways[fid].tags, overpass.UPSTREAM_OWNS)
+            # a ring another relation staying there still names, stays too
+            if fid not in staying[was]:
+                cmds.append(edits.DeleteWay(fid))
+        # its fill lines, which say whose they are
+        key = f'{kind}/{fid}'
+        target = working_set.square(now)
+        for line in [w for w in src.ways.values() if w.tags.get(FILL) == key]:
+            cmds.append(edits.DeleteWay(line.id))
+            if target is not None:
+                ids = alloc(target)
+                coords = [(src.nodes[r].lon, src.nodes[r].lat) for r in line.refs if r in src.nodes]
+                out.append((target, edits.AddWay(ids.take(), [ids.take() for _ in coords], coords, dict(line.tags))))
+    for name, cmds in by_square.items():
+        if cmds:
+            out.insert(0, (working_set.square(name), edits.Compound(cmds, name=f'move water out of {name}')))
+    return out
