@@ -97,12 +97,13 @@ def icon() -> QIcon:
     return out
 
 
-def title(centre=None, dirty: bool = False) -> str:
+def title(centre=None, dirty: bool = False, label: str = '') -> str:
     """The window's title: the version always, the working set's centre when
-    there is one, and a star while it has edits not saved."""
+    there is one, with its name if it has one, and a star while it has edits
+    not saved."""
     t = f'Danu {__version__}'
     if centre is not None:
-        t += f' - {centre}'
+        t += f' - {centre}' + (f' {label}' if label else '')
     return t + (' *' if dirty else '')
 
 

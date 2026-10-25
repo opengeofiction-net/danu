@@ -56,11 +56,12 @@ from PySide6.QtWidgets import (
 
 from ..core import dropclient
 from ..core import zones as Z
-from ..core.square import SquareName, list_squares
+from ..core.square import SquareName, label_of, list_squares
 from ..core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE, ZONE, ZONE_INACTIVE
 from . import mercator as m
 from . import topo_style as style
 from .background import Job
+from .squares import NAME_MIN_PX, draw_name
 
 # while a zone is edited: its squares as they will be, and those the drag can't have
 ADDED = QColor(31, 120, 180, 90)
@@ -94,17 +95,20 @@ class ZonesItem(QGraphicsItem):
         self.refused: set[SquareName] = set()
         self._paths: dict[str, QPainterPath] = {}
         self.squares: dict[SquareName, str] = {}     # the squares held, by class
+        self.labels: dict[SquareName, str] = {}      # and the names their files give them
         self.skip: set[SquareName] = set()           # the open set's: its own frames draw those
 
     def set_zones(self, zones: list[dict]) -> None:
         self.prepareGeometryChange()
         self.zones = zones
         self._paths = {z['name']: _outline(cells_of(z)) for z in zones}
-        self.squares = {}
+        self.squares, self.labels = {}, {}
         for z in zones:
             for h in z.get('held', []):
                 try:
-                    self.squares[SquareName.parse(h['square'])] = _CLASS.get(h.get('class'), SQUARE_BLANK)
+                    c = SquareName.parse(h['square'])
+                    self.squares[c] = _CLASS.get(h.get('class'), SQUARE_BLANK)
+                    self.labels[c] = label_of(h.get('file', '')).replace('_', ' ')
                 except (KeyError, ValueError):
                     continue
         self.update()
@@ -122,12 +126,21 @@ class ZonesItem(QGraphicsItem):
         return QRectF(0, 0, m.WORLD, m.WORLD) if self.zones or self.editing is not None else QRectF()
 
     def paint(self, painter: QPainter, option, widget=None):
+        scale = painter.worldTransform().m11()
+        degree_px = m.WORLD / 360.0 * scale
+        font = QFont()
+        font.setPointSize(10)
+        font.setBold(True)
         for c, cls in self.squares.items():
             if c in self.skip:
                 continue
             painter.setPen(style.pen(cls))
             painter.setBrush(style.brush(cls))
             painter.drawRect(_cell_rect(c))
+            # each square's grid name and its own, where a degree has room:
+            # the square found by what its mapper calls it
+            if degree_px >= NAME_MIN_PX:
+                draw_name(painter, _cell_rect(c), str(c), self.labels.get(c, ''), scale, font, QColor(110, 110, 110))
         for z in self.zones:
             path = self._paths.get(z['name'])
             if path is None or path.isEmpty():

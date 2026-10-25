@@ -209,7 +209,7 @@ def test_the_window_opens_on_a_worker_frames_the_square_and_remembers_it(qtbot, 
     lon, lat = w.map.center_lonlat()
     assert abs(lon - 125.5) < 0.02 and abs(lat + 23.5) < 0.02
     assert '2 of 9 squares present' in w.statusBar().currentMessage()
-    assert w.windowTitle() == f'Danu {__version__} - S24E125'
+    assert w.windowTitle() == f'Danu {__version__} - S24E125 Los Pizarrales'
     assert w.recent_menu.isEnabled() and len(w.recent_menu.actions()) == 1
     assert w.settings.recent()[0] == (root / 'pizarrales', SquareName(125, -24), 3)
     assert w.settings.squares_root == root and w.settings.size == 3   # remembered on success
