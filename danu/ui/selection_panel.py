@@ -599,6 +599,8 @@ class SelectionPanel(QDockWidget):
             return
         if p.kind == 'burn':
             self.editor.burn(setback_m=value, again=True)
+        elif p.kind == 'push':
+            self.editor.push_crossings(push_m=value)
         else:
             self.editor.flatten(pull_back_m=value)
 

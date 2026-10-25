@@ -531,3 +531,23 @@ def test_without_gdal_the_nearest_level_is_cut(monkeypatch):
     contour(sq, [(125.45, LAT), (125.59, LAT)], 120)
     p = run(w, sq, lk, pull_back_m=100)
     assert len(contours(sq, 120)) == 2 and p.pulled == 1 and p.wrapped == 0
+
+
+def test_where_the_next_contour_crowds_the_shore_only_that_stretch_is_cut():
+    """r239 in roantra's N46E029: its 30 m runs along the shore here and
+    there, and the 20 m, all or nothing, was cut into seventeen. Pushed
+    where there is room, cut only where the 140 m below lies 3 m off the
+    south shore: the 120 m dips in twice and comes out as two pieces, not
+    three."""
+    pytest.importorskip('osgeo.ogr')
+    w, sq = ws()
+    lk = lake(sq)
+    contour(sq, [(125.51, -22.52), (125.51, -22.48), (125.51, -22.44),
+                 (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)
+    lat = -22.50 - 3 / 110540
+    contour(sq, [(125.525, lat), (125.535, lat)], 140)
+    p = run(w, sq, lk, pull_back_m=100)
+    pieces = contours(sq, 120)
+    assert p.wrapped == 1 and len(pieces) == 2, [len(x.refs) for x in pieces]
+    for x in pieces:
+        assert all(off_shore(sq, r) > 0 for r in x.refs), 'a piece reaches into the water'

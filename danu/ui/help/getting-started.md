@@ -81,6 +81,12 @@ page back over whatever is open.
   and the rings up the river from it - and the contour runs round them all
   as one line, the pieces gone. A ring absorbs its pieces as well; with only
   rings picked, the largest is kept. Pieces more than 100 m apart are not joined.
+- **Push back crossings** with **Shift+P**: in the open square, a recovered
+  contour stepping back and forth over the line at the next level - a 10 m
+  over the coastline - is pushed back off it to its own side, as one line,
+  between it and the contour beyond. Proposed first; **Enter** takes it.
+  Levels further apart, two recovered contours crossing, and stretches with
+  no room are left in the Validation panel.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
   **Alt** it scales it there. The keys can be pressed or let go during the

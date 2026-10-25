@@ -1,0 +1,332 @@
+"""A contour pushed off something it strays across, as one line: each stretch
+that reaches it replaced by the thing's own outline offset to the contour's
+side, at the furthest distance that keeps clear of every other contour.
+
+Two users. Flatten (``danu.water.flatten``, #267) pushes the contour at the
+level next to a lake's out round the water. The crossings fix
+(``danu.core.crossfix``) pushes a contour off the one at the next level it
+crosses - a recovered 10 m contour stepping in and out over the main map's
+coastline - onto the side it belongs.
+
+The offset is GDAL's buffer, of the water or the line crossed; a stretch whose
+offset would cross or pass by another contour is tried at half the distance,
+then half again, down to ``WRAP_MIN_M``, each on its own. Worked in metres
+on the caller's projection.
+"""
+
+from __future__ import annotations
+
+import math
+from collections import defaultdict
+from itertools import pairwise
+
+from . import edits
+
+WRAP_MIN_M = 5.0           # a contour pushed round no nearer than this
+WRAP_SIMPLIFY_M = 2.0      # the offset drawn to within this
+_CELL_M = 1000.0           # the guard's index
+
+
+def _length(pts) -> list[float]:
+    """Distance along the run of points, at each."""
+    out = [0.0]
+    for (x0, y0), (x1, y1) in pairwise(pts):
+        out.append(out[-1] + math.hypot(x1 - x0, y1 - y0))
+    return out
+
+
+class Pusher:
+    """Contours pushed off ``water`` - a polygon, or lines - and what is
+    around them to keep clear of.
+
+    ``side``, when given, says which side of a line crossed the contour
+    belongs on: called with a point and the distance pushed, true on the
+    contour's side. Without it, the side the stretch ran - the one it and
+    the offset enclose least between - which is right for water and wrong
+    for a line crossed, where the stretch ran on both. ``partial`` pushes
+    what it can of a contour and leaves the rest as it was."""
+
+    def __init__(self, ogr, water, pull_back_m, side=None, fixed=frozenset(), partial=False):
+        self.ogr, self.water, self.side = ogr, water, side
+        # a stretch that cannot be pushed left as it is, the rest pushed -
+        # not for a lake, where it would leave a contour in the water
+        self.partial = partial
+        self.fixed = set(fixed)            # the ways pushed off: never in the way
+        self.dists = []
+        d = pull_back_m
+        while d >= WRAP_MIN_M:
+            self.dists.append(d)
+            d /= 2
+        self.zones = {}
+        self.guard = defaultdict(list)     # cell: [(way id, envelope, line)] of every contour as it will stand
+
+    @classmethod
+    def make(cls, polys, pull_back_m, partial=False):
+        try:
+            from osgeo import ogr
+        except ImportError:                # a build without GDAL cuts instead
+            return None
+        water = None
+        for ring in polys:
+            r = ogr.Geometry(ogr.wkbLinearRing)
+            for x, y in ring:
+                r.AddPoint_2D(x, y)
+            g = ogr.Geometry(ogr.wkbPolygon)
+            g.AddGeometry(r)
+            g = g.Buffer(0)
+            water = g if water is None else water.SymDifference(g)     # an island is a hole
+        return cls(ogr, water, pull_back_m, partial=partial) if water is not None and not water.IsEmpty() else None
+
+    def _line(self, pts):
+        g = self.ogr.Geometry(self.ogr.wkbLineString)
+        for x, y in pts:
+            g.AddPoint_2D(x, y)
+        return g
+
+    @staticmethod
+    def _cells(env):
+        x0, x1, y0, y1 = env
+        return [(i, j) for i in range(math.floor(x0 / _CELL_M), math.floor(x1 / _CELL_M) + 1)
+                for j in range(math.floor(y0 / _CELL_M), math.floor(y1 / _CELL_M) + 1)]
+
+    def stays(self, wid, lines) -> None:
+        """A contour as it will stand, to keep clear of."""
+        for pts in lines:
+            if len(pts) >= 2:
+                g = self._line(pts)
+                entry = (wid, g.GetEnvelope(), g)
+                for c in self._cells(entry[1]):
+                    self.guard[c].append(entry)
+
+    def drop(self, wid) -> None:
+        for c in list(self.guard):
+            self.guard[c] = [g for g in self.guard[c] if g[0] != wid]
+
+    def clear(self, wid, arcs, between=None) -> bool:
+        """Whether arcs drawn for way ``wid`` cross or touch no other
+        contour - nor, with the stretches they replace, pass one by: the
+        ground between the two is all one side of the contour."""
+        for k, arc in enumerate(arcs):
+            g = self._line(arc)
+            if between is not None:
+                g = self._polygon([*between[k], *reversed(arc)]) or g
+            env = g.GetEnvelope()
+            x0, x1, y0, y1 = env
+            seen = set()
+            for c in self._cells(env):
+                for entry in self.guard.get(c, ()):
+                    other, (a0, a1, b0, b1), h = entry
+                    if (other == wid or other in self.fixed or id(entry) in seen
+                            or not (a0 <= x1 and x0 <= a1 and b0 <= y1 and y0 <= b1)):
+                        continue
+                    seen.add(id(entry))
+                    if g.Intersects(h):
+                        return False
+        return True
+
+    def _zone(self, d):
+        if d not in self.zones:
+            z = self.water.Buffer(d).SimplifyPreserveTopology(WRAP_SIMPLIFY_M)
+            polys = [z] if z.GetGeometryName() == 'POLYGON' else [z.GetGeometryRef(i) for i in range(z.GetGeometryCount())]
+            rings = [[p.GetGeometryRef(k).GetPoint_2D(j) for j in range(p.GetGeometryRef(k).GetPointCount() - 1)]
+                     for p in polys for k in range(p.GetGeometryCount())]
+            self.zones[d] = z, [(r, self._line([*r, r[0]])) for r in rings]
+        return self.zones[d]
+
+    def round(self, sq, way, pts, proj, alloc):
+        """The contour pushed off, each stretch at the furthest distance that
+        keeps it clear of the others, as (command, arcs drawn, runs
+        replaced); or None."""
+        refs, L = list(way.refs), list(pts)
+        if way.refs[0] == way.refs[-1] and len(way.refs) > 3:
+            # begun again at its node furthest from the water, so no stretch
+            # replaced runs across where it begins and ends - from the water
+            # itself, not the reach of the first distance: a small island's
+            # ring all within that is pushed at a nearer one
+            # - and on its own side of a line crossed: a node furthest off it
+            # may be the furthest a stray reaches the wrong way
+            at = [k for k in range(len(L) - 1) if self.side is None or self.side(L[k], self.dists[0])]
+            if not at:
+                return None
+            k = max(at, key=lambda k: self._point(L[k]).Distance(self.water))
+            if self._point(L[k]).Distance(self.water) <= 0:
+                return None                              # it lies all in the water
+            refs, L = [*refs[k:-1], *refs[:k], refs[k]], [*L[k:-1], *L[:k], L[k]]
+        cum = _length(L)
+        line = self._line(L)
+        runs = self._runs(L, cum, line, 0, 0.0, cum[-1], way.id)
+        if not runs:
+            return None
+        ids = alloc(sq)
+        new_nodes, out, now, arcs, gone, k = {}, [], [], [], [], 0
+        for i_in, i_out, arc in runs:
+            out += refs[k:i_in + 1]
+            now += L[k:i_in + 1]
+            for q in arc:
+                if math.dist(q, L[i_in]) < 0.01 or math.dist(q, L[i_out + 1]) < 0.01:
+                    continue                             # met on a node of its own
+                nid = ids.take()
+                new_nodes[nid] = proj.lonlat(*q)
+                out.append(nid)
+                now.append(q)
+            arcs.append(arc)
+            gone.append([arc[0], *L[i_in + 1:i_out + 1], arc[-1]])
+            k = i_out + 1
+        out += refs[k:]
+        now += L[k:]
+        self.stays(way.id, [now])
+        self.last = now                    # the line as pushed, in metres
+        return edits.ReplaceWay(way.id, [(way.id, out)], new_nodes), arcs, gone
+
+    def _runs(self, L, cum, line, level, lo, hi, wid):
+        """The stretches of L between ``lo`` and ``hi`` along it that reach
+        the water, each with the arc of the offset that replaces it: at
+        ``dists[level]``, or for a stretch whose arc there is not clear, at
+        the next distance in. None when one cannot be pushed at all."""
+        if level == len(self.dists):
+            return None
+        d = self.dists[level]
+        zone, rings = self._zone(d)
+        inside = line.Intersection(zone)
+        parts = ([inside.GetGeometryRef(i) for i in range(inside.GetGeometryCount())]
+                 if inside.GetGeometryCount() else [inside])
+        spans = sorted(sp for g in parts
+                       if not g.IsEmpty() and g.GetGeometryName() == 'LINESTRING' and g.Intersects(self.water)
+                       for sp in _spans(L, cum, [g.GetPoint_2D(j) for j in range(g.GetPointCount())]))
+        spans = [s for s in spans if lo - 1e-6 <= s[0] and s[1] <= hi + 1e-6]
+        if self.side is not None:
+            spans = self._joined(L, cum, spans, d)
+            if spans is None:
+                return None
+        out = []
+        for s_in, s_out in spans:
+            if s_in <= 1e-6 or s_out >= cum[-1] - 1e-6:
+                if not self.partial:
+                    return None                          # it ends by the water
+                # it ends within reach: nearer in, the stretch may not
+                out += self._runs(L, cum, line, level + 1, s_in, s_out, wid) or []
+                continue
+            i_in, P = _point(L, cum, s_in)
+            i_out, Q = _point(L, cum, s_out)
+            arc = self._arc(rings, P, Q, L[i_in + 1:i_out + 1], d)
+            if arc is not None and self.clear(wid, [arc], [[P, *L[i_in + 1:i_out + 1], Q]]):
+                out.append((i_in, i_out, arc))
+                continue
+            inner = self._runs(L, cum, line, level + 1, s_in, s_out, wid)
+            if inner is None:
+                if self.partial:
+                    continue
+                return None
+            out += inner
+        return out
+
+    def _joined(self, L, cum, spans, d):
+        """Spans joined where the contour strays further than ``d`` across
+        a line: one that leaves the reach on the wrong side runs on to where
+        it comes back on the right one. None when it never does."""
+        out, cur = [], None
+        for s_in, s_out in spans:
+            if cur is None:
+                if not self.side(_point(L, cum, s_in)[1], d):
+                    if self.partial:
+                        continue                         # begun on the wrong side: left
+                    return None
+                cur = [s_in, s_out]
+            else:
+                cur[1] = s_out
+            if self.side(_point(L, cum, s_out)[1], d):
+                out.append(tuple(cur))
+                cur = None
+        return out if cur is None or self.partial else None
+
+    def _arc(self, rings, P, Q, between, d):
+        """The offset from P to Q on the contour's side, or None when P and
+        Q are on different rings of it, or neither way round is that side.
+        P and Q are placed along the ring where they fall, not at its
+        nearest vertex: a straight shore's offset has a vertex only at each
+        end."""
+        ring = min(rings, key=lambda r: r[1].Distance(self._point(P)))[0]
+        if min(rings, key=lambda r: r[1].Distance(self._point(Q)))[0] is not ring:
+            return None
+        closed = [*ring, ring[0]]
+        cum = _length(closed)
+        total = cum[-1]
+        sp, sq = _along(closed, cum, P), _along(closed, cum, Q)
+
+        def walk(a, b):
+            # the ring's vertices met going forward from position a to b
+            span = (b - a) % total
+            return [closed[i] for i in sorted(range(len(ring)), key=lambda i: (cum[i] - a) % total)
+                    if 0 < (cum[i] - a) % total < span]
+        sides = ([P, *walk(sp, sq), Q], [P, *reversed(walk(sq, sp)), Q])
+        if self.side is not None:
+            def on_side(arc):
+                probes = [*arc[1:-1], *(((x0 + x1) / 2, (y0 + y1) / 2) for (x0, y0), (x1, y1) in pairwise(arc))]
+                return all(self.side(q, d) for q in probes)
+            ok = [s for s in sides if on_side(s)]
+            if not ok:
+                return None
+            return min(ok, key=lambda s: _length(s)[-1])
+
+        def apart(side):
+            g = self._polygon([P, *between, Q, *reversed(side)])
+            return g.GetArea() if g is not None else math.inf
+        return min(sides, key=apart)
+
+    def _point(self, q):
+        g = self.ogr.Geometry(self.ogr.wkbPoint)
+        g.AddPoint_2D(*q)
+        return g
+
+    def _polygon(self, pts):
+        if len(pts) < 3:
+            return None
+        r = self.ogr.Geometry(self.ogr.wkbLinearRing)
+        for x, y in [*pts, pts[0]]:
+            r.AddPoint_2D(x, y)
+        g = self.ogr.Geometry(self.ogr.wkbPolygon)
+        g.AddGeometry(r)
+        return g.Buffer(0)
+
+
+def _along(L, cum, pt) -> float:
+    """How far along the run of points L a point on it is."""
+    best, at = math.inf, 0.0
+    for i, (a, b) in enumerate(pairwise(L)):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1.0)))
+        d = math.hypot(a[0] + t * dx - pt[0], a[1] + t * dy - pt[1])
+        if d < best:
+            best, at = d, cum[i] + t * math.dist(a, b)
+    return at
+
+
+def _spans(L, cum, piece) -> list[tuple[float, float]]:
+    """Where a stretch of L - a piece GDAL cut from it, as points - begins
+    and ends along it. On a ring the closing point is both 0 and the whole
+    length: taken as the end the rest of the stretch is nearer, or a stretch
+    running up to it would read as running from the start, over everything
+    between. A piece running through it - newer GEOS joins the two either
+    side - is two stretches, one to the end and one from the start."""
+    ring = L[0] == L[-1]
+    if ring:
+        for j in range(1, len(piece) - 1):
+            if math.dist(piece[j], L[0]) < 1e-6:
+                return _spans(L, cum, piece[:j + 1]) + _spans(L, cum, piece[j:])
+    n = len(piece)
+    ends = []
+    for j, nb in ((0, 1), (n - 1, n - 2)):
+        s = _along(L, cum, piece[j])
+        if ring and math.dist(piece[j], L[0]) < 1e-6 and 0 <= nb < n:
+            s = 0.0 if _along(L, cum, piece[nb]) < cum[-1] / 2 else cum[-1]
+        ends.append(s)
+    return [(min(ends), max(ends))]
+
+
+def _point(L, cum, s) -> tuple[int, tuple[float, float]]:
+    """The segment of L a distance along it falls in, and the point there."""
+    for i in range(len(L) - 1):
+        if cum[i + 1] >= s:
+            t = (s - cum[i]) / ((cum[i + 1] - cum[i]) or 1.0)
+            return i, (L[i][0] + t * (L[i + 1][0] - L[i][0]), L[i][1] + t * (L[i + 1][1] - L[i][1]))
+    return len(L) - 2, L[-1]

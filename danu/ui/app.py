@@ -371,6 +371,7 @@ class MainWindow(QMainWindow):
         # cursor had been, so opening a square named a neighbour
         self.elevation.changed.connect(lambda _v: self._refresh_status())
         self.editor = EditController(self.map, self.contours, self.elevation, self)
+        self.editor.runner = lambda job: self._checks_runner(job)
         # to the preview only while the surface rebuilds itself (#239): off,
         # nothing is solved until Ctrl+R, which the preview then adopts
         self._surface_out_of_date = False
@@ -1080,6 +1081,7 @@ class MainWindow(QMainWindow):
                 ('edit.split', 'S&plit', ed.split),
                 ('edit.unglue', 'U&nglue', ed.unglue),
                 ('edit.absorb', '&Absorb pieces', ed.absorb),
+                ('edit.push_crossings', 'Push back &crossings', lambda: ed.push_crossings()),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
                 ('view.josm', 'Show in &JOSM', self.show_in_josm),
@@ -1158,7 +1160,7 @@ class MainWindow(QMainWindow):
 
         edit = self.menuBar().addMenu('&Edit')
         for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
-                     'edit.absorb', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
+                     'edit.absorb', 'edit.push_crossings', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
             if name:
                 edit.addAction(e[name])
             else:

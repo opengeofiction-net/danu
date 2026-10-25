@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
 from ..checks.files import API_LIMIT
-from ..core import edits, geometry, profile
+from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, Way, WorkingSet, is_coastline, parse_ele
@@ -360,6 +360,9 @@ class EditController(QObject):
         self.focused_issue: Issue | None = None   # the one the map was last taken to
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
         self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
+        self.push_m = crossfix.PUSH_M                 # how far a crossing contour is pushed back
+        # where a long job runs: the window gives its pool; here, on the spot
+        self.runner = lambda job: job.run()
         self._burn_job: list | None = None            # what the last burn was asked to burn
         self._last_grade: str | None = None           # 'chain' or 'network': what G last did
         # where contours cross, for the map to mark while the Validation panel is
@@ -2661,6 +2664,48 @@ class EditController(QObject):
             fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
             added=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.added] or None,
             pull_back_m=self.pull_back_m, kind='flatten', strength_label='Draw back from the shore'))
+
+    def push_crossings(self, push_m: float | None = None):
+        """Shift+P: the open square's contours that stray across the line at
+        the next level - a recovered 10 m over the main map's coastline -
+        pushed back off it as one line each, between it and the next
+        (``danu.core.crossfix``); proposed, on a worker, then Enter takes it
+        as one step. What is not plain is left to the Validation panel."""
+        if push_m is not None:
+            self.push_m = float(push_m)
+        ws = self.working_set
+        if ws is None:
+            return
+        gen, at = self.history.generation, self.push_m
+        self.message.emit('pushing back crossing contours…')
+
+        def done(p):
+            if self._push_job is not job:
+                return                     # a later Shift+P is the one asked
+            if self.working_set is not ws or self.history.generation != gen:
+                self.message.emit('the set changed while crossings were looked at - Shift+P again')
+                return
+            if not p.pushed:
+                self.message.emit(f'no crossing in {ws.centre} could be pushed back - '
+                                  f'{p.left:,} left to the Validation panel' if p.left else
+                                  f'no crossings in {ws.centre}')
+                return
+            summary = (f'{p.pushed} contour{"s" * (p.pushed != 1)} pushed back off the next level, up to '
+                       f'{at:g} m: {p.fixed:,} crossing{"s" * (p.fixed != 1)} gone, {p.left:,} left to the '
+                       'Validation panel')
+            sq = ws.squares[ws.centre]
+            self._set_proposal(Proposal(
+                sq, None, None, summary, issues=[], steps=p.steps,
+                removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
+                added=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.added],
+                pull_back_m=at, kind='push', strength_label='Push back from the line crossed'))
+
+        def failed(why):
+            self.message.emit(f'crossings not pushed back: {why.splitlines()[0]}')
+        from .background import Job
+        job = self._push_job = Job(lambda: crossfix.plan(ws, self.history.alloc, only={ws.centre}, pull_back_m=at),
+                                   done, failed)
+        self.runner(job)
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
