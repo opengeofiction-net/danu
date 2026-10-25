@@ -305,14 +305,7 @@ def homes(water: Water, working_set, held: dict | None = None,
     moved: dict = {}
 
     def home_of(kind, fid, counts):
-        counts = {n: c for n, c in counts.items() if n in cand}
-        if not counts:
-            return None
-        best = max(sorted(counts, key=str), key=counts.get)
-        was = held.get((kind, fid)) or zone_held.get((kind, fid))
-        if was is not None and (not move or counts.get(was, 0) >= counts[best]):
-            return was
-        return best
+        return _home(cand, counts, held.get((kind, fid)) or zone_held.get((kind, fid)), move)
 
     def note(kind, fid, home):
         was = held.get((kind, fid)) or zone_held.get((kind, fid))
@@ -323,15 +316,25 @@ def homes(water: Water, working_set, held: dict | None = None,
     # than where its own nodes would put it. Otherwise a lake's outer ring is
     # placed twice - once on its own account and once as a member - and a
     # square two degrees from the relation holds half its shape.
+    #
+    # And relations sharing a member way go together: a ring is held in one
+    # file, and every relation naming it with it - r3505's shore is three ways
+    # of the sea's, and held with each where most of it lies, the three were
+    # written twice and moved back and forth on every import
     claimed: set[int] = set()
     taken: set[int] = set()
-    for rel in _outermost_first(water):
-        if rel.id in taken:
-            continue                 # already placed, with the relation that names it
-        square = home_of('relation', rel.id, _counts(water, _nodes_of(water, rel)))
+    for group in _sharing(water, _outermost_first(water)):
+        group = [r for r in group if r.id not in taken]
+        if not group:
+            continue                 # already placed, with the relation that names them
+        nodes = set().union(*(_nodes_of(water, r) for r in group))
+        # where the group is held, if all of it is in one square
+        holders = {held.get(('relation', r.id)) or zone_held.get(('relation', r.id)) for r in group}
+        was = next(iter(holders)) if len(holders) == 1 else None
+        square = _home(cand, _counts(water, nodes), was, move)
         if square is None:
             continue
-        ways, rels = _put(out, square, water, relations=[rel])
+        ways, rels = _put(out, square, water, relations=group)
         claimed |= ways
         taken |= rels
         for wid in ways:
@@ -346,6 +349,42 @@ def homes(water: Water, working_set, held: dict | None = None,
             _put(out, square, water, ways=[way])
             note('way', way.id, square)
     return out, moved
+
+
+def _home(cand, counts, was, move):
+    """The square of ``cand`` holding most of ``counts`` - ties to the lower
+    name - unless ``was``, where it is held, holds as many: or always ``was``,
+    not ``move``."""
+    counts = {n: c for n, c in counts.items() if n in cand}
+    if not counts:
+        return None
+    best = max(sorted(counts, key=str), key=counts.get)
+    if was is not None and (not move or counts.get(was, 0) >= counts[best]):
+        return was
+    return best
+
+
+def _sharing(water: Water, rels: list) -> list[list]:
+    """The relations in groups, those naming a way in common together, in
+    the order given - a group is led by its first."""
+    parent = {r.id: r.id for r in rels}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    by_way: dict = {}
+    for r in rels:
+        for m in r.members:
+            if m.type == 'way':
+                other = by_way.setdefault(m.ref, r.id)
+                if other != r.id:
+                    parent[find(r.id)] = find(other)
+    groups: dict = {}
+    for r in rels:
+        groups.setdefault(find(r.id), []).append(r)
+    return list(groups.values())
 
 
 def _nodes_of(water: Water, rel: Relation, seen=None) -> set[int]:

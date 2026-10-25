@@ -227,3 +227,19 @@ def test_the_report_is_in_a_stable_order(ws):
     got = gone(ws, frozenset(), frozenset())
     assert [(g.square, g.kind, g.id) for g in got] == [
         (HERE, 'relation', 300), (HERE, 'way', 8), (HERE, 'way', 9), (EAST, 'way', 7)]
+
+
+def test_relations_sharing_a_ring_are_held_together(ws):
+    """r3505's shore is three ways of the sea's: held each where most of it
+    lies, the three were written twice and moved back and forth on every
+    import. Together, where most of the two lie."""
+    w = an_answer()                                  # the lake 300, its ring 200, in EAST
+    for i, lon in ((31, 125.2), (32, 125.4), (33, 125.6), (34, 125.8)):
+        w.nodes[i] = Node(id=i, lat=-23.4, lon=lon)
+    w.ways[500] = Way(id=500, refs=[31, 32, 33, 34, 31])
+    w.relations[600] = Relation(id=600, tags={'natural': 'water'},
+                                members=[Member('way', 500, 'outer'), Member('way', 200, 'inner')])
+    placed, _ = overpass.homes(w, ws)
+    holding = [n for n, got in placed.items() if 200 in got.ways]
+    assert holding == [HERE], f'the shared ring is held in {holding}'
+    assert {300, 600} <= set(placed[HERE].relations)
