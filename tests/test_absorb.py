@@ -137,7 +137,9 @@ def test_a_piece_touching_the_line_at_one_corner_is_gone_round(line, apex):
     nodes = dict(sq.nodes)
     cmd, coords = absorb.absorb(sq, main.id, [piece.id], edits.IdAllocator(sq))
     cmd.apply(sq)
-    region = polygon(sq, sq.ways[main.id].refs).Buffer(1.0)
+    refs = sq.ways[main.id].refs
+    assert list(sq.ways) == [main.id] and len(refs) >= len(line) + 2
+    region = polygon(sq, refs).Buffer(1.0)
     for r in piece.refs:
         pt = ogr.Geometry(ogr.wkbPoint)
         pt.AddPoint_2D(nodes[r].lon * KX, nodes[r].lat * KY)

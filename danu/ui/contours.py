@@ -1591,9 +1591,10 @@ class ContourLayer(QGraphicsItem):
         shares. Neither changes until an edit does, and an edit is what makes
         the arrays stale, so the index is dropped with them.
         """
-        grid = self._segment_grid()
+        self._ensure_arrays()
         if self._grade_index is not None:
             return self._grade_index
+        grid = self._segment_grid()
         vertices = {}
         for g in self._ways:
             for r in g.refs:

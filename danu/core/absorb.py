@@ -105,7 +105,7 @@ def _arcs(R, P, Q) -> tuple[list, list]:
         cum.append(cum[-1] + math.dist(a, b))
     per = cum[-1]
     sP, sQ = _along(R, cum, P), _along(R, cum, Q)
-    span = (sQ - sP) % per or per
+    span = (sQ - sP) % per or per          # in and out at one point: the whole way round
     corners = [(cum[k], R[k]) for k in range(len(R) - 1)
                if math.dist(R[k], P) > SNAP_M and math.dist(R[k], Q) > SNAP_M]
     ahead = sorted(((s - sP) % per, c) for s, c in corners)
