@@ -2690,12 +2690,14 @@ class EditController(QObject):
             # comes out flat as it is - its fill lines were all a reshape left
             # stale, and there are none now - is flattened again as it stands.
             # The gone dock strikes its row; a lake it is not listing is no row
-            self.flattened.emit(sq, feature)
+            # - and one reaching squares not open, below, is not done yet
         # a lake reaching squares not open has contours in its water this
         # cannot see: roantra's estuary, held in N46E028, reaches four more
         ws = self.working_set
         reach = {SquareName(math.floor(lon), math.floor(lat)) for ring in p.outline for lon, lat in ring}
         unseen = sorted(str(n) for n in reach if n not in ws.squares)
+        if not p.steps and not unseen:
+            self.flattened.emit(sq, feature)
         if unseen:
             parts.append(f'it reaches {", ".join(unseen)}, not open here - their contours are left as '
                          'they are; open a set holding them to flatten it there too')

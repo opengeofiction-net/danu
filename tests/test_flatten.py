@@ -290,7 +290,7 @@ def test_a_flatten_draws_no_fill_lines_and_takes_out_the_lakes_old_ones():
     mine, theirs = old_fill(sq, lk), old_fill(sq, other, '90', lat=-22.49)
     run(w, sq, lk)
     assert mine.id not in sq.ways and not any(r in sq.nodes for r in mine.refs)
-    assert theirs.id in sq.ways, "another lake's line went too"
+    assert theirs.id in sq.ways and all(r in sq.nodes for r in theirs.refs), "another lake's line went too"
 
 
 def test_flattening_a_flat_lake_again_is_no_step():
