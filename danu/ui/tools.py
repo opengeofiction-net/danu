@@ -2688,7 +2688,8 @@ class EditController(QObject):
             parts = [f'{name} is already flat at {text} m - nothing to change']
             # nothing to accept, and nothing left to do: a reshaped lake that
             # comes out flat as it is - its fill lines were all a reshape left
-            # stale, and there are none now - is flattened again as it stands
+            # stale, and there are none now - is flattened again as it stands.
+            # The gone dock strikes its row; a lake it is not listing is no row
             self.flattened.emit(sq, feature)
         # a lake reaching squares not open has contours in its water this
         # cannot see: roantra's estuary, held in N46E028, reaches four more

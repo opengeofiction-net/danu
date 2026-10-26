@@ -1763,7 +1763,7 @@ class MainWindow(QMainWindow):
         n = sum(len(cmd.ids) for _, cmd in steps)
         return (f'removed {n:,} fill line{"s" * (n != 1)} across lakes, in '
                 + ', '.join(str(sq.name) for sq, _ in steps)
-                + ' - lakes are held at their level by the build now; saving keeps it')
+                + ' - no longer drawn; saving keeps it')
 
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:
