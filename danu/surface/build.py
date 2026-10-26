@@ -725,7 +725,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     now, and only where a mapper had flattened.
 
     The spot heights go in last - one Rasterize call each layer, in that
-    order - so a spot height standing on a contour wins the cell. That is
+    order - so a spot height standing on a contour, or in a lake, wins the cell. That is
     the right way round: a contour says the ground reaches this height
     somewhere along here, a spot height says the ground is exactly this high at
     this point, and where they disagree the point is the more specific

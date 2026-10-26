@@ -357,8 +357,8 @@ class PreviewDriver(QObject):
                 if r.tags.get('natural') == 'water'
                 and any(m.type == 'way' and m.ref in way_ids for m in r.members)}
         keys |= {f'way/{wid}' for wid in way_ids
-                 if (w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water'
-                 or self._kept.contours.lake(f'way/{wid}') is not None}
+                 if ((w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water')
+                 or self._kept.contours.lake(f'way/{wid}') is not None}       # one held, now not water
         if not keys:
             return
         from ..checks.inside import held
