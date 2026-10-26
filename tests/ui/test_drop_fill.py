@@ -37,6 +37,13 @@ def zone(tmp_path):
         edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(126.4, lat), (126.5, lat)],
                      {'ele': '5', 'danu:fill': 'relation/7'}).apply(sq)
     write_square(sq, d / 'S24E126_Tenmetre.osm.xz')
+    # and two more lines in a square of their own, south: the step is the set's
+    south = Square(name=SquareName(126, -25), present=True, attrs={'version': '0.6', 'upload': 'never'})
+    alloc = edits.IdAllocator(south)
+    for lat in (-24.5, -24.4):
+        edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(126.4, lat), (126.5, lat)],
+                     {'ele': '5', 'danu:fill': 'way/9'}).apply(south)
+    write_square(south, d / 'S25E126.osm.xz')
     return d
 
 
@@ -48,7 +55,8 @@ def test_fill_lines_are_taken_out_when_the_set_opens(window, zone):
     sq = window.working_set.squares[TEN]
     assert fill_lines(sq) == []
     # said, and the drop's word over it a moment later: the undo names it
-    assert window.editor.dirty() and window.editor.history.describe_undo() == 'remove 3 fill lines'
+    assert window.editor.dirty() and window.editor.history.describe_undo() == 'remove 5 fill lines'
+    assert fill_lines(window.working_set.squares[SquareName(126, -25)]) == []
     window.editor.undo()
     assert len(fill_lines(window.working_set.squares[TEN])) == 3
     window.editor.redo()

@@ -1236,6 +1236,9 @@ class DropFillLines(Command):
     ids: list[int]
     gone: dict[int, Way] = field(default_factory=dict)
     dropped: dict[int, Node] = field(default_factory=dict)
+    # the whole step's count, when it spans squares: the set's history names
+    # a step by its first square's command, which would say that square's alone
+    total: int | None = None
 
     def ways(self, square: Square) -> set[int]:
         return set(self.ids)
@@ -1258,7 +1261,8 @@ class DropFillLines(Command):
         self.gone, self.dropped = {}, {}
 
     def describe(self) -> str:
-        return f'remove {len(self.ids):,} fill line{"s" * (len(self.ids) != 1)}'
+        n = self.total if self.total is not None else len(self.ids)
+        return f'remove {n:,} fill line{"s" * (n != 1)}'
 
 
 def drop_fill_lines(square: Square) -> DropFillLines | None:

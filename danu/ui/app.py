@@ -1759,8 +1759,10 @@ class MainWindow(QMainWindow):
         steps = [(sq, cmd) for sq in ws.squares.values() if (cmd := edits.drop_fill_lines(sq)) is not None]
         if not steps:
             return ''
-        self.editor.do_across(steps)
         n = sum(len(cmd.ids) for _, cmd in steps)
+        for _, cmd in steps:
+            cmd.total = n
+        self.editor.do_across(steps)
         return (f'removed {n:,} fill line{"s" * (n != 1)} across lakes, in '
                 + ', '.join(str(sq.name) for sq, _ in steps)
                 + ' - no longer drawn; saving keeps it')
