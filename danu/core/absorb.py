@@ -164,15 +164,24 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         # round the piece pinched there is a contour crossing itself. A neck
         # under a quarter of the piece's width is opened to the whole of it:
         # the piece's hull with the line that far either side of where they
-        # meet. A valley's tip along a piece's edge is wide enough already
-        near = min(polys, key=lambda g: g.Distance(line))
-        w = min(gap_m, math.sqrt(near.GetArea()))
+        # meet. A valley's tip along a piece's edge is wide enough already.
+        # Each place the line meets them asked on its own: one run deep
+        # through a piece does not stand for a corner touched beside it
+        cum = [0.0]
+        for a, b in pairwise(L):
+            cum.append(cum[-1] + math.dist(a, b))
         met = line.Intersection(blob)
-        if ('LINESTRING' not in met.GetGeometryName() or met.Length() < w / 4) and not met.IsEmpty():
-            cum = [0.0]
-            for a, b in pairwise(L):
-                cum.append(cum[-1] + math.dist(a, b))
-            c = met.Centroid()
+        name = met.GetGeometryName()
+        parts = ([met.GetGeometryRef(i) for i in range(met.GetGeometryCount())]
+                 if name.startswith('MULTI') or name == 'GEOMETRYCOLLECTION' else [met])
+        for g in parts:
+            if g.IsEmpty():
+                continue
+            near = min(polys, key=lambda p: p.Distance(g))
+            w = min(gap_m, math.sqrt(near.GetArea()))
+            if 'LINESTRING' in g.GetGeometryName() and g.Length() >= w / 4:
+                continue
+            c = g.Centroid()
             s = _along(L, cum, (c.GetX(), c.GetY()))
             i0, p0 = _at(L, cum, max(0.0, s - w))
             i1, p1 = _at(L, cum, min(cum[-1], s + w))
