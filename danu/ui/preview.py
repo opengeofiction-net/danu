@@ -335,6 +335,7 @@ class PreviewDriver(QObject):
                 # resolve - boxing its geometry would solve ground the edit
                 # cannot have changed, at tens of milliseconds a go
                 self._kept.contours.remove(wid)
+        self._lakes_edited(square, set(way_ids))
         if fresh:
             # nothing local can show this, so there is no sense waiting out the
             # backstop for it - see _on_fresh_ground
@@ -342,6 +343,42 @@ class PreviewDriver(QObject):
             self.exact_wanted.emit()
         if self._pending:
             self._gesture.start()
+
+    def _lakes_edited(self, square, way_ids: set) -> None:
+        """The lakes an edit touched, held at their level as the build holds
+        them (``checks.inside.held``): each water body one of the ways is, or
+        is a ring of, put in again or taken out. A level set on a lake arrives
+        here too - SetRelationTags names its member ways.
+
+        Boxed at the edited ways, not the whole lake: the shore is where the
+        surface meets it, and a sea's interior is the idle rebuild's to settle.
+        """
+        keys = {f'relation/{r.id}' for r in getattr(square, 'relations', {}).values()
+                if r.tags.get('natural') == 'water'
+                and any(m.type == 'way' and m.ref in way_ids for m in r.members)}
+        keys |= {f'way/{wid}' for wid in way_ids
+                 if (w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water'
+                 or self._kept.contours.lake(f'way/{wid}') is not None}
+        if not keys:
+            return
+        from ..checks.inside import held
+        lakes, _ = held(square)
+        changed = False
+        for key in keys:
+            if key in lakes:
+                ele, rings = lakes[key]
+                self._kept.contours.apply_lake(key, rings, ele)
+            elif self._kept.contours.remove_lake(key):
+                self._removing = True
+            else:
+                continue
+            changed = True
+        if changed:
+            for wid in way_ids:
+                w = square.ways.get(wid)
+                if w is not None:
+                    self._mark_points([(square.nodes[n].lon, square.nodes[n].lat)
+                                       for n in w.refs if n in square.nodes])
 
     def _spot_edited(self, square, node_id) -> None:
         """A node that is, or was, a spot height.
