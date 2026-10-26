@@ -359,11 +359,18 @@ class PreviewDriver(QObject):
         keys |= {f'way/{wid}' for wid in way_ids
                  if ((w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water')
                  or self._kept.contours.lake(f'way/{wid}') is not None}       # one held, now not water
+        # a contour edited into a held lake, at another level, with no shore
+        # edited: the build lets that lake go, and the preview has to, or it
+        # flattens ground the build will not. Only the held lakes whose box
+        # it reaches are asked; one let go that a contour has left is the idle
+        # rebuild's to take back, which costs a lag and not a wrong surface
+        changed = self._lakes_crossed(square, way_ids, keys)
         if not keys:
+            if changed:
+                self._mark_ways(square, way_ids)
             return
         from ..checks.inside import held
         lakes, _ = held(square)
-        changed = False
         for key in keys:
             if key in lakes:
                 ele, rings = lakes[key]
@@ -374,11 +381,44 @@ class PreviewDriver(QObject):
                 continue
             changed = True
         if changed:
-            for wid in way_ids:
-                w = square.ways.get(wid)
-                if w is not None:
-                    self._mark_points([(square.nodes[n].lon, square.nodes[n].lat)
-                                       for n in w.refs if n in square.nodes])
+            self._mark_ways(square, way_ids)
+
+    def _mark_ways(self, square, way_ids) -> None:
+        for wid in way_ids:
+            w = square.ways.get(wid)
+            if w is not None:
+                self._mark_points([(square.nodes[n].lon, square.nodes[n].lat)
+                                   for n in w.refs if n in square.nodes])
+
+    def _lakes_crossed(self, square, way_ids, asked) -> bool:
+        """Take out of the preview the held lakes an edited contour now lies
+        in or across at another level - those not ``asked`` already. Whether
+        any went."""
+        import numpy as np
+
+        from ..checks.inside import crosses, inside
+        lakes = self._kept.contours
+        gone = False
+        for wid in way_ids:
+            w = square.ways.get(wid)
+            if w is None or w.ele is None or 'natural' in w.tags or 'danu:fill' in w.tags:
+                continue
+            pts = [(square.nodes[n].lon, square.nodes[n].lat) for n in w.refs if n in square.nodes]
+            if len(pts) < 2:
+                continue
+            X, Y = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
+            box = (X.min(), Y.min(), X.max(), Y.max())
+            for key in [k for k in lakes.held_keys() if k not in asked]:
+                ele, poly = lakes.lake(key)
+                x0, x1, y0, y1 = poly.GetEnvelope()
+                if box[0] > x1 or box[2] < x0 or box[1] > y1 or box[3] < y0 or abs(ele - w.ele) < 1e-6:
+                    continue
+                rings = [np.array(poly.GetGeometryRef(i).GetPoints())[:, :2] for i in range(poly.GetGeometryCount())]
+                rings = [(r[:, 0], r[:, 1]) for r in rings]
+                if inside(X, Y, rings).any() or crosses(X, Y, rings, (x0, y0, x1, y1)):
+                    lakes.remove_lake(key)
+                    self._removing = gone = True
+        return gone
 
     def _spot_edited(self, square, node_id) -> None:
         """A node that is, or was, a spot height.

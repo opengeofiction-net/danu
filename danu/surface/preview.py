@@ -228,6 +228,10 @@ class Contours:
         f = self.lakes.GetFeature(fid)
         return f.GetField('ele'), f.GetGeometryRef().Clone()
 
+    def held_keys(self) -> list:
+        """The keys of the lakes the layer holds."""
+        return list(self._lake_fid)
+
     def remove_lake(self, key) -> bool:
         """Drop a lake held at its level. False when there was none."""
         fid = self._lake_fid.pop(str(key), None)
