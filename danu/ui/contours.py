@@ -372,6 +372,7 @@ class ContourLayer(QGraphicsItem):
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._arrays_stale = False
         self._grade_index = None             # see _graded_index
+        self._seg_grid = None                # see _segment_grid
         self._text: dict[tuple[str, str], QPainterPath] = {}
         self._bounds = QRectF()
         # what the last paint did, for tests and for a status line
@@ -870,7 +871,7 @@ class ContourLayer(QGraphicsItem):
         if self._arrays_stale:
             self._rebuild_arrays()
             self._arrays_stale = False
-            self._grade_index = None
+            self._grade_index = self._seg_grid = None
 
     def _rebuild_arrays(self):
         """The flat segment and node arrays, from the per-way geometry.
@@ -1002,7 +1003,7 @@ class ContourLayer(QGraphicsItem):
         its own old place does not cross - or a set of them, when several
         move together (#201)."""
         self._ensure_arrays()
-        grid, _ = self._graded_index()
+        grid = self._segment_grid()
         out = set()
         skips = skip if isinstance(skip, (set, frozenset)) else {skip}
         if not len(self._seg_ele):
@@ -1052,7 +1053,7 @@ class ContourLayer(QGraphicsItem):
         pts = np.asarray(pts, dtype=float)
         contours, water = [], []
         self._ensure_arrays()
-        grid, _ = self._graded_index()
+        grid = self._segment_grid()
         for k, (p, q) in enumerate(zip(pts[:-1], pts[1:], strict=True)):
             if not len(self._seg_ele):
                 break
@@ -1548,6 +1549,35 @@ class ContourLayer(QGraphicsItem):
 
     GRID = 2048.0          # scene units a cell, some 570 m at the gobras latitude
 
+    def _segment_grid(self):
+        """Every contour segment by the grid cells its rectangle covers, as
+        {(cx, cy): segment indices}, built once per build of the arrays - an
+        edit drops it with them.
+
+        Built whole and vectorised: a segment spanning cells is put in each,
+        by a ramp over the cells each covers. One cell at a time in Python it
+        was 1.7 s on roantra's N45E030 set, paid by the first E or move after
+        every edit, for ``crossed_by``'s answer of a tenth of a second."""
+        self._ensure_arrays()
+        if self._seg_grid is not None:
+            return self._seg_grid
+        c0 = np.floor(np.minimum(self._seg_a, self._seg_b) / self.GRID).astype(np.int64)
+        c1 = np.floor(np.maximum(self._seg_a, self._seg_b) / self.GRID).astype(np.int64)
+        ny = c1[:, 1] - c0[:, 1] + 1
+        n = (c1[:, 0] - c0[:, 0] + 1) * ny
+        seg = np.repeat(np.arange(len(n), dtype=np.int64), n)
+        k = np.arange(len(seg), dtype=np.int64) - np.repeat(np.cumsum(n) - n, n)
+        cx = c0[seg, 0] + k // ny[seg]
+        cy = c0[seg, 1] + k % ny[seg]
+        order = np.lexsort((seg, cy, cx))
+        seg, cx, cy = seg[order], cx[order], cy[order]
+        cut = np.flatnonzero((np.diff(cx) != 0) | (np.diff(cy) != 0)) + 1
+        starts = np.concatenate(([0], cut)).tolist()
+        ends = [*cut.tolist(), len(seg)]
+        self._seg_grid = {(x, y): seg[a:b] for x, y, a, b
+                          in zip(cx[starts].tolist(), cy[starts].tolist(), starts, ends, strict=True)} if len(seg) else {}
+        return self._seg_grid
+
     def _graded_index(self):
         """What ``crossings_of`` asks of every contour, built once per build
         of the arrays rather than on every call: the segments by grid cell, and
@@ -1561,28 +1591,9 @@ class ContourLayer(QGraphicsItem):
         shares. Neither changes until an edit does, and an edit is what makes
         the arrays stale, so the index is dropped with them.
         """
-        self._ensure_arrays()
+        grid = self._segment_grid()
         if self._grade_index is not None:
             return self._grade_index
-        lo = np.minimum(self._seg_a, self._seg_b)
-        hi = np.maximum(self._seg_a, self._seg_b)
-        c0 = np.floor(lo / self.GRID).astype(np.int64)
-        c1 = np.floor(hi / self.GRID).astype(np.int64)
-        cells: dict[tuple[int, int], list] = {}
-        one = (c0 == c1).all(axis=1)
-        if one.any():
-            idx = np.flatnonzero(one)
-            keys = c0[idx]
-            order = np.lexsort((keys[:, 1], keys[:, 0]))
-            keys, idx = keys[order], idx[order]
-            cut = np.flatnonzero((np.diff(keys, axis=0) != 0).any(axis=1)) + 1
-            for part_k, part_i in zip(np.split(keys, cut), np.split(idx, cut), strict=True):
-                cells[(int(part_k[0, 0]), int(part_k[0, 1]))] = [part_i]
-        for i in np.flatnonzero(~one):
-            for cx in range(c0[i, 0], c1[i, 0] + 1):
-                for cy in range(c0[i, 1], c1[i, 1] + 1):
-                    cells.setdefault((cx, cy), []).append(np.array([i]))
-        grid = {k: np.concatenate(v) for k, v in cells.items()}
         vertices = {}
         for g in self._ways:
             for r in g.refs:

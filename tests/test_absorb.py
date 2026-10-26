@@ -119,6 +119,31 @@ def test_where_the_line_meets_the_outline_on_its_own_node_that_node_is_kept():
     assert len(at) == len(set(at)), 'a node drawn twice at one place'
 
 
+@pytest.mark.parametrize('line, apex', [
+    ([(-500, 300), (0, 0), (500, 300)], (0, 0)),                 # at a node of the line's
+    ([(-500, 300), (-100, 60), (100, 60), (500, 300)], (0, 60)),  # partway along a segment
+])
+def test_a_piece_touching_the_line_at_one_corner_is_gone_round(line, apex):
+    """roantra's w-49980634: a small triangle met by the 20 m line at one
+    corner and no more. The line meets the outline a metre either side of
+    that corner, and both ends were taken to it - the way round the piece
+    lost, the piece deleted and the line left where it was."""
+    sq = Square(name=A, present=True, attrs={})
+    ids = iter(range(-1, -10_000, -1))
+    main = way(sq, line, 30, ids)
+    x, y = apex
+    piece = way(sq, [(x, y), (x + 40, y - 60), (x - 40, y - 60)], 30, ids)
+    piece.refs.append(piece.refs[0])
+    nodes = dict(sq.nodes)
+    cmd, coords = absorb.absorb(sq, main.id, [piece.id], edits.IdAllocator(sq))
+    cmd.apply(sq)
+    region = polygon(sq, sq.ways[main.id].refs).Buffer(1.0)
+    for r in piece.refs:
+        pt = ogr.Geometry(ogr.wkbPoint)
+        pt.AddPoint_2D(nodes[r].lon * KX, nodes[r].lat * KY)
+        assert region.Contains(pt), 'the piece is not within the line'
+
+
 def test_a_ring_absorbs_its_pieces_too_whichever_node_it_begins_at():
     """A hill's ring with the pieces off one end: closed again round them all,
     though its first node is the one at the pieces."""

@@ -95,6 +95,23 @@ def _at(L, cum, s) -> tuple[int, tuple[float, float]]:
     return len(L) - 2, L[-1]
 
 
+def _arcs(R, P, Q) -> tuple[list, list]:
+    """The outline's corners between P and Q, both points on it, one way
+    round and the other: placed by how far along the outline each is, not
+    by the corner nearest, so a piece the line touches at a corner - P and Q
+    a metre apart either side of it - still has the way round it."""
+    cum = [0.0]
+    for a, b in pairwise(R):
+        cum.append(cum[-1] + math.dist(a, b))
+    per = cum[-1]
+    sP, sQ = _along(R, cum, P), _along(R, cum, Q)
+    span = (sQ - sP) % per or per
+    corners = [(cum[k], R[k]) for k in range(len(R) - 1)
+               if math.dist(R[k], P) > SNAP_M and math.dist(R[k], Q) > SNAP_M]
+    ahead = sorted(((s - sP) % per, c) for s, c in corners)
+    return [c for d, c in ahead if 0 < d < span], [c for d, c in reversed(ahead) if d > span]
+
+
 def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
            gap_m: float = GAP_M) -> tuple[Command, list[tuple[float, float]]] | str:
     """The command that makes ``main_id`` run round the pieces and takes the
@@ -182,11 +199,8 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
     if i_out > i_in and math.dist(Q, L[i_out]) <= SNAP_M:
         i_out -= 1
     ring = blob.GetGeometryRef(0)
-    R = [ring.GetPoint_2D(k) for k in range(ring.GetPointCount() - 1)]
-    kP = min(range(len(R)), key=lambda k: math.dist(R[k], P))
-    kQ = min(range(len(R)), key=lambda k: math.dist(R[k], Q))
-    arcs = ([R[(kP + k) % len(R)] for k in range((kQ - kP) % len(R) + 1)],
-            [R[(kP - k) % len(R)] for k in range((kP - kQ) % len(R) + 1)])
+    R = [ring.GetPoint_2D(k) for k in range(ring.GetPointCount())]
+    arcs = _arcs(R, P, Q)
     cut = L[i_in + 1:i_out + 1]
 
     def wraps(arc) -> float:
@@ -194,8 +208,7 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         # the side meant is the one round the pieces
         g = _polygon([P, *cut, Q, *reversed(arc)])
         return g.Intersection(pieces_area).GetArea() if g is not None else 0.0
-    arc = max(arcs, key=wraps)
-    run = [P, *arc[1:-1], Q]
+    run = [P, *max(arcs, key=wraps), Q]
     # the ends where the line meets the outline: a node of the line's own if one is that close
     keep_in = math.dist(P, L[i_in]) <= SNAP_M
     keep_out = math.dist(Q, L[i_out + 1]) <= SNAP_M
