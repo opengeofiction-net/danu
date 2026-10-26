@@ -368,6 +368,7 @@ class ContourLayer(QGraphicsItem):
         # vectorised operation, not a walk
         self._ways: list[WayGeom] = []
         self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
+        self._seg_lo = np.zeros((0, 2)); self._seg_hi = np.zeros((0, 2))     # each segment's rectangle
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._arrays_stale = False
@@ -903,6 +904,8 @@ class ContourLayer(QGraphicsItem):
             # index minus where each way starts
             starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
             self._seg_i = np.arange(counts.sum(), dtype=np.int64) - np.repeat(starts, counts)
+        self._seg_lo = np.minimum(self._seg_a, self._seg_b)
+        self._seg_hi = np.maximum(self._seg_a, self._seg_b)
         geoms = list(self._geoms.values())                # contours and coastlines both
         pts = [g.pts for g in geoms if len(g.pts)]
         self._node_xy = np.concatenate(pts) if pts else empty
@@ -932,14 +935,28 @@ class ContourLayer(QGraphicsItem):
         close. Space picks up its elevation, the tools continue it and
         insert into the segment."""
         self._ensure_arrays()
-        if not len(self._seg_ele):
+        near = self._segments_in(x - tolerance, y - tolerance, x + tolerance, y + tolerance)
+        if not len(near):
             return None
-        t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a, self._seg_b)
-        i = int(dist.argmin())
-        if dist[i] > tolerance:
+        t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a[near], self._seg_b[near])
+        k = int(dist.argmin())
+        if dist[k] > tolerance:
             return None
+        i = near[k]
         g = self._ways[int(self._seg_way[i])]
-        return g.square, g.way, float(dist[i]), int(self._seg_i[i])
+        return g.square, g.way, float(dist[k]), int(self._seg_i[i])
+
+    def _segments_in(self, x0: float, y0: float, x1: float, y1: float) -> np.ndarray:
+        """The segments whose rectangle reaches a box, ascending - what the
+        picks and the drawn segment's crossings test exactly. A segment
+        within a distance of a point, or meeting a segment, has its
+        rectangle within that box, and four comparisons over the 1.2 million
+        segments of roantra's N45E030 set are a few milliseconds where the
+        exact tests over them all were 200 ms, on every move of the mouse
+        while drawing."""
+        self._ensure_arrays()
+        lo, hi = self._seg_lo, self._seg_hi
+        return np.flatnonzero((hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1))
 
     def pick_lines(self, x: float, y: float, tolerance: float) -> list[tuple[Square, Way, float]]:
         """Every contour within a tolerance of a scene point, nearest first,
@@ -947,13 +964,14 @@ class ContourLayer(QGraphicsItem):
         select tool to go through. No vertex: a click on a contour's line
         is the way; a node is ``pick_node``'s."""
         self._ensure_arrays()
-        if not len(self._seg_ele):
+        box = self._segments_in(x - tolerance, y - tolerance, x + tolerance, y + tolerance)
+        if not len(box):
             return []
-        _t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a, self._seg_b)
+        _t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a[box], self._seg_b[box])
         near: dict[int, float] = {}
-        for i in np.flatnonzero(dist <= tolerance):
-            w = int(self._seg_way[i])
-            near[w] = min(near.get(w, math.inf), float(dist[i]))
+        for k in np.flatnonzero(dist <= tolerance):
+            w = int(self._seg_way[box[k]])
+            near[w] = min(near.get(w, math.inf), float(dist[k]))
         return [(self._ways[w].square, self._ways[w].way, d) for w, d in sorted(near.items(), key=lambda kv: kv[1])]
 
     def pick_node(self, x: float, y: float, tolerance: float,
@@ -965,13 +983,18 @@ class ContourLayer(QGraphicsItem):
         self._ensure_arrays()
         if not len(self._node_xy):
             return None
-        dist = np.hypot(*(self._node_xy - (x, y)).T)
-        for i in np.argsort(dist):
-            if dist[i] > tolerance:
+        xy = self._node_xy
+        # the box first, then the distance of those in it: sorting every node
+        # of the set by distance was 50 ms of every move while drawing
+        near = np.flatnonzero((np.abs(xy[:, 0] - x) <= tolerance) & (np.abs(xy[:, 1] - y) <= tolerance))
+        dist = np.hypot(*(xy[near] - (x, y)).T)
+        for k in np.argsort(dist, kind='stable'):
+            if dist[k] > tolerance:
                 return None
+            i = near[k]
             square, ref = self._node_ref[int(i)]
             if skip is None or (square.name, ref) != skip:
-                return square, ref, float(dist[i])
+                return square, ref, float(dist[k])
         return None
 
     def crossings(self, p: tuple[float, float], q: tuple[float, float], ele: float) -> list[tuple[Square, Way, bool]]:
@@ -982,16 +1005,19 @@ class ContourLayer(QGraphicsItem):
         shared node, which is a touch at the same elevation and allowed, and
         anything more is a contour crossing itself."""
         self._ensure_arrays()
-        if not len(self._seg_ele):
+        e = geometry.EPS
+        near = self._segments_in(min(p[0], q[0]) - e, min(p[1], q[1]) - e, max(p[0], q[0]) + e, max(p[1], q[1]) + e)
+        if not len(near):
             return []
-        proper = geometry.crossings(p, q, self._seg_a, self._seg_b)
-        touch = geometry.touches(p, q, self._seg_a, self._seg_b) & (self._seg_ele != ele)
+        a, b = self._seg_a[near], self._seg_b[near]
+        proper = geometry.crossings(p, q, a, b)
+        touch = geometry.touches(p, q, a, b) & (self._seg_ele[near] != ele)
         out: dict[int, tuple[Square, Way, bool]] = {}
-        for i in np.flatnonzero(proper | touch):
-            g = self._ways[int(self._seg_way[i])]
+        for k in np.flatnonzero(proper | touch):
+            g = self._ways[int(self._seg_way[near[k]])]
             hit = out.get(id(g.way))
-            if hit is None or (proper[i] and not hit[2]):
-                out[id(g.way)] = (g.square, g.way, bool(proper[i]))
+            if hit is None or (proper[k] and not hit[2]):
+                out[id(g.way)] = (g.square, g.way, bool(proper[k]))
         return list(out.values())
 
     def crossed_by(self, pts, skip=None) -> set:

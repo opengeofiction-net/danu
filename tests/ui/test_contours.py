@@ -579,7 +579,7 @@ def test_only_the_picks_read_the_flat_arrays():
     import ast
     from pathlib import Path
 
-    FLAT = {'_seg_a', '_seg_b', '_seg_ele', '_seg_way', '_seg_i', '_node_xy', '_node_ref'}
+    FLAT = {'_seg_a', '_seg_b', '_seg_lo', '_seg_hi', '_seg_ele', '_seg_way', '_seg_i', '_node_xy', '_node_ref'}
     root = Path(__file__).parents[2]
     outside = {}
     for path in sorted((root / 'danu').rglob('*.py')):
