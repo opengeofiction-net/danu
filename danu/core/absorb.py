@@ -158,6 +158,25 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         k = min(range(len(L) - 1), key=lambda k: _line(L[k:k + 2]).Distance(blob))
         near = min(polys, key=lambda g: g.Distance(_line(L[k:k + 2])))
         blob = blob.Union(_hull(near, _line(L[k:k + 2])))
+    else:
+        # the contour grazing the pieces - touching one at a corner, w-49980634
+        # met by its 20 m line - runs in and out at one point, and the line
+        # round the piece pinched there is a contour crossing itself. A neck
+        # under a quarter of the piece's width is opened to the whole of it:
+        # the piece's hull with the line that far either side of where they
+        # meet. A valley's tip along a piece's edge is wide enough already
+        near = min(polys, key=lambda g: g.Distance(line))
+        w = min(gap_m, math.sqrt(near.GetArea()))
+        met = line.Intersection(blob)
+        if ('LINESTRING' not in met.GetGeometryName() or met.Length() < w / 4) and not met.IsEmpty():
+            cum = [0.0]
+            for a, b in pairwise(L):
+                cum.append(cum[-1] + math.dist(a, b))
+            c = met.Centroid()
+            s = _along(L, cum, (c.GetX(), c.GetY()))
+            i0, p0 = _at(L, cum, max(0.0, s - w))
+            i1, p1 = _at(L, cum, min(cum[-1], s + w))
+            blob = blob.Union(_hull(near, _line([p0, *L[i0 + 1:i1 + 1], p1])))
     blob = blob.Buffer(_EDGE_M, _MITRE).SimplifyPreserveTopology(SIMPLIFY_M)
     if blob.GetGeometryName() != 'POLYGON':
         return 'the pieces do not make one shape'
@@ -207,7 +226,10 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         # asked of the pieces themselves, not of the hulls that bridged them:
         # the side meant is the one round the pieces
         g = _polygon([P, *cut, Q, *reversed(arc)])
-        return g.Intersection(pieces_area).GetArea() if g is not None else 0.0
+        a = g.Intersection(pieces_area) if g is not None else None
+        # met along an edge only, the overlap is a line, and has no area
+        return a.GetArea() if a is not None and ('POLYGON' in a.GetGeometryName()
+                                                 or a.GetGeometryName() == 'GEOMETRYCOLLECTION') else 0.0
     run = [P, *max(arcs, key=wraps), Q]
     # the ends where the line meets the outline: a node of the line's own if one is that close
     keep_in = math.dist(P, L[i_in]) <= SNAP_M

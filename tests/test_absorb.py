@@ -7,6 +7,7 @@ import pytest
 
 ogr = pytest.importorskip('osgeo.ogr')
 
+from danu.checks import loops  # noqa: E402
 from danu.core import absorb, edits  # noqa: E402
 from danu.core.square import Node, Square, SquareName, Way  # noqa: E402
 
@@ -127,7 +128,9 @@ def test_a_piece_touching_the_line_at_one_corner_is_gone_round(line, apex):
     """roantra's w-49980634: a small triangle met by the 20 m line at one
     corner and no more. The line meets the outline a metre either side of
     that corner, and both ends were taken to it - the way round the piece
-    lost, the piece deleted and the line left where it was."""
+    lost, the piece deleted and the line left where it was. Gone round, the
+    neck there was half a metre and the line crossed itself (G8c): it is
+    opened out to the piece's width."""
     sq = Square(name=A, present=True, attrs={})
     ids = iter(range(-1, -10_000, -1))
     main = way(sq, line, 30, ids)
@@ -144,6 +147,10 @@ def test_a_piece_touching_the_line_at_one_corner_is_gone_round(line, apex):
         pt = ogr.Geometry(ogr.wkbPoint)
         pt.AddPoint_2D(nodes[r].lon * KX, nodes[r].lat * KY)
         assert region.Contains(pt), 'the piece is not within the line'
+    assert loops.find_in(sq, sq.ways[main.id]) == []
+    xy = [(sq.nodes[r].lon * KX, sq.nodes[r].lat * KY) for r in sq.ways[main.id].refs]
+    assert min(math.dist(xy[i], xy[j]) for i in range(len(xy)) for j in range(i + 2, len(xy))) > 10, \
+        'a neck: the line comes back within 10 m of itself'
 
 
 def test_a_ring_absorbs_its_pieces_too_whichever_node_it_begins_at():
