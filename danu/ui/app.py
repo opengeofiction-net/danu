@@ -1646,7 +1646,7 @@ class MainWindow(QMainWindow):
             # once the set is on screen, so the offer is made over the squares it is about
             QTimer.singleShot(0, self._offer_recovery)
         else:
-            said = self._close_rings()
+            said = '; '.join(t for t in (self._close_rings(), self._drop_fill_lines()) if t)
             if said:
                 self.statusBar().showMessage(said)
         self._read_alongside(ws)
@@ -1732,9 +1732,7 @@ class MainWindow(QMainWindow):
             names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])
             said.append(f'autosaved edits are held for {names}{" and more" if len(elsewhere) > 4 else ""}'
                         ' - open there to recover them')
-        closed = self._close_rings()
-        if closed:
-            said.append(closed)
+        said += [t for t in (self._close_rings(), self._drop_fill_lines()) if t]
         if said:
             self.statusBar().showMessage('; '.join(said))
 
@@ -1751,6 +1749,23 @@ class MainWindow(QMainWindow):
         what = ('ring whose last node stood at its first node\'s place' if n == 1 else
                 'rings whose last node stood at their first node\'s place')
         return f'closed {n:,} {what}, in ' + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it'
+
+    def _drop_fill_lines(self) -> str:
+        """The set's fill lines taken out - ``danu:fill``, drawn across a lake
+        by flattening to hold it flat until the build held a lake at its
+        level itself (#191) - one step, after any recovery. What it says, or
+        ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values() if (cmd := edits.drop_fill_lines(sq)) is not None]
+        if not steps:
+            return ''
+        n = sum(len(cmd.ids) for _, cmd in steps)
+        for _, cmd in steps:
+            cmd.total = n
+        self.editor.do_across(steps)
+        return (f'removed {n:,} fill line{"s" * (n != 1)} across lakes, in '
+                + ', '.join(str(sq.name) for sq, _ in steps)
+                + ' - no longer drawn; saving keeps it')
 
     # ----------------------------------------------------------- surface
     def rebuild_surface(self, arcsec: float | None = None) -> bool:

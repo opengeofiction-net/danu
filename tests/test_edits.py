@@ -792,3 +792,29 @@ def test_rings_closed_by_position_only_are_closed_onto_their_first_node():
     assert ways['plain'] not in [w for w, _ in edits.close_rings(sq).closes]
     last.lon -= 1e-5 + 0.5e-7
     assert {w: list(sq.ways[w].refs) for w in sq.ways} == before and set(sq.nodes) == nodes
+
+
+def test_fill_lines_are_taken_out_in_one_step_with_their_own_nodes():
+    """Every ``danu:fill`` way a square holds goes, and the nodes nothing
+    else holds with it - a node a fill line shares with a contour stays -
+    and the undo puts them all back."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    ids = {}
+    for name, tags in (('a', {'ele': '5', 'danu:fill': 'relation/7'}), ('b', {'ele': '5', 'danu:fill': 'way/9'}),
+                       ('contour', {'ele': '10'})):
+        pts = [(10.1, 10.1 + len(ids) / 100), (10.2, 10.1 + len(ids) / 100)]
+        nids = [alloc.take() for _ in pts]
+        ids[name] = alloc.take()
+        edits.AddWay(ids[name], nids, pts, tags).apply(sq)
+    shared = sq.ways[ids['b']].refs[0]
+    sq.ways[ids['contour']].refs.insert(1, shared)
+    before = edits.snapshot(sq)
+    cmd = edits.drop_fill_lines(sq)
+    assert cmd.ids == sorted([ids['a'], ids['b']]) and cmd.ways(sq) == {ids['a'], ids['b']}
+    cmd.apply(sq)
+    assert set(sq.ways) == {ids['contour']} and shared in sq.nodes and len(sq.nodes) == 3
+    assert edits.drop_fill_lines(sq) is None
+    assert cmd.describe() == 'remove 2 fill lines'
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before

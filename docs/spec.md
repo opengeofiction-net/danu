@@ -629,9 +629,7 @@ Each is an issue now; the eight phases above are the spec's whole plan.
   uploads are authenticated, the server knows who holds what, and *who may
   edit this square* stops being a social question - and the two are one
   piece of work.
-- **Terrain features** (#191). A marked one-level enclosure held flat by
-  isofill, lakes and plateaus alike, so the `danu:fill` lines G7a draws
-  across a flattened lake can go; typed elevation features - `natural=peak`,
+- **Terrain features** (#191). Plateaus held flat, as lakes are; typed elevation features - `natural=peak`,
   `saddle`, `sinkhole` read as what they are; and the procedural terrain areas the
   2014 Perl generated, `ogf:terrain_area` karst, plateau, mountains and
   coastal plain. The last is *texture*, plausible roughness where nobody
@@ -943,11 +941,9 @@ Three parts, in this order:
   and takes the level. An island's ring
   takes the level too and keeps its own contours. Contours inside the water are
   deleted, not kept as bathymetry; contours crossing the shore at another level
-  are pulled back from it, as far as the strength says. The shore alone does not
-  fill flat - isofill declines ground that sees one level all round, as a
-  hilltop does - so for now straight fill lines at the lake's level cross the
-  water every 120 m, tagged `danu:fill`, to be deleted in one pass once isofill
-  holds a marked one-level enclosure flat, lakes and plateaus alike. When a
+  are pulled back from it, as far as the strength says. The build holds every
+  lake with a level of its own and no contour at another level inside it flat
+  at that level, the whole of it. When a
   re-import changes a flattened lake's outline, the lake is reported for
   flattening again.
 - **G7b, burn** (R25). From a span the grade left ungraded because the contours

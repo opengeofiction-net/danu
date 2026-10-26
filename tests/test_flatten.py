@@ -276,66 +276,49 @@ def fill_lines(sq):
     return [w for w in sq.ways.values() if flatten.FILL in w.tags]
 
 
-def test_fill_lines_cross_the_water_at_its_level_every_120_m():
+def old_fill(sq, feature, level='100', lat=LAT):
+    """A fill line as flattening drew them before the build held a lake at
+    its level (#191): across the water at its level, tagged with the lake."""
+    return way(sq, [(125.50, lat), (125.54, lat)], {'ele': level, flatten.FILL: flatten.fill_key(feature)})
+
+
+def test_a_flatten_draws_no_fill_lines_and_takes_out_the_lakes_old_ones():
+    """The build holds a lake at its level itself now, the whole of it."""
     w, sq = ws()
     lk = lake(sq)
+    other = way(sq, box(125.60, -22.50, 0.02), {'natural': 'water', 'ele': '90'}, closed=True)
+    mine, theirs = old_fill(sq, lk), old_fill(sq, other, '90', lat=-22.49)
     run(w, sq, lk)
-    lines = fill_lines(sq)
-    # 4.4 km of lake north to south, a line every 120 m from 60 m in
-    assert len(lines) == 37
-    assert all(x.tags == {'ele': '100', flatten.FILL: f'way/{lk.id}'} for x in lines)
-    for x in lines:
-        a, b = (sq.nodes[r] for r in x.refs)
-        assert a.lat == b.lat
-        assert sorted((a.lon, b.lon)) == pytest.approx([125.50, 125.54], abs=1e-9), 'not shore to shore'
-    lats = sorted(sq.nodes[x.refs[0]].lat for x in lines)
-    gaps = [(b - a) * 110540 for a, b in zip(lats, lats[1:], strict=False)]
-    assert all(g == pytest.approx(120, abs=0.01) for g in gaps)
+    assert mine.id not in sq.ways and not any(r in sq.nodes for r in mine.refs)
+    assert theirs.id in sq.ways and all(r in sq.nodes for r in theirs.refs), "another lake's line went too"
 
 
-def test_fill_lines_leave_an_island_out():
-    w, sq = ws()
-    outer = way(sq, box(125.50, -22.50, 0.04), {}, closed=True)
-    inner = way(sq, box(125.51, -22.49, 0.02), {}, closed=True)
-    sq.relations[5] = Relation(id=5, tags={'natural': 'water', 'ele': '100'},
-                               members=[Member('way', outer.id, 'outer'), Member('way', inner.id, 'inner')])
-    run(w, sq, sq.relations[5])
-    for x in fill_lines(sq):
-        a, b = (sq.nodes[r] for r in x.refs)
-        mid_lon, lat = (a.lon + b.lon) / 2, a.lat
-        on_island = 125.51 < mid_lon < 125.53 and -22.49 < lat < -22.47
-        assert not on_island, 'a fill line crosses the island'
-    assert any(sq.nodes[x.refs[0]].lon == pytest.approx(125.53, abs=1e-9) for x in fill_lines(sq)), \
-        'no line starts at the island shore - the island was filled over or the water beside it skipped'
-
-
-def test_flattening_again_replaces_the_fill_lines_and_at_the_same_level_is_no_change():
+def test_flattening_a_flat_lake_again_is_no_step():
     w, sq = ws()
     lk = lake(sq)
+    contour(sq, [(125.45, LAT), (125.59, LAT)], 120)
+    beside(sq)
     run(w, sq, lk)
-    first = {x.id for x in fill_lines(sq)}
-    p = flatten.plan(w, sq, lk, allocator(sq))
-    assert p.steps == [], 'flattening a flat lake again was a step'
-    p = run(w, sq, lk, fill_spacing_m=240)
-    assert len(fill_lines(sq)) == 18 and not first & {x.id for x in fill_lines(sq)}
+    assert flatten.plan(w, sq, lk, allocator(sq)).steps == [], 'flattening a flat lake again was a step'
 
 
-def test_other_lakes_fill_lines_are_not_clipped_as_contours():
+def test_another_lakes_old_fill_lines_are_not_clipped_as_contours():
     w, sq = ws()
     a = lake(sq)
-    run(w, sq, a)
-    before = {x.id: list(x.refs) for x in fill_lines(sq)}
+    line = old_fill(sq, a)
+    before = list(line.refs)
     b = way(sq, box(125.52, -22.48, 0.04), {'natural': 'water', 'ele': '90'}, closed=True)   # overlapping
     run(w, sq, b)
-    assert all(sq.ways[i].refs == refs for i, refs in before.items()), "a lake's fill lines were clipped"
+    assert sq.ways[line.id].refs == before, "a lake's fill line was clipped"
 
 
-def test_relevel_carries_a_new_level_to_the_outline_and_fill_and_clearing_takes_them():
+def test_relevel_carries_a_new_level_to_the_outline_and_old_fill_and_clearing_takes_them():
     w, sq = ws()
     outer = way(sq, box(125.50, -22.50, 0.04), {}, closed=True)
     rel = Relation(id=6, tags={'natural': 'water', 'ele': '100'}, members=[Member('way', outer.id, 'outer')])
     sq.relations[6] = rel
     run(w, sq, rel)
+    old_fill(sq, rel)                               # one an open has not taken out yet
     for c in flatten.relevel(sq, rel, '110'):
         c.apply(sq)
     assert sq.ways[outer.id].tags['ele'] == '110'
@@ -365,12 +348,6 @@ def test_a_contour_in_and_out_of_the_water_twice_keeps_its_three_dry_runs():
                    for r in x.refs), 'a piece reaches into the water'
 
 
-def test_a_fill_spacing_that_is_not_positive_is_refused():
-    w, sq = ws()
-    with pytest.raises(ValueError, match='never stop'):
-        flatten.plan(w, sq, lake(sq), allocator(sq), fill_spacing_m=0)
-
-
 # --------------------------------------------- a re-import reshapes, G7a-bis
 
 def flattened_lake():
@@ -382,14 +359,16 @@ def flattened_lake():
     return w, sq, outer
 
 
-def test_a_flattened_lake_is_found_by_its_fill_lines_or_its_ringed_level():
+def test_a_flattened_lake_is_found_by_its_level_or_its_old_fill_lines():
+    """A relation by its ringed level; a closed way by its own level, which is
+    all a flatten leaves on one; either by fill lines an open has not taken
+    out yet. A lake with no level is not flattened."""
     w, sq, outer = flattened_lake()
-    lk = lake(sq)                                    # never flattened
-    assert set(flatten.flattened(w)) == {(A, 'relation', 7)}
-    for x in fill_lines(sq):                         # a lake too narrow for a line still counts
-        del sq.ways[x.id]
-    assert set(flatten.flattened(w)) == {(A, 'relation', 7)}
-    assert (A, 'way', lk.id) not in flatten.flattened(w)
+    lk, bare = lake(sq), lake(sq, level=None)
+    assert set(flatten.flattened(w)) == {(A, 'relation', 7), (A, 'way', lk.id)}
+    sq.relations[8] = Relation(id=8, tags={'natural': 'water'}, members=[Member('way', bare.id, 'outer')])
+    old_fill(sq, sq.relations[8])
+    assert (A, 'relation', 8) in flatten.flattened(w)
 
 
 def test_an_outline_moved_is_reported_and_one_unchanged_is_not():
