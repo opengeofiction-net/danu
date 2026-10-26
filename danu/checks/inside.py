@@ -349,6 +349,27 @@ def _all(sq: _Square) -> dict:
     return out
 
 
+def held(square) -> tuple[dict, int]:
+    """The lakes a square's surface holds at their level, as
+    ``{'way/<id>' | 'relation/<id>': (level, rings of (lon, lat))}``, and how
+    many with a level are not held: those R33 reports, contours at other
+    levels inside them. Holding one of those would put the ground under it at
+    the lake's level whatever the contours say - roantra's N44E030 has 34
+    ways of water at 0 m over hills up to 100 m - so it is left to its shore
+    and the contours, as before, until flattening moves them out."""
+    s = _Square(square)
+    out, spanned = {}, 0
+    for key, body in s.bodies.items():
+        if body.level is None:
+            continue
+        if s.spanned(body) is not None:
+            spanned += 1
+            continue
+        out[f'{key[0]}/{key[1]}'] = (body.level, [list(zip(X.tolist(), Y.tolist(), strict=True))
+                                                  for X, Y in body.rings])
+    return out, spanned
+
+
 def find_in(square, bare_min: float = BARE_MIN_M2) -> list[Finding]:
     return list(_all(_Square(square, bare_min)).values())
 

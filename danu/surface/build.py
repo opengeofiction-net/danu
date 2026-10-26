@@ -44,7 +44,6 @@ from typing import Callable, Iterable
 import numpy as np
 from osgeo import gdal, ogr
 
-from ..core.rings import closed_rings, relation_rings
 from ..core.save import STAGE_MARKER
 from ..core.square import (
     SquareName,
@@ -52,7 +51,6 @@ from ..core.square import (
     has_elevation,
     list_squares,
     loose_squares,
-    parse_ele,
     read_square,
 )
 from . import NODATA, drawn_mask, isofill_lib, land_clamp, sea_mask
@@ -319,27 +317,20 @@ def lines_osmconf(work: Path) -> Path:
     return out
 
 
-def level_rings(path: Path, name: SquareName | None = None) -> list:
-    """The water a square holds at sea level - each body of ``natural=water``
-    whose ``ele`` is 0 as its rings of (lon, lat), islands among them - as the
-    editor reads it: a relation by its members, whatever its ``type``. The OSM
-    driver assembles only a relation typed multipolygon, and an imported one
-    keeps no ``type``. Flowing water is not a body (R27)."""
-    from ..water.overpass import flows
+def lake_rings(path: Path, name: SquareName | None = None) -> tuple[list, int]:
+    """The lakes a square holds at a level, as (key, ele, rings of (lon, lat)),
+    islands among the rings - ``checks.inside.held``, which the editor's
+    preview asks too: each body of ``natural=water`` with a numeric ``ele`` of
+    its own and no contour at another level inside it, a relation by its
+    members whatever its ``type`` (the OSM driver assembles only one typed
+    multipolygon, and an imported one keeps none). And how many with a level
+    were not held. The key, ``way/<id>`` or ``relation/<id>``, is what the
+    preview keeps each by."""
+    from ..checks.inside import held
     if not _holds_water(path):
-        return []
-    sq = read_square(path, name)
-
-    def level(tags):
-        return tags.get('natural') == 'water' and not flows(tags) and parse_ele(tags.get('ele')) == 0
-
-    # a ring of a water relation is that relation's, and read with it
-    members = {m.ref for r in sq.relations.values() if r.tags.get('natural') == 'water'
-               for m in r.members if m.type == 'way'}
-    bodies = [closed_rings([w.refs]) for w in sq.ways.values() if w.id not in members and level(w.tags)]
-    bodies += [relation_rings(sq, r) for r in sq.relations.values() if level(r.tags)]
-    return [[[(sq.nodes[n].lon, sq.nodes[n].lat) for n in ring if n in sq.nodes] for ring in rings]
-            for rings in bodies if rings]
+        return [], 0
+    lakes, spanned = held(read_square(path, name))
+    return [(key, ele, rings) for key, (ele, rings) in lakes.items()], spanned
 
 
 def _holds_water(path: Path, chunk: int = 1 << 20) -> bool:
@@ -354,6 +345,18 @@ def _holds_water(path: Path, chunk: int = 1 << 20) -> bool:
                 return True
             tail = text[-8:]
     return False
+
+
+def lake_polygon(rings):
+    """A lake as one polygon, every ring of it a ring - burned even-odd, so an
+    island is a hole whichever ring it is, and whichever order they come in."""
+    poly = ogr.Geometry(ogr.wkbPolygon)
+    for ring in rings:
+        r = ogr.Geometry(ogr.wkbLinearRing)
+        for x, y in ring:
+            r.AddPoint_2D(x, y)
+        poly.AddGeometry(r)
+    return poly
 
 
 # The tokens the long-way guard counts, and an overlap longer than the longest
@@ -485,7 +488,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     square = work / 'square.osm'
     first = True
     before = 0
-    level = []
+    lakes, spanned = [], 0
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
                               # A square whose in-memory database exceeds
                               # OSM_MAX_TMPFILE_SIZE (100 MB) spills to disk.
@@ -517,7 +520,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
-            level += level_rings(source, name)
+            held, n = lake_rings(source, name)
+            lakes += held
+            spanned += n
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
@@ -599,21 +604,20 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         if bad:
             log(f'  ignoring {what} whose ele is not a number: {" ".join(map(str, bad))}')
             ds.ExecuteSQL(f'DELETE FROM {table} WHERE {NONNUM}', dialect='SQLite')
-    if level:
-        # one polygon a body, every ring of it a ring: rasterised even-odd, an
-        # island is a hole whichever ring it is
-        out = ds.CreateLayer('level', ds.GetLayer('contour').GetSpatialRef(), ogr.wkbPolygon)
-        for rings in level:
-            poly = ogr.Geometry(ogr.wkbPolygon)
-            for ring in rings:
-                r = ogr.Geometry(ogr.wkbLinearRing)
-                for x, y in ring:
-                    r.AddPoint_2D(x, y)
-                poly.AddGeometry(r)
-            f = ogr.Feature(out.GetLayerDefn())
-            f.SetGeometry(poly)
-            out.CreateFeature(f)
-        out = None
+    # always, empty or not, as the spot layer is: the preview reads it
+    out = ds.CreateLayer('lake', ds.GetLayer('contour').GetSpatialRef(), ogr.wkbPolygon)
+    out.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+    out.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+    for key, ele, rings in lakes:
+        f = ogr.Feature(out.GetLayerDefn())
+        f.SetGeometry(lake_polygon(rings))
+        f.SetField('ele', float(ele))
+        f.SetField('osm_id', key)
+        out.CreateFeature(f)
+    out = None
+    if lakes or spanned:
+        log(f'  {len(lakes)} lakes held at their level'
+            + (f'; {spanned} not, with contours at other levels inside them' if spanned else ''))
     spots = _layer_count(ds, 'spot')
     layer = ds.GetLayer('contour')
     features = layer.GetFeatureCount()
@@ -712,8 +716,16 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     clamp's flood is 4-connected, which a diagonal step stops, and sea_mask
     steps clear of a line either way.
 
-    The spot heights go in after the contours - one Rasterize call each, in
-    that order - so a spot height standing on a contour wins the cell. That is
+    The lakes go in after the contours, each body of water with a level of
+    its own burned whole at it, islands left out: a lake is flat, which its
+    shore alone could not hold - isofill declines a cell that sees one level
+    all round, as it does a hilltop, and Lake Kinser came out 125 to 150 m with
+    8% of it at its level. So a lake wins a cell from a contour crossing it,
+    which R33 reports. Fill lines drawn across the water did this job until
+    now, and only where a mapper had flattened.
+
+    The spot heights go in last - one Rasterize call each layer, in that
+    order - so a spot height standing on a contour, or in a lake, wins the cell. That is
     the right way round: a contour says the ground reaches this height
     somewhere along here, a spot height says the ground is exactly this high at
     this point, and where they disagree the point is the more specific
@@ -729,7 +741,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     """
     out = work / 'cont.tif'
     ds = ogr.Open(str(gpkg))
-    layers = [name for name in ('contour', 'spot')
+    layers = [name for name in ('contour', 'lake', 'spot')
               if ds.GetLayerByName(name) is not None]
     ds = None
     if not layers:
@@ -878,40 +890,6 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
         return out
     log('  no coastline - enclosed water will read as land unless a contour holds it')
     return None
-
-
-def level_water(gpkg: Path, grid: Grid, work: Path, water: Path | None,
-                log: Log = _quiet) -> Path | None:
-    """The water mask with the lakes drawn at sea level added - a body of
-    ``natural=water`` whose ``ele`` is 0, as flattening an inland sea at 0 m
-    leaves it. None when there is neither.
-
-    The clamp lifts to 1 m whatever reads zero and is walled off from the edge
-    of the zone, since it cannot tell a lake from a low island. A lake at 0 m
-    is all of that: its fill lines, 120 m apart, burn most of a 3 arcsecond
-    grid's rows at 0 and leave a row between, which filled to 0 the clamp then
-    took for land. Roantra's inland sea came out striped at 1 m - every gap a
-    0.5 m line of its own, 2,867 of them for the sea check to walk, four
-    minutes. The area says its interior is water, islands excepted, as
-    ``water_areas`` reads it."""
-    ds = ogr.Open(str(gpkg))
-    layer = ds.GetLayerByName('level')
-    n = layer.GetFeatureCount() if layer is not None else 0
-    layer = ds = None
-    if not n:
-        return water
-    log(f'  {n} water bod{"y" if n == 1 else "ies"} at sea level, held as water')
-    if water is None:
-        water = work / 'water-mask.tif'
-        gdal.Rasterize(str(water), str(gpkg), options=gdal.RasterizeOptions(
-            format='GTiff', burnValues=[1], initValues=[0], outputType=gdal.GDT_Byte, layers=['level'],
-            xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te), creationOptions=CREATE))
-        return water
-    into = gdal.Open(str(water), gdal.GA_Update)
-    gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(burnValues=[1], layers=['level']))
-    into.FlushCache()
-    into = None
-    return water
 
 
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
@@ -1217,7 +1195,6 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     else:
         stage('water from the coastline direction')
         wmask = water_mask(gpkg, cont, work, log)
-    wmask = level_water(gpkg, grid, work, wmask, log)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
     pass1 = _pass1_file(work)
     if pass1.exists():

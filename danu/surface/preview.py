@@ -43,6 +43,7 @@ from .local import Box
 from .params import Params
 
 LAYER = 'contour'
+LAKES = 'lake'
 SPOTS = 'spot'
 
 
@@ -128,6 +129,27 @@ class Contours:
                 self._fid[str(osm_id)] = f.GetFID()
         self._next = top + 1
 
+        # The lakes held at their level, burned between the two as the build
+        # burns them. Kept by the key the build gave each, its way or relation
+        self.lakes = None
+        self._lake_fid: dict[str, int] = {}
+        self._lake_next = 0
+        lake_lyr = src.GetLayer(LAKES)
+        if lake_lyr is not None:
+            self._make_lakes(lake_lyr.GetSpatialRef())
+            ldefn = self.lakes.GetLayerDefn()
+            top = 0
+            for f in lake_lyr:
+                top = max(top, f.GetFID())
+                g = ogr.Feature(ldefn)
+                g.SetFID(f.GetFID())
+                g.SetGeometry(f.GetGeometryRef().Clone())
+                g.SetField('ele', float(f.GetField('ele')))
+                g.SetField('osm_id', f.GetField('osm_id'))
+                self.lakes.CreateFeature(g)
+                self._lake_fid[str(f.GetField('osm_id'))] = f.GetFID()
+            self._lake_next = top + 1
+
         # The spot heights, read and never written. They are constraints as
         # much as the contours are - R36 - and ``burn`` clears its box to
         # nodata before re-burning, so a preview over a hilltop would rub one
@@ -186,6 +208,60 @@ class Contours:
             geom_type=geom_type if geom_type is not None else ogr.wkbPoint)
         self.spots.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.spots.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def _make_lakes(self, srs=None) -> None:
+        """The in-memory lake layer, empty - made on demand as well, for a
+        GeoPackage from a build before lakes were held."""
+        from osgeo import ogr
+        if self.lakes is not None:
+            return
+        self.lakes = self._mem.CreateLayer(LAKES, srs=srs if srs is not None else self.layer.GetSpatialRef(),
+                                           geom_type=ogr.wkbPolygon)
+        self.lakes.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
+        self.lakes.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def lake(self, key) -> tuple | None:
+        """A lake's (ele, polygon) as the layer holds it, or None."""
+        fid = self._lake_fid.get(str(key))
+        if fid is None:
+            return None
+        f = self.lakes.GetFeature(fid)
+        return f.GetField('ele'), f.GetGeometryRef().Clone()
+
+    def held_keys(self) -> list:
+        """The keys of the lakes the layer holds."""
+        return list(self._lake_fid)
+
+    def remove_lake(self, key) -> bool:
+        """Drop a lake held at its level. False when there was none."""
+        fid = self._lake_fid.pop(str(key), None)
+        if fid is None:
+            return False
+        self.lakes.DeleteFeature(fid)
+        return True
+
+    def apply_lake(self, key, rings, ele: float) -> None:
+        """Put a lake in at its level, at its own FID if it had one - as
+        ``apply`` keeps a contour's, so that where two lakes share a cell the
+        one the build burned last still wins it."""
+        from osgeo import ogr
+
+        from .build import lake_polygon
+        self._make_lakes()
+        key = str(key)
+        fid = self._lake_fid.get(key)
+        if fid is not None:
+            self.lakes.DeleteFeature(fid)
+        else:
+            fid = self._lake_next
+            self._lake_next += 1
+        f = ogr.Feature(self.lakes.GetLayerDefn())
+        f.SetFID(fid)
+        f.SetGeometry(lake_polygon(rings))
+        f.SetField('ele', float(ele))
+        f.SetField('osm_id', key)
+        self.lakes.CreateFeature(f)
+        self._lake_fid[key] = fid
 
     def remove_spot(self, node_id) -> bool:
         """Drop a spot height. False when there was none - a node with no
@@ -266,13 +342,15 @@ class Contours:
 
     def burn(self, gt: tuple, box: Box, nodata: float, spots: bool = True) -> np.ndarray:
         """The constraints for ``box`` alone, burned as the build burns them:
-        all touched, last writer wins, in FID order, and the spot heights after
-        the contours so a spot height standing on one wins its cell.
+        all touched, last writer wins, in FID order - the contours, then the
+        lakes held at their level, then the spot heights, so a spot height
+        standing on either wins its cell.
 
         The cells a line runs through, as ``rasterise()`` burns them - the
         two must agree cell for cell (R35). ``spots`` False
         burns the contours alone, which is what the drawn area's envelope is
-        taken from."""
+        taken from; the lakes are left out with the spot heights, since neither
+        widens what the contours describe."""
         from osgeo import gdal
         rows, cols = box.shape
         x0, y1, x1, y0 = box_extent(gt, box)
@@ -283,7 +361,7 @@ class Contours:
         band.Fill(nodata)
         west, south = min(x0, x1), min(y0, y1)
         east, north = max(x0, x1), max(y0, y1)
-        for layer in (self.layer, self.spots if spots else None):
+        for layer in (self.layer, *((self.lakes, self.spots) if spots else ())):
             if layer is None:
                 continue
             layer.SetSpatialFilterRect(west, south, east, north)
