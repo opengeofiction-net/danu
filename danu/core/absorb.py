@@ -95,6 +95,23 @@ def _at(L, cum, s) -> tuple[int, tuple[float, float]]:
     return len(L) - 2, L[-1]
 
 
+def _arcs(R, P, Q) -> tuple[list, list]:
+    """The outline's corners between P and Q, both points on it, one way
+    round and the other: placed by how far along the outline each is, not
+    by the corner nearest, so a piece the line touches at a corner - P and Q
+    a metre apart either side of it - still has the way round it."""
+    cum = [0.0]
+    for a, b in pairwise(R):
+        cum.append(cum[-1] + math.dist(a, b))
+    per = cum[-1]
+    sP, sQ = _along(R, cum, P), _along(R, cum, Q)
+    span = (sQ - sP) % per or per          # in and out at one point: the whole way round
+    corners = [(cum[k], R[k]) for k in range(len(R) - 1)
+               if math.dist(R[k], P) > SNAP_M and math.dist(R[k], Q) > SNAP_M]
+    ahead = sorted(((s - sP) % per, c) for s, c in corners)
+    return [c for d, c in ahead if 0 < d < span], [c for d, c in reversed(ahead) if d > span]
+
+
 def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
            gap_m: float = GAP_M) -> tuple[Command, list[tuple[float, float]]] | str:
     """The command that makes ``main_id`` run round the pieces and takes the
@@ -141,6 +158,34 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         k = min(range(len(L) - 1), key=lambda k: _line(L[k:k + 2]).Distance(blob))
         near = min(polys, key=lambda g: g.Distance(_line(L[k:k + 2])))
         blob = blob.Union(_hull(near, _line(L[k:k + 2])))
+    else:
+        # the contour grazing the pieces - touching one at a corner, w-49980634
+        # met by its 20 m line - runs in and out at one point, and the line
+        # round the piece pinched there is a contour crossing itself. A neck
+        # under a quarter of the piece's width is opened to the whole of it:
+        # the piece's hull with the line that far either side of where they
+        # meet. A valley's tip along a piece's edge is wide enough already.
+        # Each place the line meets them asked on its own: one run deep
+        # through a piece does not stand for a corner touched beside it
+        cum = [0.0]
+        for a, b in pairwise(L):
+            cum.append(cum[-1] + math.dist(a, b))
+        met = line.Intersection(blob)
+        name = met.GetGeometryName()
+        parts = ([met.GetGeometryRef(i) for i in range(met.GetGeometryCount())]
+                 if name.startswith('MULTI') or name == 'GEOMETRYCOLLECTION' else [met])
+        for g in parts:
+            if g.IsEmpty():
+                continue
+            near = min(polys, key=lambda p: p.Distance(g))
+            w = min(gap_m, math.sqrt(near.GetArea()))
+            if 'LINESTRING' in g.GetGeometryName() and g.Length() >= w / 4:
+                continue
+            c = g.Centroid()
+            s = _along(L, cum, (c.GetX(), c.GetY()))
+            i0, p0 = _at(L, cum, max(0.0, s - w))
+            i1, p1 = _at(L, cum, min(cum[-1], s + w))
+            blob = blob.Union(_hull(near, _line([p0, *L[i0 + 1:i1 + 1], p1])))
     blob = blob.Buffer(_EDGE_M, _MITRE).SimplifyPreserveTopology(SIMPLIFY_M)
     if blob.GetGeometryName() != 'POLYGON':
         return 'the pieces do not make one shape'
@@ -182,20 +227,19 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
     if i_out > i_in and math.dist(Q, L[i_out]) <= SNAP_M:
         i_out -= 1
     ring = blob.GetGeometryRef(0)
-    R = [ring.GetPoint_2D(k) for k in range(ring.GetPointCount() - 1)]
-    kP = min(range(len(R)), key=lambda k: math.dist(R[k], P))
-    kQ = min(range(len(R)), key=lambda k: math.dist(R[k], Q))
-    arcs = ([R[(kP + k) % len(R)] for k in range((kQ - kP) % len(R) + 1)],
-            [R[(kP - k) % len(R)] for k in range((kP - kQ) % len(R) + 1)])
+    R = [ring.GetPoint_2D(k) for k in range(ring.GetPointCount())]
+    arcs = _arcs(R, P, Q)
     cut = L[i_in + 1:i_out + 1]
 
     def wraps(arc) -> float:
         # asked of the pieces themselves, not of the hulls that bridged them:
         # the side meant is the one round the pieces
         g = _polygon([P, *cut, Q, *reversed(arc)])
-        return g.Intersection(pieces_area).GetArea() if g is not None else 0.0
-    arc = max(arcs, key=wraps)
-    run = [P, *arc[1:-1], Q]
+        a = g.Intersection(pieces_area) if g is not None else None
+        # met along an edge only, the overlap is a line, and has no area
+        return a.GetArea() if a is not None and ('POLYGON' in a.GetGeometryName()
+                                                 or a.GetGeometryName() == 'GEOMETRYCOLLECTION') else 0.0
+    run = [P, *max(arcs, key=wraps), Q]
     # the ends where the line meets the outline: a node of the line's own if one is that close
     keep_in = math.dist(P, L[i_in]) <= SNAP_M
     keep_out = math.dist(Q, L[i_out + 1]) <= SNAP_M
