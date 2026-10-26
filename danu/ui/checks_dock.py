@@ -64,6 +64,8 @@ CHECKS = {
     'ele': ('Ele not a number', 'An ele that is not a number (R31) - the build drops it'),
     'ladder': ('Off the ladder', 'A value off the ladder, used once or twice - a mistyped value?'),
     'lake': ('Lakes spanning contours', 'Water spanning contours (R33) - select it, and F flattens it'),
+    'coast': ('Coastlines drawn backwards', 'A coastline running clockwise round land: land is on a '
+                                           "coastline's left, so the build reads it as sea - R reverses a way"),
     'bare': ('Bare rings', 'A report: rings of {ha} ha or more with nothing inside (R39) - '
                            'a spot height would say how high'),
     'climb': ('Climbing rivers', 'Rivers which climb on the surface (R29) - B burns a climb'),
@@ -73,7 +75,7 @@ CHECKS = {
     'unreached': ('Unreached ground', 'Ground the first pass did not reach (R20), a row a square'),
 }
 FILES = ('long', 'ele', 'ladder')
-INSIDE = ('lake', 'bare')
+INSIDE = ('lake', 'coast', 'bare')
 SURFACE = ('climb', 'backwards', 'sea', 'unreached')
 
 

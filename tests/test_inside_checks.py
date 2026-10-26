@@ -293,3 +293,143 @@ def test_a_segment_moved_across_a_lake_its_ends_outside_its_box_is_seen():
     index.update(sq, cmd.ways(sq), cmd.spots(sq))
     assert [f.kind for f in inside.find(w)] == ['lake']
     assert [f.kind for f in index.findings()] == ['lake']
+
+
+def coast(sq, pts):
+    """A coastline ring in two ways end to end, in the order given - as
+    sangria's island is drawn."""
+    refs = nodes(sq, pts)
+    half = len(refs) // 2
+    out = []
+    for part in (refs[:half + 1], [*refs[half:], refs[0]]):
+        i = next(_ids)
+        sq.ways[i] = Way(id=i, refs=part, tags={'natural': 'coastline', 'ele': '0'})
+        out.append(sq.ways[i])
+    return out
+
+
+def test_a_coastline_drawn_clockwise_round_land_is_listed_and_reversing_it_takes_it_off():
+    """Sangria's N20E066: the island's coast, two ways, clockwise - the build
+    read everything below 200 m as sea. Anticlockwise, land on its left, it
+    is right; and turned round in the editor the finding goes."""
+    w, sq = ws()
+    island = square_ring(125.5, -22.5, 0.05)
+    a, b = coast(sq, island[::-1])                                   # clockwise
+    line(sq, square_ring(125.5, -22.5, 0.03), 50)
+    line(sq, square_ring(125.5, -22.5, 0.01), 100)
+    # a row a way, each to select and reverse, naming the other
+    found = kinds(w, 'coast')
+    assert sorted(f.way for f in found) == sorted([a.id, b.id])
+    for f in found:
+        other = b.id if f.way == a.id else a.id
+        assert f.describe().startswith(f'coastline, way {f.way}, drawn end to end with {other} - ')
+        assert 'clockwise round 2 contours above sea level, up to 100 m' in f.describe()
+    index = inside.Index(w)
+    assert sorted(x.way for x in index.findings('coast')) == sorted([a.id, b.id])
+    for way in (a, b):
+        cmd = edits.reverse_coastline(sq, way.id)
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq))
+    assert index.findings('coast') == [] and kinds(w, 'coast') == []
+
+
+def test_a_clockwise_coast_round_nothing_above_sea_level_or_round_an_island_is_not_listed():
+    """A lagoon or a pond drawn as coast holds no land, and an inland sea's
+    island, its own coast anticlockwise, is a hole in it - neither is wrong.
+    A contour drawn into the water then is land the coast holds."""
+    w, sq = ws()
+    line(sq, square_ring(125.5, -22.5, 0.051), 10)                   # the land round it, close
+    coast(sq, square_ring(125.5, -22.5, 0.05)[::-1])                 # a sea in the land
+    line(sq, square_ring(125.5, -22.5, 0.04), -20)                   # its depth, below 0
+    coast(sq, square_ring(125.5, -22.5, 0.02))                       # an island in it
+    line(sq, square_ring(125.5, -22.5, 0.01), 40)                    # the island's hill
+    assert kinds(w, 'coast') == []
+    index = inside.Index(w)
+    hill = line(sq, [(125.46, -22.47), (125.465, -22.47)], 30)       # in the water, off the island
+    index.update(sq, {hill.id})
+    found = index.findings('coast')
+    assert len(found) == 2 and all('up to 30 m' in f.describe() for f in found)
+    assert [x.describe() for x in kinds(w, 'coast')] == [f.describe() for f in found]
+
+
+def test_an_empty_clockwise_islet_is_listed_unless_land_lies_all_round_it():
+    """Huz's islets, eleven nodes and nothing inside, drawn clockwise like
+    the rest of its coast. Out in the water, or off a shore with land on one
+    side, it is an islet drawn backwards; with land round it on three sides
+    or four, a pond drawn as coast. Its own coastline is no contour, at
+    whatever ele: huz's are at 1."""
+    w, sq = ws()
+    (islet,) = [ring(sq, 125.3, -22.3, 0.002, {'natural': 'coastline', 'ele': '1'})]
+    islet.refs.reverse()                                             # clockwise
+    (f,) = kinds(w, 'coast')
+    assert f.way == islet.id and 'clockwise round nothing, open water round it' in f.describe()
+    line(sq, [(125.29, -22.3025), (125.3, -22.3025), (125.31, -22.3025)], 10)   # a shore 55 m south
+    (f,) = kinds(w, 'coast')
+    assert 'drawn clockwise round nothing, land beside it on 1 side only' in f.describe()
+    line(sq, square_ring(125.3, -22.3, 0.003), 20)                   # and land all round
+    assert kinds(w, 'coast') == []
+
+
+def test_an_open_coast_drawn_backwards_is_listed_by_its_sides():
+    """Huz's island runs across 79 E, each square holding two open halves of
+    its coast, so no ring is drawn in either. The contours beside a coast say
+    which side its land is: on the right, it is backwards. Reversed, it is
+    off the list; and a contour across the water, further than SIDE_M off, is
+    the far shore and says nothing."""
+    w, sq = ws()
+    x = [125.2 + 0.01 * k for k in range(61)]
+    west = [(lon, -22.5) for lon in x[:31]]
+    east = [(lon, -22.5) for lon in x[30:]]
+    a_refs = nodes(sq, west)
+    b_refs = [a_refs[-1], *nodes(sq, east[1:])]
+    a, b = next(_ids), next(_ids)
+    sq.ways[a] = Way(id=a, refs=a_refs, tags={'natural': 'coastline', 'ele': '0'})     # land on the left: north
+    sq.ways[b] = Way(id=b, refs=b_refs, tags={'natural': 'coastline', 'ele': '0'})
+    south = line(sq, [(lon, -22.501) for lon in x[2:-2]], 10)          # 110 m south: on its right
+    far = line(sq, [(lon, -22.49) for lon in x[2:-2]], 10)             # 1.1 km north, beyond SIDE_M
+    found = kinds(w, 'coast')
+    assert sorted(f.way for f in found) == sorted([a, b])
+    assert all('land on its right: 28 contour vertices' in f.describe() for f in found)   # each its own
+    index = inside.Index(w)
+    for way in (a, b):
+        cmd = edits.reverse_coastline(sq, way)
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq))
+    assert index.findings('coast') == [] and kinds(w, 'coast') == []
+    # the south contour gone and the far shore moved near, north of the coast
+    # now running east to west: land on its right again, found by the
+    # contours edited alone
+    cmd = edits.DeleteWay(south.id)
+    cmd.apply(sq)
+    index.update(sq, {south.id})
+    for n in far.refs:
+        node = sq.nodes[n]
+        cmd = edits.MoveNode(n, (node.lon, node.lat), (node.lon, -22.4995))
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq))
+    assert sorted(x.way for x in index.findings('coast')) == sorted([a, b])
+    assert [x.describe() for x in kinds(w, 'coast')] == [x.describe() for x in index.findings('coast')]
+
+
+def test_one_way_of_a_coast_reversed_the_other_stays_listed():
+    """Huz's S54E078: -17660296 reversed first, and -17660201, drawn on from
+    it and the bigger offender, went off the list - the ring stitched from
+    the two turned it to run on from the one reversed. A way's direction is
+    its own: the other stays listed until it too is reversed."""
+    w, sq = ws()
+    a, b = coast(sq, square_ring(125.5, -22.5, 0.05)[::-1])          # clockwise, two ways
+    pts = square_ring(125.5, -22.5, 0.049)
+    pts = [(x0 + (x1 - x0) * k / 40, y0 + (y1 - y0) * k / 40)      # land just inside, a vertex every 270 m
+           for (x0, y0), (x1, y1) in zip(pts, [*pts[1:], pts[0]], strict=True) for k in range(40)]
+    line(sq, [*pts, pts[0]], 10)
+    index = inside.Index(w)
+    assert sorted(f.way for f in index.findings('coast')) == sorted([a.id, b.id])
+    cmd = edits.reverse_coastline(sq, a.id)
+    cmd.apply(sq)
+    index.update(sq, cmd.ways(sq))
+    assert [f.way for f in index.findings('coast')] == [b.id]
+    assert [f.way for f in kinds(w, 'coast')] == [b.id]
+    cmd = edits.reverse_coastline(sq, b.id)
+    cmd.apply(sq)
+    index.update(sq, cmd.ways(sq))
+    assert index.findings('coast') == []

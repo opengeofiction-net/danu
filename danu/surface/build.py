@@ -329,21 +329,51 @@ def lake_rings(path: Path, name: SquareName | None = None) -> tuple[list, int]:
     from ..checks.inside import held
     if not _holds_water(path):
         return [], 0
-    lakes, spanned = held(read_square(path, name))
+    lakes, spanned = held(_parsed(path, name))
     return [(key, ele, rings) for key, (ele, rings) in lakes.items()], spanned
 
 
-def _holds_water(path: Path, chunk: int = 1 << 20) -> bool:
-    """Whether a square names water at all, quoted either way - read a chunk
-    at a time, as the long-way guard is, and not parsed: most squares away
-    from a coast do not."""
+def backwards_coasts(path: Path, name: SquareName | None = None) -> list[str]:
+    """The coastline rings a square draws clockwise round land -
+    ``checks.inside.backwards_coasts`` - said, since the water from the
+    coastline's direction reads what each holds as sea. Sangria's island
+    built that way with everything below about 200 m at 0 m."""
+    from ..checks.inside import backwards_coasts as find
+    if not _holds(path, (b"'coastline'", b'"coastline"')):
+        return []
+    return [f.text for f in find(_parsed(path, name))]
+
+
+_last_parsed: tuple = (None, None)
+
+
+def _parsed(path: Path, name: SquareName | None):
+    """The square read, once for the lakes and the coast both: the last one
+    asked is kept, by its path, size and time, so a square read for one is
+    not read again for the other."""
+    global _last_parsed
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns, name)
+    if _last_parsed[0] != key:
+        _last_parsed = (key, read_square(path, name))
+    return _last_parsed[1]
+
+
+def _holds_water(path: Path) -> bool:
+    return _holds(path, (b"'water'", b'"water"'))
+
+
+def _holds(path: Path, words, chunk: int = 1 << 20) -> bool:
+    """Whether a square names a tag value at all, quoted either way - read a
+    chunk at a time, as the long-way guard is, and not parsed: most squares
+    away from a coast name no water."""
     tail = b''
     with (lzma.open(path, 'rb') if path.suffix == '.xz' else open(path, 'rb')) as fh:
         while block := fh.read(chunk):
             text = tail + block
-            if b"'water'" in text or b'"water"' in text:
+            if any(w in text for w in words):
                 return True
-            tail = text[-8:]
+            tail = text[-16:]
     return False
 
 
@@ -488,7 +518,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     square = work / 'square.osm'
     first = True
     before = 0
-    lakes, spanned = [], 0
+    lakes, spanned, backwards = [], 0, []
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
                               # A square whose in-memory database exceeds
                               # OSM_MAX_TMPFILE_SIZE (100 MB) spills to disk.
@@ -523,6 +553,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             held, n = lake_rings(source, name)
             lakes += held
             spanned += n
+            backwards += [f'{name}: {text}' for text in backwards_coasts(source, name)]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
@@ -615,9 +646,13 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         f.SetField('osm_id', key)
         out.CreateFeature(f)
     out = None
+    global _last_parsed
+    _last_parsed = (None, None)              # not a square held past the read
     if lakes or spanned:
         log(f'  {len(lakes)} lakes held at their level'
             + (f'; {spanned} not, with contours at other levels inside them' if spanned else ''))
+    for text in backwards:
+        log(f'  WARNING: {text} - land is on a coastline\'s left, so what it holds will read as sea')
     spots = _layer_count(ds, 'spot')
     layer = ds.GetLayer('contour')
     features = layer.GetFeatureCount()

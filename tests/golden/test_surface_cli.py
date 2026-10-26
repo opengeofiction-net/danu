@@ -278,6 +278,37 @@ def test_a_square_that_converts_to_nothing_stops_the_build(tmp_path, monkeypatch
         build.collect({SquareName(125, -24): zone / 'S24E125_Drawn.osm.xz'}, work)
 
 
+def test_a_coastline_drawn_clockwise_round_land_is_warned_of(tmp_path):
+    """Sangria's island, its coast clockwise: the water from the coastline's
+    direction read everything below 200 m as sea, and the build said nothing
+    of why. Now its log names the ways."""
+    from danu.core import edits
+    from danu.core.square import Square, SquareName
+    from danu.core.square import write_square as write
+    from danu.surface import build
+    sq = Square(name=SquareName(125, -24), present=True, attrs={'version': '0.6', 'upload': 'never'})
+    alloc = edits.IdAllocator(sq)
+
+    def ring(r, tags, clockwise=False):
+        pts = [(125.5 - r, -23.5 - r), (125.5 + r, -23.5 - r), (125.5 + r, -23.5 + r), (125.5 - r, -23.5 + r)]
+        pts = pts[::-1] if clockwise else pts
+        ids = [alloc.take() for _ in pts]
+        wid = alloc.take()
+        edits.AddWay(wid, ids + [ids[0]], pts + [pts[0]], tags).apply(sq)
+        return wid
+    shore = ring(0.2, {'natural': 'coastline', 'ele': '0'}, clockwise=True)
+    ring(0.1, {'ele': '50'})
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    write(sq, zone / 'S24E125.osm.xz')
+    work = tmp_path / 'work'
+    work.mkdir()
+    said = []
+    build.collect({SquareName(125, -24): zone / 'S24E125.osm.xz'}, work, log=said.append)
+    (warned,) = [s for s in said if 'WARNING' in s and 'coastline' in s]
+    assert f'S24E125: coastline, way {shore} - drawn clockwise round 1 contour above sea level' in warned
+
+
 def test_extra_isofill_flags_take_the_binary_rather_than_the_library(tmp_path):
     """The escape hatch for trying a change on one zone before it is the
     default. The library has no flags to give them to, so asking for both is

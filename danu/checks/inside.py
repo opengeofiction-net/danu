@@ -13,6 +13,23 @@
   a ring of some size, 10 ha by default: half the 3,758 on gobras are under
   0.6 ha, knolls a few dozen metres across where a spot height would say
   nothing the ring does not; 170 are 10 ha or more.
+- **a coastline drawn backwards** - a ring of ``natural=coastline``, one way
+  or several end to end, winding clockwise round contours above sea level. A
+  coastline keeps land on its left, so the build reads what it holds as sea:
+  sangria's island, its coast drawn clockwise, built with everything below
+  about 200 m at sea level and only its contour lines standing out of it. A
+  clockwise ring holding nothing above 0 m is a lagoon or a pond drawn as
+  coast, and is left alone when land lies round it, on three sides or four;
+  with open water round it, it is an islet drawn backwards - 18 of the 23
+  empty clockwise rings on util, against 1,388 empty anticlockwise ones. An
+  island inside a clockwise ring, its own coast anticlockwise, is a hole in
+  it. A coastline is never itself the land: huz draws its coast at ele=1. A coast that is no ring in its square - huz's
+  island runs across 79 E, each square holding two open halves, its node ids
+  its own - is judged by its sides instead: the contour vertices within
+  ``SIDE_M`` of it, by the side of the coastline segment nearest each. Land
+  is on a coastline's left; an open chain with nearly all of it on the right
+  is drawn backwards. Only so near: a contour a kilometre off is as likely
+  the far shore of a strait, nearest this coast across the water.
 
 A contour is inside a ring when a vertex of it is, by crossings of a ray with
 every ring of a body counted together, so an island is a hole - or when a
@@ -29,11 +46,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
 from ..core import ladder as L
-from ..core.rings import relation_rings
+from ..core.rings import closed_rings, relation_rings
 from ..core.square import parse_ele
 from ..water.overpass import flows
 from .files import Finding
@@ -237,6 +255,169 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
                  [_chunks(X, Y) for X, Y in rings])
 
 
+def _signed(X, Y) -> float:
+    """Twice a ring's signed area in degrees: positive anticlockwise."""
+    return float(np.dot(X[:-1], Y[1:]) - np.dot(X[1:], Y[:-1]))
+
+
+def coast_ways(square) -> set[int]:
+    return {w.id for w in square.ways.values() if w.tags.get('natural') == 'coastline'}
+
+
+def _coasts(square) -> dict:
+    """The coastline ways closed on themselves and drawn clockwise, each as
+    a body at 0 m whose rings are its own and the anticlockwise ones inside
+    it - islands in it, holes under even-odd. Keyed ('coast', its id).
+
+    And a ring of several ways end to end, when every one of them runs on
+    from the last as drawn. Not when they disagree: a way's direction is its
+    own, and stitching turns a way to run on from the one before - one of
+    huz's two halves reversed, the other was turned to match it and dropped
+    off the list. Those ways are judged each by its sides, as every way
+    that is not a ring of its own is too."""
+    ways = [square.ways[i] for i in sorted(coast_ways(square))]
+    rings = []
+    for refs in closed_rings([w.refs for w in ways]):
+        if not _as_drawn(refs, [w.refs for w in ways if not (len(w.refs) > 3 and w.refs[0] == w.refs[-1])
+                                and set(w.refs) <= set(refs)]):
+            continue
+        pts = [square.nodes[r] for r in refs if r in square.nodes]
+        if len(pts) != len(refs):
+            continue
+        X, Y = np.array([p.lon for p in pts]), np.array([p.lat for p in pts])
+        rings.append((refs, X, Y, _box(X, Y), _signed(X, Y)))
+    out = {}
+    for refs, X, Y, box, area in rings:
+        if area >= 0:
+            continue
+        on = set(refs)
+        mine = sorted(w.id for w in ways if set(w.refs) <= on)
+        holes = [(r, x, y) for r, x, y, b, a in rings if a > 0 and b[0] >= box[0] and b[1] >= box[1]
+                 and b[2] <= box[2] and b[3] <= box[3]]
+        ring_refs = [refs, *(r for r, _, _ in holes)]
+        all_rings = [(X, Y), *((x, y) for _, x, y in holes)]
+        key = ('coast', mine[0] if mine else int(refs[0]))
+        listed = ', '.join(str(i) for i in mine[:3]) + (f' and {len(mine) - 3} more' if len(mine) > 3 else '')
+        what = f'coastline, way{"s" * (len(mine) != 1)} {listed}'
+        out[key] = _Body(key, 0.0, all_rings, np.unique(np.array([r for rr in ring_refs for r in rr], dtype=np.int64)),
+                         set(mine), box, what, np.array([_box(x, y) for x, y in all_rings]),
+                         [_chunks(x, y) for x, y in all_rings])
+    return out
+
+
+SIDE_M = 250.0                   # how near an open coast a contour vertex says which side its land is
+SIDE_SHARE = 0.9                 # the share of those on its right that says it is drawn backwards
+SIDE_MIN = 10                    # and how many at least
+
+
+def _side(a, b, p) -> np.ndarray:
+    return (b[:, 0] - a[:, 0]) * (p[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (p[:, 0] - a[:, 0])
+
+
+def _as_drawn(ring, pieces) -> bool:
+    """Whether every piece of a ring runs the ring's way: each node of it
+    followed in the ring by the piece's next."""
+    n = len(ring) - 1
+    at = {r: i for i, r in enumerate(ring[:-1])}
+    return all(ring[(at[a] + 1) % n] == b for piece in pieces for a, b in pairwise(piece) if a in at)
+
+
+class _Sides:
+    """A square's coastline ways that are not rings of their own - open, or
+    a part of a ring of several - each in its own direction, for which side
+    of it the land is. In metres about the square's middle latitude, the
+    segments by cells of ``SIDE_M``."""
+
+    def __init__(self, square):
+        ways = [square.ways[i] for i in sorted(coast_ways(square))]
+        lat0 = getattr(square.name, 'lat', 0) + 0.5
+        self.kx, self.ky = 111320 * math.cos(math.radians(lat0)), 110540.0
+        self.keys, self.ways, self.what = [], [], []
+        A, B, PREV, NEXT, FIRST, LAST, C = [], [], [], [], [], [], []
+        for w in ways:
+            chain = w.refs
+            if (len(chain) > 3 and chain[0] == chain[-1]) or any(r not in square.nodes for r in chain):
+                continue
+            xy = np.array([(square.nodes[r].lon * self.kx, square.nodes[r].lat * self.ky) for r in chain])
+            n = len(xy) - 1
+            if n < 1:
+                continue
+            mine = [w.id]
+            k = len(self.keys)
+            self.keys.append(('coast', mine[0] if mine else int(chain[0])))
+            self.ways.append(set(mine))
+            listed = ', '.join(str(i) for i in mine[:3]) + (f' and {len(mine) - 3} more' if len(mine) > 3 else '')
+            self.what.append(f'coastline, way{"s" * (len(mine) != 1)} {listed}')
+            A.append(xy[:-1]); B.append(xy[1:]); C.append(np.full(n, k))
+            gap = np.full((1, 2), np.nan)
+            # each segment's neighbours, for a vertex nearest a corner; a way's
+            # ends have none, and a vertex nearest one has no side - where it
+            # meets the next way, that way's segment is as likely the nearest
+            PREV.append(np.vstack([gap, xy[:-2]])); NEXT.append(np.vstack([xy[2:], gap]))
+            FIRST.append(np.arange(n) == 0); LAST.append(np.arange(n) == n - 1)
+        self.empty = not A
+        if self.empty:
+            return
+        self.A, self.B, self.C = np.concatenate(A), np.concatenate(B), np.concatenate(C)
+        self.PREV, self.NEXT = np.concatenate(PREV), np.concatenate(NEXT)
+        self.FIRST, self.LAST = np.concatenate(FIRST), np.concatenate(LAST)
+        lo, hi = np.minimum(self.A, self.B), np.maximum(self.A, self.B)
+        self.lo, self.hi = lo.min(0) - SIDE_M, hi.max(0) + SIDE_M
+        c0, c1 = np.floor(lo / SIDE_M).astype(np.int64), np.floor(hi / SIDE_M).astype(np.int64)
+        self.cells: dict = {}
+        for i in range(len(self.A)):
+            for cx in range(c0[i, 0], c1[i, 0] + 1):
+                for cy in range(c0[i, 1], c1[i, 1] + 1):
+                    self.cells.setdefault((cx, cy), []).append(i)
+
+    def votes(self, ln) -> dict:
+        """What a contour says of each chain, {chain: [vertices on its left
+        or right as they should be, the other way]}: a vertex above 0 m is
+        land and below it sea, judged by the side of the segment nearest it,
+        within ``SIDE_M``."""
+        out: dict = {}
+        if self.empty or ln.ele == 0:
+            return out
+        P = np.column_stack([ln.X * self.kx, ln.Y * self.ky])
+        m = (P[:, 0] >= self.lo[0]) & (P[:, 0] <= self.hi[0]) & (P[:, 1] >= self.lo[1]) & (P[:, 1] <= self.hi[1])
+        P = P[m]
+        if not len(P):
+            return out
+        cell = np.floor(P / SIDE_M).astype(np.int64)
+        keys, back = np.unique(cell, axis=0, return_inverse=True)
+        for g, (cx, cy) in enumerate(keys.tolist()):
+            segs = sorted({i for dx in (-1, 0, 1) for dy in (-1, 0, 1) for i in self.cells.get((cx + dx, cy + dy), ())})
+            if not segs:
+                continue
+            pts = P[back.ravel() == g]
+            s = np.array(segs)
+            a, b = self.A[s][None], self.B[s][None]
+            d = b - a
+            t = np.clip(((pts[:, None] - a) * d).sum(-1) / np.maximum((d * d).sum(-1), 1e-12), 0, 1)
+            dist = np.hypot(*(pts[:, None] - (a + t[..., None] * d)).transpose(2, 0, 1))
+            k = dist.argmin(1)
+            rows = np.arange(len(pts))
+            near, tk, i = dist[rows, k] <= SIDE_M, t[rows, k], s[k]
+            cross = _side(self.A[i], self.B[i], pts)
+            # nearest a corner: left of it if left of both its segments where
+            # the line turns left there, of either where it turns right
+            for at, ina, inb, outa, outb in ((tk <= 0, self.PREV[i], self.A[i], self.A[i], self.B[i]),
+                                             (tk >= 1, self.A[i], self.B[i], self.B[i], self.NEXT[i])):
+                c = at & ~np.isnan(ina[:, 0]) & ~np.isnan(outb[:, 0])
+                if c.any():
+                    s_in, s_out = _side(ina[c], inb[c], pts[c]), _side(outa[c], outb[c], pts[c])
+                    left_turn = _side(ina[c], inb[c], outb[c]) > 0
+                    cross[c] = np.where(left_turn, np.where((s_in > 0) & (s_out > 0), 1.0, -1.0),
+                                        np.where((s_in > 0) | (s_out > 0), 1.0, -1.0))
+            cross[((tk <= 0) & self.FIRST[i]) | ((tk >= 1) & self.LAST[i])] = 0
+            ok = near & (cross != 0)
+            right_way = (cross > 0) == (ln.ele > 0)
+            for chain, rw in zip(self.C[i][ok].tolist(), right_way[ok].tolist(), strict=True):
+                v = out.setdefault(chain, [0, 0])
+                v[0 if rw else 1] += 1
+        return out
+
+
 class _Square:
     """One square's contours by their boxes, its bodies and its spot heights."""
 
@@ -249,6 +430,11 @@ class _Square:
             if ln is not None:
                 self.lines[w.id] = ln
         self.bodies = _bodies(square)
+        self.coasts = _coasts(square)
+        self.coast_ids = coast_ways(square)
+        self.sides = _Sides(square)
+        self.side_votes = ({i: self.sides.votes(ln) for i, ln in self.lines.items() if i not in self.coast_ids}
+                           if not self.sides.empty else {})
         self.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
         self._arrays = None
         # body key -> line id -> whether that line lies in or across it: what
@@ -312,6 +498,101 @@ class _Square:
                        tuple(map(float, body.box)), way=body.key[1] if body.key[0] == 'way' else None,
                        relation=body.key[1] if body.key[0] == 'relation' else None)
 
+    # --------------------------------------------------- the coast's side
+    def backwards(self, body, only=None) -> dict:
+        """A clockwise coastline ring holding contours above 0 m, or holding
+        nothing with open water round it: land the build will read as sea,
+        as a finding for each of its ways. ``only`` as for ``spanned``."""
+        held = self.held.get(body.key)
+        x0, y0, x1, y1 = body.box
+        if only is None or held is None:
+            held = self.held[body.key] = {ln.id: True for ln in self.lines_near(body.box)
+                                          if ln.ele > 0 and ln.id not in self.coast_ids and self._in(body, ln)}
+        else:
+            for i in only:
+                held.pop(i, None)
+                ln = self.lines.get(i)
+                if (ln is not None and ln.ele > 0 and i not in self.coast_ids and ln.box[0] <= x1
+                        and ln.box[2] >= x0 and ln.box[1] <= y1 and ln.box[3] >= y0 and self._in(body, ln)):
+                    held[i] = True
+        levels = {self.lines[i].ele for i in held if i in self.lines}
+        if levels:
+            n = len(held)
+            reason = (f'drawn clockwise round {n} contour{"s" * (n != 1)} above sea level, '
+                      f'up to {L.format_ele(max(levels))} m')
+        else:
+            sides = self._land_round(body)
+            if sides >= 3:
+                return {}                          # a pond in the land, drawn as coast
+            reason = ('drawn clockwise round nothing, open water round it' if not sides else
+                      f'drawn clockwise round nothing, land beside it on {sides} side{"s" * (sides != 1)} '
+                      'only') + ' - an islet drawn backwards'
+        why = ('a coastline keeps land on its left and sea on its right, and this one runs clockwise '
+               'round land - the build reads everything it holds as sea, down to the contour lines. '
+               'Select each of its ways and R reverses it')
+        X, Y = body.rings[0]
+        return _each_way(self.square.name, body.ways or {body.key[1]}, reason, why,
+                         float(X[len(X) // 2]), float(Y[len(Y) // 2]), tuple(map(float, body.box)))
+
+    def _land_round(self, body) -> int:
+        """On how many sides of four - by the direction from its middle - a
+        contour above 0 m lies within ``SIDE_M`` outside a ring: a pond has
+        land all round it, an islet near a shore on one side or two."""
+        X, Y = body.rings[0]
+        kx, ky = 111320 * math.cos(math.radians(float(Y.mean()))), 110540.0
+        px, py = SIDE_M / kx, SIDE_M / ky
+        x0, y0, x1, y1 = body.box
+        big = (x0 - px, y0 - py, x1 + px, y1 + py)
+        R = np.column_stack([X * kx, Y * ky])
+        a, b = R[:-1], R[1:]
+        d = b - a
+        cx, cy = R[:, 0].mean(), R[:, 1].mean()
+        quads = set()
+        for ln in self.lines_near(big):
+            if ln.ele <= 0 or ln.id in self.coast_ids:
+                continue
+            m = (ln.X >= big[0]) & (ln.X <= big[2]) & (ln.Y >= big[1]) & (ln.Y <= big[3])
+            P = np.column_stack([ln.X[m] * kx, ln.Y[m] * ky])
+            if not len(P):
+                continue
+            t = np.clip(((P[:, None] - a) * d).sum(-1) / np.maximum((d * d).sum(-1), 1e-12), 0, 1)
+            near = np.hypot(*(P[:, None] - (a + t[..., None] * d)).transpose(2, 0, 1)).min(1) <= SIDE_M
+            ang = np.degrees(np.arctan2(P[near, 1] - cy, P[near, 0] - cx)) % 360
+            quads |= set((ang // 90).astype(int).tolist())
+            if len(quads) == 4:
+                break
+        return len(quads)
+
+    def backwards_open(self) -> dict:
+        """The open coastline chains drawn backwards by their sides, as
+        {key: Finding}: nearly all the contour vertices near one on its
+        right."""
+        out = {}
+        if self.sides.empty:
+            return out
+        tally: dict = {}
+        for votes in self.side_votes.values():
+            for chain, (ok, back) in votes.items():
+                t = tally.setdefault(chain, [0, 0])
+                t[0] += ok
+                t[1] += back
+        for chain, (ok, back) in tally.items():
+            if back < SIDE_MIN or back < SIDE_SHARE * (ok + back):
+                continue
+            reason = (f'land on its right: {back} contour vertices within '
+                      f'{SIDE_M:g} m on its sea side, {ok} on its land side')
+            why = ('a coastline keeps land on its left and sea on its right, and the land beside this one '
+                   'is on its right - the build reads it as sea. Select each of its ways and R reverses it')
+            seg = np.flatnonzero(self.sides.C == chain)
+            mid = self.sides.A[seg[len(seg) // 2]]
+            pts = np.concatenate([self.sides.A[seg], self.sides.B[seg[-1:]]])
+            box = (pts[:, 0].min() / self.sides.kx, pts[:, 1].min() / self.sides.ky,
+                   pts[:, 0].max() / self.sides.kx, pts[:, 1].max() / self.sides.ky)
+            out.update(_each_way(self.square.name, self.sides.ways[chain] or {self.sides.keys[chain][1]},
+                                 reason, why, float(mid[0] / self.sides.kx), float(mid[1] / self.sides.ky),
+                                 tuple(map(float, box))))
+        return out
+
     # -------------------------------------------------------------- R39
     def bare(self, ln) -> Finding | None:
         if not ln.closed or ln.area < self.bare_min:
@@ -346,7 +627,35 @@ def _all(sq: _Square) -> dict:
         f = sq.bare(ln)
         if f is not None:
             out[('bare', ln.id)] = f
+    out.update(_coast_findings(sq))
     return out
+
+
+def _coast_findings(sq: _Square, only=None) -> dict:
+    out = {}
+    for body in sq.coasts.values():
+        out.update(sq.backwards(body, None if only is None or body.ways & only else only))
+    out.update(sq.backwards_open())
+    return out
+
+
+def _each_way(square, ways, reason, why, lon, lat, box) -> dict:
+    """A finding a way, each its own row to select and reverse, keyed
+    ('coast', way id), naming the others it is drawn end to end with."""
+    out = {}
+    for wid in sorted(ways):
+        others = sorted(ways - {wid})
+        also = (f', drawn end to end with {", ".join(map(str, others[:3]))}'
+                + (f' and {len(others) - 3} more' if len(others) > 3 else '')) if others else ''
+        out[('coast', wid)] = Finding(square, 'coast', f'coastline, way {wid}{also} - {reason}', why,
+                                      lon, lat, box, way=wid)
+    return out
+
+
+def backwards_coasts(square) -> list[Finding]:
+    """The coastlines drawn backwards round land - for the build to say,
+    which reads what they hold as sea whatever this says."""
+    return list(_coast_findings(_Square(square)).values())
 
 
 def held(square) -> tuple[dict, int]:
@@ -408,6 +717,7 @@ class Index:
         # that end, not every ring in the contour's box
         before = {i: s.lines[i] for i in way_ids if i in s.lines}
         bodies_before = [b for b in s.bodies.values() if b.ways & way_ids]
+        coasts_before = [b for b in s.coasts.values() if b.ways & way_ids]
         spots_before = {i: s.spots[i] for i in spot_ids if i in s.spots}
         water = square.water_bodies()
         for i in way_ids:
@@ -425,7 +735,22 @@ class Index:
         # the whole square read, 15 ms of N20E087's spot heights
         if way_ids & (water | {i for b in bodies_before for i in b.ways}):
             s.bodies = _bodies(square)
-            s.held = {k: v for k, v in s.held.items() if k in s.bodies}
+            s.held = {k: v for k, v in s.held.items() if k in s.bodies or k in s.coasts}
+        # and the coast's rings, when a coastline was edited: reversed, joined
+        # or redrawn, each ring it is in is asked whole again
+        coast_edited = bool(way_ids & (coast_ways(square) | {i for b in coasts_before for i in b.ways}))
+        if coast_edited:
+            s.coasts = _coasts(square)
+            s.held = {k: v for k, v in s.held.items() if k in s.bodies or k in s.coasts}
+            s.coast_ids = coast_ways(square)
+            s.sides = _Sides(square)
+            s.side_votes = ({i: s.sides.votes(ln) for i, ln in s.lines.items() if i not in s.coast_ids}
+                            if not s.sides.empty else {})
+        elif not s.sides.empty:
+            for i in way_ids:
+                s.side_votes.pop(i, None)
+                if i in s.lines and i not in s.coast_ids:
+                    s.side_votes[i] = s.sides.votes(s.lines[i])
         touched = {r for i in way_ids for r in getattr(square.ways.get(i), 'refs', ())}
         touched |= {int(r) for ln in before.values() for r in ln.refs}
         if spot_ids or touched & (set(s.spots) | {i for i, n in ((r, square.nodes.get(r)) for r in touched)
@@ -449,6 +774,12 @@ class Index:
             del found[key]
         for key in [k for k in found if k[0] == 'lake' and k[1] not in s.bodies]:
             del found[key]
+        # the coast's findings again whole - a ring is asked only of the
+        # lines edited unless it was itself, the open chains summed from the
+        # votes kept, and rings and chains are few
+        for key in [k for k in found if k[0] == 'coast']:
+            del found[key]
+        found.update(_coast_findings(s, None if coast_edited else way_ids))
         if not moved and not len(spans):
             return
         P = np.array(sorted(moved), float).reshape(-1, 2)
