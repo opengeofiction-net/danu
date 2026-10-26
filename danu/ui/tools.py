@@ -196,9 +196,9 @@ class Issue:
 
 
 ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'far': 4, 'unburned': 5}
-# said when a flattened lake's new level is carried to its outline and fill
-# lines; its contours were clipped against the old one
-_FOLLOW = ' - its outline and fill lines follow; F flattens it again to redo its contours'
+# said when a flattened lake's new level is carried to its outline; its
+# contours were clipped against the old one
+_FOLLOW = ' - its outline follows; F flattens it again to redo its contours'
 # on the map, and lighter in the profile: a climb is a fault, red; ground no
 # contour reaches is only unknown, grey
 # a level a contour beside it contradicts (G7c) is a fault too, orange
@@ -314,10 +314,8 @@ class Proposal:
     steps: list | None = None
     chain_paths: list | None = None
     # a flatten's (G7a): the contours it takes out of the water and back from
-    # its shore, as scene runs, the fill lines it lays across it, and how far
-    # it draws the contours back
+    # its shore, as scene runs, and how far it draws the contours back
     removed: list | None = None
-    fill: list | None = None
     pull_back_m: float | None = None      # the strength the proposal was made at
     # what kind of proposal it is, and the strength's name in the panel; and
     # a burn's (G7b): the lines it draws and the pieces it drops
@@ -2686,11 +2684,12 @@ class EditController(QObject):
             parts.append(f'{p.pulled} crossing its shore drawn back {at:g} m')
         if p.clipped:
             parts.append(f'{p.clipped} at its level cut at the shore')
-        if p.fill:
-            parts.append(f'{len(p.fill)} fill line{"s" * (len(p.fill) != 1)} across the water, '
-                         f'{flatten.FILL_SPACING_M:g} m apart, to hold it flat')
         if not p.steps:
             parts = [f'{name} is already flat at {text} m - nothing to change']
+            # nothing to accept, and nothing left to do: a reshaped lake that
+            # comes out flat as it is - its fill lines were all a reshape left
+            # stale, and there are none now - is flattened again as it stands
+            self.flattened.emit(sq, feature)
         # a lake reaching squares not open has contours in its water this
         # cannot see: roantra's estuary, held in N46E028, reaches four more
         ws = self.working_set
@@ -2706,7 +2705,6 @@ class EditController(QObject):
             steps=p.steps or None,
             chain_paths=[[m.lonlat_to_scene(lon, lat) for lon, lat in ring] for ring in p.outline],
             removed=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.removed],
-            fill=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.fill],
             added=[[m.lonlat_to_scene(lon, lat) for lon, lat in run] for run in p.added] or None,
             pull_back_m=at, kind='flatten', strength_label='Draw back from the shore'))
 
@@ -2953,13 +2951,6 @@ class EditOverlay(QGraphicsItem):
         for run in proposal.dropped or ():
             if len(run) >= 2:
                 painter.drawPath(_path(run))
-        # and what it lays across the water: its fill lines, in the lake's own
-        # dark blue so they read as the lake's and not as contours
-        lay = QPen(QColor(20, 70, 140, 200), 1.2, Qt.PenStyle.DashLine)
-        lay.setCosmetic(True)
-        painter.setPen(lay)
-        for run in proposal.fill or ():
-            painter.drawPath(_path(run))
         # each gap walked across: a ring, so the mapping error can be found
         ring = QPen(QColor(120, 60, 0), 2.0)
         ring.setCosmetic(True)

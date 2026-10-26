@@ -6199,3 +6199,25 @@ open set's, drawn or absent, and the set moves onto it from this zone's
 directory; another, the zones map's open, its zone imported first if need
 be. **Alt and an arrow** moves the set a square west, east, north or south
 (`view.set_*`, in View and rebindable, as every key is).
+
+## Lakes held at their level (#191)
+
+The water half of #191, without an isofill change. `collect` writes a `lake`
+layer to the GeoPackage: each `natural=water` body with a numeric `ele` of its
+own, not flowing, and no contour at another level inside it, as one polygon,
+every ring a ring. `rasterise` burns it between the contours and the spot
+heights, so a lake wins a cell from a contour crossing it and a spot height
+wins its own. The fill never touches a burned cell, and the clamp leaves one
+alone, so a lake at 0 m stays water with no mask (#282's goes).
+
+`checks.inside.held` is the one rule, asked by the build and by the preview.
+A lake with contours at other levels inside it is R33's report and is left to
+them: roantra's N44E030 holds 34 ways of water at 0 m over hills up to 100 m,
+which held would go to sea level. The preview loads the build's lake layer
+and, when an edit touches a lake, puts it in again or takes it out by the same
+rule, boxing the edited shore.
+
+The `danu:fill` lines G7a drew are no longer drawn. Flattening takes out a
+lake's old ones, and opening a set takes out every square's, one step
+(`edits.drop_fill_lines`). A flatten that finds a lake already flat says so
+to the gone dock, so a reshaped lake's row is struck through.

@@ -67,13 +67,13 @@ def test_f_proposes_and_enter_flattens_as_one_step(lake):
     p = w.editor.proposal
     assert p is not None and p.acceptable
     assert 'Kinser flattened at 100 m' in p.summary and '1 contour in the water removed' in p.summary
-    assert '1 crossing its shore drawn back 100 m' in p.summary and 'fill lines' in p.summary
+    assert '1 crossing its shore drawn back 100 m' in p.summary and 'fill line' not in p.summary
     assert w.selection_panel.pull_back_row.isVisible() and w.selection_panel.pull_back.value() == 100
     assert edits.snapshot(sq) == before, 'proposing changed the square'
     w.editor.accept_proposal()
     assert sq.ways[ring.id].tags['ele'] == '100'
     assert [x for x in sq.ways.values() if x.tags.get('ele') == '90'] == []
-    assert flatten.fills(sq, rel)
+    assert not flatten.fills(sq, rel), 'the build holds a lake at its level: no fill lines (#191)'
     w.editor.undo()
     assert edits.snapshot(sq) == before, 'one Ctrl+Z did not take the whole flatten back'
 
@@ -120,11 +120,20 @@ def test_a_lake_with_no_level_is_refused_with_the_way_to_give_it_one(lake):
     assert 'no level yet' in w.statusBar().currentMessage()
 
 
-def test_a_flattened_lake_is_still_water_and_its_fill_lines_are_not_contours(lake):
+def old_fill(w, sq, rel, level='100'):
+    """A fill line as flattening drew them before the build held a lake at
+    its level (#191) - still in a square read alongside, until it is opened."""
+    line = way(sq, [(125.50, -22.485), (125.54, -22.485)], {'ele': level, flatten.FILL: flatten.fill_key(rel)})
+    w.contours.set_working_set(w.working_set)
+    return line
+
+
+def test_a_flattened_lake_is_still_water_and_old_fill_lines_are_not_contours(lake):
     w, sq, rel, ring = lake
     select(w, sq, rel)
     w.editor.flatten()
     w.editor.accept_proposal()
+    old_fill(w, sq, rel)
     layer = w.contours
     assert (NORTH, ring.id) in layer.water, 'its shore became a contour'
     lines = flatten.fills(sq, rel)
@@ -141,11 +150,12 @@ def test_a_flattened_lake_is_still_water_and_its_fill_lines_are_not_contours(lak
     assert all(x.id not in {c.id for c in sq.contours()} for x in lines)
 
 
-def test_a_new_level_carries_to_the_outline_and_fill_lines_in_one_step(lake):
+def test_a_new_level_carries_to_the_outline_and_old_fill_lines_in_one_step(lake):
     w, sq, rel, ring = lake
     select(w, sq, rel)
     w.editor.flatten()
     w.editor.accept_proposal()
+    old_fill(w, sq, rel)
     assert w.editor.set_ele(110.0)
     assert sq.ways[ring.id].tags['ele'] == '110'
     assert {x.tags['ele'] for x in flatten.fills(sq, rel)} == {'110'}
@@ -155,11 +165,12 @@ def test_a_new_level_carries_to_the_outline_and_fill_lines_in_one_step(lake):
     assert {x.tags['ele'] for x in flatten.fills(sq, rel)} == {'100'}
 
 
-def test_clearing_the_level_takes_the_outline_level_and_the_fill_lines(lake):
+def test_clearing_the_level_takes_the_outline_level_and_old_fill_lines(lake):
     w, sq, rel, ring = lake
     select(w, sq, rel)
     w.editor.flatten()
     w.editor.accept_proposal()
+    old_fill(w, sq, rel)
     assert w.editor.set_ele(None)
     assert 'ele' not in rel.tags and 'ele' not in sq.ways[ring.id].tags
     assert flatten.fills(sq, rel) == []

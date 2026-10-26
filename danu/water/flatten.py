@@ -32,18 +32,11 @@ So flattening a lake is five edits, one step:
   ran - and stays one line. Where that would cross or touch another contour it
   is tried at half the distance, and half again, and failing that is cut as
   above. The offset is GDAL's; a build without it cuts.
-- **Fill lines across the water, at its level.** Straight lines every
-  ``FILL_SPACING_M``, clipped to the water so an island is left out, tagged
-  ``danu:fill`` with the lake they belong to. They are an interim measure. The
-  shore alone does not make a lake flat: isofill declines a cell that sees one
-  level in every direction - a closed contour with nothing inside is how a
-  hilltop looks - and its second pass fills the lake from the islands and the
-  banks around it. Lake Kinser came out 125 to 150 m with 8% of it at its
-  level. Lines across it give every cell something to see: at 120 m apart,
-  296 nodes, 99.7% of it at 125 m at 1 arcsecond, where spot heights on a 120 m
-  grid needed 2,586 nodes for 96% at 3. When isofill learns to hold a marked
-  one-level enclosure flat, every way tagged ``danu:fill`` is deleted in one
-  pass.
+- **No fill lines.** The shore alone does not make a lake flat - isofill
+  declines a cell that sees one level all round, as a hilltop looks - so lines
+  were drawn across the water at its level, tagged ``danu:fill``. The build
+  holds a lake at its level itself now, the whole of it (#191), and a flatten
+  takes out the lake's old lines; opening a set takes out every square's.
 
 No Qt, and GDAL only to push a contour round: geometry in metres on a local
 projection about the lake, which over a lake's extent is exact enough to say
@@ -67,7 +60,6 @@ from ..core.square import Relation, Square, Way, is_coastline, parse_ele, water_
 from .overpass import flows
 
 PULL_BACK_M = 100.0
-FILL_SPACING_M = 120.0
 FILL = 'danu:fill'
 # two cut positions closer than this along a contour are one - a contour that
 # shares a node with the shore is cut there once, not at both of the segments
@@ -88,7 +80,6 @@ class Plan:
     wrapped: int = 0                                 # the nearest level, pushed round the water
     added: list = field(default_factory=list)        # what a push round draws, as [(lon, lat)] runs
     outline_ways: int = 0
-    fill: list = field(default_factory=list)         # the fill lines, as [(lon, lat)] pairs
 
 
 def fill_key(feature) -> str:
@@ -273,13 +264,10 @@ def _at(pts, pos: float):
     return x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
 
 
-def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_BACK_M,
-         fill_spacing_m: float = FILL_SPACING_M) -> Plan:
+def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_BACK_M) -> Plan:
     """What flattening ``feature`` - a lake in ``square``, a closed way or a
     relation - at its level would do. ``alloc(square)`` gives the id
     allocator for a square. Raises ``Refused`` with why it cannot."""
-    if not fill_spacing_m > 0:
-        raise ValueError(f'fill lines {fill_spacing_m} m apart would never stop')
     tags = feature.tags
     if flows(tags):
         raise Refused('flowing water is never flattened - it descends along its course')
@@ -400,44 +388,15 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
                 out.removed += aside.removed
         if cmd is not None:
             per_square.setdefault(sq.name, []).append(cmd)
-    # the lake's fill lines: the old ones out, new ones across the water
-    lines = [edits.DeleteWay(w.id) for w in fills(square, feature)]
-    ids = alloc(square)
-    xs0, xs1 = min(xs) - 10.0, max(xs) + 10.0
-    y = min(ys) + fill_spacing_m / 2
-    while y < max(ys):
-        pts = [(xs0, y), (xs1, y)]
-        stops = [0.0, *shore.cuts(pts), 1.0]
-        for a, b in pairwise(stops):
-            if (b - a) * (xs1 - xs0) < 1.0:
-                continue
-            if not shore.inside((xs0 + (xs1 - xs0) * (a + b) / 2, y)):
-                continue
-            ends = [proj.lonlat(xs0 + (xs1 - xs0) * t, y) for t in (a, b)]
-            nids = [ids.take(), ids.take()]
-            lines.append(edits.AddWay(ids.take(), nids, ends, {'ele': text, FILL: fill_key(feature)}))
-            out.fill.append(ends)
-        y += fill_spacing_m
-    old = [c for c in lines if isinstance(c, edits.DeleteWay)]
-    if lines and not (len(old) == len(lines) - len(old)
-                      and _same_lines(square, old, lines[len(old):])):
-        per_square.setdefault(square.name, []).extend(lines)
+    # fill lines an earlier flatten drew across it go: the build holds a
+    # lake at its level itself now (#191)
+    old = [edits.DeleteWay(w.id) for w in fills(square, feature)]
+    if old:
+        per_square.setdefault(square.name, []).extend(old)
     name = tags.get('name') or 'the lake'
     out.steps = [(by_name[k], edits.Compound(cmds, name=f'flatten {name} at {text} m'))
                  for k, cmds in per_square.items()]
     return out
-
-
-def _same_lines(square, old, new) -> bool:
-    """Whether the fill lines a flatten would draw are the ones already
-    there - so a lake flattened twice at one level is no step the second
-    time."""
-    have = sorted(tuple((round(square.nodes[r].lon, 9), round(square.nodes[r].lat, 9))
-                        for r in square.ways[c.way_id].refs) + (square.ways[c.way_id].tags.get('ele'),)
-                  for c in old)
-    want = sorted(tuple((round(lon, 9), round(lat, 9)) for lon, lat in c.coords) + (c.tags.get('ele'),)
-                  for c in new)
-    return have == want
 
 
 def _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out):
@@ -571,9 +530,9 @@ def _outline(square: Square, feature):
 
 def flattened(working_set) -> dict:
     """Every lake the set holds that has been flattened, with its outline as
-    it stands: one with fill lines, or a relation whose rings carry a level
-    - a lake too narrow for a fill line still has that. Keyed by square,
-    kind and id."""
+    it stands: a closed way of water with a level, a relation whose rings
+    carry one, or one with fill lines still - drawn before the build held a
+    lake at its level (#191). Keyed by square, kind and id."""
     out = {}
     for sq in working_set.squares.values():
         keys = {w.tags[FILL] for w in sq.ways.values() if FILL in w.tags}
@@ -587,7 +546,7 @@ def flattened(working_set) -> dict:
             if ringed or fill_key(rel) in keys:
                 out[(sq.name, 'relation', rel.id)] = (rel.tags.get('name'), _outline(sq, rel))
         for way in sq.ways.values():
-            if fill_key(way) in keys:
+            if fill_key(way) in keys or (water_tags(way.tags) and 'ele' in way.tags and is_closed(way)):
                 out[(sq.name, 'way', way.id)] = (way.tags.get('name'), _outline(sq, way))
     return out
 

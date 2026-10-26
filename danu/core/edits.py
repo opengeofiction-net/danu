@@ -1227,6 +1227,47 @@ def close_rings(square: Square) -> CloseRings | None:
     return CloseRings(closes) if closes else None
 
 
+@dataclass
+class DropFillLines(Command):
+    """Every fill line a square holds taken out, with the nodes nothing else
+    holds - lines flattening drew across a lake to hold it flat, ``danu:fill``,
+    until the build held a lake at its level itself (#191). One command for a
+    square's all, its ways read once: N46E030's sea had 18,000 of them."""
+    ids: list[int]
+    gone: dict[int, Way] = field(default_factory=dict)
+    dropped: dict[int, Node] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return set(self.ids)
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.dropped), set(self.ids), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.dropped), {}, {}
+
+    def apply(self, square: Square) -> None:
+        self.gone = {wid: square.ways.pop(wid) for wid in self.ids if wid in square.ways}
+        used = {r for w in square.ways.values() for r in w.refs}
+        self.dropped = {r: square.nodes.pop(r) for w in self.gone.values() for r in w.refs
+                        if r not in used and r in square.nodes}
+
+    def undo(self, square: Square) -> None:
+        square.nodes.update(self.dropped)
+        square.ways.update(self.gone)
+        self.gone, self.dropped = {}, {}
+
+    def describe(self) -> str:
+        return f'remove {len(self.ids):,} fill line{"s" * (len(self.ids) != 1)}'
+
+
+def drop_fill_lines(square: Square) -> DropFillLines | None:
+    """The command that takes out a square's fill lines, or None when it
+    holds none."""
+    ids = sorted(wid for wid, w in square.ways.items() if 'danu:fill' in w.tags)
+    return DropFillLines(ids) if ids else None
+
+
 # ---------------------------------------------------------------- split
 
 def split_long_ways(square: Square, alloc: IdAllocator, limit: int = 2000) -> Compound | None:
