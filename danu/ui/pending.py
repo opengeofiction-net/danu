@@ -96,15 +96,8 @@ class Pending(QObject):
         self.runner(job)
 
     def _let_go(self, job: Job) -> None:
-        """A job answered, or the window closing: what it ran and its slots
-        dropped, as ``ZoneEditor.detach`` does - the pool keeps each job it
-        ran, and its slots held the window."""
-        job.fn = None
-        for signal in (job.signals.done, job.signals.failed):
-            try:
-                signal.disconnect()
-            except (RuntimeError, TypeError):
-                pass
+        """A job answered, or the window closing: let go of (``Job.release``)."""
+        job.release()
         if job in self._jobs:
             self._jobs.remove(job)
         if self.job is job:

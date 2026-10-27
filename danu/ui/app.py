@@ -426,6 +426,7 @@ class MainWindow(QMainWindow):
         # asked for, and the exact build less it worked out on a worker
         # where each zone square's water reaches, worked out once and kept
         self._zone_water_cache = cache_dir.parent / 'zone-water.json' if cache_dir else None
+        self._alongside_jobs: list[Job] = []
         self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None,
                                       url=self.settings.url('published/dem'), parent=self)
         self.published.ready.connect(self._published_ready)
@@ -1030,6 +1031,9 @@ class MainWindow(QMainWindow):
         self.fetcher.abort()
         self.zone_editor.detach()
         self.waiting.detach()
+        for job in self._alongside_jobs:        # each held this window, kept by the pool
+            job.release()
+        self._alongside_jobs.clear()
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
@@ -1711,8 +1715,9 @@ class MainWindow(QMainWindow):
 
         def failed(why):
             self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
-        self._alongside_job = Job(work, done, failed)
-        self._checks_runner(self._alongside_job)
+        job = Job(work, done, failed)
+        self._alongside_jobs.append(job)
+        self._checks_runner(job)
 
     def _offer_recovery(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
