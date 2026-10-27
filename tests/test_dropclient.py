@@ -102,6 +102,33 @@ def test_a_new_square_goes_up_with_its_label(world):
     assert answer.status == 201 and (there / 'N20E087_Artana.osm.xz').exists() and path == new
 
 
+def test_a_new_square_uploaded_without_a_label_keeps_its_name_here(world):
+    opener, here, there = world
+    new = here / 'N20E087_Artana.osm.xz'
+    new.write_bytes(osm(1))
+    answer, path = C.upload(API, 't-wangi', new, opener=opener)
+    assert answer.status == 201 and path == new and (there / new.name).exists()
+
+
+def test_unsent_is_what_the_server_has_not_as_it_is_here(world):
+    opener, here, there = world
+    city = here / 'N20E086_Gobras_City.osm.xz'
+    assert C.unsent(here) == {}, 'as imported'
+    city.write_bytes(osm(2))
+    (here / 'N20E087_Artana.osm.xz').write_bytes(osm(1))
+    (here / 'N20E086_Gobras_City.mine.osm.xz').write_bytes(osm(3))
+    assert C.unsent(here) == {SquareName.parse('N20E086'): (city, True),
+                              SquareName.parse('N20E087'): (here / 'N20E087_Artana.osm.xz', False)}
+    C.upload(API, 't-wangi', city, opener=opener)
+    C.upload(API, 't-wangi', here / 'N20E087_Artana.osm.xz', opener=opener)
+    assert C.unsent(here) == {}, 'each uploaded'
+    city.write_bytes(osm(2))                    # the same bytes written again: a new time, nothing to send
+    assert C.unsent(here) == {}
+    (here / mirror.MANIFEST).unlink()
+    city.write_bytes(osm(5))
+    assert C.unsent(here) == {}, 'a folder never imported to is not a copy of the server\'s'
+
+
 def test_a_square_held_there_never_imported_here_is_refused_unsent(world):
     opener, here, there = world
     (here / '.danu-mirror.json').unlink()

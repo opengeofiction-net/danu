@@ -119,6 +119,14 @@ square's.
 also autosaved as you work, and offered back if Danu is closed before they
 are saved.
 
+Each square's name on the map is followed by its marks: **\*** while it
+has edits not saved, **^** while its file is not what the server has - saved
+since your last import or upload, or never uploaded. The window's title
+has **\*** while any open square has unsaved edits, and **^** for the
+centre square's file. Only the folders an import made are marked. **File › Upload changed squares…**
+sends every **^** square of your imported zones, one after another, listed
+first for you to agree.
+
 **File › Upload square…** sends the open square to OpenGeofiction, where
 it is built into the elevation the night after. The status bar says first
 whether it is yours to upload: a square of your territory, or one you share

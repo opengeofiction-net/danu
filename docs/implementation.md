@@ -6033,6 +6033,21 @@ next import fetches nothing. A rename renames the file here as there, and
 keeps the manifest's version, the server's bytes being as they were. A
 delete leaves the copy here, the mapper's own, and the manifest forgets it.
 
+**What waits** (`danu/ui/pending.py`): each square's grid name, on the open
+set's frames and the zones map, is followed by `*` while it has unsaved
+edits and `^` while its file is not the server's - `dropclient.unsent`, the
+manifest's SHA-256 against the file, the stat matched first so an untouched
+file is not read, and a square the manifest doesn't know counted as unsent.
+The folders read are each zone's under the import folder and the open
+set's, on a worker, when the window opens, a set loads, a save lands, and
+after an import, upload or delete; `*` follows the edits as the title's
+does. Too small for a name, a degree has its marks alone at its middle.
+**File › Upload changed squares…** saves the open set first, as Upload
+does, lists the `^` squares, and uploads them in turn; one refused - changed
+there, or held there and never imported here - is left untouched and named,
+for the open square's Upload to sort out. A square new to the server goes
+up under its name here, not bare.
+
 **Refused** - 412 - the mapper's file is copied beside it as
 `<square>.mine.osm.xz`, which no listing reads as a square, and
 `Importer.refresh` fetches the zone without a question, putting the server's
