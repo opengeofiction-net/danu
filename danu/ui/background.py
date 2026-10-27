@@ -32,8 +32,25 @@ class Job(QRunnable):
         self.signals = Signals()
         self.signals.done.connect(on_done)
         self.signals.failed.connect(on_failed)
+        self._connected = [self.signals.done, self.signals.failed]
         if on_progress is not None:
             self.signals.progress.connect(on_progress)
+            self._connected.append(self.signals.progress)
+
+    def release(self) -> None:
+        """What it ran and its slots let go of - for a window closing. The
+        global QThreadPool keeps a reference to each job it ran, Job not being
+        auto-deleted, and a slot held through a connection is out of the
+        collector's sight: a job whose slots hold its window kept the window,
+        and every test's window was kept, the suite slowing as it went (#229).
+        Not from within one of its own signals."""
+        self.fn = None
+        for signal in self._connected:      # only those connected: PySide warns of the rest
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        self._connected = []
 
     def report(self, value) -> None:
         """Called by ``fn``, on the worker: the UI thread is told, queued."""

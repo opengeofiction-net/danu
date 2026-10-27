@@ -426,6 +426,7 @@ class MainWindow(QMainWindow):
         # asked for, and the exact build less it worked out on a worker
         # where each zone square's water reaches, worked out once and kept
         self._zone_water_cache = cache_dir.parent / 'zone-water.json' if cache_dir else None
+        self._alongside_job: Job | None = None
         self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None,
                                       url=self.settings.url('published/dem'), parent=self)
         self.published.ready.connect(self._published_ready)
@@ -1030,6 +1031,9 @@ class MainWindow(QMainWindow):
         self.fetcher.abort()
         self.zone_editor.detach()
         self.waiting.detach()
+        if self._alongside_job is not None:     # it held this window, kept by the pool
+            self._alongside_job.release()
+            self._alongside_job = None
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
@@ -1711,6 +1715,9 @@ class MainWindow(QMainWindow):
 
         def failed(why):
             self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
+        # the last set's let go of: one still out would answer into a set gone
+        if self._alongside_job is not None:
+            self._alongside_job.release()
         self._alongside_job = Job(work, done, failed)
         self._checks_runner(self._alongside_job)
 
