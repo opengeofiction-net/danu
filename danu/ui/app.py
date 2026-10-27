@@ -1715,8 +1715,11 @@ class MainWindow(QMainWindow):
 
         def failed(why):
             self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
+        # the last set's let go of: one still out answers into a set gone
+        for old in self._alongside_jobs:
+            old.release()
         job = Job(work, done, failed)
-        self._alongside_jobs.append(job)
+        self._alongside_jobs = [job]
         self._checks_runner(job)
 
     def _offer_recovery(self) -> None:

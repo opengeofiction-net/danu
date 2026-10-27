@@ -4,13 +4,17 @@ water read alongside a set as it opens)."""
 import gc
 import weakref
 
+import pytest
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication
 
 from danu.core.square import SquareName
 
 
-def test_a_closed_window_with_a_set_open_is_freed(qtbot, zone, tmp_path, territory_files):
+@pytest.mark.parametrize('pooled', [False, True], ids=['in place', 'on the pool'])
+def test_a_closed_window_with_a_set_open_is_freed(qtbot, zone, tmp_path, territory_files, pooled):
+    """In place, as the tests run the checks; on the pool, as the app does -
+    which keeps each job it ran. Two sets opened, so the first's is let go."""
     from danu.ui.app import MainWindow
     from danu.ui.config import load_layers
     from danu.ui.settings import Settings
@@ -21,11 +25,14 @@ def test_a_closed_window_with_a_set_open_is_freed(qtbot, zone, tmp_path, territo
     settings.import_root = tmp_path / 'import'
     w = MainWindow(load_layers(), cache_dir=None, settings=settings, territory_fetcher=fetcher)
     w.prompt_on_close = False
-    w._write_runner = w._checks_runner = lambda job: job.run()
+    if not pooled:
+        w._write_runner = w._checks_runner = lambda job: job.run()
     w.show()
     qtbot.waitExposed(w)
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         assert w.open_working_set(zone, SquareName(125, -24))
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.open_working_set(zone, SquareName(126, -24))
     QThreadPool.globalInstance().waitForDone(10000)
     QApplication.processEvents()
     gone = weakref.ref(w)

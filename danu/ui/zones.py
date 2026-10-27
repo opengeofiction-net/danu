@@ -472,7 +472,7 @@ class ZoneEditor(QObject):
         job's ``fn`` and connections are dropped here, which leaves the pool
         holding nothing of the window's."""
         for job in self._jobs:
-            job.release()                   # QThreadPool keeps a job it ran; what it ran held this
+            job.release()
         self._jobs.clear()
         self.window.map.browse = None
 
