@@ -101,7 +101,7 @@ def test_every_stage_is_named_and_documented():
             and not n.name.startswith('_')}
     stages = ['Grid', 'squares_with_constraints', 'grid_for', 'is_staging', 'lines_osmconf',
               'check_long_ways', 'collect', 'rasterise', 'drawn_area',
-              'water_areas', 'water_mask', 'lake_rings', 'lake_polygon', 'interpolate', 'clamp', 'first_pass_classes',
+              'water_areas', 'water_mask', 'lake_rings', 'backwards_coasts', 'lake_polygon', 'interpolate', 'clamp', 'first_pass_classes',
               'first_pass_reading']
     assert set(stages) <= set(defs), f'stages missing from build.py: {set(stages) - set(defs)}'
     # not stages: the result, the entry points, and what the fill is allowed
