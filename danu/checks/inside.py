@@ -778,9 +778,10 @@ class Index:
             del found[key]
         for key in [k for k in found if k[0] == 'lake' and k[1] not in s.bodies]:
             del found[key]
-        # the coast's findings again whole - a ring is asked only of the
-        # lines edited unless it was itself, the open chains summed from the
-        # votes kept, and rings and chains are few
+        # the coast's findings again, every ring and way of it: a ring not
+        # itself edited is asked only of the lines edited, against what it
+        # held, and the open ways are summed from the votes kept - few rings,
+        # cheap each, against a whole scan
         for key in [k for k in found if k[0] == 'coast']:
             del found[key]
         found.update(_coast_findings(s, None if coast_edited else way_ids))
