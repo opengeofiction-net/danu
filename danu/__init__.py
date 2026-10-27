@@ -6,7 +6,7 @@ editor and is the only part which imports PySide6.
 
 # The one version: pyproject.toml reads it from here, debian/changelog says
 # the same (tests/test_version.py), and a release is tagged with it.
-__version__ = "1.3.5"
+__version__ = "1.4.0"
 
 import sys as _sys
 
