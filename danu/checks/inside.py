@@ -256,7 +256,7 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
 
 
 def _signed(X, Y) -> float:
-    """Twice a ring's signed area in degrees: positive anticlockwise."""
+    """Twice a ring's signed area in square degrees: positive anticlockwise."""
     return float(np.dot(X[:-1], Y[1:]) - np.dot(X[1:], Y[:-1]))
 
 
@@ -296,7 +296,9 @@ def _coasts(square) -> dict:
                  and b[2] <= box[2] and b[3] <= box[3]]
         ring_refs = [refs, *(r for r, _, _ in holes)]
         all_rings = [(X, Y), *((x, y) for _, x, y in holes)]
-        key = ('coast', mine[0] if mine else int(refs[0]))
+        if not mine:
+            continue                       # a ring is its ways' to list, and has none of its own
+        key = ('coast', mine[0])
         listed = ', '.join(str(i) for i in mine[:3]) + (f' and {len(mine) - 3} more' if len(mine) > 3 else '')
         what = f'coastline, way{"s" * (len(mine) != 1)} {listed}'
         out[key] = _Body(key, 0.0, all_rings, np.unique(np.array([r for rr in ring_refs for r in rr], dtype=np.int64)),
@@ -531,7 +533,7 @@ class _Square:
                'round land - the build reads everything it holds as sea, down to the contour lines. '
                'Select each of its ways and R reverses it')
         X, Y = body.rings[0]
-        return _each_way(self.square.name, body.ways or {body.key[1]}, reason, why,
+        return _each_way(self.square.name, body.ways, reason, why,
                          float(X[len(X) // 2]), float(Y[len(Y) // 2]), tuple(map(float, body.box)))
 
     def _land_round(self, body) -> int:
@@ -743,6 +745,8 @@ class Index:
             s.coasts = _coasts(square)
             s.held = {k: v for k, v in s.held.items() if k in s.bodies or k in s.coasts}
             s.coast_ids = coast_ways(square)
+            # every contour's votes again, a coastline having moved under
+            # them: 0.6 s on huz's S54E079, its coast edited a way at a time
             s.sides = _Sides(square)
             s.side_votes = ({i: s.sides.votes(ln) for i, ln in s.lines.items() if i not in s.coast_ids}
                             if not s.sides.empty else {})

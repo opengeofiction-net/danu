@@ -366,7 +366,7 @@ def _holds_water(path: Path) -> bool:
 def _holds(path: Path, words, chunk: int = 1 << 20) -> bool:
     """Whether a square names a tag value at all, quoted either way - read a
     chunk at a time, as the long-way guard is, and not parsed: most squares
-    away from a coast name no water."""
+    away from a coast name neither water nor a coastline."""
     tail = b''
     with (lzma.open(path, 'rb') if path.suffix == '.xz' else open(path, 'rb')) as fh:
         while block := fh.read(chunk):
@@ -519,6 +519,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     first = True
     before = 0
     lakes, spanned, backwards = [], 0, []
+    global _last_parsed
+    _last_parsed = (None, None)              # nor one held from a build that stopped partway
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
                               # A square whose in-memory database exceeds
                               # OSM_MAX_TMPFILE_SIZE (100 MB) spills to disk.
@@ -646,7 +648,6 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         f.SetField('osm_id', key)
         out.CreateFeature(f)
     out = None
-    global _last_parsed
     _last_parsed = (None, None)              # not a square held past the read
     if lakes or spanned:
         log(f'  {len(lakes)} lakes held at their level'
