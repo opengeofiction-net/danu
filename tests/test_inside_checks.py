@@ -324,6 +324,9 @@ def test_a_coastline_drawn_clockwise_round_land_is_listed_and_reversing_it_takes
         other = b.id if f.way == a.id else a.id
         assert f.describe().startswith(f'coastline, way {f.way}, drawn end to end with {other} - ')
         assert 'clockwise round 2 contours above sea level, up to 100 m' in f.describe()
+    for f in found:                                                  # each at its own way
+        mid = sq.nodes[sq.ways[f.way].refs[len(sq.ways[f.way].refs) // 2]]
+        assert (f.lon, f.lat) == (mid.lon, mid.lat)
     index = inside.Index(w)
     assert sorted(x.way for x in index.findings('coast')) == sorted([a.id, b.id])
     for way in (a, b):

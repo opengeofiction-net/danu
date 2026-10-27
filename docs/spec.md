@@ -198,8 +198,9 @@ Numbered from R36 because the earlier numbers are cited from the code.
   than a warning: plenty of rings are the foot of a slope, not a summit.
 - **R47** A coastline drawn backwards, whose land the build would read as
   sea: a ring clockwise round contours above sea level, or round nothing
-  without land on three sides of it, or an open stretch with the contours
-  beside it on its right. The build's log names it too.
+  with land in fewer than three of the four quarters round it, or an open
+  stretch with the contours beside it on its right. The build's log names
+  it too.
 
 ### Platform
 

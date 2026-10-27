@@ -28,8 +28,9 @@
   island runs across 79 E, each square holding two open halves, its node ids
   its own - is judged by its sides instead: the contour vertices within
   ``SIDE_M`` of it, by the side of the coastline segment nearest each. Land
-  is on a coastline's left; an open chain with nearly all of it on the right
-  is drawn backwards. Only so near: a contour a kilometre off is as likely
+  is on a coastline's left, a vertex above 0 m being land and below it sea,
+  and one at 0 m the shore itself and no vote; an open chain with nearly all
+  of it on the right is drawn backwards. Only so near: a contour a kilometre off is as likely
   the far shore of a strait, nearest this coast across the water.
 
 A contour is inside a ring when a vertex of it is, by crossings of a ray with
@@ -352,7 +353,7 @@ class _Sides:
                 continue
             mine = [w.id]
             k = len(self.keys)
-            self.keys.append(('coast', mine[0] if mine else int(chain[0])))
+            self.keys.append(('coast', w.id))
             self.ways.append(set(mine))
             listed = ', '.join(str(i) for i in mine[:3]) + (f' and {len(mine) - 3} more' if len(mine) > 3 else '')
             self.what.append(f'coastline, way{"s" * (len(mine) != 1)} {listed}')
@@ -538,9 +539,18 @@ class _Square:
         why = ('a coastline keeps land on its left and sea on its right, and this one runs clockwise '
                'round land - the build reads everything it holds as sea, down to the contour lines. '
                'Select each of its ways and R reverses it')
+        # each way's row at the way's own middle, not the ring's: chosen, the
+        # map goes to the way that R will reverse
+        nodes, ways = self.square.nodes, self.square.ways
+        at = {}
+        for wid in body.ways:
+            refs = [r for r in ways[wid].refs if r in nodes] if wid in ways else []
+            if refs:
+                n = nodes[refs[len(refs) // 2]]
+                at[wid] = (float(n.lon), float(n.lat))
         X, Y = body.rings[0]
         return _each_way(self.square.name, body.ways, reason, why,
-                         float(X[len(X) // 2]), float(Y[len(Y) // 2]), tuple(map(float, body.box)))
+                         float(X[len(X) // 2]), float(Y[len(Y) // 2]), tuple(map(float, body.box)), at)
 
     def _land_round(self, body) -> int:
         """On how many sides of four - by the direction from its middle - a
@@ -596,7 +606,7 @@ class _Square:
             pts = np.concatenate([self.sides.A[seg], self.sides.B[seg[-1:]]])
             box = (pts[:, 0].min() / self.sides.kx, pts[:, 1].min() / self.sides.ky,
                    pts[:, 0].max() / self.sides.kx, pts[:, 1].max() / self.sides.ky)
-            out.update(_each_way(self.square.name, self.sides.ways[chain] or {self.sides.keys[chain][1]},
+            out.update(_each_way(self.square.name, self.sides.ways[chain],
                                  reason, why, float(mid[0] / self.sides.kx), float(mid[1] / self.sides.ky),
                                  tuple(map(float, box))))
         return out
@@ -647,16 +657,18 @@ def _coast_findings(sq: _Square, only=None) -> dict:
     return out
 
 
-def _each_way(square, ways, reason, why, lon, lat, box) -> dict:
+def _each_way(square, ways, reason, why, lon, lat, box, at=None) -> dict:
     """A finding a way, each its own row to select and reverse, keyed
-    ('coast', way id), naming the others it is drawn end to end with."""
+    ('coast', way id), naming the others it is drawn end to end with; at its
+    own point in ``at`` when given, (lon, lat) otherwise."""
     out = {}
     for wid in sorted(ways):
+        here = (at or {}).get(wid, (lon, lat))
         others = sorted(ways - {wid})
         also = (f', drawn end to end with {", ".join(map(str, others[:3]))}'
                 + (f' and {len(others) - 3} more' if len(others) > 3 else '')) if others else ''
         out[('coast', wid)] = Finding(square, 'coast', f'coastline, way {wid}{also} - {reason}', why,
-                                      lon, lat, box, way=wid)
+                                      *here, box, way=wid)
     return out
 
 
