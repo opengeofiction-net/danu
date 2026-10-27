@@ -1,6 +1,6 @@
 """What waits on the mapper, square by square: ``*`` edits not saved, ``^``
 saved but not uploaded - the file is not the version the server has, or
-the server never had it from here (``dropclient.unsent``).
+this folder never had it from the server (``dropclient.unsent``).
 
 The marks follow each square's grid name, on the open set's frames and on
 the zones map alike; the window's title has ``*`` for the set and ``^`` for
@@ -54,6 +54,8 @@ class Pending(QObject):
         self._jobs: list[Job] = []          # every one run, for detach
 
     def dirs(self) -> list[Path]:
+        """Every folder under the import folder, and the set's: ``unsent``
+        is the filter, saying nothing of one without a manifest."""
         w = self.window
         out = []
         root = w.settings.import_root
@@ -74,7 +76,10 @@ class Pending(QObject):
         def done(found):
             self.job = None
             self.unsent = found
-            self.changed.emit()
+            try:
+                self.changed.emit()
+            except RuntimeError:
+                return                      # the window went while it read
             if self._again:
                 self._again = False
                 self.refresh()

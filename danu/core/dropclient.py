@@ -124,10 +124,10 @@ def unsent(zone_dir: Path) -> dict[SquareName, tuple[Path, bool]]:
 
 def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int, stat: list[int]) -> Path:
     """The manifest, and the file's name here, as the server now has them.
-    ``stat`` is that of the bytes uploaded: a save landing while they
-    went up leaves a file that doesn't match it, still to send - taken
-    after, it vouched for edits the server never had, and an import would
-    overwrite them unasked."""
+    The caller passes ``stat`` as that of the bytes it uploaded: a save
+    landing while they went up leaves a file that doesn't match it, still
+    to send - taken after, it vouched for edits the server never had, and
+    an import would overwrite them unasked."""
     new = zone_dir / new_name
     if new != old:
         os.replace(old, new)
