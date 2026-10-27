@@ -373,7 +373,7 @@ def _holds(path: Path, words, chunk: int = 1 << 20) -> bool:
             text = tail + block
             if any(w in text for w in words):
                 return True
-            tail = text[-16:]
+            tail = text[-16:]                # longer than any word asked, 'coastline' quoted the longest
     return False
 
 

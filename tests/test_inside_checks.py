@@ -365,7 +365,7 @@ def test_an_empty_clockwise_islet_is_listed_unless_land_lies_all_round_it():
     assert f.way == islet.id and 'clockwise round nothing, open water round it' in f.describe()
     line(sq, [(125.29, -22.3025), (125.3, -22.3025), (125.31, -22.3025)], 10)   # a shore 55 m south
     (f,) = kinds(w, 'coast')
-    assert 'drawn clockwise round nothing, land beside it on 1 side only' in f.describe()
+    assert 'drawn clockwise round nothing, land beside it in 1 of the four quarters round it only' in f.describe()
     line(sq, square_ring(125.3, -22.3, 0.003), 20)                   # and land all round
     assert kinds(w, 'coast') == []
 

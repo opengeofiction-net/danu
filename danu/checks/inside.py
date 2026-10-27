@@ -22,8 +22,9 @@
   coast, and is left alone when land lies round it, on three sides or four;
   with open water round it, it is an islet drawn backwards - 18 of the 23
   empty clockwise rings on util, against 1,388 empty anticlockwise ones. An
-  island inside a clockwise ring, its own coast anticlockwise, is a hole in
-  it. A coastline is never itself the land: huz draws its coast at ele=1. A coast that is no ring in its square - huz's
+  island inside a clockwise ring, its own coast anticlockwise and its ways
+  agreeing, is a hole in it. A coastline is never itself the land: huz
+  draws its coast at ele=1. A coast that is no ring in its square - huz's
   island runs across 79 E, each square holding two open halves, its node ids
   its own - is judged by its sides instead: the contour vertices within
   ``SIDE_M`` of it, by the side of the coastline segment nearest each. Land
@@ -264,7 +265,7 @@ def coast_ways(square) -> set[int]:
     return {w.id for w in square.ways.values() if w.tags.get('natural') == 'coastline'}
 
 
-def _coasts(square) -> dict:
+def _coasts(square) -> tuple[dict, set]:
     """The coastline ways closed on themselves and drawn clockwise, each as
     a body at 0 m whose rings are its own and the anticlockwise ones inside
     it - islands in it, holes under even-odd. Keyed ('coast', its id).
@@ -274,7 +275,11 @@ def _coasts(square) -> dict:
     own, and stitching turns a way to run on from the one before - one of
     huz's two halves reversed, the other was turned to match it and dropped
     off the list. Those ways are judged each by its sides, as every way
-    that is not a ring of its own is too."""
+    that is not a ring of its own is too. So is an island drawn in ways that
+    disagree: it is no hole in a ring round it.
+
+    And the ways of the rings taken, either way round, which are judged as
+    rings and not by their sides as well."""
     ways = [square.ways[i] for i in sorted(coast_ways(square))]
     rings = []
     for refs in closed_rings([w.refs for w in ways]):
@@ -287,6 +292,7 @@ def _coasts(square) -> dict:
         X, Y = np.array([p.lon for p in pts]), np.array([p.lat for p in pts])
         rings.append((refs, X, Y, _box(X, Y), _signed(X, Y)))
     out = {}
+    ringed = {w.id for refs, *_ in rings for w in ways if set(w.refs) <= set(refs)}
     for refs, X, Y, box, area in rings:
         if area >= 0:
             continue
@@ -298,13 +304,13 @@ def _coasts(square) -> dict:
         all_rings = [(X, Y), *((x, y) for _, x, y in holes)]
         if not mine:
             continue                       # a ring is its ways' to list, and has none of its own
-        key = ('coast', mine[0])
+        key = ('coast', int(refs[0]))            # by its own node: a way can lie on two rings
         listed = ', '.join(str(i) for i in mine[:3]) + (f' and {len(mine) - 3} more' if len(mine) > 3 else '')
         what = f'coastline, way{"s" * (len(mine) != 1)} {listed}'
         out[key] = _Body(key, 0.0, all_rings, np.unique(np.array([r for rr in ring_refs for r in rr], dtype=np.int64)),
                          set(mine), box, what, np.array([_box(x, y) for x, y in all_rings]),
                          [_chunks(x, y) for x, y in all_rings])
-    return out
+    return out, ringed
 
 
 SIDE_M = 250.0                   # how near an open coast a contour vertex says which side its land is
@@ -330,8 +336,8 @@ class _Sides:
     of it the land is. In metres about the square's middle latitude, the
     segments by cells of ``SIDE_M``."""
 
-    def __init__(self, square):
-        ways = [square.ways[i] for i in sorted(coast_ways(square))]
+    def __init__(self, square, ringed=()):
+        ways = [square.ways[i] for i in sorted(coast_ways(square)) if i not in ringed]
         lat0 = getattr(square.name, 'lat', 0) + 0.5
         self.kx, self.ky = 111320 * math.cos(math.radians(lat0)), 110540.0
         self.keys, self.ways, self.what = [], [], []
@@ -432,9 +438,9 @@ class _Square:
             if ln is not None:
                 self.lines[w.id] = ln
         self.bodies = _bodies(square)
-        self.coasts = _coasts(square)
+        self.coasts, ringed = _coasts(square)
         self.coast_ids = coast_ways(square)
-        self.sides = _Sides(square)
+        self.sides = _Sides(square, ringed)
         self.side_votes = ({i: self.sides.votes(ln) for i, ln in self.lines.items() if i not in self.coast_ids}
                            if not self.sides.empty else {})
         self.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
@@ -527,8 +533,8 @@ class _Square:
             if sides >= 3:
                 return {}                          # a pond in the land, drawn as coast
             reason = ('drawn clockwise round nothing, open water round it' if not sides else
-                      f'drawn clockwise round nothing, land beside it on {sides} side{"s" * (sides != 1)} '
-                      'only') + ' - an islet drawn backwards'
+                      f'drawn clockwise round nothing, land beside it in {sides} of the four quarters '
+                      'round it only') + ' - an islet drawn backwards'
         why = ('a coastline keeps land on its left and sea on its right, and this one runs clockwise '
                'round land - the build reads everything it holds as sea, down to the contour lines. '
                'Select each of its ways and R reverses it')
@@ -742,12 +748,12 @@ class Index:
         # or redrawn, each ring it is in is asked whole again
         coast_edited = bool(way_ids & (coast_ways(square) | {i for b in coasts_before for i in b.ways}))
         if coast_edited:
-            s.coasts = _coasts(square)
+            s.coasts, ringed = _coasts(square)
             s.held = {k: v for k, v in s.held.items() if k in s.bodies or k in s.coasts}
             s.coast_ids = coast_ways(square)
             # every contour's votes again, a coastline having moved under
             # them: 0.6 s on huz's S54E079, its coast edited a way at a time
-            s.sides = _Sides(square)
+            s.sides = _Sides(square, ringed)
             s.side_votes = ({i: s.sides.votes(ln) for i, ln in s.lines.items() if i not in s.coast_ids}
                             if not s.sides.empty else {})
         elif not s.sides.empty:
