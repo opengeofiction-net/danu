@@ -122,15 +122,18 @@ def unsent(zone_dir: Path) -> dict[SquareName, tuple[Path, bool]]:
     return out
 
 
-def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int) -> Path:
-    """The manifest, and the file's name here, as the server now has them."""
+def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int, stat: list[int]) -> Path:
+    """The manifest, and the file's name here, as the server now has them.
+    ``stat`` is the file's as its bytes were read: a save landing while they
+    went up leaves a file that doesn't match it, still to send - taken
+    after, it vouched for edits the server never had, and an import would
+    overwrite them unasked."""
     new = zone_dir / new_name
     if new != old:
         os.replace(old, new)
     manifest = mirror.read_manifest(zone_dir)
     manifest.pop(old.name, None)
-    st = new.stat()
-    manifest[new_name] = {'sha256': sha, 'server': [size, sha], 'stat': [st.st_size, st.st_mtime_ns]}
+    manifest[new_name] = {'sha256': sha, 'server': [size, sha], 'stat': stat}
     mirror.write_manifest(zone_dir, manifest)
     return new
 
@@ -193,11 +196,13 @@ def upload(api: str, token: str, path: Path, label: str | None = None,
         if label is None:
             label = label_of(path) or None      # new there: the name it has here, not none
     query = '' if label is None else '?' + urllib.parse.urlencode({'label': label})
+    st = path.stat()
     data = path.read_bytes()
     answer = _ask('PUT', f'{api.rstrip("/")}/squares/{square.name}{query}', token, opener, data,
                   {**headers, 'Content-Type': 'application/x-xz'})
     if answer.ok:
-        path = _record(zone_dir, path, str(answer.body['file']), str(answer.body['sha256']), len(data))
+        path = _record(zone_dir, path, str(answer.body['file']), str(answer.body['sha256']), len(data),
+                       [st.st_size, st.st_mtime_ns])
     return answer, path
 
 

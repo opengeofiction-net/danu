@@ -4,6 +4,7 @@ uploads, renames and deletes as the editor makes them."""
 
 import email.message
 import io
+import os
 import urllib.error
 
 import pytest
@@ -107,7 +108,23 @@ def test_a_new_square_uploaded_without_a_label_keeps_its_name_here(world):
     new = here / 'N20E087_Artana.osm.xz'
     new.write_bytes(osm(1))
     answer, path = C.upload(API, 't-wangi', new, opener=opener)
-    assert answer.status == 201 and path == new and (there / new.name).exists()
+    assert answer.status == 201 and answer.body['file'] == new.name and path == new
+    assert (there / new.name).exists() and new.name in C.mirror.read_manifest(here)
+
+
+def test_a_save_landing_while_the_upload_goes_is_still_to_send(world):
+    opener, here, there = world
+    city = here / 'N20E086_Gobras_City.osm.xz'
+    city.write_bytes(osm(2))
+
+    def saved_meanwhile(req, timeout):
+        if req.get_method() == 'PUT':
+            city.write_bytes(osm(3))                        # the mapper's save, while the bytes go up
+            os.utime(city, ns=(1, 1))
+        return opener(req, timeout=timeout)
+    answer, _ = C.upload(API, 't-wangi', city, opener=saved_meanwhile)
+    assert answer.ok and (there / city.name).read_bytes() == osm(2)
+    assert C.unsent(here) == {SquareName.parse('N20E086'): (city, True)}, 'the save is not taken as sent'
 
 
 def test_unsent_is_what_the_server_has_not_as_it_is_here(world):

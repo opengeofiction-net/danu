@@ -81,6 +81,9 @@ class Pending(QObject):
 
         def failed(_why):
             self.job = None
+            if self._again:
+                self._again = False
+                self.refresh()
         for old in list(self._jobs):        # those answered, let go of here: not in their own signal
             self._let_go(old)
         job = self.job = Job(lambda: scan(dirs), done, failed)
