@@ -1,3 +1,42 @@
+danu (1.4.0-1) unstable; urgency=medium
+
+  * Water held where most of it lies: an import places each water feature
+    in the zone's square holding most of its nodes, open or not, and moves
+    it when that changes; relations sharing a ring are held together, and
+    copies left elsewhere by earlier imports go (#278). Recovered copies on
+    a water relation with no level give it theirs and go (#280).
+  * Water held outside the set but reaching into it is read alongside the
+    set as it opens: drawn and edited as the set's, saved in its home
+    (#279).
+  * Build and preview: a lake with a level of its own is held flat at it,
+    burned whole into the constraints; water at 0 m is no longer striped at
+    1 m (#282, #283). Flatten draws no fill lines, and opening a set takes
+    old ones out (#284).
+  * Push back crossings (Shift+P): a recovered contour stepping over the
+    line at the next level is pushed back off it; flatten pushes what it
+    can of the next level round a lake and cuts only where there is no room
+    (#274, #276). Flatten of a large estuary takes seconds, on a worker
+    (#275).
+  * Validation: coastlines drawn backwards, which the build reads as land
+    turned to sea, are listed (R47); the build warns of them too (#289).
+    The inside-the-rings check asks a many-ringed sea quickly (#281).
+  * Squares marked on the map: * unsaved, ^ saved but not uploaded, on the
+    open set and the zones map, and in the title. File > Upload changed
+    squares... sends every ^ square in turn. A new square keeps its name
+    when first uploaded (#292).
+  * A square's name shown in the title bar and under its grid name on both
+    maps (#273).
+  * Speed: edits near a summit ringed by many contours no longer hold the
+    window - insert, move and delete a node in under half a second on
+    sangria, not 8 s (#290); absorb, drawing and picking on large sets
+    (#286, #287).
+  * A closed window is freed again; it was kept after a set had been
+    opened (#293).
+  * Server: the build holds level water and lakes as above, and warns of
+    backwards coastlines (#282, #283, #289).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Tue, 27 Oct 2026 20:15:55 +0000
+
 danu (1.3.5-1) unstable; urgency=medium
 
   * Absorb (E): a contour and the pieces of it beside it made one line -
