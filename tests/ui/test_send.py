@@ -11,6 +11,7 @@ pytest.importorskip('PySide6')
 pytest.importorskip('fcntl', reason='the data drop is the server\'s: no fcntl here')
 
 from danu.core import mirror, territory
+from danu.core.square import SquareName
 from danu.drop import app as A
 from tests.test_drop import fake_users, osm, sha
 from tests.test_dropclient import API, InProcess
@@ -85,6 +86,50 @@ def test_refused_the_copy_is_kept_theirs_imported_and_drawn(w, zone, qtbot):
     qtbot.waitUntil(lambda: w.reference.square is not None, timeout=10000)
     w.drop_actions['drop.discard'].trigger()
     assert not kept.exists() and w.reference.square is None and not w.drop_actions['drop.discard'].isEnabled()
+
+
+def test_each_square_is_marked_unsaved_and_not_uploaded_and_the_changed_all_uploaded(w, zone, qtbot):
+    from danu.core import edits
+    centre, east = SquareName(125, -24), SquareName(126, -24)
+    assert w.squares.marks == {east: '^'}, 'Tenmetre is not on the server'
+    (zone / GOLDEN).write_bytes(osm(2))                      # saved, not uploaded
+    w.waiting.refresh()
+    assert w.squares.marks == {centre: '^', east: '^'} and w.windowTitle().endswith(' ^')
+    sq = w.working_set.squares[centre]
+    alloc = edits.IdAllocator(sq)
+    w.editor.history.do(sq, edits.AddWay(alloc.take(), [alloc.take(), alloc.take()],
+                                         [(125.1, -23.9), (125.2, -23.9)], {'ele': '700'}))
+    w._edited()
+    assert w.squares.marks[centre] == '*^' and w.windowTitle().endswith(' *^')
+    # beyond the open set, the zones map marks them
+    assert w.zone_editor.item.marks == w.squares.marks
+    asked = []
+    w.sender.confirm = lambda title, text: asked.append(text) or True
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert 'Upload 2 squares' in asked[-1] and 'S24E126_Tenmetre.osm.xz - not had from the server' in asked[-1]
+    assert (w.there / GOLDEN).read_bytes() == (zone / GOLDEN).read_bytes(), 'saved first, then sent'
+    assert (w.there / 'S24E126_Tenmetre.osm.xz').exists(), 'its own name kept'
+    assert '2 squares uploaded' in ' '.join(w.messages)
+    qtbot.waitUntil(lambda: not w.squares.marks, timeout=5000)
+    assert not w.windowTitle().endswith('^')
+
+
+def test_a_changed_square_refused_is_left_and_named_and_the_rest_sent(w, zone):
+    (w.there / GOLDEN).write_bytes(osm(4))                   # somebody else's went up first
+    (zone / GOLDEN).write_bytes(osm(2))
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert (zone / GOLDEN).read_bytes() == osm(2) and (w.there / GOLDEN).read_bytes() == osm(4)
+    assert not list(zone.glob('*.mine.osm.xz')), 'nothing kept aside: the open square\'s Upload does that'
+    assert (w.there / 'S24E126_Tenmetre.osm.xz').exists()
+    assert '1 square uploaded' in w.messages[-1] and 'S24E125' in w.messages[-1]
+    assert w.squares.marks == {SquareName(125, -24): '^'}
+
+
+def test_nothing_changed_nothing_is_sent(w, zone):
+    (zone / 'S24E126_Tenmetre.osm.xz').unlink()
+    w.waiting.refresh()
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert w.messages[-1] == 'nothing to upload: every square here is as the server has it'
 
 
 def test_rename_renames_there_and_here(w, zone, qtbot):

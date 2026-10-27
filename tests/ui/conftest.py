@@ -124,6 +124,7 @@ def not_an_appimage(monkeypatch, tmp_path):
 @pytest.fixture
 def window(qtbot, zone, tmp_path, territory_files):
     settings = Settings(tmp_path / 'danu.ini')
+    settings.import_root = tmp_path / 'import'          # not the machine's own squares, read for their marks
     fetcher = TerritoryFetcher(tmp_path / 'tcache', geometry_url=(territory_files / 'territory.json').as_uri(),
                                attributes_url=(territory_files / 'admin.json').as_uri())
     w = MainWindow(load_layers(), cache_dir=None, settings=settings, territory_fetcher=fetcher)
@@ -133,6 +134,7 @@ def window(qtbot, zone, tmp_path, territory_files):
     # them on their workers
     w._write_runner = lambda job: job.run()
     w._checks_runner = lambda job: job.run()
+    w.waiting.runner = lambda job: job.run()
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)

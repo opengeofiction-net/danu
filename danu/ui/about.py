@@ -97,14 +97,15 @@ def icon() -> QIcon:
     return out
 
 
-def title(centre=None, dirty: bool = False, label: str = '') -> str:
+def title(centre=None, dirty: bool = False, label: str = '', unsent: bool = False) -> str:
     """The window's title: the version always, the working set's centre when
-    there is one, with its name if it has one, and a star while it has edits
-    not saved."""
+    there is one, with its name if it has one, a star while it has edits
+    not saved, and a ^ while its file is not uploaded."""
     t = f'Danu {__version__}'
     if centre is not None:
         t += f' - {centre}' + (f' {label}' if label else '')
-    return t + (' *' if dirty else '')
+    mark = ('*' if dirty else '') + ('^' if unsent else '')
+    return t + (f' {mark}' if mark else '')
 
 
 if __name__ == '__main__':                # python -m danu.ui.about: the versions, for a terminal report

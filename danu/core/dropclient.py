@@ -37,7 +37,7 @@ from pathlib import Path
 
 from .. import USER_AGENT
 from . import mirror
-from .square import SquareName
+from .square import SquareName, label_of, list_squares
 
 TIMEOUT_S = 300                 # the largest square takes a while to go up, and to be read through there
 MINE = '.mine.osm.xz'
@@ -101,15 +101,39 @@ def _version(zone_dir: Path, path: Path) -> str | None:
     return known.get('sha256')
 
 
-def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int) -> Path:
-    """The manifest, and the file's name here, as the server now has them."""
+def unsent(zone_dir: Path) -> dict[SquareName, tuple[Path, bool]]:
+    """The squares here the server doesn't have as they are: each one's file,
+    and True when it was had from the server and saved since, False when the
+    manifest doesn't know it - new here, deleted there, or edited before
+    Danu 1.3. A file as the manifest has it is not read again. A folder
+    never imported to has no manifest and nothing to say: it is not a copy
+    of the server's."""
+    zone_dir = Path(zone_dir)
+    if not (zone_dir / mirror.MANIFEST).exists():
+        return {}
+    manifest = mirror.read_manifest(zone_dir)
+    out = {}
+    for square, path in list_squares(zone_dir, compressed_only=True).items():
+        known = manifest.get(path.name) or {}
+        if not known.get('sha256'):
+            out[square] = (path, False)
+        elif mirror._hash_here(path, known) != known['sha256']:
+            out[square] = (path, True)
+    return out
+
+
+def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int, stat: list[int]) -> Path:
+    """The manifest, and the file's name here, as the server now has them.
+    The caller passes ``stat`` as that of the bytes it uploaded: a save
+    landing while they went up leaves a file that doesn't match it, still
+    to send - taken after, it vouched for edits the server never had, and
+    an import would overwrite them unasked."""
     new = zone_dir / new_name
     if new != old:
         os.replace(old, new)
     manifest = mirror.read_manifest(zone_dir)
     manifest.pop(old.name, None)
-    st = new.stat()
-    manifest[new_name] = {'sha256': sha, 'server': [size, sha], 'stat': [st.st_size, st.st_mtime_ns]}
+    manifest[new_name] = {'sha256': sha, 'server': [size, sha], 'stat': stat}
     mirror.write_manifest(zone_dir, manifest)
     return new
 
@@ -153,7 +177,8 @@ def upload(api: str, token: str, path: Path, label: str | None = None,
     """The square at ``path`` uploaded, from the version the manifest has -
     or, ``over``, replacing that version of the server's, asked. ``label``
     None keeps the server's name for it; '' takes the label away. Answers
-    what the drop said, and where the square is here now."""
+    what the drop said, and where the square is here now. A square new to
+    the server keeps its name here unless ``label`` says otherwise."""
     path = Path(path)
     zone_dir, square = path.parent, SquareName.from_filename(path)
     base = over or _version(zone_dir, path)
@@ -168,12 +193,17 @@ def upload(api: str, token: str, path: Path, label: str | None = None,
             return Answer(412, {'error': f'{square} is held on the server, and this copy was not imported from it',
                                 'unimported': True, 'held': info.body['held']}, info.etag), path
         headers = {'If-None-Match': '*'}
+        if label is None:
+            label = label_of(path) or None      # new there: the name it has here, not none
     query = '' if label is None else '?' + urllib.parse.urlencode({'label': label})
-    data = path.read_bytes()
+    # the stat of the very bytes read: a save replaces the file whole
+    with open(path, 'rb') as f:
+        st, data = os.fstat(f.fileno()), f.read()
     answer = _ask('PUT', f'{api.rstrip("/")}/squares/{square.name}{query}', token, opener, data,
                   {**headers, 'Content-Type': 'application/x-xz'})
     if answer.ok:
-        path = _record(zone_dir, path, str(answer.body['file']), str(answer.body['sha256']), len(data))
+        path = _record(zone_dir, path, str(answer.body['file']), str(answer.body['sha256']), len(data),
+                       [st.st_size, st.st_mtime_ns])
     return answer, path
 
 

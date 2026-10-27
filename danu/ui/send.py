@@ -14,6 +14,12 @@ A square the server holds that was never imported here - edited before Danu
 anybody else made: the mapper is asked whether to replace the server's copy,
 told when it last changed, and the server keeps the one replaced.
 
+Upload changed squares sends every square here the server doesn't have as
+it is - the ``^`` squares (``pending.py``), of every zone imported - one
+after another, asked first with them listed. One refused is left as it is
+and named: changed on the server since, or held there and never imported
+here, it is the open square's Upload that sorts it out.
+
 Revert square to the server's throws the open square's changes here away -
 unsaved, and saved but not uploaded - and takes the server's copy, or the
 saved file where the server has none. Other squares of the set with unsaved
@@ -33,6 +39,7 @@ from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
 
 from ..core import dropclient
 from ..core.square import LABEL, SquareName, label_of
+from . import pending
 from .background import Job
 
 
@@ -140,6 +147,7 @@ class Sender(QObject):
     def _failed(self, why: str) -> None:
         self.job = None
         self.message.emit(f'the drop not reached: {why.splitlines()[0]}')
+        self.window.waiting.refresh()          # an upload of several stopped part way
 
     def _changed(self, square: SquareName, path: Path) -> None:
         """Refused, made from a version since changed: the mapper's kept, the
@@ -166,6 +174,7 @@ class Sender(QObject):
     def _asked_again(self) -> None:
         self.window._drop_asked = None
         self.window.show_ground()
+        self.window.waiting.refresh()
 
     # ------------------------------------------------------------ actions
     def upload(self) -> None:
@@ -196,6 +205,70 @@ class Sender(QObject):
             else:
                 self.message.emit(f'{square} not uploaded: {reply.why}')
         self._run(lambda: dropclient.upload(api, token, path, over=over, **self._kw()), done)
+
+    def upload_changed(self) -> None:
+        """Every square here not as the server has it, uploaded in turn -
+        the open squares' edits saved first, if the mapper says so."""
+        w = self.window
+        if self.job is not None:
+            self.message.emit('a square is already being sent')
+            return
+        if not w.settings.token:
+            self.message.emit('sign in to OGF first: File › Sign in')
+            return
+        dirs = w.waiting.dirs()
+        self._saved_then(lambda: self._run(lambda: pending.scan(dirs), self._chosen))
+
+    def _chosen(self, found: dict) -> None:
+        if not found:
+            self.message.emit('nothing to upload: every square here is as the server has it')
+            return
+        todo = sorted((sq, path) for sq, (path, _had) in found.items())
+        lines = [f'{path.name}' + ('' if found[sq][1] else ' - not had from the server') for sq, path in todo]
+        n = len(todo)
+        if not self.confirm('Upload changed squares',
+                            f'Upload {n} square{"s" * (n != 1)} to the OpenGeofiction data drop? They are built '
+                            'into the elevation the night after.\n\n' + '\n'.join(lines)):
+            return
+        self._next(todo, {'sent': [], 'refused': [], 'failed': [], 'moved': False}, n)
+
+    def _next(self, todo: list, got: dict, n: int) -> None:
+        """The first of ``todo`` uploaded, then the rest; what each did kept
+        in ``got``, and said when the last has gone."""
+        w = self.window
+        if not todo:
+            self._uploaded(got)
+            return
+        (square, path), rest = todo[0], todo[1:]
+        api, token = w.settings.url('drop/url'), w.settings.token
+        self.message.emit(f'uploading {square}, {n - len(todo) + 1} of {n}…')
+
+        def done(answer):
+            reply, new = answer
+            if reply.ok:
+                got['sent'].append(square)
+                ws = w.working_set
+                got['moved'] |= new != path and ws is not None and square in ws.squares
+            elif reply.status == 412:
+                got['refused'].append(square)
+            else:
+                got['failed'].append(f'{square}: {reply.why}')
+            self._next(rest, got, n)
+        self._run(lambda: dropclient.upload(api, token, path, **self._kw()), done)
+
+    def _uploaded(self, got: dict) -> None:
+        sent = got['sent']
+        said = [f'{len(sent)} square{"s" * (len(sent) != 1)} uploaded: built into the elevation tonight']
+        if got['refused']:
+            said.append(f'not uploaded, changed on the server or never imported here - open it and Upload '
+                        f'square: {", ".join(map(str, got["refused"]))}')
+        if got['failed']:
+            said.append('not uploaded - ' + '; '.join(got['failed']))
+        said = '; '.join(said)
+        self.message.emit(said)
+        if got['moved']:
+            self._again(said)                   # renamed by the server: the set's files are under new names
+        self._asked_again()
 
     def _unimported(self, square: SquareName, path: Path, held: dict) -> None:
         """Held there, never imported here: the mapper's to say which wins."""

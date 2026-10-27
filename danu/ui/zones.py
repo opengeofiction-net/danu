@@ -62,7 +62,7 @@ from . import mercator as m
 from . import topo_style as style
 from .background import Job
 from .mapview import visible_rect
-from .squares import NAME_MIN_PX, draw_name
+from .squares import MARK_MIN_PX, NAME_MIN_PX, draw_mark, draw_name
 
 # while a zone is edited: its squares as they will be, and those the drag can't have
 ADDED = QColor(31, 120, 180, 90)
@@ -98,6 +98,7 @@ class ZonesItem(QGraphicsItem):
         self.squares: dict[SquareName, str] = {}     # the squares held, by class
         self.labels: dict[SquareName, str] = {}      # and the names their files give them
         self.skip: set[SquareName] = set()           # the open set's: its own frames draw those
+        self.marks: dict[SquareName, str] = {}       # '^' not uploaded (pending.py)
 
     def set_zones(self, zones: list[dict]) -> None:
         self.prepareGeometryChange()
@@ -135,16 +136,23 @@ class ZonesItem(QGraphicsItem):
         # what is in view: at z19 a repaint drew all 779 squares held, their
         # names and every zone - 67 ms of each repaint of a node dragged
         rect = visible_rect(painter, option, self.boundingRect())
-        for c, cls in self.squares.items():
+        # and a square here the server hasn't, by its marks alone
+        for c in self.squares.keys() | self.marks.keys():
             if c in self.skip or not _cell_rect(c).intersects(rect):
                 continue
-            painter.setPen(style.pen(cls))
-            painter.setBrush(style.brush(cls))
-            painter.drawRect(_cell_rect(c))
+            cls = self.squares.get(c)
+            if cls is not None:
+                painter.setPen(style.pen(cls))
+                painter.setBrush(style.brush(cls))
+                painter.drawRect(_cell_rect(c))
             # each square's grid name and its own, where a degree has room:
             # the square found by what its mapper calls it
+            mark = self.marks.get(c, '')
             if degree_px >= NAME_MIN_PX:
-                draw_name(painter, _cell_rect(c), str(c), self.labels.get(c, ''), scale, font, QColor(110, 110, 110))
+                draw_name(painter, _cell_rect(c), str(c) + (f' {mark}' if mark else ''), self.labels.get(c, ''),
+                          scale, font, QColor(110, 110, 110))
+            elif degree_px >= MARK_MIN_PX and mark:
+                draw_mark(painter, _cell_rect(c), mark, scale, font, QColor(110, 110, 110))
         for z in self.zones:
             path = self._paths.get(z['name'])
             if path is None or path.isEmpty():

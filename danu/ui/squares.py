@@ -14,7 +14,9 @@ level's colour.
 Names are written in each square's top-left corner while a degree has room
 for them: the grid's, and under it the square's own, its file's -
 ``N46E028_Taxhatro.osm.xz``, Taxhatro. The zones map writes its squares' the
-same way, in grey.
+same way, in grey. Each name is followed by its square's marks
+(``pending.py``): ``*`` unsaved, ``^`` not uploaded; a degree too small for a
+name has the marks alone at its middle.
 
 Pattern brushes in Qt are drawn in device pixels regardless of the view
 transform, which is what makes hatching usable at every zoom.
@@ -33,6 +35,7 @@ from . import topo_style as style
 from .mapview import visible_rect
 
 NAME_MIN_PX = 80.0                # narrower than this, no name at all: it would not fit
+MARK_MIN_PX = 12.0                # and narrower than this, not even a square's marks
 ABSENT_WORD_MIN_PX = 170.0        # narrower than this the hatching says it, the word would not fit
 
 
@@ -48,6 +51,7 @@ class SquaresItem(QGraphicsItem):
         self._bounds = QRectF()
         self.drawn_names = 0
         self._classes: dict[int, tuple[tuple[int, int], str]] = {}
+        self.marks: dict = {}               # by square: '*' unsaved, '^' not uploaded
 
     def set_working_set(self, ws: WorkingSet | None):
         self.prepareGeometryChange()
@@ -99,7 +103,9 @@ class SquaresItem(QGraphicsItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(r)
             if degree_px >= NAME_MIN_PX:
-                self._name(painter, r, name, sq.present, scale, degree_px, font, sq.label)
+                self._name(painter, r, name, sq.present, scale, degree_px, font, sq.label, self.marks.get(name, ''))
+            elif degree_px >= MARK_MIN_PX and self.marks.get(name):
+                draw_mark(painter, r, self.marks[name], scale, font, QColor(40, 40, 40))
 
     def _class(self, sq) -> str:
         """The square's class, worked out again only when its ways or nodes
@@ -114,8 +120,9 @@ class SquaresItem(QGraphicsItem):
         return hit[1]
 
     def _name(self, painter, r: QRectF, name, present: bool, scale: float, degree_px: float, font: QFont,
-              label: str = ''):
-        text = str(name) + ('' if present or degree_px < ABSENT_WORD_MIN_PX else '  (absent)')
+              label: str = '', mark: str = ''):
+        text = str(name) + (f' {mark}' if mark else '') + ('' if present or degree_px < ABSENT_WORD_MIN_PX
+                                                           else '  (absent)')
         draw_name(painter, r, text, label, scale, font, QColor(40, 40, 40) if present else QColor(110, 110, 110))
         self.drawn_names += 1
 
@@ -147,4 +154,23 @@ def draw_name(painter, r: QRectF, text: str, label: str, scale: float, font: QFo
         painter.setPen(colour)
         painter.drawText(box, align, line)
         y += h
+    painter.restore()
+
+
+def draw_mark(painter, r: QRectF, mark: str, scale: float, font: QFont, colour: QColor) -> None:
+    """A square's marks alone, at its middle, in pixels whatever the zoom."""
+    painter.save()
+    painter.setClipRect(r)
+    centre = r.center()
+    painter.translate(centre)
+    painter.scale(1.0 / scale, 1.0 / scale)
+    big = QFont(font)
+    big.setPointSize(font.pointSize() + 4)          # alone, it has to be seen
+    painter.setFont(big)
+    box = QRectF(-20, -12, 40, 24)
+    painter.setPen(QColor(255, 255, 255, 230))
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        painter.drawText(box.translated(dx, dy), Qt.AlignmentFlag.AlignCenter, mark)
+    painter.setPen(colour)
+    painter.drawText(box, Qt.AlignmentFlag.AlignCenter, mark)
     painter.restore()

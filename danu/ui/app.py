@@ -37,7 +37,7 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, crash, desktop, josm, oauth, session, theme, update, wms
+from . import about, config, crash, desktop, josm, oauth, pending, session, theme, update, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -61,6 +61,7 @@ from .messages import install as quieten_qt
 from .mirror import Importer
 from .open_dialog import OpenDialog
 from .overlays import EnvelopeItem, UnreachedLayer
+from .pending import Pending
 from .published import PublishedDem
 from .reference import ReferenceItem
 from .selection_panel import SelectionPanel
@@ -464,6 +465,11 @@ class MainWindow(QMainWindow):
         self.importer = Importer(self, self)
         self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
         self.importer.finished.connect(self._imported)
+        # each square's marks on the map: '*' unsaved, '^' saved but not uploaded
+        self.waiting = Pending(self, self)
+        self.waiting.changed.connect(self._show_marks)
+        self.importer.finished.connect(lambda *_: self.waiting.refresh())
+        self.waiting.refresh()
         # File › Revert square to the server's: the squares whose changes here
         # are being thrown away, until the set opens again without them
         self._reverting: set | None = None
@@ -608,9 +614,21 @@ class MainWindow(QMainWindow):
         redo.setEnabled(h.can_redo)
         undo.setText(f'&Undo {h.describe_undo()}' if h.can_undo else '&Undo')
         redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
+        self._show_marks()
+
+    def _show_marks(self):
+        """Each square's marks, on its frame and on the zones map; in the
+        title, the set's unsaved edits and the centre's file not uploaded."""
+        dirty = {sq.name for sq in self.editor.history.dirty_squares()}
+        got = pending.marks(dirty, self.waiting.unsent)
+        for item in (self.squares, self.zone_editor.item):
+            if item.marks != got:
+                item.marks = got
+                item.update()
         if self.working_set is not None:
             ws = self.working_set
-            self.setWindowTitle(about.title(ws.centre, self.editor.dirty(), ws.squares[ws.centre].label))
+            self.setWindowTitle(about.title(ws.centre, bool(dirty), ws.squares[ws.centre].label,
+                                            ws.centre in self.waiting.unsent))
 
     # --------------------------------------------------------- territory
     def _territory_ready(self, index):
@@ -811,6 +829,7 @@ class MainWindow(QMainWindow):
             self.squares.set_working_set(self.working_set)   # a blank square is present now
             self._edited()
             self._saved()
+            self.waiting.refresh()
 
         def failed(why):
             self._writes.remove(job)
@@ -1010,6 +1029,7 @@ class MainWindow(QMainWindow):
         self.territory.abort()
         self.fetcher.abort()
         self.zone_editor.detach()
+        self.waiting.detach()
         # before the builder: the idle timer asks for builds by itself, and one
         # started during teardown would be writing into the directory cleanup
         # is about to remove
@@ -1142,6 +1162,7 @@ class MainWindow(QMainWindow):
         # the open square to the data drop (#190)
         self.drop_actions: dict[str, QAction] = {}
         for name, text, slot in (('drop.upload', '&Upload square…', self.sender.upload),
+                                 ('drop.upload_changed', 'Upload &changed squares…', self.sender.upload_changed),
                                  ('drop.rename', 'Re&name square…', self.sender.rename),
                                  ('drop.delete', '&Delete square from server…', self.sender.delete),
                                  ('drop.discard', 'Discard re&fused version…', self.sender.discard),
@@ -1631,6 +1652,8 @@ class MainWindow(QMainWindow):
             self._fill_recent()
         self._pending = None
         self.setWindowTitle(about.title(ws.centre, label=ws.squares[ws.centre].label))
+        self._show_marks()
+        self.waiting.refresh()                  # the set's folder may be outside the import folder
         self._territory.setText('territory: looking…')
         self.territory.refresh()
         self.show_reference()
