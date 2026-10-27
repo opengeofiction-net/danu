@@ -124,7 +124,7 @@ def unsent(zone_dir: Path) -> dict[SquareName, tuple[Path, bool]]:
 
 def _record(zone_dir: Path, old: Path, new_name: str, sha: str, size: int, stat: list[int]) -> Path:
     """The manifest, and the file's name here, as the server now has them.
-    ``stat`` is the file's as its bytes were read: a save landing while they
+    ``stat`` is that of the bytes uploaded: a save landing while they
     went up leaves a file that doesn't match it, still to send - taken
     after, it vouched for edits the server never had, and an import would
     overwrite them unasked."""
@@ -196,8 +196,9 @@ def upload(api: str, token: str, path: Path, label: str | None = None,
         if label is None:
             label = label_of(path) or None      # new there: the name it has here, not none
     query = '' if label is None else '?' + urllib.parse.urlencode({'label': label})
-    st = path.stat()
-    data = path.read_bytes()
+    # the stat of the very bytes read: a save replaces the file whole
+    with open(path, 'rb') as f:
+        st, data = os.fstat(f.fileno()), f.read()
     answer = _ask('PUT', f'{api.rstrip("/")}/squares/{square.name}{query}', token, opener, data,
                   {**headers, 'Content-Type': 'application/x-xz'})
     if answer.ok:
