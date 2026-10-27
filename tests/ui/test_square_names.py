@@ -64,3 +64,29 @@ def test_the_zones_map_names_each_held_square(window):
     named = render(w.map, 'zones')
     item.labels.clear()
     assert dark(named) > dark(render(w.map, 'zones-unnamed'))
+
+
+def test_the_zones_map_draws_what_is_in_view_as_it_draws_it_all(window, monkeypatch):
+    """Zones and their squares over a few degrees, the view on a corner of
+    one: only the squares in view are drawn, and the picture is the one
+    drawn with nothing culled - a zone's name, off its squares, too."""
+    from PySide6.QtCore import QRectF
+
+    from danu.ui import mercator as m
+    from danu.ui import zones
+    w = window
+    item = ZonesItem()
+    w.map.scene().addItem(item)
+    item.set_zones([{'name': name, 'squares': [f'N20E0{lon}-N21E0{lon + 1}'], 'inactive': None,
+                     'held': [{'square': f'N2{k}E0{lon + j}', 'file': f'N2{k}E0{lon + j}_{name}.osm.xz', 'class': 'contour'}
+                              for j in (0, 1) for k in (0, 1)]}
+                    for name, lon in (('west', 80), ('middle', 83), ('east', 86))])
+    names = []
+    monkeypatch.setattr(zones, 'draw_name', lambda p, r, text, *a: names.append(text))
+    w.map.fit_bounds(83.9, 20.9, 84.4, 21.4)
+    culled = render(w.map, 'zones-culled')
+    assert set(names) == {'N20E083', 'N20E084', 'N21E083', 'N21E084'}, 'the four in view, the others not'
+    monkeypatch.setattr(zones, 'visible_rect', lambda *a: QRectF(0, 0, m.WORLD, m.WORLD))
+    names.clear()
+    assert render(w.map, 'zones-whole') == culled
+    assert len(set(names)) == 12

@@ -48,6 +48,15 @@ from .mapview import visible_rect
 
 ZOOM_INDEX = 8
 ZOOM_ALL = 11
+# a way bigger than the view by more than PART_VIEW each way is drawn as its
+# parts of PART_N vertices in it, not whole: the rings round N20E066's 1991 m
+# top are kilometres long and all of them are in a z19 view by their boxes -
+# 145 ms of each repaint of a node dragged there, drawn whole. Parts next to
+# each other are drawn as one line, and those PART_PAD_PX off the view are
+# not drawn: drawn apart, two parts' ends darkened the vertex they share
+PART_N = 256
+PART_VIEW = 2.0
+PART_PAD_PX = 8.0
 # 14, not 12. Labels are the most expensive thing this layer draws for what
 # they tell you, and they cost most where they say least: a contour carries one
 # label however far in you are, so zooming out puts more of them on screen and
@@ -166,6 +175,46 @@ class _Piece:
     rect: QRectF
     ele: float | None     # None for water: it has no elevation until G6
     label: 'Label | None'  # and None for water: nothing labels it
+    # a contour's points; its parts' rectangles, made the first time it is
+    # drawn bigger than the view; and the lines last drawn of them, by which
+    # parts - not compared: pieces go by identity
+    pts: np.ndarray | None = field(default=None, compare=False, repr=False)
+    parts: list | None = field(default=None, compare=False, repr=False)
+    runs: tuple = field(default=((), []), compare=False, repr=False)
+
+    def drawn(self, rect: QRectF, scale: float) -> list:
+        """What of it to draw in a view: the whole path, or, for a long way
+        far bigger than the view, its parts in it - each run of them one line."""
+        r = self.rect
+        if (self.pts is None or len(self.pts) <= PART_N
+                or (r.width() <= PART_VIEW * rect.width() and r.height() <= PART_VIEW * rect.height())):
+            return [self.path]
+        if self.parts is None:
+            self.parts = []
+            for j in range(0, len(self.pts) - 1, PART_N):
+                (x0, y0), (x1, y1) = self.pts[j:j + PART_N + 1].min(0), self.pts[j:j + PART_N + 1].max(0)
+                self.parts.append(QRectF(float(x0) - 1, float(y0) - 1, float(x1 - x0) + 2, float(y1 - y0) + 2))
+        pad = PART_PAD_PX / scale
+        view = rect.adjusted(-pad, -pad, pad, pad)
+        on = [k for k, pr in enumerate(self.parts) if pr.intersects(view)]
+        runs = []
+        for k in on:
+            if runs and runs[-1][1] == k:
+                runs[-1][1] = k + 1
+            else:
+                runs.append([k, k + 1])
+        key = tuple(map(tuple, runs))
+        if key != self.runs[0]:
+            paths = []
+            for a, b in key:
+                pts = self.pts[a * PART_N:b * PART_N + 1].tolist()
+                path = QPainterPath()
+                path.moveTo(pts[0][0], pts[0][1])
+                for x, y in pts[1:]:
+                    path.lineTo(x, y)
+                paths.append(path)
+            self.runs = (key, paths)
+        return self.runs[1]
 
 
 def _member_ways(rel) -> tuple:
@@ -802,7 +851,7 @@ class ContourLayer(QGraphicsItem):
         # no height - still intersects anything
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-        piece = _Piece(path, rect, g.ele, self._label(g.ele, pts))
+        piece = _Piece(path, rect, g.ele, self._label(g.ele, pts), g.pts)
         self._pieces[key] = piece
         if g.ele not in self.paths:
             self._levels_moved = True
@@ -1188,7 +1237,7 @@ class ContourLayer(QGraphicsItem):
                 continue
             pen = QPen(DARK if dark else self.colour(ele), line_width(zoom, index))
             pen.setCosmetic(True)
-            levels.append((pen, visible))
+            levels.append((pen, [path for piece in visible for path in piece.drawn(rect, scale)]))
             self.drawn_ways += len(visible)
             self.drawn_levels += 1
         for mode, clip in self.blends(dark, rect):
@@ -1196,10 +1245,10 @@ class ContourLayer(QGraphicsItem):
             painter.setCompositionMode(mode)
             if clip is not None:
                 painter.setClipPath(clip)
-            for pen, visible in levels:
+            for pen, drawn in levels:
                 painter.setPen(pen)
-                for piece in visible:
-                    painter.drawPath(piece.path)
+                for path in drawn:
+                    painter.drawPath(path)
             painter.restore()
         # what goes over the lines is drawn as it is: the active level, the
         # spot heights and the labels keep their own colours
@@ -1214,7 +1263,8 @@ class ContourLayer(QGraphicsItem):
                 pen.setCosmetic(True)
                 painter.setPen(pen)
                 for piece in active:
-                    painter.drawPath(piece.path)
+                    for path in piece.drawn(rect, scale):
+                        painter.drawPath(path)
         self._paint_coasts(painter, rect, scale, zoom)
         self._paint_spots(painter, rect, scale, zoom)
         if zoom >= ZOOM_LABELS:

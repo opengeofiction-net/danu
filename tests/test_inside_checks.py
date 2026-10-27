@@ -130,6 +130,47 @@ def test_a_contour_moved_into_a_bare_ring_and_a_spot_height_put_in_one_take_them
     assert {f.way for f in index.findings('bare')}.isdisjoint({a.id, b.id})
 
 
+def test_a_ring_round_a_summit_is_asked_again_only_of_what_changed():
+    """Rings round a summit, each covered by the one inside it and the top
+    by its spot height: an edit at the top asks no covered ring round it
+    again, and each ring is bare once what covers it goes."""
+    w, sq = ws()
+    rings = [ring(sq, 125.5, -22.5, r, {'ele': str(ele)}) for r, ele in ((0.04, 100), (0.03, 200), (0.02, 300))]
+    sq.nodes[-9] = Node(id=-9, lon=125.5, lat=-22.5, tags={'ele': '350'})
+    index = inside.Index(w)
+    assert index.findings('bare') == []
+    s = index._squares[A]
+    asked = []
+    bare = s.bare
+    s.bare = lambda ln, only=None, spots=True: (asked.append((ln.id, only is None)), bare(ln, only, spots))[1]
+    alloc = edits.IdAllocator(sq)
+    put = edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(125.499, -22.5), (125.501, -22.5)], {'ele': '325'})
+    put.apply(sq)
+    index.update(sq, put.ways(sq), put.spots(sq))
+    assert asked == [(put.way_id, True)], 'the rings round it, covered by what is not edited, not asked'
+    assert index.findings('bare') == []
+    # the spot height and the line at the top gone: the 300 m is bare
+    put.undo(sq)
+    index.update(sq, put.ways(sq))
+    move = edits.MoveNode(-9, (125.5, -22.5), (125.9, -22.9))
+    move.apply(sq)
+    index.update(sq, move.ways(sq), move.spots(sq))
+    assert [f.way for f in index.findings('bare')] == [rings[2].id]
+    # and with the 300 m deleted, the 200 m round it is
+    drop = edits.DeleteWay(rings[2].id)
+    drop.apply(sq)
+    index.update(sq, drop.ways(sq))
+    assert [f.way for f in index.findings('bare')] == [rings[1].id]
+    # a bare ring is asked of what was edited: a line drawn in it covers it
+    asked.clear()
+    put = edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(125.49, -22.5), (125.51, -22.5)], {'ele': '250'})
+    put.apply(sq)
+    index.update(sq, put.ways(sq))
+    assert index.findings('bare') == []
+    assert (rings[1].id, False) in asked and (rings[0].id, True) not in asked
+    assert sorted(f.text for f in index.findings()) == sorted(f.text for f in inside.find(w))
+
+
 def test_a_lakes_shore_moved_out_over_a_contour_lists_it():
     w, sq = ws()
     lake = ring(sq, 125.5, -22.5, 0.02, {'natural': 'water', 'name': 'Kinser'})

@@ -61,6 +61,7 @@ from ..core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE, ZONE, ZONE
 from . import mercator as m
 from . import topo_style as style
 from .background import Job
+from .mapview import visible_rect
 from .squares import NAME_MIN_PX, draw_name
 
 # while a zone is edited: its squares as they will be, and those the drag can't have
@@ -131,8 +132,11 @@ class ZonesItem(QGraphicsItem):
         font = QFont()
         font.setPointSize(10)
         font.setBold(True)
+        # what is in view: at z19 a repaint drew all 779 squares held, their
+        # names and every zone - 67 ms of each repaint of a node dragged
+        rect = visible_rect(painter, option, self.boundingRect())
         for c, cls in self.squares.items():
-            if c in self.skip:
+            if c in self.skip or not _cell_rect(c).intersects(rect):
                 continue
             painter.setPen(style.pen(cls))
             painter.setBrush(style.brush(cls))
@@ -145,6 +149,10 @@ class ZonesItem(QGraphicsItem):
             path = self._paths.get(z['name'])
             if path is None or path.isEmpty():
                 continue
+            # its name, 200 px wide at its middle, can reach past its squares
+            pad = 100.0 / scale
+            if not path.boundingRect().adjusted(-pad, -pad, pad, pad).intersects(rect):
+                continue
             cls = ZONE_INACTIVE if z.get('inactive') else ZONE
             painter.setPen(style.pen(cls, 3.0 if z['name'] == self.chosen else 0.0))
             painter.setBrush(style.brush(cls))
@@ -154,7 +162,8 @@ class ZonesItem(QGraphicsItem):
             painter.setPen(QPen(Qt.PenStyle.NoPen))
             for cells, colour in ((self.editing, ADDED), (self.refused, TAKEN)):
                 for c in cells:
-                    painter.fillRect(_cell_rect(c), QBrush(colour))
+                    if _cell_rect(c).intersects(rect):
+                        painter.fillRect(_cell_rect(c), QBrush(colour))
 
     @staticmethod
     def _label(painter: QPainter, text: str, rect: QRectF, colour: QColor) -> None:
