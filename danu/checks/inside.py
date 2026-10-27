@@ -451,6 +451,9 @@ class _Square:
         # changed - a line not edited cannot have moved into or out of a lake
         # that was not. Roantra's estuary, asked whole, is seconds
         self.held: dict = {}
+        # ring id -> what bare() found inside it, a line's id or 'spot': a ring
+        # not edited stays covered until that is
+        self.inner: dict = {}
 
     def arrays(self):
         if self._arrays is None:
@@ -612,19 +615,27 @@ class _Square:
         return out
 
     # -------------------------------------------------------------- R39
-    def bare(self, ln) -> Finding | None:
+    def bare(self, ln, only=None, spots=True) -> Finding | None:
+        """A ring with nothing inside - or, given ``only``, whether the lines
+        of it, and the spot heights unless ``spots`` is false, leave a ring
+        that was bare so: nothing else of it has changed."""
+        self.inner.pop(ln.id, None)
         if not ln.closed or ln.area < self.bare_min:
             return None
         x0, y0, x1, y1 = ln.box
         ring = [(ln.X, ln.Y)]
         for other in self.lines_near(ln.box, but=ln.id):
+            if only is not None and other.id not in only:
+                continue
             m = (other.X >= x0) & (other.X <= x1) & (other.Y >= y0) & (other.Y <= y1)
             if m.any():
                 m[m] = ~np.isin(other.refs[m], ln.refs)
             if (m.any() and inside(other.X[m], other.Y[m], ring).any()) or crosses(other.X, other.Y, ring, ln.box):
+                self.inner[ln.id] = other.id
                 return None
-        near = [p for p in self.spots.values() if x0 <= p[0] <= x1 and y0 <= p[1] <= y1]
+        near = [p for p in self.spots.values() if x0 <= p[0] <= x1 and y0 <= p[1] <= y1] if spots else []
         if near and inside([p[0] for p in near], [p[1] for p in near], ring).any():
+            self.inner[ln.id] = 'spot'
             return None
         text = f'{L.format_ele(ln.ele)} m ring, way {ln.id} - {ln.area / 1e4:,.0f} ha, nothing inside'
         why = ('a closed contour with no contour and no spot height inside: the top of a hill or the '
@@ -775,9 +786,11 @@ class Index:
                     s.side_votes[i] = s.sides.votes(s.lines[i])
         touched = {r for i in way_ids for r in getattr(square.ways.get(i), 'refs', ())}
         touched |= {int(r) for ln in before.values() for r in ln.refs}
+        spots_held = s.spots
         if spot_ids or touched & (set(s.spots) | {i for i, n in ((r, square.nodes.get(r)) for r in touched)
                                                     if n is not None and 'ele' in n.tags}):
             s.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
+        spots_moved = s.spots != spots_held
         moved = set()
         for i in way_ids:
             old, new = before.get(i), s.lines.get(i)
@@ -813,12 +826,25 @@ class Index:
                 found.pop(('lake', key), None)
                 if f is not None:
                     found[('lake', key)] = f
+        # a ring not edited is asked again only of what changed: one covered
+        # stays so while what covers it is not edited, and one bare is asked
+        # of the lines edited. Asked whole, the 210 rings round N20E066's
+        # 1991 m top were 8.8 s an edit there
         for ln in s.lines.values():
-            if ln.id in way_ids or _holds_any(ln.box, P) or _overlap(ln.box, spans).any():
+            if not (ln.id in way_ids or _holds_any(ln.box, P) or _overlap(ln.box, spans).any()):
+                continue
+            if ln.id in way_ids:
                 f = s.bare(ln)
-                found.pop(('bare', ln.id), None)
-                if f is not None:
-                    found[('bare', ln.id)] = f
+            elif ('bare', ln.id) in found:
+                f = s.bare(ln, way_ids, spots_moved)
+            else:
+                by = s.inner.get(ln.id)
+                if by is not None and by not in way_ids and not (by == 'spot' and spots_moved):
+                    continue
+                f = s.bare(ln)
+            found.pop(('bare', ln.id), None)
+            if f is not None:
+                found[('bare', ln.id)] = f
 
 
 def _segments_at(lines, moved) -> np.ndarray:

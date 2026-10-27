@@ -241,3 +241,38 @@ def test_an_x_is_a_saddles_level_and_not_a_fork():
     assert touches.find(w) == []
     way(sq, [hub, *nodes(sq, [(125.305, LAT + 0.01)])], 200)       # a fifth: a fork again
     assert [t.kind for t in touches.find(w)] == ['fork']
+
+
+def test_an_edits_scan_finds_what_the_whole_scan_does_of_its_way():
+    """Short contours running on and off each other and sharing nodes, in a
+    ring kilometres round and across a long straight: asked of each way as
+    an edit asks - each way cut to the box round it, and only its own pairs
+    measured in a cell - the touches are the whole scan's of that way."""
+    import math
+    import random
+    rnd = random.Random(11)
+    w, sq = ws()
+    stem = nodes(sq, [(125.30 + 0.0004 * j, LAT) for j in range(40)])
+    way(sq, stem, 100)
+    for _ in range(30):
+        j = rnd.randrange(30)
+        off = rnd.choice((0.3, 0.6, 5.0)) * M_LAT
+        run = nodes(sq, [(125.30 + 0.0004 * (j + i), LAT + off) for i in range(rnd.randint(2, 8))])
+        if rnd.random() < 0.3:
+            run[0] = stem[j]                                        # sharing a node of the stem
+        way(sq, run, rnd.choice((100, 125, 150)))
+    # round them all, its box far bigger than any of theirs, and one long
+    # segment over many cells, through the middle of them
+    way(sq, (lambda r: [*r, r[0]])(nodes(sq, [(125.308 + 0.05 * math.cos(a / 50 * math.tau),
+                                               LAT + 0.05 * math.sin(a / 50 * math.tau)) for a in range(50)])), 75)
+    way(sq, nodes(sq, [(125.25, LAT + 0.3 * M_LAT), (125.36, LAT + 0.3 * M_LAT)]), 150)
+    whole = touches.find_in(sq)
+    assert {t.kind for t in whole} == {'shared', 'coincident', 'fork'}
+    order = lambda t: (t.kind, t.lat, t.lon, t.a, t.b)               # noqa: E731
+    for wid, w_ in sq.ways.items():
+        asked = touches.find_in(sq, only={wid})
+        # a fork names two of its ways, and is the way's when it is at its node
+        assert sorted((t for t in asked if t.kind != 'fork'), key=order) == \
+            sorted((t for t in whole if t.kind != 'fork' and wid in (t.a[1], t.b[1])), key=order), wid
+        assert {t.node for t in asked if t.kind == 'fork'} == \
+            {t.node for t in whole if t.kind == 'fork' and t.node in w_.refs}, wid

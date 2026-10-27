@@ -180,14 +180,29 @@ def _pair_hits(a1, b1, a2, b2):
 
 
 def _by_cell(a, b) -> dict:
-    """Segments by the cells they can meet another in: cell -> indices."""
+    """Segments by the cells they can meet another in: cell -> indices.
+    Those with a box of 16 cells or fewer - as ``_cells_of`` has them - are
+    grouped by sorting, not one at a time: 0.3 s an edit of N20E066's 1991 m
+    contour, the 120,000 segments near it put in their cells singly."""
     out: dict = defaultdict(list)
     lo = np.floor(np.minimum(a, b) / CELL_M).astype(np.int64)
     hi = np.floor(np.maximum(a, b) / CELL_M).astype(np.int64)
-    one = (lo == hi).all(axis=1)
-    for i in np.flatnonzero(one):
-        out[(int(lo[i, 0]), int(lo[i, 1]))].append(i)
-    for i in np.flatnonzero(~one):
+    span = hi - lo + 1
+    small = np.flatnonzero(span[:, 0] * span[:, 1] <= 16)
+    seg, cell = [], []
+    for dx in range(16):
+        for dy in range(16 // (dx + 1)):            # a box of 16 cells can be 16 by 1
+            k = small[(span[small, 0] > dx) & (span[small, 1] > dy)]
+            seg.append(k)
+            cell.append(lo[k] + (dx, dy))
+    seg, cell = np.concatenate(seg), np.concatenate(cell).reshape(-1, 2)
+    if len(seg):
+        order = np.lexsort((seg, cell[:, 1], cell[:, 0]))
+        seg, cell = seg[order], cell[order]
+        starts = np.flatnonzero(np.r_[True, (cell[1:] != cell[:-1]).any(1)])
+        for s0, e0 in zip(starts, np.r_[starts[1:], len(seg)], strict=True):
+            out[(int(cell[s0, 0]), int(cell[s0, 1]))] = seg[s0:e0].tolist()
+    for i in np.flatnonzero(span[:, 0] * span[:, 1] > 16):
         for c in _cells_of(a[i], b[i]):
             out[c].append(i)
     return out

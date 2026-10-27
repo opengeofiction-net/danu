@@ -331,6 +331,7 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
             for pieces in layer.paths.values():
                 for piece in pieces:
                     piece.rect = everywhere
+                    piece.pts = None                 # and drawn whole, not in parts
         view.scene().addItem(layer)
         view.set_zoom(zoom)
         view.center_on_lonlat(lon, lat)
@@ -380,6 +381,49 @@ def test_the_cull_drops_nothing_that_should_be_seen(view, ws):
     assert img != full, (
         f'dropping the ways at {dropped} m changed no pixel, so comparing '
         f'images cannot see a cull that drops something')
+
+
+def test_a_long_way_is_drawn_in_view_by_its_parts_as_it_is_whole(view, ws):
+    """A contour of thousands of vertices across the square, at zooms where
+    the view is a sliver of it: drawn by its parts in view, a line a run of
+    them, the picture is the one drawn whole - and a repaint of the same view
+    builds no line again."""
+    import math
+
+    from danu.core import edits
+    from danu.ui import contours
+    sq = ws.squares[SquareName(125, -24)]
+    alloc = edits.IdAllocator(sq)
+    n = 4000
+    pts = [(125.1 + 0.8 * k / n, -23.5 + 0.01 * math.sin(k / 15)) for k in range(n)]
+    wid = alloc.take()
+    edits.AddWay(wid, [alloc.take() for _ in pts], pts, {'ele': '7'}).apply(sq)
+    layer = ContourLayer()
+    layer.set_working_set(ws)
+    view.scene().addItem(layer)
+    (piece,) = layer.paths[7.0]
+
+    def inner(img):
+        return img.copy(2, 2, img.width() - 4, img.height() - 4)
+    checked = 0
+    for zoom, k in ((ZOOM_ALL + 3, 1000), (ZOOM_ALL + 6, 2100), (ZOOM_ALL + 8, 3999)):
+        view.set_zoom(zoom)
+        view.center_on_lonlat(*pts[k])
+        img = render(view)
+        assert piece.runs[0] and sum(b - a for a, b in piece.runs[0]) < len(piece.parts) / 4, (
+            f'at zoom {zoom} the way was drawn whole or nearly: {piece.runs[0]}')
+        lines = piece.runs[1]
+        assert render(view) == img and piece.runs[1] is lines, 'the same view built its lines again'
+        keep, piece.pts = piece.pts, None
+        # but for the image's outer two pixels: the whole way runs 40 km off
+        # it, and Qt draws where so long a path leaves the image a pixel or
+        # two apart from where a run of its parts does, its ends as far out
+        whole = render(view)
+        assert inner(whole) == inner(img), f'drawn in parts, the picture changed at zoom {zoom}'
+        piece.pts = keep
+        checked += 1
+    assert checked == 3 and contours.PART_N < n
+    view.scene().removeItem(layer)
 
 
 def test_a_contour_running_due_east_is_not_culled(view, ws):

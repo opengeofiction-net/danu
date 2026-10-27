@@ -143,17 +143,30 @@ def _scan(square, held, only) -> list[Touch]:
                 forks.append((r, sorted(at)))
     # coincident stretches: a vertex within NEAR_M of another way's segment,
     # two of them next to each other - a segment lying along the other
+    # an edit's: each way cut first to the box of the ways edited and two
+    # cells round it - the rings round a summit are near a small one at its
+    # top by their boxes, and each is thousands of points far from it
+    box = None
+    if only is not None and any(w in metres_of for w in only):
+        theirs_P = np.concatenate([metres_of[w] for w in only if w in metres_of])
+        box = np.r_[theirs_P.min(0) - 2 * CELL_M, theirs_P.max(0) + 2 * CELL_M]
     pts, owner, pos, a, b, seg_owner = [], [], [], [], [], []
     for w, P in held:
-        pts.append(P)
-        owner += [w.id] * len(P)
-        pos += list(range(len(P)))
-        a.append(P[:-1])
-        b.append(P[1:])
-        seg_owner += [w.id] * (len(P) - 1)
+        sa, sb = P[:-1], P[1:]
+        if box is None:
+            at, seg = np.arange(len(P)), np.arange(len(sa))
+        else:
+            at = np.flatnonzero(((P >= box[:2]) & (P <= box[2:])).all(1))
+            seg = np.flatnonzero(((np.maximum(sa, sb) >= box[:2]) & (np.minimum(sa, sb) <= box[2:])).all(1))
+        pts.append(P[at])
+        owner.append(np.full(len(at), w.id))
+        pos.append(at)
+        a.append(sa[seg])
+        b.append(sb[seg])
+        seg_owner.append(np.full(len(seg), w.id))
     P = np.concatenate(pts)
-    owner, pos = np.array(owner), np.array(pos)
-    a, b, seg_owner = np.concatenate(a), np.concatenate(b), np.array(seg_owner)
+    owner, pos = np.concatenate(owner), np.concatenate(pos)
+    a, b, seg_owner = np.concatenate(a), np.concatenate(b), np.concatenate(seg_owner)
     if only is not None:
         # an edit's: only what lies in the cells of its ways and theirs round
         # them - a vertex within a metre of a segment is in its cell or the next
@@ -161,7 +174,11 @@ def _scan(square, held, only) -> list[Touch]:
             c = np.floor(xy / CELL_M).astype(np.int64)
             return c[:, 0] * 1_000_003 + c[:, 1]
         theirs = np.isin(owner, list(only))
-        c = np.floor(P[theirs] / CELL_M).astype(np.int64)
+        # and the cells its segments pass through: a long straight's vertices
+        # are its ends, kilometres from what lies along its middle
+        theirs_s = np.isin(seg_owner, list(only))
+        along = np.array(list(_by_cell(a[theirs_s], b[theirs_s])), np.int64).reshape(-1, 2)
+        c = np.concatenate([np.floor(P[theirs] / CELL_M).astype(np.int64), along])
         near_cells = np.unique(np.concatenate([(c + (dx, dy)) @ np.array([1_000_003, 1])
                                                for dx in (-1, 0, 1) for dy in (-1, 0, 1)]))
         keep_p = np.isin(cell_key(P), near_cells)
@@ -185,18 +202,26 @@ def _scan(square, held, only) -> list[Touch]:
             segs, vi = np.asarray(segs), np.asarray(vi)
             if len(np.union1d(owner[vi], seg_owner[segs])) < 2:
                 continue                                # one contour's own cell: nothing to meet
-            if only is not None:
+            if only is None:
+                asked = [(vi, segs)]
+            else:
+                # the edit's vertices against every segment, and every vertex
+                # against its segments - not every vertex against every
+                # segment, millions of pairs a cell in steep ground: 1.3 s
+                # an edit of N20E066's 1991 m contour, a vertex inserted
                 keep_v = np.isin(owner[vi], list(only))
                 keep_s = np.isin(seg_owner[segs], list(only))
-                if not keep_v.any() and not keep_s.any():
+                asked = [(vi[keep_v], segs), (vi, segs[keep_s])]
+            for vi, segs in asked:
+                if not len(vi) or not len(segs):
                     continue
-            A, ab = a[segs], b[segs] - a[segs]
-            w_ = P[vi][:, None] - A[None]
-            t = np.clip((w_ * ab[None]).sum(2) / np.maximum((ab * ab).sum(1)[None], 1e-12), 0.0, 1.0)
-            d = np.hypot(*(A[None] + ab[None] * t[..., None] - P[vi][:, None]).transpose(2, 0, 1))
-            near = (d < NEAR_M) & (owner[vi][:, None] != seg_owner[segs][None])
-            for x, y in zip(*np.nonzero(near), strict=True):
-                hits[(int(owner[vi[x]]), int(seg_owner[segs[y]]))].add(int(pos[vi[x]]))
+                A, ab = a[segs], b[segs] - a[segs]
+                w_ = P[vi][:, None] - A[None]
+                t = np.clip((w_ * ab[None]).sum(2) / np.maximum((ab * ab).sum(1)[None], 1e-12), 0.0, 1.0)
+                d = np.hypot(*(A[None] + ab[None] * t[..., None] - P[vi][:, None]).transpose(2, 0, 1))
+                near = (d < NEAR_M) & (owner[vi][:, None] != seg_owner[segs][None])
+                for x, y in zip(*np.nonzero(near), strict=True):
+                    hits[(int(owner[vi[x]]), int(seg_owner[segs[y]]))].add(int(pos[vi[x]]))
     stretches: dict = {}
     on_pair: dict = {}                          # pair -> the nodes of every stretch of it
     for (wid, oid), at in hits.items():
