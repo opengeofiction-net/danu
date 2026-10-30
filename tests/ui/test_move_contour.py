@@ -209,3 +209,17 @@ def test_the_keys_change_a_carry_mid_drag(board):
     assert w.statusBar().currentMessage().startswith('moved and turned the 425 m contour')
     w.editor.undo()
     assert place(sq, rogue) == [(125.28, -22.70), (125.36, -22.70)], 'not one step'
+
+
+def test_a_contour_that_crosses_nothing_may_not_be_turned_into_a_crossing(board):
+    w, sq, a, b, rogue = board
+    clean = draw(w, [(125.38, -22.72), (125.38, -22.64)], 150)    # east of the rogue's end
+    was = place(sq, clean)
+    mx, my = m.lonlat_to_scene(125.38, -22.68)
+    r = (my - m.lonlat_to_scene(125.38, -22.64)[1]) / 2
+    # a quarter turn: lying east-west, it would cross the 125 m
+    drag(w, m.scene_to_lonlat(mx, my - r), m.scene_to_lonlat(mx + r, my), mods=SHIFT | CTRL)
+    assert place(sq, clean) == was
+    said = w.statusBar().currentMessage()
+    assert said.startswith('not turned') and f'way {b.id}' in said, said
+    assert w.editor.marks_focus, 'where it would cross is not ringed'

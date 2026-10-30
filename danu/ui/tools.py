@@ -693,7 +693,8 @@ class EditController(QObject):
         there, as a drag of what is picked does."""
         kind = _whole_kind(mods) or 'move'
         here = {r: self.layer.node_xy(square, r) for r in way.refs if r in square.nodes}
-        self._carry = (square, way, kind, QPointF(pos), _middle(here), lambda x, y: (x, y), [kind])
+        pivot = _middle(here) if here else (pos.x(), pos.y())
+        self._carry = (square, way, kind, QPointF(pos), pivot, lambda x, y: (x, y), [kind])
         self.ghost = None
         self._set_pointer(kind)
 
