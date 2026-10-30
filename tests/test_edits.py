@@ -818,3 +818,50 @@ def test_fill_lines_are_taken_out_in_one_step_with_their_own_nodes():
     assert cmd.describe() == 'remove 2 fill lines'
     cmd.undo(sq)
     assert edits.snapshot(sq) == before
+
+
+def _spliced():
+    """A 30 m line west-east, and a 30 m ring north of it: its south node."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    line, ln = alloc.take(), [alloc.take() for _ in range(3)]
+    edits.AddWay(line, ln, [(10.1, 10.5), (10.2, 10.5), (10.3, 10.5)], {'ele': '30'}).apply(sq)
+    ring, rn = alloc.take(), [alloc.take() for _ in range(4)]
+    edits.AddWay(ring, rn, [(10.15, 10.51), (10.16, 10.52), (10.15, 10.53), (10.14, 10.52)], {'ele': '30'}).apply(sq)
+    sq.ways[ring].refs.append(rn[0])
+    return sq, line, ln, ring, rn
+
+
+def test_a_ring_spliced_into_a_line_runs_round_it_from_either_side_of_its_node():
+    sq, line, ln, ring, rn = _spliced()
+    before = edits.snapshot(sq)
+    cmd = edits.splice_ways(sq, ring, rn[0], line, 0)             # its south node onto the first segment
+    cmd.apply(sq)
+    assert ring not in sq.ways and rn[0] not in sq.nodes
+    # west end, then up the ring's west side, round, down its east, then on east
+    assert sq.ways[line].refs == [ln[0], rn[3], rn[2], rn[1], ln[1], ln[2]]
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_lines_node_spliced_into_a_ring_takes_the_ring():
+    sq, line, ln, ring, rn = _spliced()
+    cmd = edits.splice_ways(sq, line, ln[1], ring, 3)             # its middle onto the ring's west side
+    cmd.apply(sq)
+    refs = sq.ways[line].refs
+    assert ring not in sq.ways and ln[1] not in sq.nodes
+    # from the west end to the ring's nearer side, round it, and on east
+    assert refs == [ln[0], rn[3], rn[2], rn[1], rn[0], ln[2]]
+
+
+def test_two_open_lines_are_not_spliced():
+    sq, line, ln, ring, rn = _spliced()
+    sq.ways[ring].refs.pop()                                      # open now
+    assert 'both open lines' in edits.splice_ways(sq, ring, rn[0], line, 0)
+
+
+def test_a_splice_asked_wrongly_says_why_rather_than_raising():
+    sq, line, ln, ring, rn = _spliced()
+    assert 'not on the contour' in edits.splice_ways(sq, ring, ln[0], line, 0)
+    del sq.ways[line].tags['ele']
+    assert 'only contours' in edits.splice_ways(sq, ring, rn[0], line, 0)

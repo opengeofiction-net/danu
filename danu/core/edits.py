@@ -563,6 +563,77 @@ def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -
     return Compound(steps, name='join')
 
 
+def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int) -> Command | str:
+    """A contour's node ``node`` put on the line of ``other_id``, between its
+    ``seg``-th node and the next: the two become one way. The node goes, and
+    the contours run on through each other where it was - a ring dragged
+    onto a line, the line runs round it from either side of the node; a
+    line's node dragged onto a ring, the line runs round the ring. One of
+    the two is a ring: two lines meeting are not one line. The open one keeps
+    its id; of two rings, the one already on the server (with a version) -
+    an uploaded way is not deleted for one that never was - else
+    ``other_id``. Why not, as a string."""
+    way, other = square.ways.get(way_id), square.ways.get(other_id)
+    if way is None or other is None or way_id == other_id:
+        return 'that way is no longer there'
+    if node not in way.refs:
+        return 'that node is not on the contour'
+    if way.ele is None or other.ele is None:
+        return 'only contours are merged'
+    if way.tags.get('ele') != other.tags.get('ele'):
+        return f'the levels differ - {way.tags.get("ele")} m and {other.tags.get("ele")} m'
+    if is_coastline(way) or is_coastline(other):
+        return 'a coastline is not merged - its direction is where the sea is'
+    clash = sorted(k for k in set(way.tags) & set(other.tags) if way.tags[k] != other.tags[k])
+    if clash:
+        return f'their tags differ - {clash[0]}: {way.tags[clash[0]]} and {other.tags[clash[0]]}'
+    if not way.closed and not other.closed:
+        return f'way {way_id} and way {other_id} are both open lines - one of them is to be a ring'
+    if ways_holding(square, node) - {way_id}:
+        return 'that node is shared with another way'
+    if not 0 <= seg < len(other.refs) - 1:
+        return 'that is not a segment of the line'
+    a, b = other.refs[seg], other.refs[seg + 1]
+    if node in (a, b):
+        return 'the two already share that node'
+
+    def far(p, q):
+        n0, n1 = square.nodes[p], square.nodes[q]
+        return math.hypot((n0.lon - n1.lon) * math.cos(math.radians(n0.lat)), n0.lat - n1.lat)
+
+    if way.closed:
+        # the ring opened at the node, laid into the segment, its nearer end to a
+        ring = way.refs[:-1]
+        k = ring.index(node)
+        path = ring[k + 1:] + ring[:k]
+        if far(a, path[-1]) + far(b, path[0]) < far(a, path[0]) + far(b, path[-1]):
+            path.reverse()
+        refs = [*other.refs[:seg + 1], *path, *other.refs[seg + 1:]]     # a ring's ends untouched
+    else:
+        # the line's node replaced by the ring, from one end of the segment
+        # round to the other, the nearer end to the node before it
+        ring = other.refs[:-1]
+        path = ring[seg + 1:] + ring[:seg + 1]
+        j = way.refs.index(node)
+        if j > 0 and far(way.refs[j - 1], path[-1]) < far(way.refs[j - 1], path[0]):
+            path.reverse()
+        elif j == 0 and far(way.refs[1], path[0]) < far(way.refs[1], path[-1]):
+            path.reverse()
+        refs = [*way.refs[:j], *path, *way.refs[j + 1:]]
+    if not way.closed:
+        keep, gone = way_id, other_id
+    elif not other.closed:
+        keep, gone = other_id, way_id
+    else:
+        keep, gone = (way_id, other_id) if way.version is not None and other.version is None else (other_id, way_id)
+    kept = square.ways[keep]
+    steps = [ReplaceWay(keep, [(keep, refs)], {}), DeleteWay(gone)]
+    lost = square.ways[gone]
+    if set(lost.tags) - set(kept.tags):
+        steps.append(SetTags(keep, dict(kept.tags), {**lost.tags, **kept.tags}))
+    return Compound(steps, name='merge')
+
+
 @dataclass
 class DeleteNode(Command):
     """A node removed from every way that references it, and from the square.

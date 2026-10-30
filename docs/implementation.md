@@ -6246,3 +6246,35 @@ does (M3): shift is the line already, so ctrl added turns it about the middle
 of its box and ctrl and alt scale it there; the keys change it mid-drag, and
 what is put down is the whole drag, one `TranslateWay` under the same rule
 of crossings. The keys are a picked drag's, with shift.
+
+## Merging by a drag
+
+Ctrl and a drag of a node onto another contour's line at its level makes the
+two one way (`edits.splice_ways`), one step with the drag. The node goes, and
+each runs on through the other where it was: a ring dropped on a line opens at
+the node and is laid into the segment, its nearer end to the segment's nearer
+node; a line's node dropped on a ring is replaced by the ring, from one end of
+the segment round to the other. One must be a ring - two lines meeting are not
+one line. The open one keeps its id; of two rings, the one already on the
+server, so an uploaded way is not deleted for one that never was.
+
+E's absorb was tried first. Its hull bridges pieces apart; on roantra's N45E030,
+w-49942840 dropped on w-50028975, the hull cut straight across the ring's
+hollow side and through the contours beside it, and was refused for crossing.
+Pieces already touching need no bridge, so the splice keeps every node. G8b's
+rule holds: a contour that crossed nothing may not be made to cross.
+
+**Where it would land is shown.** Tried in use, a drop had nothing to say
+where it would take until it was let go. While a node is dragged with ctrl,
+the contour it would join or merge with is haloed green - the end it would
+join ringed - and the pointer is a link's. Only what would be done is shown:
+the join or the splice is asked, not the crossings, which the drop still
+weighs. Ctrl pressed or let go mid-drag shows or hides it.
+
+Asked at every move, it first cost a move 62 ms on roantra's N45E030 set
+against 1.6 ms without ctrl: each move of the node marks the layer's pick
+arrays stale, and the pick built them again for all 1.2 million segments.
+Only the node dragged has moved, and it and its contour are passed over, so
+the hint picks from the arrays as they were at the press (`as_built`) - 14 ms.
+What the node's own ways are, and whether a way or an end would take it, are
+kept for the drag.
