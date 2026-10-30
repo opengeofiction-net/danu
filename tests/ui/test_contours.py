@@ -655,7 +655,7 @@ def test_only_the_picks_read_the_flat_arrays():
         return any(isinstance(c.func, ast.Attribute) and c.func.attr == '_ensure_arrays'
                    for c in ast.walk(fn) if isinstance(c, ast.Call))
 
-    # _patch_arrays writes them, and only when they are current - refresh asks
+    # _patch_arrays writes them in place, and refuses when they are stale
     builders = {'__init__', '_rebuild_arrays', '_patch_arrays'}
     readers = {fn.name for fn in layer.body
                if isinstance(fn, ast.FunctionDef) and touches(fn) and fn.name not in builders}

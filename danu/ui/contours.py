@@ -663,7 +663,7 @@ class ContourLayer(QGraphicsItem):
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
-        if not self._arrays_stale and not self._patch_arrays(moved):
+        if not self._patch_arrays(moved):
             self._arrays_stale = True
         self.update()
 
@@ -678,8 +678,8 @@ class ContourLayer(QGraphicsItem):
         Building them again was most of a node move's time on roantra's
         N45E030 set: 64 ms for the arrays and 261 ms for the grid, over 1.2
         million segments, for the two segments either side of one node."""
-        if not moved or any(g is None or key not in self._node_at for key, g in moved):
-            return False
+        if self._arrays_stale or not moved or any(g is None or key not in self._node_at for key, g in moved):
+            return False                           # stale arrays are built whole, when next asked
         if any(g.ele is not None and key not in self._way_at for key, g in moved):
             return False
         grid = self._seg_grid
@@ -1708,7 +1708,9 @@ class ContourLayer(QGraphicsItem):
         edit drops it with them.
 
         Built whole and vectorised: a segment spanning cells is put in each,
-        by a ramp over the cells each covers. One cell at a time in Python it
+        by a ramp over the cells each covers - the cells ``_cells`` gives,
+        which ``_patch_arrays`` moves a segment between: change one, change
+        both. One cell at a time in Python it
         was 1.7 s on roantra's N45E030 set, paid by the first E or move after
         every edit, for ``crossed_by``'s answer of a tenth of a second."""
         self._ensure_arrays()

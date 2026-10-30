@@ -6294,6 +6294,8 @@ in the same order at the same level: a node dragged, nodes picked and moved,
 turned or scaled, and their undos - now patches them in place
 (`ContourLayer._patch_arrays`). Each way's slice of the arrays is written
 again, and each of its segments that moved is taken out of the grid cells it
-left and put in those it reached. Anything else - a node in or out, a way
-added, deleted, split or joined - makes them stale as before. A release is
-about 50 ms now; the first after opening a set still builds the grid once.
+left and put in those it reached; stale arrays are not patched, but built
+whole when next asked. Anything else - a node in or out, a way added,
+deleted, split or joined - makes them stale as before. A release is about
+50 ms now. The grid is built lazily, so the first crossing question after a
+set opens still builds it once.
