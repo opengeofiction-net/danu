@@ -9,6 +9,7 @@ pytest.importorskip('PySide6')
 pytest.importorskip('osgeo.ogr')               # the absorb is GDAL's geometry; the ui job has none
 from PySide6.QtCore import QPointF
 
+from danu.checks.touches import Touch
 from danu.core import edits
 from danu.core.square import SquareName
 from danu.ui import mercator as m
@@ -90,6 +91,39 @@ def test_two_open_contours_picked_is_refused(valley):
     w.edit_actions['edit.absorb'].trigger()
     assert '2 open contours picked' in w.statusBar().currentMessage()
     assert len(contours(w, 30)) == 5
+
+
+def test_a_touch_chosen_in_validation_e_absorbs_the_pair(valley):
+    """A same-level touch chosen: E takes the other in, nothing lassoed."""
+    w, main, pieces = valley
+    lon, lat = deg(0, 20)
+    w._choose_touch(Touch('coincident', (NORTH, pieces[0], 30.0), (NORTH, main, 30.0), lon, lat))
+    assert w.editor.selection.way.id == pieces[0] and w.editor.partner == main
+    assert 'E absorbs' in w.statusBar().currentMessage()
+    w.edit_actions['edit.absorb'].trigger()
+    assert sorted(x.id for x in contours(w, 30)) == sorted([main, *pieces[1:]]), w.statusBar().currentMessage()
+    assert 'absorbed 1 piece into the 30 m contour' in w.statusBar().currentMessage()
+
+
+def test_the_partner_goes_with_the_selection(valley):
+    """Choosing something else forgets it: E then asks for picks again."""
+    w, main, pieces = valley
+    lon, lat = deg(0, 20)
+    w._choose_touch(Touch('coincident', (NORTH, pieces[0], 30.0), (NORTH, main, 30.0), lon, lat))
+    sq = w.working_set.squares[NORTH]
+    w.editor.selection = Selection(sq, sq.ways[pieces[1]])
+    assert w.editor.partner is None
+    w.edit_actions['edit.absorb'].trigger()
+    assert w.statusBar().currentMessage().startswith('pick the contour')
+    assert len(contours(w, 30)) == 4
+
+
+def test_a_touch_of_two_levels_has_no_partner(valley):
+    w, main, _ = valley
+    other = add(w, [(-2000, 600), (0, 600)], 50)
+    lon, lat = deg(0, 20)
+    w._choose_touch(Touch('coincident', (NORTH, main, 30.0), (NORTH, other, 50.0), lon, lat))
+    assert w.editor.partner is None and 'E absorbs' not in w.statusBar().currentMessage()
 
 
 def test_nothing_picked_says_how(window):

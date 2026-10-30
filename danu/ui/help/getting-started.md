@@ -87,6 +87,8 @@ page back over whatever is open.
   and the rings up the river from it - and the contour runs round them all
   as one line, the pieces gone. A ring absorbs its pieces as well; with only
   rings picked, the largest is kept. Pieces more than 100 m apart are not joined.
+  Two contours of one level listed in Validation's **Touching contours** need
+  no lasso: choose the row, and **E** absorbs one into the other.
 - **Push back crossings** with **Shift+P**: in the open square, a recovered
   contour stepping back and forth over the line at the next level - a 10 m
   over the coastline - is pushed back off it to its own side, as one line,

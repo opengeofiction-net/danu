@@ -6300,3 +6300,12 @@ whole when next asked. Anything else - a node in or out, a way added,
 deleted, split or joined - makes them stale as before. A release is about
 50 ms now. The grid is built lazily, so the first crossing question after a
 set opens still builds it once.
+
+## Absorbing a touch from the Validation panel
+
+A Touching contours row of two contours at one level - a small ring lying on
+a larger one, as on roantra's N45E028, w-49890538 on w-49890386 - selects
+the first and keeps the second as its partner (`EditController.partner`), so
+E absorbs the pair with nothing lassoed; the status bar says so. Any other
+selection forgets the partner. Picks, when there are any, are absorbed as
+before.
