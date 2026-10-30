@@ -82,9 +82,10 @@ def _others(tags: dict) -> str:
     return '\n'.join(rest)
 
 
-def _upstream(kind: str, i: int | None) -> tuple[str, int] | None:
-    """The object whose id is copied. A local one's, negative, is copied
-    too - to say which in a message or an issue - but has no page."""
+def _identified(kind: str, i: int | None) -> tuple[str, int] | None:
+    """The object whose id Copy ID gives - a local one's too, negative, to
+    name it in a message or an issue. Only a positive id has a page, which
+    Copy URL asks of ``Info.osm`` itself."""
     return (kind, i) if i is not None else None
 
 
@@ -112,14 +113,14 @@ def describe(sel, layer) -> Info:
     if sel is None or info is NOTHING:
         return info
     if sel.relation is not None:
-        osm = _upstream('relation', sel.relation.id)
+        osm = _identified('relation', sel.relation.id)
     elif sel.spot:
-        osm = _upstream('node', sel.node)
+        osm = _identified('node', sel.node)
     elif info.kind.startswith('point on'):
-        osm = _upstream('node', sel.node)
+        osm = _identified('node', sel.node)
     else:
         rel = _water_relation(sel.square, sel.way.id)
-        osm = _upstream('relation', rel.id) if rel is not None else _upstream('way', sel.way.id)
+        osm = _identified('relation', rel.id) if rel is not None else _identified('way', sel.way.id)
     return replace(info, osm=osm)
 
 
