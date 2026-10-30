@@ -225,9 +225,13 @@ class Sender(QObject):
         self._saved_then(lambda: self._run(lambda: pending.scan(dirs), self._chosen))
 
     def _chosen(self, found: dict) -> None:
-        left = self._elsewhere()
+        # the ^ squares this leaves, marked all the same: other zones'
+        others = len(set(self.window.waiting.unsent) - set(found))
+        left = (f'{others} changed square{"s" * (others != 1)} of other zones left - open a zone to upload its own'
+                if others else '')
         if not found:
-            self.message.emit('nothing to upload: every square of this zone is as the server has it' + left)
+            self.message.emit('nothing to upload: every square of this zone is as the server has it'
+                              + (f'; {left}' if left else ''))
             return
         todo = sorted((sq, path) for sq, (path, _had) in found.items())
         lines = [f'{path.name}' + ('' if found[sq][1] else ' - not had from the server') for sq, path in todo]
@@ -235,16 +239,9 @@ class Sender(QObject):
         if not self.confirm('Upload changed squares',
                             f'Upload {n} square{"s" * (n != 1)} to the OpenGeofiction data drop? They are built '
                             'into the elevation the night after.\n\n' + '\n'.join(lines)
-                            + ('\n\n' + left[2:] if left else '')):
+                            + (f'\n\n{left}' if left else '')):
             return
         self._next(todo, {'sent': [], 'refused': [], 'failed': [], 'moved': False}, n)
-
-    def _elsewhere(self) -> str:
-        """The ``^`` squares of other zones, which this leaves, as a clause
-        to add: marked on the zones map, they are not in the list."""
-        here = Path(self.window.zone_dir)
-        n = sum(Path(path).parent != here for path, _had in self.window.waiting.unsent.values())
-        return f'; {n} changed square{"s" * (n != 1)} of other zones left - open a zone to upload its own' if n else ''
 
     def _next(self, todo: list, got: dict, n: int) -> None:
         """The first of ``todo`` uploaded, then the rest; what each did kept
