@@ -320,12 +320,16 @@ def test_a_spot_height_copies_its_node(w):
     assert w.selection_panel.info.osm == ('node', 7)
 
 
-def test_a_local_contour_has_no_id_to_copy(w):
+def test_a_local_contours_id_is_copied_but_has_no_page(w):
+    """For a message or an issue: w-49942840 names it, though it has no
+    page on the server."""
     sq, way = contour(w)
     w.editor.selection = Selection(sq, way)
-    assert way.id < 0 and w.selection_panel.info.osm is None
+    assert way.id < 0 and w.selection_panel.info.osm == ('way', way.id)
     menu = right_click(w.selection_panel.where)
-    assert not menu['Copy ID'].isEnabled() and not menu['Copy URL'].isEnabled()
+    assert menu['Copy ID'].isEnabled() and not menu['Copy URL'].isEnabled()
+    menu['Copy ID'].trigger()
+    assert copied() == f'w{way.id}'
 
 
 def test_a_contour_upstream_copies_the_way_not_its_node(w):

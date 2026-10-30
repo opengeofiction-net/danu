@@ -64,7 +64,7 @@ class Info:
     why_not: str = ''            # why the elevation cannot be edited, when it cannot
     where: str = ''
     tags: str = ''               # the rest of the tags, read-only
-    osm: tuple[str, int] | None = None   # the object upstream, to copy its id: none if local
+    osm: tuple[str, int] | None = None   # the object, to copy its id - a local one's is negative
 
 NOTHING = Info('Nothing selected', why_not='select something to see it here')
 
@@ -83,7 +83,9 @@ def _others(tags: dict) -> str:
 
 
 def _upstream(kind: str, i: int | None) -> tuple[str, int] | None:
-    return (kind, i) if i is not None and i > 0 else None
+    """The object whose id is copied. A local one's, negative, is copied
+    too - to say which in a message or an issue - but has no page."""
+    return (kind, i) if i is not None else None
 
 
 def _water_relation(sq, way_id: int):
@@ -544,7 +546,7 @@ class SelectionPanel(QDockWidget):
         self.where.setText(info.where or '—')
         self.copy_name.setEnabled(bool(info.name))
         self.copy_id.setEnabled(info.osm is not None)
-        self.copy_url.setEnabled(info.osm is not None)
+        self.copy_url.setEnabled(info.osm is not None and info.osm[1] > 0)
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
         water = sel is not None and (

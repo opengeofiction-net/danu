@@ -4378,7 +4378,8 @@ first and looked out of place beside Name and Tags. `describe` sets
 - a spot height, or a point on a river, gives the node;
 - a contour, or a node of one, gives the way.
 
-A negative id was never upstream, so there is nothing to copy. The id is
+A negative id was never upstream: it is copied, `w-49942840`, to name the
+contour in a message or an issue, but has no page, so Copy URL is greyed. The id is
 copied as `w633126`, or as its page on the server - `ogf/server` in the
 INI, `https://opengeofiction.net` until H6e's preferences say otherwise.
 
