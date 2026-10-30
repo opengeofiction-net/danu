@@ -682,6 +682,9 @@ class ContourLayer(QGraphicsItem):
             return False                           # stale arrays are built whole, when next asked
         if any(g.ele is not None and key not in self._way_at for key, g in moved):
             return False
+        # the same refs is the same points and segments, so each way keeps its
+        # place in _ways, its slices, and _seg_way, _seg_i and _node_ref as
+        # they are; everything is checked above, before anything is written
         grid = self._seg_grid
         for key, g in moved:
             j = self._node_at[key]
