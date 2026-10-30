@@ -100,9 +100,10 @@ def _kind_of(mods) -> str | None:
 
 
 def _whole_kind(mods) -> str | None:
-    """What a shift-drag of a contour does with these keys held: shift is
-    already down, so the keys are a picked node's with shift - shift and
-    ctrl turn, shift, ctrl and alt scale. Let go of, shift changes nothing."""
+    """What a shift-drag of a contour does with these keys held. Shift is
+    the press, the whole line, so it is not read: ctrl turns, ctrl and alt
+    scale - shift and ctrl, shift, ctrl and alt as the mapper holds them.
+    Shift let go mid-drag changes nothing."""
     C, A = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.AltModifier
     held = mods & (C | A)
     return 'move' if not held else 'rotate' if held == C else 'scale' if held == (C | A) else None
