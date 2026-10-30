@@ -6236,3 +6236,11 @@ The `danu:fill` lines G7a drew are no longer drawn. Flattening takes out a
 lake's old ones, and opening a set takes out every square's, one step
 (`edits.drop_fill_lines`). A flatten that finds a lake already flat says so
 to the gone dock, so a reshaped lake's row is struck through.
+
+## Turning and scaling a contour carried
+
+A shift-drag of a contour turns and scales it as a drag of what is picked
+does (M3): shift is the line already, so ctrl added turns it about the middle
+of its box and ctrl and alt scale it there; the keys change it mid-drag, and
+what is put down is the whole drag, one `TranslateWay` under the same rule
+of crossings. The keys are a picked drag's, with shift.

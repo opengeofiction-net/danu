@@ -60,7 +60,9 @@ page back over whatever is open.
   held to join the two. A node of a contour that crossed nothing is not put
   down crossing another; one of a contour that already crosses moves, so a
   crossing can be mended a node at a time.
-- **Move a whole contour** by dragging it with **Shift** held.
+- **Move a whole contour** by dragging it with **Shift** held. With
+  **Ctrl+Shift** a drag turns it about its middle, and with **Ctrl+Alt+Shift**
+  scales it there.
 - **Insert a node** with a double click on a line.
 - Where lines and nodes lie together, **click again** in the same place for
   the next of them.

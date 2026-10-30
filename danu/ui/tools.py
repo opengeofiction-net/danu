@@ -99,6 +99,16 @@ def _kind_of(mods) -> str | None:
     return 'move' if not held else 'rotate' if held == (C | S) else 'scale' if held == (C | A) else None
 
 
+def _whole_kind(mods) -> str | None:
+    """What a shift-drag of a contour does with these keys held. Shift is
+    the press, the whole line, so it is not read: ctrl turns, ctrl and alt
+    scale - shift and ctrl, shift, ctrl and alt as the mapper holds them.
+    Shift let go mid-drag changes nothing."""
+    C, A = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.AltModifier
+    held = mods & (C | A)
+    return 'move' if not held else 'rotate' if held == C else 'scale' if held == (C | A) else None
+
+
 _ROTATE_CURSOR = None
 
 
@@ -391,9 +401,11 @@ class EditController(QObject):
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
         self._dragged = False
         self._cycle = None                   # (where, what was there, which) of the last click
-        # carrying a whole contour - shift and drag (G8b): square, way, where
-        # the press was, and the contour as it would be, in scene points
-        self._carry: tuple[Square, Way, QPointF] | None = None
+        # carrying a whole contour - shift and drag (G8b): square, way, the
+        # kind of drag, where it began, its pivot, what the drag did before
+        # the keys last changed (a function of a scene point), and the kinds
+        # it has been; and the contour as it would be, in scene points
+        self._carry: tuple | None = None
         self.ghost: list | None = None
         # many nodes picked at once (#201): by square, the node ids - on
         # contours, rivers, coastlines, and spot heights - beside the one
@@ -580,11 +592,10 @@ class EditController(QObject):
             # - is the one carried, though another runs nearer the press: in
             # a massif's thirty contours a press is near several (G8b)
             sel = self.selection
-            self._carry = (sel.square, sel.way, pos)
-            self.ghost = None
+            self._start_carry(sel.square, sel.way, event.modifiers(), pos)
             self._cycle = None
             return True
-        choices = self._choices(pos, whole)
+        choices = self._choices(pos, whole, event.modifiers())
         if not choices:
             # nothing here: a lasso, or with alt a rectangle, picks the nodes
             # in it - shift adding to what is picked, ctrl taking away (#201).
@@ -619,7 +630,7 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
-    def _choices(self, pos: QPointF, whole: bool) -> list:
+    def _choices(self, pos: QPointF, whole: bool, mods=Qt.KeyboardModifier.NoModifier) -> list:
         """What a click at ``pos`` could mean, in the order it means them,
         each a key and what choosing it does. A spot height first - a few
         pixels across, on ground a contour runs through, so a click that
@@ -641,7 +652,8 @@ class EditController(QObject):
                     out.append((('node', node[0].name, node[1]),
                                 lambda n=node, w=way: self._choose_node(n, w, pos)))
         tol = self._px(PICK_PX)
-        lines = [(d, ('way', sq.name, way.id), lambda sq=sq, way=way: self._choose_contour(sq, way, whole, pos))
+        lines = [(d, ('way', sq.name, way.id),
+                  lambda sq=sq, way=way: self._choose_contour(sq, way, whole, pos, mods))
                  for sq, way, d in self.layer.pick_lines(pos.x(), pos.y(), tol)]
         outlines = []
         for wet in self.layer.pick_waters(pos.x(), pos.y(), tol):
@@ -667,14 +679,24 @@ class EditController(QObject):
         self._drag = (square, nid, (n.lon, n.lat))
         self._press = pos
 
-    def _choose_contour(self, square, way, whole: bool, pos: QPointF) -> None:
+    def _choose_contour(self, square, way, whole: bool, pos: QPointF, mods) -> None:
         self.selection = Selection(square, way)
         self.elevation.pick_up(way.ele)
         if whole:
             # shift is the line; shift and a drag carries it - a contour
             # whose shape is right and whose place is not (G8b)
-            self._carry = (square, way, pos)
-            self.ghost = None
+            self._start_carry(square, way, mods, pos)
+
+    def _start_carry(self, square, way, mods, pos: QPointF) -> None:
+        """A shift-press on a contour: dragged, it carries it - with ctrl
+        too it turns it about its middle, with ctrl and alt it scales it
+        there, as a drag of what is picked does."""
+        kind = _whole_kind(mods) or 'move'
+        here = {r: self.layer.node_xy(square, r) for r in way.refs if r in square.nodes}
+        pivot = _middle(here) if here else (pos.x(), pos.y())
+        self._carry = (square, way, kind, QPointF(pos), pivot, lambda x, y: (x, y), [kind])
+        self.ghost = None
+        self._set_pointer(kind)
 
     def _select_water(self, wet, whole: bool) -> None:
         """A click on water - G6a. A lake, when the line is its ring; a
@@ -735,12 +757,12 @@ class EditController(QObject):
             self.overlay.update()
             return True
         if self._carry is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            square, way, start = self._carry
+            self._recarry(event.modifiers(), pos)
+            square, way, _kind, start, _pivot, _prior, _kinds = self._carry
             if self.ghost is None and (pos - start).manhattanLength() < self._px(DRAG_PX):
                 return True
-            dx, dy = pos.x() - start.x(), pos.y() - start.y()
-            self.ghost = [(x + dx, y + dy) for x, y in
-                          (self.layer.node_xy(square, r) for r in way.refs if r in square.nodes)]
+            f = self._carried(pos)
+            self.ghost = [f(*self.layer.node_xy(square, r)) for r in way.refs if r in square.nodes]
             self.overlay.update()
             return True
         if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
@@ -778,10 +800,16 @@ class EditController(QObject):
             self.overlay.update()
             return True
         if self._carry is not None:
-            carry, self._carry = self._carry, None
+            f = self._carried(pos)
+            square, way, kind, start, pivot, _prior, kinds = self._carry
+            self._carry = None
             ghost, self.ghost = self.ghost, None
             if ghost is not None:
-                self._put_down(*carry, pos)
+                done = list(dict.fromkeys(kinds))
+                what = (_transformed(kind, (start.x(), start.y()), (pos.x(), pos.y()), pivot) if len(done) == 1
+                        else (' and '.join(_VERBS[k] for k in done), ''))
+                self._put_down(square, way, f, what)
+            self._hover(event.modifiers(), pos)
             self.overlay.update()
             return True
         if self._stroke is not None:
@@ -863,6 +891,25 @@ class EditController(QObject):
             return
         here = self.transform_ghost or base
         self._transform = (now, QPointF(pos), _middle(here), dict(here), orig0, [*kinds, now])
+        self._set_pointer(now)
+
+    def _carried(self, pos: QPointF):
+        """The whole of a carry's drag, to ``pos``, as a function of a scene
+        point: the last keys' part after what went before."""
+        _square, _way, kind, start, pivot, prior, _kinds = self._carry
+        f = _transform_of(kind, (start.x(), start.y()), (pos.x(), pos.y()), pivot)
+        return lambda x, y: f(*prior(x, y))
+
+    def _recarry(self, mods, pos: QPointF) -> None:
+        """The keys changed mid-carry: as ``_retransform``, it goes on as
+        what they now say, from where the contour is."""
+        square, way, kind, _start, _pivot, _prior, kinds = self._carry
+        now = _whole_kind(mods)
+        if now is None or now == kind:
+            return
+        f = self._carried(pos)
+        here = {r: f(*self.layer.node_xy(square, r)) for r in way.refs if r in square.nodes}
+        self._carry = (square, way, now, QPointF(pos), _middle(here), f, [*kinds, now])
         self._set_pointer(now)
 
     def _hover(self, mods, pos: QPointF) -> None:
@@ -1263,8 +1310,9 @@ class EditController(QObject):
         _, dist = geometry.nearest_point_on_segments((pos.x(), pos.y()), pts[:-1], pts[1:])
         return float(dist.min()) <= self._px(PICK_PX)
 
-    def _put_down(self, square: Square, way: Way, start: QPointF, pos: QPointF) -> None:
-        """The contour carried, put where the drag ended - G8b.
+    def _put_down(self, square: Square, way: Way, f, what: tuple[str, str]) -> None:
+        """The contour carried, put where the drag left it - G8b: ``f`` the
+        drag as a function of a scene point, ``what`` how it is said.
 
         R16 asked of the move, not of the contour. A contour that already
         crosses others is in breach of it, and the mapper moving it is
@@ -1275,35 +1323,28 @@ class EditController(QObject):
         50 m any way crossed three or four new ones. A contour that crosses
         nothing may not be moved into a crossing - that is good data, and the
         refusal names the contour and rings where."""
-        dx, dy = pos.x() - start.x(), pos.y() - start.y()
-
         def move(lon, lat):
-            x, y = m.lonlat_to_scene(lon, lat)
-            return m.scene_to_lonlat(x + dx, y + dy)
+            return m.scene_to_lonlat(*f(*m.lonlat_to_scene(lon, lat)))
         key = (square.name, way.id)
         here = [self.layer.node_xy(square, r) for r in way.refs if r in square.nodes]
-        there = [(x + dx, y + dy) for x, y in here]
+        there = [f(x, y) for x, y in here]
         before = self.layer.crossed_by(here, skip=key)
         after = self.layer.crossed_by(there, skip=key)
         name = f'the {format_ele(way.ele)} m contour'
         if after and not before:
             sq_name, wid = sorted(after, key=str)[0]
             other = self.working_set.square(sq_name).ways.get(wid)
-            what = (f'the {format_ele(other.ele)} m contour, way {wid}' if other is not None
-                    else f'way {wid}')
+            other_is = (f'the {format_ele(other.ele)} m contour, way {wid}' if other is not None
+                        else f'way {wid}')
             self.marks_focus = self.layer.crossing_points(there, (sq_name, wid))
-            self.message.emit(f'not moved: {name} crosses nothing now, and would cross {what}'
+            self.message.emit(f'not {what[0]}: {name} crosses nothing now, and would cross {other_is}'
                               + (f' and {len(after) - 1} more' if len(after) > 1 else '')
                               + ' - ringed')
             return
         self.marks_focus = []
         cmd = edits.translate_way(square, way.id, move, self.history.alloc(square))
         self.do(square, cmd)
-        (lon0, lat0), (lon1, lat1) = (m.scene_to_lonlat(start.x(), start.y()),
-                                      m.scene_to_lonlat(pos.x(), pos.y()))
-        metres = math.hypot((lon1 - lon0) * 111320 * math.cos(math.radians(lat0)),
-                            (lat1 - lat0) * 110540)
-        said = f'moved {name} {metres:,.0f} m'
+        said = f'{what[0]} {name}' + (f' {what[1]}' if what[1] else '')
         if cmd.copies:
             said += f'; it came away from {len(cmd.copies)} node{"s" * (len(cmd.copies) != 1)} it shared'
         n = f'{len(after)} contour{"s" * (len(after) != 1)}'
@@ -1389,6 +1430,9 @@ class EditController(QObject):
         pos = QPointF(*self.cursor)
         if self._transform is not None:
             self._retransform(mods, pos)
+            return True
+        if self._carry is not None:
+            self._recarry(mods, pos)
             return True
         self._hover(mods, pos)
         return False

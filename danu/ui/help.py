@@ -46,6 +46,8 @@ MOUSE = (('Wheel', 'zoom in and out, about the cursor'),
          ('Drag a node', 'move it'),
          ('Ctrl+Drag a node', 'onto another node: join the two'),
          ('Shift+Drag a contour', 'move the whole contour'),
+         ('Ctrl+Shift+Drag a contour', 'turn the whole contour about its middle - the keys work mid-drag too'),
+         ('Ctrl+Alt+Shift+Drag a contour', 'scale the whole contour about its middle'),
          ('Double click a line', 'insert a node'),
          ('Click again', 'the next of what lies there'))
 # and on macOS, a trackpad's own (#194): mapview moves the map for two

@@ -153,3 +153,73 @@ def test_the_contour_selected_is_carried_though_another_runs_nearer(board):
     lats = [lat for _, lat in place(sq, rogue)]
     assert lats == pytest.approx([-22.60, -22.60], abs=2e-4), 'the rogue was not the one carried'
     assert place(sq, a) == [(125.30, -22.75), (125.30, -22.65)]
+
+
+CTRL, ALT = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.AltModifier
+
+
+def test_shift_and_ctrl_turns_a_contour_about_its_middle(board):
+    """As a drag of what is picked: shift is already the line, so ctrl
+    added turns it - here a quarter, from across both neighbours to
+    between them."""
+    w, sq, a, b, rogue = board
+    mid = w.editor.layer.node_xy(sq, rogue.refs[0])[0] / 2 + w.editor.layer.node_xy(sq, rogue.refs[-1])[0] / 2
+    x0, y0 = w.editor.layer.node_xy(sq, rogue.refs[-1])
+    r = (x0 - mid) / 2
+    drag(w, m.scene_to_lonlat(mid + r, y0), m.scene_to_lonlat(mid, y0 + r), mods=SHIFT | CTRL)
+    ends = [w.editor.layer.node_xy(sq, i) for i in rogue.refs]
+    assert [x for x, _ in ends] == pytest.approx([mid, mid], abs=0.02 * r)
+    assert sorted(y for _, y in ends) == pytest.approx([y0 - 2 * r, y0 + 2 * r], abs=0.02 * r)
+    said = w.statusBar().currentMessage()
+    assert said.startswith('turned the 425 m contour 90° clockwise') and 'crosses nothing now' in said, said
+    w.editor.undo()
+    assert place(sq, rogue) == [(125.28, -22.70), (125.36, -22.70)]
+
+
+def test_shift_ctrl_and_alt_scales_a_contour_about_its_middle(board):
+    w, sq, a, b, rogue = board
+    drag(w, (125.35, -22.70), (125.3275, -22.70), mods=SHIFT | CTRL | ALT)    # a quarter as far from the middle
+    (west, _), (east, _) = place(sq, rogue)
+    assert west == pytest.approx(125.31, abs=2e-4) and east == pytest.approx(125.33, abs=2e-4)
+    said = w.statusBar().currentMessage()
+    assert said.startswith('scaled the 425 m contour ×0.25') and 'crosses nothing now' in said, said
+
+
+def test_the_keys_change_a_carry_mid_drag(board):
+    """Moved, then turned about where it is then, as one step."""
+    w, sq, a, b, rogue = board
+    vp = w.map.viewport()
+
+    def ev(kind, lonlat, button, buttons, mods):
+        pos = at(w, *lonlat)
+        return QMouseEvent(kind, pos, vp.mapToGlobal(pos.toPoint()), button, buttons, mods)
+    L, NB = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    w.map.mousePressEvent(ev(QEvent.Type.MouseButtonPress, (125.35, -22.70), L, L, SHIFT))
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (125.35, -22.60), NB, L, SHIFT))        # north
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (125.35, -22.60), NB, L, SHIFT | CTRL))
+    assert w.editor.pointer == 'rotate'
+    x, y = m.lonlat_to_scene(125.32, -22.60)                                              # its middle, there
+    to = m.scene_to_lonlat(x, y + (m.lonlat_to_scene(125.35, -22.60)[0] - x))
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, to, NB, L, SHIFT | CTRL))
+    w.map.mouseReleaseEvent(ev(QEvent.Type.MouseButtonRelease, to, L, NB, SHIFT | CTRL))
+    lons = [lon for lon, _ in place(sq, rogue)]
+    lats = sorted(lat for _, lat in place(sq, rogue))
+    assert lons == pytest.approx([125.32, 125.32], abs=2e-4)
+    assert lats[0] < -22.60 < lats[1]
+    assert w.statusBar().currentMessage().startswith('moved and turned the 425 m contour')
+    w.editor.undo()
+    assert place(sq, rogue) == [(125.28, -22.70), (125.36, -22.70)], 'not one step'
+
+
+def test_a_contour_that_crosses_nothing_may_not_be_turned_into_a_crossing(board):
+    w, sq, a, b, rogue = board
+    clean = draw(w, [(125.38, -22.72), (125.38, -22.64)], 150)    # east of the rogue's end
+    was = place(sq, clean)
+    mx, my = m.lonlat_to_scene(125.38, -22.68)
+    r = (my - m.lonlat_to_scene(125.38, -22.64)[1]) / 2
+    # a quarter turn: lying east-west, it would cross the 125 m
+    drag(w, m.scene_to_lonlat(mx, my - r), m.scene_to_lonlat(mx + r, my), mods=SHIFT | CTRL)
+    assert place(sq, clean) == was
+    said = w.statusBar().currentMessage()
+    assert said.startswith('not turned') and f'way {b.id}' in said, said
+    assert w.editor.marks_focus, 'where it would cross is not ringed'
