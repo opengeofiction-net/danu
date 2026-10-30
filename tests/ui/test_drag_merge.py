@@ -107,7 +107,9 @@ def test_a_line_at_another_level_is_not_merged(board):
     w, sq, line, ring = board
     add(w, [(-500, -100), (500, -100)], 25)
     drag(w, (0, 40), (0, -100))
-    assert ring.id in sq.ways and not w.statusBar().currentMessage().startswith('merged')
+    # an ordinary move, then, across the 30 m line: refused by R16
+    assert ring.id in sq.ways and w.statusBar().currentMessage().startswith('not moved'), \
+        w.statusBar().currentMessage()
 
 
 def test_where_a_drop_would_merge_is_shown_while_the_button_is_held(board):

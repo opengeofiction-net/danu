@@ -6253,7 +6253,8 @@ each runs on through the other where it was: a ring dropped on a line opens at
 the node and is laid into the segment, its nearer end to the segment's nearer
 node; a line's node dropped on a ring is replaced by the ring, from one end of
 the segment round to the other. One must be a ring - two lines meeting are not
-one line. The open one keeps its id, or of two rings the one from upstream.
+one line. The open one keeps its id; of two rings, the one already on the
+server, so an uploaded way is not deleted for one that never was.
 
 E's absorb was tried first. Its hull bridges pieces apart; on roantra's N45E030,
 w-49942840 dropped on w-50028975, the hull cut straight across the ring's

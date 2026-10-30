@@ -570,8 +570,9 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
     onto a line, the line runs round it from either side of the node; a
     line's node dragged onto a ring, the line runs round the ring. One of
     the two is a ring: two lines meeting are not one line. The open one keeps
-    its id, or of two rings the one from upstream, else ``other_id``. Why
-    not, as a string."""
+    its id; of two rings, the one already on the server (with a version) -
+    an uploaded way is not deleted for one that never was - else
+    ``other_id``. Why not, as a string."""
     way, other = square.ways.get(way_id), square.ways.get(other_id)
     if way is None or other is None or way_id == other_id:
         return 'that way is no longer there'
