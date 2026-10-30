@@ -608,9 +608,7 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
         path = ring[k + 1:] + ring[:k]
         if far(a, path[-1]) + far(b, path[0]) < far(a, path[0]) + far(b, path[-1]):
             path.reverse()
-        refs = [*other.refs[:seg + 1], *path, *other.refs[seg + 1:]]
-        if other.closed and refs[0] != refs[-1]:
-            refs.append(refs[0])
+        refs = [*other.refs[:seg + 1], *path, *other.refs[seg + 1:]]     # a ring's ends untouched
     else:
         # the line's node replaced by the ring, from one end of the segment
         # round to the other, the nearer end to the node before it

@@ -1181,6 +1181,8 @@ class EditController(QObject):
             return None
         way, other, seg = aim
         if ('way', other.id) not in memo:
+            # by way, not segment: a segment refuses only at a node the two
+            # share, and a shared node is refused on every segment
             ok = not isinstance(edits.splice_ways(square, way.id, nid, other.id, seg), str)
             memo[('way', other.id)] = (square, other.id, None) if ok else None
         return memo[('way', other.id)]
@@ -1222,7 +1224,9 @@ class EditController(QObject):
         way, other, seg = aim
         n = square.nodes[nid]
         after = (n.lon, n.lat)
-        n.lon, n.lat = before                      # the step moves it, so undo has it exact
+        # put back: the step is a MoveNode to where it was dropped, then the
+        # splice that takes it away, so one undo has it exact
+        n.lon, n.lat = before
         self.layer.refresh(square, self._ways_holding(square, nid))
         cmd = edits.splice_ways(square, way.id, nid, other.id, seg)
         if isinstance(cmd, str):
