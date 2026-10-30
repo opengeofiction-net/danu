@@ -14,11 +14,12 @@ A square the server holds that was never imported here - edited before Danu
 anybody else made: the mapper is asked whether to replace the server's copy,
 told when it last changed, and the server keeps the one replaced.
 
-Upload changed squares sends every square here the server doesn't have as
-it is - the ``^`` squares (``pending.py``), of every zone imported - one
-after another, asked first with them listed. One refused is left as it is
-and named: changed on the server since, or held there and never imported
-here, it is the open square's Upload that sorts it out.
+Upload changed squares sends every square of the open zone the server
+doesn't have as it is - the ``^`` squares (``pending.py``) of the open set's
+folder, not other zones' - one after another, asked first with them listed.
+One refused is left as it is and named: changed on the server since, or held
+there and never imported here, it is the open square's Upload that sorts it
+out.
 
 Revert square to the server's throws the open square's changes here away -
 unsaved, and saved but not uploaded - and takes the server's copy, or the
@@ -207,28 +208,38 @@ class Sender(QObject):
         self._run(lambda: dropclient.upload(api, token, path, over=over, **self._kw()), done)
 
     def upload_changed(self) -> None:
-        """Every square here not as the server has it, uploaded in turn -
-        the open squares' edits saved first, if the mapper says so."""
+        """Every square of the open zone not as the server has it, uploaded
+        in turn - the open squares' edits saved first, if the mapper says so.
+        Other zones' are left: theirs to send with that zone open."""
         w = self.window
         if self.job is not None:
             self.message.emit('a square is already being sent')
             return
+        if w.working_set is None or w.zone_dir is None:
+            self.message.emit('open a square first')
+            return
         if not w.settings.token:
             self.message.emit('sign in to OGF first: File › Sign in')
             return
-        dirs = w.waiting.dirs()
+        dirs = [Path(w.zone_dir)]
         self._saved_then(lambda: self._run(lambda: pending.scan(dirs), self._chosen))
 
     def _chosen(self, found: dict) -> None:
+        # the ^ squares this leaves, marked all the same: other zones'
+        others = len(set(self.window.waiting.unsent) - set(found))
+        left = (f'{others} changed square{"s" * (others != 1)} of other zones left - open a zone to upload its own'
+                if others else '')
         if not found:
-            self.message.emit('nothing to upload: every square here is as the server has it')
+            self.message.emit('nothing to upload: every square of this zone is as the server has it'
+                              + (f'; {left}' if left else ''))
             return
         todo = sorted((sq, path) for sq, (path, _had) in found.items())
         lines = [f'{path.name}' + ('' if found[sq][1] else ' - not had from the server') for sq, path in todo]
         n = len(todo)
         if not self.confirm('Upload changed squares',
                             f'Upload {n} square{"s" * (n != 1)} to the OpenGeofiction data drop? They are built '
-                            'into the elevation the night after.\n\n' + '\n'.join(lines)):
+                            'into the elevation the night after.\n\n' + '\n'.join(lines)
+                            + (f'\n\n{left}' if left else '')):
             return
         self._next(todo, {'sent': [], 'refused': [], 'failed': [], 'moved': False}, n)
 

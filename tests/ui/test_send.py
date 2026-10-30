@@ -129,7 +129,24 @@ def test_nothing_changed_nothing_is_sent(w, zone):
     (zone / 'S24E126_Tenmetre.osm.xz').unlink()
     w.waiting.refresh()
     w.drop_actions['drop.upload_changed'].trigger()
-    assert w.messages[-1] == 'nothing to upload: every square here is as the server has it'
+    assert w.messages[-1] == 'nothing to upload: every square of this zone is as the server has it'
+
+
+def test_changed_squares_of_other_zones_are_left(w, zone):
+    """Only the open zone's: another zone's ^ square is not sent, nor listed."""
+    other = zone.parent / 'elsewhere'
+    other.mkdir()
+    shutil.copy(zone / GOLDEN, other / 'S30E130_Far.osm.xz')
+    mirror.write_manifest(other, {})                         # imported once, the square new there
+    w.waiting.refresh()
+    assert SquareName(130, -30) in w.waiting.unsent, 'marked ^ all the same'
+    asked = []
+    w.sender.confirm = lambda title, text: asked.append(text) or True
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert 'Upload 1 square' in asked[-1] and 'S30E130' not in asked[-1]
+    assert '1 changed square of other zones left' in asked[-1], 'the mark it still shows accounted for'
+    assert not list(w.there.parent.glob('*/S30E130*')), 'the other zone\'s square not sent'
+    assert '1 square uploaded' in w.messages[-1]
 
 
 def test_rename_renames_there_and_here(w, zone, qtbot):

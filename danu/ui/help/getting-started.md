@@ -131,8 +131,8 @@ since your last import or upload, or not had from the server into this
 folder at all. The window's title
 has **\*** while any open square has unsaved edits, and **^** for the
 centre square's file. Only the folders an import made are marked. **File › Upload changed squares…**
-sends every **^** square of your imported zones, one after another, listed
-first for you to agree.
+sends every **^** square of the open zone, one after another, listed
+first for you to agree; other zones' wait until you open them.
 
 **File › Upload square…** sends the open square to OpenGeofiction, where
 it is built into the elevation the night after. The status bar says first
