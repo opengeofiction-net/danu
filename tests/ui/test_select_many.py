@@ -192,6 +192,12 @@ def lonlat(sq, nid):
     return (n.lon, n.lat)
 
 
+def flat(where: dict) -> list:
+    """Points by id as one list of numbers, for ``pytest.approx`` - which
+    since 9.2 takes no tuples in a dict."""
+    return [v for k in sorted(where) for v in where[k]]
+
+
 def test_a_drag_from_a_picked_node_moves_what_is_picked_in_one_step(w):
     sq, a, an = way(w, [(125.300 + 0.004 * k, LAT) for k in range(6)], {'ele': '100'})
     lasso(w, 125.303, LAT - 0.002, 125.313, LAT + 0.002)                  # 1-3
@@ -204,7 +210,7 @@ def test_a_drag_from_a_picked_node_moves_what_is_picked_in_one_step(w):
     assert picked(w) == {an[1], an[2], an[3]}, 'what was moved is still picked'
     assert w.statusBar().currentMessage().startswith('moved 3 nodes')
     w.editor.undo()
-    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before)
+    assert flat({i: lonlat(sq, i) for i in an}) == pytest.approx(flat(before))
 
 
 def test_the_picked_are_shown_where_they_would_go_while_the_button_is_held(w):
@@ -237,7 +243,7 @@ def test_contours_that_crossed_nothing_may_not_be_put_down_crossing(w):
     lasso(w, 125.303, LAT - 0.002, 125.309, LAT + 0.0008)                 # 1, 2: west of the wall
     before = {i: lonlat(sq, i) for i in an}
     gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0] + 0.006, LAT + 0.003)])   # over it
-    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before), 'moved into a crossing'
+    assert flat({i: lonlat(sq, i) for i in an}) == pytest.approx(flat(before)), 'moved into a crossing'
     assert w.statusBar().currentMessage().startswith('not moved'), w.statusBar().currentMessage()
     assert w.editor.marks_focus, 'the crossing ringed'
 
@@ -309,7 +315,7 @@ def test_two_moving_contours_put_down_crossing_each_other_are_refused(w):
     assert picked(w) == {an[2], an[3], bn[0], bn[1]}
     before = {i: lonlat(sq, i) for i in an + bn}
     gesture(w, [lonlat(sq, an[2]), (lonlat(sq, an[2])[0], LAT + 0.004)])
-    assert {i: lonlat(sq, i) for i in an + bn} == pytest.approx(before), w.statusBar().currentMessage()
+    assert flat({i: lonlat(sq, i) for i in an + bn}) == pytest.approx(flat(before)), w.statusBar().currentMessage()
     assert w.statusBar().currentMessage().startswith('not moved')
 
 
@@ -371,7 +377,7 @@ def test_a_move_turned_into_a_turn_mid_drag_is_one_step_from_where_it_began(w):
     assert nx == pytest.approx(mid[0], abs=r * 0.03) and ny == pytest.approx(mid[1] + r, abs=r * 0.03)
     assert w.statusBar().currentMessage().startswith('moved and turned 5 nodes'), w.statusBar().currentMessage()
     w.editor.undo()                                              # the whole drag, one step
-    assert {i: lonlat(sq, i) for i in an} == pytest.approx(before)
+    assert flat({i: lonlat(sq, i) for i in an}) == pytest.approx(flat(before))
 
 
 def test_a_key_pressed_mid_drag_changes_it_without_the_mouse_moving(w):
