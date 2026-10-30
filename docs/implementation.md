@@ -6244,3 +6244,19 @@ does (M3): shift is the line already, so ctrl added turns it about the middle
 of its box and ctrl and alt scale it there; the keys change it mid-drag, and
 what is put down is the whole drag, one `TranslateWay` under the same rule
 of crossings. The keys are a picked drag's, with shift.
+
+## Merging by a drag
+
+Ctrl and a drag of a node onto another contour's line at its level makes the
+two one way (`edits.splice_ways`), one step with the drag. The node goes, and
+each runs on through the other where it was: a ring dropped on a line opens at
+the node and is laid into the segment, its nearer end to the segment's nearer
+node; a line's node dropped on a ring is replaced by the ring, from one end of
+the segment round to the other. One must be a ring - two lines meeting are not
+one line. The open one keeps its id, or of two rings the one from upstream.
+
+E's absorb was tried first. Its hull bridges pieces apart; on roantra's N45E030,
+w-49942840 dropped on w-50028975, the hull cut straight across the ring's
+hollow side and through the contours beside it, and was refused for crossing.
+Pieces already touching need no bridge, so the splice keeps every node. G8b's
+rule holds: a contour that crossed nothing may not be made to cross.

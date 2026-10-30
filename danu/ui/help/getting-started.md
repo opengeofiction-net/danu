@@ -57,7 +57,9 @@ page back over whatever is open.
   end of a contour at its level joins it - one way, as long as that stays
   within the 2,000 nodes the main map takes in a way.
 - **Move a node** by dragging it; drag it onto another node with **Ctrl**
-  held to join the two. A node of a contour that crossed nothing is not put
+  held to join the two. Onto the line of another contour at its level, with
+  **Ctrl**, the two are merged - a ring beside a valley's contour taken into
+  it, the line running round where the ring was. A node of a contour that crossed nothing is not put
   down crossing another; one of a contour that already crosses moves, so a
   crossing can be mended a node at a time.
 - **Move a whole contour** by dragging it with **Shift** held. With
