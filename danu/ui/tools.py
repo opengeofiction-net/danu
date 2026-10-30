@@ -411,6 +411,7 @@ class EditController(QObject):
         # where a node dragged with ctrl would join or merge if let go here:
         # (square, the other way, the end it joins or None for a merge)
         self.drop_target: tuple | None = None
+        self._aim_memo: tuple = (None, {})       # the drag asked of, and what was found
         self.ghost: list | None = None
         # many nodes picked at once (#201): by square, the node ids - on
         # contours, rivers, coastlines, and spot heights - beside the one
@@ -1148,39 +1149,59 @@ class EditController(QObject):
         target = None
         if mods & Qt.KeyboardModifier.ControlModifier:
             square, nid, _ = self._drag
-            target = self._drop_on(square, nid, pos)
+            if self._aim_memo[0] is not self._drag:
+                self._aim_memo = (self._drag, {})
+            target = self._drop_on(square, nid, pos, self._aim_memo[1])
         self.drop_target = target
         self._set_pointer('join' if target is not None else None)
 
-    def _drop_on(self, square: Square, nid: int, pos: QPointF) -> tuple | None:
+    def _drop_on(self, square: Square, nid: int, pos: QPointF, memo: dict) -> tuple | None:
         """What a ctrl drop of the node at ``pos`` would join or merge with,
-        as ``drop_target`` has it - None if it would be refused or nothing."""
-        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX), skip=(square.name, nid))
+        as ``drop_target`` has it - None if it would be refused or nothing.
+        Asked at every move of the mouse: what the node's own ways are, and
+        whether a node or a way would take it, are kept in ``memo`` for the
+        drag - each a scan of every way in the square, and nothing the drag
+        changes."""
+        # the layer as it was at the press: only the node dragged has moved
+        # since, and it is passed over, as its own contour is
+        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX), skip=(square.name, nid), as_built=True)
         if hit is not None:
             there, target, _ = hit
             if there is not square:
                 return None
-            mine = [w for w in self._ways_holding(square, nid) if square.ways[w].ele is not None]
-            theirs = [w for w in self._ways_holding(square, target) if square.ways[w].ele is not None]
-            if len(mine) != 1 or len(theirs) != 1:
-                return None
-            cmd = edits.join_ways(square, mine[0], nid, theirs[0], target)
-            return None if isinstance(cmd, str) else (square, theirs[0], target)
-        aim = self._merge_target(square, nid, pos)
+            if ('node', target) not in memo:
+                mine = [w for w in self._holding(square, nid, memo) if square.ways[w].ele is not None]
+                theirs = [w for w in self._ways_holding(square, target) if square.ways[w].ele is not None]
+                ok = (len(mine) == 1 and len(theirs) == 1
+                      and not isinstance(edits.join_ways(square, mine[0], nid, theirs[0], target), str))
+                memo[('node', target)] = (square, theirs[0], target) if ok else None
+            return memo[('node', target)]
+        aim = self._merge_target(square, nid, pos, memo, as_built=True)
         if aim is None:
             return None
         way, other, seg = aim
-        cmd = edits.splice_ways(square, way.id, nid, other.id, seg)
-        return None if isinstance(cmd, str) else (square, other.id, None)
+        if ('way', other.id) not in memo:
+            ok = not isinstance(edits.splice_ways(square, way.id, nid, other.id, seg), str)
+            memo[('way', other.id)] = (square, other.id, None) if ok else None
+        return memo[('way', other.id)]
 
-    def _merge_target(self, square: Square, nid: int, pos: QPointF):
+    def _holding(self, square: Square, nid: int, memo: dict | None) -> set[int]:
+        """The ways holding the node dragged - kept for the drag in ``memo``."""
+        if memo is None:
+            return self._ways_holding(square, nid)
+        if 'mine' not in memo:
+            memo['mine'] = self._ways_holding(square, nid)
+        return memo['mine']
+
+    def _merge_target(self, square: Square, nid: int, pos: QPointF, memo: dict | None = None,
+                      as_built: bool = False):
         """The contour the node's would merge with at ``pos``, and the segment
         of it: (its own, the other, the segment), or None."""
-        contour = [w for w in self._ways_holding(square, nid) if self._mergeable(square, square.ways[w])]
+        contour = [w for w in self._holding(square, nid, memo) if self._mergeable(square, square.ways[w])]
         if len(contour) != 1:
             return None
         way = square.ways[contour[0]]
-        hits = sorted((d, w.id) for sq, w, d in self.layer.pick_lines(pos.x(), pos.y(), self._px(PICK_PX))
+        hits = sorted((d, w.id) for sq, w, d in self.layer.pick_lines(pos.x(), pos.y(), self._px(PICK_PX), as_built)
                       if sq is square and w.id != way.id and w.ele == way.ele and self._mergeable(square, w))
         if not hits:
             return None

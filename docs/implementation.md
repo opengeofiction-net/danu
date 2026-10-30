@@ -6267,3 +6267,11 @@ the contour it would join or merge with is haloed green - the end it would
 join ringed - and the pointer is a link's. Only what would be done is shown:
 the join or the splice is asked, not the crossings, which the drop still
 weighs. Ctrl pressed or let go mid-drag shows or hides it.
+
+Asked at every move, it first cost a move 62 ms on roantra's N45E030 set
+against 1.6 ms without ctrl: each move of the node marks the layer's pick
+arrays stale, and the pick built them again for all 1.2 million segments.
+Only the node dragged has moved, and it and its contour are passed over, so
+the hint picks from the arrays as they were at the press (`as_built`) - 14 ms.
+What the node's own ways are, and whether a way or an end would take it, are
+kept for the drag.

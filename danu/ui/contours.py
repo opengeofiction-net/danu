@@ -995,7 +995,7 @@ class ContourLayer(QGraphicsItem):
         g = self._ways[int(self._seg_way[i])]
         return g.square, g.way, float(dist[k]), int(self._seg_i[i])
 
-    def _segments_in(self, x0: float, y0: float, x1: float, y1: float) -> np.ndarray:
+    def _segments_in(self, x0: float, y0: float, x1: float, y1: float, as_built: bool = False) -> np.ndarray:
         """The segments whose rectangle reaches a box, ascending - what the
         picks and the drawn segment's crossings test exactly. A segment
         within a distance of a point, or meeting a segment, has its
@@ -1003,17 +1003,22 @@ class ContourLayer(QGraphicsItem):
         segments of roantra's N45E030 set are a few milliseconds where the
         exact tests over them all were 200 ms, on every move of the mouse
         while drawing."""
-        self._ensure_arrays()
+        if not as_built:
+            self._ensure_arrays()
         lo, hi = self._seg_lo, self._seg_hi
         return np.flatnonzero((hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1))
 
-    def pick_lines(self, x: float, y: float, tolerance: float) -> list[tuple[Square, Way, float]]:
+    def pick_lines(self, x: float, y: float, tolerance: float,
+                   as_built: bool = False) -> list[tuple[Square, Way, float]]:
         """Every contour within a tolerance of a scene point, nearest first,
         as (square, way, distance) - what a click there could mean, for the
         select tool to go through. No vertex: a click on a contour's line
-        is the way; a node is ``pick_node``'s."""
-        self._ensure_arrays()
-        box = self._segments_in(x - tolerance, y - tolerance, x + tolerance, y + tolerance)
+        is the way; a node is ``pick_node``'s. ``as_built``: the arrays as
+        they were last built, though an edit or a drag has moved something
+        since - see ``pick_node``."""
+        if not as_built:
+            self._ensure_arrays()
+        box = self._segments_in(x - tolerance, y - tolerance, x + tolerance, y + tolerance, as_built)
         if not len(box):
             return []
         _t, dist = geometry.nearest_point_on_segments((x, y), self._seg_a[box], self._seg_b[box])
@@ -1024,12 +1029,16 @@ class ContourLayer(QGraphicsItem):
         return [(self._ways[w].square, self._ways[w].way, d) for w, d in sorted(near.items(), key=lambda kv: kv[1])]
 
     def pick_node(self, x: float, y: float, tolerance: float,
-                  skip: tuple | None = None) -> tuple[Square, int, float] | None:
+                  skip: tuple | None = None, as_built: bool = False) -> tuple[Square, int, float] | None:
         """The node - of a contour or a coastline, R15's two snap targets -
         nearest a scene point within a tolerance, as (square, id, distance).
         ``skip`` is a (square name, node id) passed over - the node being
-        dragged, which is under the cursor itself."""
-        self._ensure_arrays()
+        dragged, which is under the cursor itself. ``as_built`` asks of the
+        arrays as they were last built: a node dragged makes them stale at
+        every move, and building them again for the whole set was most of a
+        move's time with ctrl held, for an answer only that node changes."""
+        if not as_built:
+            self._ensure_arrays()
         if not len(self._node_xy):
             return None
         xy = self._node_xy
