@@ -108,3 +108,43 @@ def test_a_line_at_another_level_is_not_merged(board):
     add(w, [(-500, -100), (500, -100)], 25)
     drag(w, (0, 40), (0, -100))
     assert ring.id in sq.ways and not w.statusBar().currentMessage().startswith('merged')
+
+
+def test_where_a_drop_would_merge_is_shown_while_the_button_is_held(board):
+    """The line haloed and the pointer a link's over a line it would merge
+    with; nothing over empty ground, or without ctrl; gone on letting go."""
+    w, sq, line, ring = board
+    vp = w.map.viewport()
+
+    def at(p):
+        return QPointF(w.map.mapFromScene(QPointF(*m.lonlat_to_scene(*deg(*p)))))
+
+    def ev(kind, p, button, buttons, mods=CTRL):
+        pos = at(p)
+        return QMouseEvent(kind, pos, vp.mapToGlobal(pos.toPoint()), button, buttons, mods)
+    L, NB = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    w.map.mousePressEvent(ev(QEvent.Type.MouseButtonPress, (0, 40), L, L))
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (0, 20), NB, L))
+    assert w.editor.drop_target is None, 'shown over empty ground'
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (0, 0), NB, L))
+    assert w.editor.drop_target == (sq, line.id, None) and w.editor.pointer == 'join'
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (0, 0), NB, L, Qt.KeyboardModifier.NoModifier))
+    assert w.editor.drop_target is None, 'shown without ctrl'
+    w.map.mouseMoveEvent(ev(QEvent.Type.MouseMove, (0, 0), NB, L))
+    w.map.mouseReleaseEvent(ev(QEvent.Type.MouseButtonRelease, (0, 0), L, NB))
+    assert w.editor.drop_target is None and w.editor.pointer is None
+    assert ring.id not in sq.ways
+
+
+def test_where_a_drop_would_join_an_end_is_shown(board):
+    w, sq, line, ring = board
+    other = add(w, [(600, 0), (700, 0)], 30)
+    vp = w.map.viewport()
+    w.map.center_on_lonlat(*deg(550, 0))
+    a, b = (QPointF(w.map.mapFromScene(QPointF(*m.lonlat_to_scene(*deg(*p))))) for p in ((600, 0), (500, 0)))
+    L, NB = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+    w.map.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, a, vp.mapToGlobal(a.toPoint()), L, L, CTRL))
+    w.map.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, b, vp.mapToGlobal(b.toPoint()), NB, L, CTRL))
+    assert w.editor.drop_target == (sq, line.id, line.refs[-1])
+    w.map.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, b, vp.mapToGlobal(b.toPoint()), L, NB, CTRL))
+    assert other.id not in sq.ways or line.id not in sq.ways, w.statusBar().currentMessage()

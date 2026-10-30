@@ -59,7 +59,9 @@ page back over whatever is open.
 - **Move a node** by dragging it; drag it onto another node with **Ctrl**
   held to join the two. Onto the line of another contour at its level, with
   **Ctrl**, the two are merged - a ring beside a valley's contour taken into
-  it, the line running round where the ring was. A node of a contour that crossed nothing is not put
+  it, the line running round where the ring was. While **Ctrl** is held, a
+  green halo on the other contour, and a link pointer, show where letting go
+  would join or merge. A node of a contour that crossed nothing is not put
   down crossing another; one of a contour that already crosses moves, so a
   crossing can be mended a node at a time.
 - **Move a whole contour** by dragging it with **Shift** held. With

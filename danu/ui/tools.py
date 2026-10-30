@@ -120,6 +120,8 @@ def _cursor(kind: str | None) -> QCursor:
         return QCursor(Qt.CursorShape.SizeAllCursor)
     if kind == 'scale':
         return QCursor(Qt.CursorShape.SizeFDiagCursor)
+    if kind == 'join':
+        return QCursor(Qt.CursorShape.DragLinkCursor)
     if kind == 'rotate':
         if _ROTATE_CURSOR is None:
             pix = QPixmap(24, 24)
@@ -406,6 +408,9 @@ class EditController(QObject):
         # the keys last changed (a function of a scene point), and the kinds
         # it has been; and the contour as it would be, in scene points
         self._carry: tuple | None = None
+        # where a node dragged with ctrl would join or merge if let go here:
+        # (square, the other way, the end it joins or None for a merge)
+        self.drop_target: tuple | None = None
         self.ghost: list | None = None
         # many nodes picked at once (#201): by square, the node ids - on
         # contours, rivers, coastlines, and spot heights - beside the one
@@ -774,6 +779,7 @@ class EditController(QObject):
             n = square.nodes[nid]
             n.lon, n.lat = lon, lat
             self.layer.refresh(square, self._ways_holding(square, nid))
+            self._aim(event.modifiers(), pos)
             self.overlay.update()
             return True
         return False
@@ -821,6 +827,9 @@ class EditController(QObject):
             return False
         square, nid, before = self._drag
         self._drag = None
+        if self.drop_target is not None:
+            self.drop_target = None
+            self._set_pointer(None)
         if not self._dragged:
             return True
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier and self._join(square, nid, before, pos):
@@ -1132,28 +1141,69 @@ class EditController(QObject):
         self.overlay.update()
         return True
 
+    def _aim(self, mods, pos: QPointF) -> None:
+        """A node dragged: with ctrl, where letting go would join it or merge
+        its contour - the other way haloed, and the pointer a link's. Only
+        what would be done: nothing shown is nothing joined."""
+        target = None
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            square, nid, _ = self._drag
+            target = self._drop_on(square, nid, pos)
+        self.drop_target = target
+        self._set_pointer('join' if target is not None else None)
+
+    def _drop_on(self, square: Square, nid: int, pos: QPointF) -> tuple | None:
+        """What a ctrl drop of the node at ``pos`` would join or merge with,
+        as ``drop_target`` has it - None if it would be refused or nothing."""
+        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX), skip=(square.name, nid))
+        if hit is not None:
+            there, target, _ = hit
+            if there is not square:
+                return None
+            mine = [w for w in self._ways_holding(square, nid) if square.ways[w].ele is not None]
+            theirs = [w for w in self._ways_holding(square, target) if square.ways[w].ele is not None]
+            if len(mine) != 1 or len(theirs) != 1:
+                return None
+            cmd = edits.join_ways(square, mine[0], nid, theirs[0], target)
+            return None if isinstance(cmd, str) else (square, theirs[0], target)
+        aim = self._merge_target(square, nid, pos)
+        if aim is None:
+            return None
+        way, other, seg = aim
+        cmd = edits.splice_ways(square, way.id, nid, other.id, seg)
+        return None if isinstance(cmd, str) else (square, other.id, None)
+
+    def _merge_target(self, square: Square, nid: int, pos: QPointF):
+        """The contour the node's would merge with at ``pos``, and the segment
+        of it: (its own, the other, the segment), or None."""
+        contour = [w for w in self._ways_holding(square, nid) if self._mergeable(square, square.ways[w])]
+        if len(contour) != 1:
+            return None
+        way = square.ways[contour[0]]
+        hits = sorted((d, w.id) for sq, w, d in self.layer.pick_lines(pos.x(), pos.y(), self._px(PICK_PX))
+                      if sq is square and w.id != way.id and w.ele == way.ele and self._mergeable(square, w))
+        if not hits:
+            return None
+        other = square.ways[hits[0][1]]
+        pts = np.array([self.layer.node_xy(square, r) for r in other.refs])
+        _, dist = geometry.nearest_point_on_segments((pos.x(), pos.y()), pts[:-1], pts[1:])
+        return way, other, int(np.argmin(dist))
+
     def _merge_onto(self, square: Square, nid: int, before, pos: QPointF) -> bool:
         """Ctrl and a drag of a node of a contour onto the line of another at
         its level: the two made one, the node gone and each run on through
         the other where it was (``edits.splice_ways``) - one step with the
         drag, under G8b's rule. Two open lines meeting are not one line,
         and are refused. False when no such line is under the drop."""
-        contour = [w for w in self._ways_holding(square, nid) if self._mergeable(square, square.ways[w])]
-        if len(contour) != 1:
+        aim = self._merge_target(square, nid, pos)
+        if aim is None:
             return False
-        way = square.ways[contour[0]]
-        hits = sorted((d, w.id) for sq, w, d in self.layer.pick_lines(pos.x(), pos.y(), self._px(PICK_PX))
-                      if sq is square and w.id != way.id and w.ele == way.ele and self._mergeable(square, w))
-        if not hits:
-            return False
-        other = square.ways[hits[0][1]]
-        pts = np.array([self.layer.node_xy(square, r) for r in other.refs])
-        _, dist = geometry.nearest_point_on_segments((pos.x(), pos.y()), pts[:-1], pts[1:])
+        way, other, seg = aim
         n = square.nodes[nid]
         after = (n.lon, n.lat)
         n.lon, n.lat = before                      # the step moves it, so undo has it exact
         self.layer.refresh(square, self._ways_holding(square, nid))
-        cmd = edits.splice_ways(square, way.id, nid, other.id, int(np.argmin(dist)))
+        cmd = edits.splice_ways(square, way.id, nid, other.id, seg)
         if isinstance(cmd, str):
             self.message.emit(f'not merged: {cmd}')
             self.overlay.update()
@@ -1479,6 +1529,10 @@ class EditController(QObject):
         if self._carry is not None:
             self._recarry(mods, pos)
             return True
+        if self._drag is not None and self._dragged:
+            self._aim(mods, pos)
+            self.overlay.update()
+            return False
         self._hover(mods, pos)
         return False
 
@@ -3242,6 +3296,21 @@ class EditOverlay(QGraphicsItem):
             self._paint_proposal(painter, ctl.proposal)
         if ctl.marks:
             self._paint_marks(painter, ctl, rect, px)
+        if ctl.drop_target is not None:
+            # where a ctrl drop would join or merge: the other way haloed
+            # green, and the end it would join ringed
+            square, wid, end = ctl.drop_target
+            way = square.ways.get(wid)
+            if way is not None:
+                halo = QPen(QColor(0, 170, 60, 150), 8.0); halo.setCosmetic(True)
+                painter.setPen(halo); painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(_path([ctl.layer.node_xy(square, r) for r in way.refs if r in square.nodes]))
+                if end is not None and end in square.nodes:
+                    x, y = ctl.layer.node_xy(square, end)
+                    ring = QPen(QColor(0, 150, 50), 2.5); ring.setCosmetic(True)
+                    painter.setPen(ring)
+                    h = 8 * px
+                    painter.drawEllipse(QRectF(x - h, y - h, 2 * h, 2 * h))
         if ctl.ghost:
             # the contour being carried, where it would go (G8b)
             pen = QPen(QColor(255, 140, 0), 2.5, Qt.PenStyle.DashLine)

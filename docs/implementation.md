@@ -6260,3 +6260,10 @@ w-49942840 dropped on w-50028975, the hull cut straight across the ring's
 hollow side and through the contours beside it, and was refused for crossing.
 Pieces already touching need no bridge, so the splice keeps every node. G8b's
 rule holds: a contour that crossed nothing may not be made to cross.
+
+**Where it would land is shown.** Tried in use, a drop had nothing to say
+where it would take until it was let go. While a node is dragged with ctrl,
+the contour it would join or merge with is haloed green - the end it would
+join ringed - and the pointer is a link's. Only what would be done is shown:
+the join or the splice is asked, not the crossings, which the drop still
+weighs. Ctrl pressed or let go mid-drag shows or hides it.
