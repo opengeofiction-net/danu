@@ -99,8 +99,9 @@ def test_two_open_lines_are_not_merged_and_the_node_goes_back(board):
 
 def test_without_ctrl_a_node_onto_a_line_is_a_move(board):
     w, sq, line, ring = board
-    drag(w, (0, 40), (0, 10), mods=Qt.KeyboardModifier.NoModifier)   # near, not on
-    assert ring.id in sq.ways
+    drag(w, (0, 40), (0, 2), mods=Qt.KeyboardModifier.NoModifier)    # onto it, all but
+    assert ring.id in sq.ways and not w.statusBar().currentMessage().startswith('merged'), \
+        w.statusBar().currentMessage()
 
 
 def test_a_line_at_another_level_is_not_merged(board):
@@ -149,4 +150,6 @@ def test_where_a_drop_would_join_an_end_is_shown(board):
     w.map.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, b, vp.mapToGlobal(b.toPoint()), NB, L, CTRL))
     assert w.editor.drop_target == (sq, line.id, line.refs[-1])
     w.map.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, b, vp.mapToGlobal(b.toPoint()), L, NB, CTRL))
-    assert other.id not in sq.ways or line.id not in sq.ways, w.statusBar().currentMessage()
+    # join_ways keeps the dragged end's way
+    assert other.id in sq.ways and line.id not in sq.ways, w.statusBar().currentMessage()
+    assert len(sq.ways[other.id].refs) == 3 and w.statusBar().currentMessage().startswith('joined')

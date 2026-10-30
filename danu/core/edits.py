@@ -576,6 +576,10 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
     way, other = square.ways.get(way_id), square.ways.get(other_id)
     if way is None or other is None or way_id == other_id:
         return 'that way is no longer there'
+    if node not in way.refs:
+        return 'that node is not on the contour'
+    if way.ele is None or other.ele is None:
+        return 'only contours are merged'
     if way.tags.get('ele') != other.tags.get('ele'):
         return f'the levels differ - {way.tags.get("ele")} m and {other.tags.get("ele")} m'
     if is_coastline(way) or is_coastline(other):

@@ -850,10 +850,18 @@ def test_a_lines_node_spliced_into_a_ring_takes_the_ring():
     cmd.apply(sq)
     refs = sq.ways[line].refs
     assert ring not in sq.ways and ln[1] not in sq.nodes
-    assert refs[0] == ln[0] and refs[-1] == ln[2] and set(refs[1:-1]) == set(rn) and len(refs) == 6
+    # from the west end to the ring's nearer side, round it, and on east
+    assert refs == [ln[0], rn[3], rn[2], rn[1], rn[0], ln[2]]
 
 
 def test_two_open_lines_are_not_spliced():
     sq, line, ln, ring, rn = _spliced()
     sq.ways[ring].refs.pop()                                      # open now
     assert 'both open lines' in edits.splice_ways(sq, ring, rn[0], line, 0)
+
+
+def test_a_splice_asked_wrongly_says_why_rather_than_raising():
+    sq, line, ln, ring, rn = _spliced()
+    assert 'not on the contour' in edits.splice_ways(sq, ring, ln[0], line, 0)
+    del sq.ways[line].tags['ele']
+    assert 'only contours' in edits.splice_ways(sq, ring, rn[0], line, 0)
