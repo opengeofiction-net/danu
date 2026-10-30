@@ -369,6 +369,9 @@ class EditController(QObject):
         view.scene().addItem(self.overlay)
         self.tool = 'select'
         self._selection: Selection | None = None
+        # the other contour of a same-level touch chosen in the Validation
+        # panel, its way id: E absorbs the pair with nothing lassoed
+        self.partner: int | None = None
         self.proposal: Proposal | None = None
         self.focused_issue: Issue | None = None   # the one the map was last taken to
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
@@ -445,6 +448,7 @@ class EditController(QObject):
         # a property so that the twenty-odd places that set it say so without
         # each having to remember to
         self._selection = value
+        self.partner = None                      # a touch's other contour, for E: this selection's alone
         if value is not None:
             self.picked = {}                     # one thing selected, or many: not both
         self.selectionChanged.emit()
@@ -1295,18 +1299,25 @@ class EditController(QObject):
         danu.core.absorb, the pieces gone, one step. The open contour
         picked is the one kept, or the largest ring if all are rings; two
         open is refused. Under G8b's rule: one that crossed nothing
-        may not be made to cross."""
-        ws = self.working_set
-        if not self.picked or ws is None:
+        may not be made to cross. Nothing picked, a same-level touch chosen
+        in the Validation panel is the pair absorbed."""
+        ws, sel = self.working_set, self.selection
+        if ws is not None and not self.picked and self.partner is not None and sel is not None \
+                and sel.way is not None and self.partner in sel.square.ways:
+            # a touch chosen in the Validation panel: the contour selected and the other
+            square = sel.square
+            ways = [w for w in (sel.way, square.ways[self.partner]) if self._mergeable(square, w)]
+        elif not self.picked or ws is None:
             self.message.emit('pick the contour and the pieces beside it - select it and Shift-lasso '
                               'the pieces, or lasso them all - then E absorbs them')
             return
-        if len(self.picked) != 1:
+        elif len(self.picked) != 1:
             self.message.emit('not absorbed: the picks are in more than one square')
             return
-        (name, ids), = self.picked.items()
-        square = ws.square(name)
-        ways = [w for w in square.ways.values() if self._mergeable(square, w) and ids.intersection(w.refs)]
+        else:
+            (name, ids), = self.picked.items()
+            square = ws.square(name)
+            ways = [w for w in square.ways.values() if self._mergeable(square, w) and ids.intersection(w.refs)]
         if len(ways) < 2:
             self.message.emit('not absorbed: pick a contour and at least one piece of it')
             return

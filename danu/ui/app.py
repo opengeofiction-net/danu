@@ -2428,7 +2428,8 @@ class MainWindow(QMainWindow):
     def _choose_touch(self, touch) -> None:
         """Contours that touch, chosen in the Validation panel: the first of
         them selected - at the node, for one two levels share, so U unglues
-        it - the place ringed and brought into view (G8e)."""
+        it - the place ringed and brought into view (G8e). Two of one level,
+        the other is the selection's partner, for E to absorb."""
         ws = self.working_set
         square = ws.squares.get(touch.a[0]) if ws is not None else None
         way = square.ways.get(touch.a[1]) if square is not None else None
@@ -2438,10 +2439,13 @@ class MainWindow(QMainWindow):
         self.editor.set_tool('select')
         node = touch.node if touch.kind in ('shared', 'fork') and touch.node in way.refs else None
         self.editor.selection = Selection(square, way, node)
+        # one level: E takes the other into it, nothing lassoed
+        same = touch.a[2] == touch.b[2] and touch.b[0] == touch.a[0] and touch.b[1] in square.ways
+        self.editor.partner = touch.b[1] if same else None
         self._focus([m.lonlat_to_scene(touch.lon, touch.lat)])
         self._show_place(touch.lon, touch.lat, touch.lon, touch.lat)
         self.editor.overlay.update()
-        self.statusBar().showMessage(f'{touch.explain()} - ringed')
+        self.statusBar().showMessage(f'{touch.explain()} - ringed' + ('; E absorbs one into the other' if same else ''))
 
     def _choose_spot(self, c) -> None:
         """A spot height the rings round it contradict, chosen: it selected,
