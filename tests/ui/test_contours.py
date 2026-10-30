@@ -533,6 +533,8 @@ def test_the_flat_arrays_are_built_when_something_picks_not_when_an_edit_lands(v
     assert len(built) == 1, 'a second pick rebuilt arrays that had not gone stale'
 
     # an edit that only moves points patches them in place
+    n = sq.nodes[way.refs[1]]
+    n.lon, n.lat = n.lon + 0.001, n.lat + 0.001
     layer.refresh(sq, {way.id})
     layer.pick(0.0, 0.0, 1.0)
     assert len(built) == 1, 'an edit that moved no node in or out built them again'
