@@ -401,10 +401,10 @@ class EditController(QObject):
         self._drag: tuple[Square, int, tuple[float, float]] | None = None    # square, node, before (lon, lat)
         self._dragged = False
         self._cycle = None                   # (where, what was there, which) of the last click
-        # carrying a whole contour - shift and drag (G8b): square, way, and
-        # the transform as _transform has it, the drag before the last change
-        # of keys a function of a scene point; and the contour as it would
-        # be, in scene points
+        # carrying a whole contour - shift and drag (G8b): square, way, the
+        # kind of drag, where it began, its pivot, what the drag did before
+        # the keys last changed (a function of a scene point), and the kinds
+        # it has been; and the contour as it would be, in scene points
         self._carry: tuple | None = None
         self.ghost: list | None = None
         # many nodes picked at once (#201): by square, the node ids - on
