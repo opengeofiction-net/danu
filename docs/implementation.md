@@ -6278,3 +6278,22 @@ Only the node dragged has moved, and it and its contour are passed over, so
 the hint picks from the arrays as they were at the press (`as_built`) - 14 ms.
 What the node's own ways are, and whether a way or an end would take it, are
 kept for the drag.
+
+## A node move without building the set again
+
+A plain node move took about 400 ms from release to done on roantra's N45E030
+set; the usage log of a session of merges had 355-400 ms medians, a merge no
+more. Profiled: 261 ms building the segment grid `crossed_by` reads, and 64 ms
+building the flat arrays, both over the set's 1.2 million segments - for the
+two segments either side of one node. Every edit made them stale, and the R16
+question asked on release (did the contour already cross something) built
+both again.
+
+An edit that only moves points - every way it changed holding the same nodes
+in the same order at the same level: a node dragged, nodes picked and moved,
+turned or scaled, and their undos - now patches them in place
+(`ContourLayer._patch_arrays`). Each way's slice of the arrays is written
+again, and each of its segments that moved is taken out of the grid cells it
+left and put in those it reached. Anything else - a node in or out, a way
+added, deleted, split or joined - makes them stale as before. A release is
+about 50 ms now; the first after opening a set still builds the grid once.

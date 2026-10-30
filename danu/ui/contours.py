@@ -416,6 +416,9 @@ class ContourLayer(QGraphicsItem):
         # or the crossings of a new segment with all of them, is one
         # vectorised operation, not a walk
         self._ways: list[WayGeom] = []
+        self._way_at: dict = {}                # (square name, way id) -> its index in _ways
+        self._seg_start: list[int] = []        # each of _ways' first segment
+        self._node_at: dict = {}               # (square name, way id) -> its first point in _node_xy
         self._seg_a = np.zeros((0, 2)); self._seg_b = np.zeros((0, 2))
         self._seg_lo = np.zeros((0, 2)); self._seg_hi = np.zeros((0, 2))     # each segment's rectangle
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
@@ -621,6 +624,7 @@ class ContourLayer(QGraphicsItem):
         # once for the call, not once per way: the same reason set_working_set
         # gathers it once per square
         members = _water_members(square)
+        moved = []                              # (key, geom) where only points moved
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
@@ -637,6 +641,8 @@ class ContourLayer(QGraphicsItem):
             way = square.ways.get(wid)
             geom = (self._project(square, way, members)
                     if way is not None else None)
+            moved.append((key, geom if old is not None and geom is not None and old.ele == geom.ele
+                          and old.refs == geom.refs else None))
             if geom is not None:
                 self._geoms[key] = geom
                 self._add_coast(key, geom)
@@ -657,8 +663,63 @@ class ContourLayer(QGraphicsItem):
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
-        self._arrays_stale = True
+        if not self._arrays_stale and not self._patch_arrays(moved):
+            self._arrays_stale = True
         self.update()
+
+    def _patch_arrays(self, moved) -> bool:
+        """The arrays brought up to date in place, where an edit moved points
+        and nothing else - every way changed holding the same nodes, in the
+        same order, at the same level: a node dragged, nodes picked and moved,
+        turned or scaled. Each way's slice of the arrays is written again, and
+        its segments that moved are taken out of the grid cells they left and
+        put in the ones they reached. False, and nothing touched, otherwise.
+
+        Building them again was most of a node move's time on roantra's
+        N45E030 set: 64 ms for the arrays and 261 ms for the grid, over 1.2
+        million segments, for the two segments either side of one node."""
+        if not moved or any(g is None or key not in self._node_at for key, g in moved):
+            return False
+        if any(g.ele is not None and key not in self._way_at for key, g in moved):
+            return False
+        grid = self._seg_grid
+        for key, g in moved:
+            j = self._node_at[key]
+            self._node_xy[j:j + len(g.pts)] = g.pts
+            i = self._way_at.get(key)
+            if i is None:
+                continue                           # a coastline with no level: no segments
+            s0, n = self._seg_start[i], len(g.pts) - 1
+            old_a, old_b = self._seg_a[s0:s0 + n].copy(), self._seg_b[s0:s0 + n].copy()
+            self._ways[i] = g
+            self._seg_a[s0:s0 + n] = g.pts[:-1]
+            self._seg_b[s0:s0 + n] = g.pts[1:]
+            self._seg_lo[s0:s0 + n] = np.minimum(g.pts[:-1], g.pts[1:])
+            self._seg_hi[s0:s0 + n] = np.maximum(g.pts[:-1], g.pts[1:])
+            if grid is None:
+                continue
+            for k in np.flatnonzero((old_a != self._seg_a[s0:s0 + n]).any(axis=1)
+                                    | (old_b != self._seg_b[s0:s0 + n]).any(axis=1)).tolist():
+                seg = s0 + k
+                before = self._cells(old_a[k], old_b[k])
+                after = self._cells(self._seg_a[seg], self._seg_b[seg])
+                for c in before - after:
+                    left = grid[c][grid[c] != seg]
+                    if len(left):
+                        grid[c] = left
+                    else:
+                        del grid[c]
+                for c in after - before:
+                    grid[c] = np.append(grid[c], seg) if c in grid else np.array([seg], dtype=np.int64)
+        self._grade_index = None                   # by node and cell; asked of rarely, built again then
+        return True
+
+    def _cells(self, a, b) -> set:
+        """The grid cells a segment's rectangle covers, as ``_segment_grid``
+        puts it in them."""
+        x0, y0 = np.floor(np.minimum(a, b) / self.GRID).astype(np.int64).tolist()
+        x1, y1 = np.floor(np.maximum(a, b) / self.GRID).astype(np.int64).tolist()
+        return {(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)}
 
     def _add_water_fills(self, square: Square, members) -> None:
         """Every water body of one square, as a filled shape - the open path.
@@ -937,6 +998,7 @@ class ContourLayer(QGraphicsItem):
         to build the node index."""
         empty = np.zeros((0, 2))
         self._ways = [g for g in self._geoms.values() if g.ele is not None]
+        self._way_at = {(g.square.name, g.way.id): i for i, g in enumerate(self._ways)}
         # a projected way always has two points or more, so every count is >= 1
         counts = np.array([len(g.pts) - 1 for g in self._ways], dtype=np.int64)
         if not len(counts):
@@ -953,10 +1015,16 @@ class ContourLayer(QGraphicsItem):
             # index minus where each way starts
             starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
             self._seg_i = np.arange(counts.sum(), dtype=np.int64) - np.repeat(starts, counts)
+        self._seg_start = np.concatenate(([0], np.cumsum(counts)[:-1])).tolist() if len(counts) else []
         self._seg_lo = np.minimum(self._seg_a, self._seg_b)
         self._seg_hi = np.maximum(self._seg_a, self._seg_b)
         geoms = list(self._geoms.values())                # contours and coastlines both
         pts = [g.pts for g in geoms if len(g.pts)]
+        self._node_at, at = {}, 0
+        for g in geoms:
+            if len(g.pts):
+                self._node_at[(g.square.name, g.way.id)] = at
+                at += len(g.pts)
         self._node_xy = np.concatenate(pts) if pts else empty
         self._node_ref = list(chain.from_iterable(g.node_ref for g in geoms if len(g.pts)))
 
