@@ -4378,9 +4378,11 @@ first and looked out of place beside Name and Tags. `describe` sets
 - a spot height, or a point on a river, gives the node;
 - a contour, or a node of one, gives the way.
 
-A negative id was never upstream, so there is nothing to copy. The id is
-copied as `w633126`, or as its page on the server - `ogf/server` in the
-INI, `https://opengeofiction.net` until H6e's preferences say otherwise.
+An upstream id is copied as `w633126`, or as its page on the server. A
+local one, negative, is copied too - `w-49942840` names the contour in a
+message or an issue - but has no page, so Copy URL is greyed for it. The
+server is `ogf/server` in the INI, `https://opengeofiction.net` until H6e's
+preferences say otherwise.
 
 **The Selected panel's width** is fixed by what it may show, not by what it
 does. Choosing a lake showed its grade and flatten buttons, wider than the
