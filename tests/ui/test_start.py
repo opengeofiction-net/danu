@@ -37,6 +37,14 @@ def bare(qtbot, tmp_path, territory_files):
     return w
 
 
+def test_upload_changed_with_nothing_open_says_open_a_square(bare):
+    """Its zone is the open set's: with none open, nothing is scanned."""
+    msgs = []
+    bare.sender.message.connect(msgs.append)
+    bare.drop_actions['drop.upload_changed'].trigger()
+    assert msgs == ['open a square first']
+
+
 def buttons(w):
     return {b.text(): b for b in w.start.findChildren(QPushButton) if b.isVisibleTo(w.start)}
 

@@ -6045,7 +6045,8 @@ set's, on a worker, when the window opens, a set loads, a save lands, and
 after an import, upload or delete; `*` follows the edits as the title's
 does. Too small for a name, a degree has its marks alone at its middle.
 **File › Upload changed squares…** saves the open set first, as Upload
-does, lists the `^` squares, and uploads them in turn; one refused - changed
+does, lists the open zone's `^` squares - its folder's alone, not other
+zones' - and uploads them in turn; one refused - changed
 there, or held there and never imported here - is left untouched and named,
 for the open square's Upload to sort out. A square new to the server goes
 up under its name here, not bare.
