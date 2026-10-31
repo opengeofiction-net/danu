@@ -15,6 +15,21 @@ from danu.ui import drop
 SERVER = 'https://ogf.example'
 
 
+def test_the_mark_for_each_answer():
+    k = lambda status, body: drop.mark(status, body, SERVER)  # noqa: E731
+    perm = lambda level: {'level': level, 'mine': [], 'others': []}  # noqa: E731
+    base = {'square': 'N20E086', 'zone': 'gobras', 'user': 'wangi', 'admin': False}
+    assert k(200, {**base, 'permission': perm('yes')}) == '^'
+    assert k(200, {**base, 'permission': perm('partial')}) == '~'
+    assert k(200, {**base, 'admin': True, 'permission': perm('no')}) == 'A'
+    assert k(200, {**base, 'permission': perm('no')}) == 'X'
+    assert k(200, {'square': 'N20E086', 'zone': 'gobras'}) == '?', 'not signed in'
+    assert k(503, {'error': 'not read yet'}) == '?'
+    assert k(200, {**base, 'blocked': True, 'permission': perm('yes')}) == \
+        '<a href="https://ogf.example/user/wangi/blocks">X</a>'
+    assert {m for m, _ in drop.MARKS} == {'^', '~', 'A', 'X', '?'}
+
+
 def test_the_line_for_each_answer():
     d = lambda status, body: drop.describe(status, body, SERVER)  # noqa: E731
     line, warn = d(404, {'error': 'N30E086 is in no zone', 'square': 'N30E086'})
@@ -84,12 +99,13 @@ def test_the_client_asks_with_the_token_and_the_last_question_wins(qtbot, qapp, 
     c.answered.connect(lambda *a: got.append(a))
     with qtbot.waitSignal(c.answered, timeout=5000):
         c.ask(SquareName.parse('S24E125'), 'tok')
-    assert got[-1] == ('S24E125', 'zone pizarrales - yours to upload', False)
+    assert got[-1] == ('S24E125', 'zone pizarrales - yours to upload', False, '^')
     path, auth, agent = _Api.seen[-1]
     assert path == '/api/squares/S24E125' and auth == 'Bearer tok' and agent.startswith('Danu/')
     with qtbot.waitSignal(c.answered, timeout=5000):
         c.ask(SquareName.parse('N30E086'))
     assert got[-1][0] == 'N30E086' and got[-1][2] and _Api.seen[-1][1] is None
+    assert got[-1][3] == '<a href="https://ogf.example/message/new/admin">X</a>', 'still a link to whom to ask'
     got.clear()
     c.ask(SquareName.parse('S24E125'))
     with qtbot.waitSignal(c.answered, timeout=5000):
@@ -102,7 +118,7 @@ def test_the_service_not_reached_is_said_quietly(qtbot, qapp):
     c = drop.DropClient('http://127.0.0.1:9/api', SERVER, parent=qapp)
     with qtbot.waitSignal(c.answered, timeout=10000) as sig:
         c.ask(SquareName.parse('S24E125'))
-    assert sig.args == ['S24E125', 'upload service not reached', False]
+    assert sig.args == ['S24E125', 'upload service not reached', False, '?']
 
 
 def test_the_window_says_the_open_squares_zone(window, qtbot, api):
@@ -110,11 +126,14 @@ def test_the_window_says_the_open_squares_zone(window, qtbot, api):
     w.drop.base_url = api
     w._drop_asked = None
     w.show_ground()
-    qtbot.waitUntil(lambda: 'pizarrales' in w._drop.text(), timeout=5000)
-    assert w._drop.text() == 'zone pizarrales - sign in to see whether it is yours to upload'
+    qtbot.waitUntil(lambda: 'pizarrales' in w.drop_line, timeout=5000)
+    assert w.drop_line == 'zone pizarrales - sign in to see whether it is yours to upload'
+    assert w._drop.text() == '?' and w.drop_line in w._drop.toolTip() and w.drop_line in w._territory.toolTip()
+    assert w._drop.styleSheet() == 'font-weight: bold', 'a mark, not a warning: bold as the asking one was'
     w.settings.user, w.settings.token = 'Luciano', 'tok'
     w.show_ground()
-    qtbot.waitUntil(lambda: 'yours to upload' in w._drop.text() and 'sign in' not in w._drop.text(), timeout=5000)
+    qtbot.waitUntil(lambda: 'yours to upload' in w.drop_line and 'sign in' not in w.drop_line, timeout=5000)
+    assert w._drop.text() == '^' and '<b>^</b> yours to upload' in w._drop.toolTip(), 'the marks explained'
     asked = len(_Api.seen)
     w.show_ground()
     qtbot.wait(300)

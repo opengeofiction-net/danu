@@ -137,10 +137,11 @@ sends every **^** square of the open zone, one after another, listed
 first for you to agree; other zones' wait until you open them.
 
 **File › Upload square…** sends the open square to OpenGeofiction, where
-it is built into the elevation the night after. The status bar says first
-whether it is yours to upload: a square of your territory, or one you share
-with a neighbour - keep to your ground there, and within 10 km of it in
-theirs. A square in no zone can't be uploaded yet; its status line links to
+it is built into the elevation the night after. Before you send it, the
+mark after the territory in the status bar says whether it is yours to
+upload, and its tooltip says why: a square of your territory, or one you
+share with a neighbour, where you keep to your ground and within 10 km of
+it in theirs. A square in no zone can't be uploaded yet; its mark links to
 message admin to set one up, and an account blocked on OGF uploads nothing
 while the block lasts. **File › Rename square…** changes its name on
 the server and here, and **File › Delete square from server…** takes it off

@@ -87,6 +87,11 @@ are asked to keep to your own ground, reaching 10 km into theirs at most.
 Your own ground and the sea are left clear. An administrator sees it as
 anyone does. **Whose ground** in the Surface panel, or in View, turns it off.
 
-The status bar says which zone the open square is in and whether it is yours
-to upload. A square in no zone can't be uploaded: its line has a link to
-message **admin** on OpenGeofiction to set one up.
+The status bar's middle part says whose territory the open square is on,
+then whether it is yours to upload, as a mark: **^** yours, **~** shared with
+a neighbour - your own ground, and within 10 km of it - **A** yours as an
+administrator, **X** not yours, **?** not known yet. Its tooltip says it in
+full - and, once the data drop has answered, which zone the square is in. A square in no zone can't be
+uploaded: its **X** is a link to message **admin** on OpenGeofiction to set
+one up. The status bar's own tooltip, on the left, holds its last three
+messages.
