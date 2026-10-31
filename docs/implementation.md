@@ -6253,9 +6253,14 @@ of crossings. The keys are a picked drag's, with shift.
 Ctrl and a drag of a node onto another contour's line at its level makes the
 two one way (`edits.splice_ways`), one step with the drag. The node goes, and
 each runs on through the other where it was: a ring dropped on a line opens at
-the node and is laid into the segment, its nearer end to the segment's nearer
-node; a line's node dropped on a ring is replaced by the ring, from one end of
-the segment round to the other. One must be a ring - two lines meeting are not
+the node and is laid into the segment; a line's node dropped on a ring is
+replaced by the ring, from one end of the segment round to the other. Of the
+two ways round, the one whose joins cross neither each other nor what is laid
+in, then the shorter joins (#307). A node the receiving way already has is
+not laid in again: a ring hung on the line at a node, as the tidy leaves a
+loop, passed through it twice. And where the result would cross itself and a
+segment beside the one dropped on would not, the nearest such takes it - not
+refused, the mapper being mid-tidy, and said. One must be a ring - two lines meeting are not
 one line. The open one keeps its id; of two rings, the one already on the
 server, so an uploaded way is not deleted for one that never was.
 
@@ -6326,3 +6331,47 @@ Now `main` sets a 1 ms switch interval, the scan no slower for it (24.4 s,
 square's ways in one call; spot heights are looked for only among nodes
 tagged `ele`; and the labels are tested against the view in Python. The
 longest stall restoring that session is about 1 s.
+
+## Nodes at one place, and water relations' type
+
+JOSM, given roantra's N44E026 with every Danu finding cleared, listed 1,206
+places holding two to four nodes, 254 self-crossing ways and two relations
+without a type. Danu's checks compare node ids, and the vectoriser's vertices
+had rounded to one place, to the seventh decimal the file holds, as different
+nodes: 877 a segment of no length, 138 one-cell knolls and pits whose four or
+five nodes stood at one or two places, 86 a contour through one place twice,
+70 two contours of a level meeting at a point.
+
+Opening a set now tidies each square's contours (`edits.tidy_contours`), one
+step after any recovery, said in the status bar and saved with the next save.
+The nodes at each place are made one, a way laid through the node kept and a
+node twice in a row taken once, and a way of the square's own that is then
+no line - a ring of fewer than three places, a line of fewer than two - goes.
+The node kept is the main map's, a tagged one, or one a relation names; a
+place with two such is left, as is one on water or a coastline, and one where
+two ways run together for a segment - Los Pizarrales's 39 contours copied
+node on node, which the touches check lists as duplicates either way.
+
+That done, JOSM still listed 34 ways containing a segment twice, 55
+self-intersecting and 58 self-crossing. Each contour of the square's own
+that comes back to itself is mended (`danu.core.mend`): a spike, out and
+back over the same nodes or along the same line through others - a turn of
+180 degrees within 5 cm - cut back to its root; a node standing on a segment
+of its own contour put into it; and a loop round from a node to it again made
+a ring of its own sharing the node, innermost first - a saddle at the level,
+which the touches check allows, and nothing lost, as cutting it out, the
+loops check's fix, would lose it. On N44E026: 1,499 nodes merged, 154 ways
+removed, 118 spikes cut back, 38 loops made rings, and nothing JOSM lists
+left but a main-map river. Two lines of a level meeting at a place share the
+node: a join or a saddle.
+
+The contours are tested at once in numpy, segments bucketed by cell, and only
+a contour found is walked in Python: 0.14 s on N44E026, 0.33 s on N45E030,
+roantra's largest. Clean, a square still costs 90 ms to ask, so the loader's
+worker asks it as it reads the set and opening tidies only the squares it
+found (`WorkingSet.untidy`).
+
+The water import kept `natural`, `water`, `waterway`, `name` and `ele`, and
+dropped the relation's `type=multipolygon`. It keeps `type` now, and opening a
+set gives it to a water relation of outer and inner rings without one
+(`edits.type_water_relations`).

@@ -438,6 +438,10 @@ class WorkingSet:
     # a water feature the set reaches - the sea, held where most of it is.
     # Edited and saved with the set, and not drawn or checked as part of it
     extra: dict[SquareName, Square] = field(default_factory=dict)
+    # the squares that hold something for ``edits.tidy_contours``, as the
+    # loader's worker found when it read them - so opening asks it of those
+    # alone on the thread that paints - or None, not looked for: ask of all
+    untidy: set[SquareName] | None = None
 
     def square(self, name: SquareName) -> Square | None:
         """A square of the grid, or one read alongside it."""

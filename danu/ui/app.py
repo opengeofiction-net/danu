@@ -1686,11 +1686,6 @@ class MainWindow(QMainWindow):
         self.file_index = None
         self.inside_index = None
         self.surface_findings = None
-        if self.checks_dock.isVisible():
-            # once the set is drawn: the scan's worker beside the drawing
-            # took the GIL from it, 1.2 s made 8 s on roantra, and the
-            # window "not responding" at startup
-            QTimer.singleShot(0, lambda: self._checks_shown(self.checks_dock.isVisible()))
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
@@ -1729,12 +1724,23 @@ class MainWindow(QMainWindow):
         self.surface_panel.status.setText('no surface built for this set yet')
         if self.autosave is not None:
             # once the set is on screen, so the offer is made over the squares it is about
-            QTimer.singleShot(0, self._offer_recovery)
+            QTimer.singleShot(0, self, self._offer_recovery)      # not once the window is gone
         else:
-            said = '; '.join(t for t in (self._close_rings(), self._drop_fill_lines()) if t)
+            said = '; '.join(t for t in self._tidy() if t)
             if said:
                 self.statusBar().showMessage(said)
+            self._checks_after_opening()
         self._read_alongside(ws)
+
+    def _checks_after_opening(self) -> None:
+        """The checks found over the set, if the panel is open - once the set
+        is drawn: the scan's worker beside the drawing took the GIL from it,
+        1.2 s made 8 s on roantra, and the window "not responding" at startup.
+        And once what opening does to the squares is done - a recovery, the
+        tidy: one of those landing while the scan ran is more than WIDE_EDIT
+        ways on roantra, and had the checks found twice."""
+        if self.checks_dock.isVisible():
+            QTimer.singleShot(0, self, lambda: self._checks_shown(self.checks_dock.isVisible()))
 
     def _read_alongside(self, ws: WorkingSet) -> None:
         """The zone's squares outside the set holding water that reaches into
@@ -1780,6 +1786,13 @@ class MainWindow(QMainWindow):
         self._checks_runner(self._alongside_job)
 
     def _offer_recovery(self) -> None:
+        """``_recover``, and the checks after it."""
+        try:
+            self._recover()
+        finally:
+            self._checks_after_opening()
+
+    def _recover(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
         set read again in this run, moved or reopened - and what an earlier run
         autosaved for it and never saved offered, square by square; what is
@@ -1820,9 +1833,50 @@ class MainWindow(QMainWindow):
             names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])
             said.append(f'autosaved edits are held for {names}{" and more" if len(elsewhere) > 4 else ""}'
                         ' - open there to recover them')
-        said += [t for t in (self._close_rings(), self._drop_fill_lines()) if t]
+        said += [t for t in self._tidy() if t]
         if said:
             self.statusBar().showMessage('; '.join(said))
+
+    def _tidy(self) -> list[str]:
+        """The steps that mend what a file holds on opening it, each its own
+        step of the history, after any recovery; what each says, or ''."""
+        return [self._close_rings(), self._tidy_contours(), self._type_water_relations(),
+                self._drop_fill_lines()]
+
+    def _tidy_contours(self) -> str:
+        """The set's nodes at one place made one, the rings and lines that
+        leaves no line removed, and contours that come back to themselves
+        mended - one step. What it says, or ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values() if ws.untidy is None or sq.name in ws.untidy
+                 if (cmd := edits.tidy_contours(sq, self.editor.history.alloc(sq))) is not None]
+        if not steps:
+            return ''
+        self.editor.do_across(steps)
+        n = sum(len(cmd.merges) for _, cmd in steps)
+        gone = sum(len(cmd.drop) for _, cmd in steps)
+        rings = sum(len(cmd.rings) for _, cmd in steps)
+        spikes = sum(cmd.spikes for _, cmd in steps)
+        said = [t for t in (
+            f'merged {n:,} node{"s" * (n != 1)} doubled at one place' if n else '',
+            f'removed {gone:,} contour{"s" * (gone != 1)} that left no line' if gone else '',
+            f'cut {spikes:,} spike{"s" * (spikes != 1)} back' if spikes else '',
+            f'made {rings:,} loop{"s" * (rings != 1)} rings of their own' if rings else '') if t]
+        return (', '.join(said) or 'tidied contours') + ', in ' + ', '.join(str(sq.name) for sq, _ in steps) \
+            + ' - saving keeps it'
+
+    def _type_water_relations(self) -> str:
+        """``type=multipolygon`` given to the set's water relations without
+        one - one step. What it says, or ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values()
+                 if (cmd := edits.type_water_relations(sq)) is not None]
+        if not steps:
+            return ''
+        self.editor.do_across(steps)
+        n = sum(len(cmd.commands) for _, cmd in steps)
+        return (f'{n:,} water relation{"s" * (n != 1)} given type=multipolygon, in '
+                + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it')
 
     def _close_rings(self) -> str:
         """The set's rings closed by position only, closed onto their first

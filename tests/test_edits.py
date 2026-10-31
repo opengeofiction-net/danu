@@ -8,8 +8,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from danu.core import edits
-from danu.core.square import Node, Square, SquareName, read_square, write_square
+from danu.core import edits, mend
+from danu.core.square import Node, Square, SquareName, Way, read_square, write_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -821,6 +821,158 @@ def test_fill_lines_are_taken_out_in_one_step_with_their_own_nodes():
     assert edits.snapshot(sq) == before
 
 
+def test_nodes_at_one_place_are_made_one_and_a_ring_left_no_line_goes():
+    """Nodes rounded to one place - to the seventh decimal the file holds -
+    are made one: a node twice in a row taken once, two contours meeting
+    there sharing it, a ring whose nodes are all at two places removed with
+    its nodes. The main map's node is the one kept; a place with two tagged
+    nodes is left. The undo puts it all back (N44E026, JOSM's duplicated nodes
+    and self-crossing ways)."""
+    from danu.core.square import Member, Relation
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+
+    def way(pts, tags=None):
+        wid, ids = alloc.take(), [alloc.take() for _ in pts]
+        edits.AddWay(wid, ids, pts, tags or {'ele': '10'}).apply(sq)
+        return wid
+    # a line with a segment of no length, a hair under the seventh place
+    a = way([(10.1, 10.1), (10.2, 10.1), (10.20000003, 10.1), (10.3, 10.1)])
+    # a line ending where another passes: the two then share the node
+    b = way([(10.2, 10.2), (10.2, 10.1)])
+    # a one-cell knoll collapsed by rounding: five nodes, two places
+    knoll = way([(10.5, 10.5), (10.5, 10.5000001), (10.5, 10.5), (10.5, 10.5000001)])
+    sq.ways[knoll].refs.append(sq.ways[knoll].refs[0])
+    # a ring a relation names is left, though it is no line
+    lake = way([(10.6, 10.6), (10.6, 10.6), (10.6, 10.6)], {'natural': 'water'})
+    sq.ways[lake].refs.append(sq.ways[lake].refs[0])
+    sq.relations[7] = Relation(id=7, members=[Member('way', lake, 'outer')], tags={'natural': 'water'})
+    # the main map's node at a place a contour's node is: the main map's kept
+    sq.nodes[5] = Node(id=5, lat=10.7, lon=10.7)
+    sq.nodes[6] = Node(id=6, lat=10.8, lon=10.8)
+    sq.ways[9] = Way(id=9, refs=[5, 6])
+    c = way([(10.7, 10.7), (10.9, 10.9)])
+    # a contour along a lake's shore, node on node: two lines, not welded
+    shore = way([(10.4, 10.4), (10.45, 10.4), (10.45, 10.45), (10.4, 10.4)], {'natural': 'water'})
+    along = way([(10.4, 10.4), (10.45, 10.4), (10.45, 10.45)])
+    # a contour copied node on node: a duplicate for the touches check, not welded to its original
+    first = way([(10.3, 10.3), (10.35, 10.3), (10.35, 10.35)])
+    copy = way([(10.3, 10.3), (10.35, 10.3), (10.35, 10.35)])
+    # two spot heights at one place: neither goes
+    s1, s2 = alloc.take(), alloc.take()
+    sq.nodes[s1] = Node(id=s1, lat=11.0, lon=11.0, tags={'ele': '3'})
+    sq.nodes[s2] = Node(id=s2, lat=11.0, lon=11.0, tags={'ele': '4'})
+    knolled = set(sq.ways[knoll].refs)
+    before = edits.snapshot(sq)
+
+    cmd = edits.tidy_contours(sq)
+    cmd.apply(sq)
+    assert len(sq.ways[a].refs) == 3
+    assert sq.ways[b].refs[-1] == sq.ways[a].refs[1], 'the two share the node at their meeting'
+    assert knoll not in sq.ways and not knolled & set(sq.nodes)
+    assert lake in sq.ways
+    assert sq.ways[c].refs[0] == 5 and 5 in sq.nodes
+    assert s1 in sq.nodes and s2 in sq.nodes
+    assert set(sq.ways[shore].refs).isdisjoint(sq.ways[along].refs)
+    assert set(sq.ways[first].refs).isdisjoint(sq.ways[copy].refs)
+    assert edits.tidy_contours(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_contour_back_at_a_node_has_its_spikes_cut_and_its_loops_made_rings():
+    """Out and back over its own nodes, a spike, goes back to its root; round
+    from a node to the same node, a loop, is a ring of its own sharing the
+    node - the innermost first. A ring's start is kept."""
+    # an open line: a spike b-c-b at b, then a loop d-e-f-d
+    line, rings, spiked = mend.unpinched([1, 2, 3, 2, 4, 5, 6, 4, 7], closed=False)
+    assert line == [1, 2, 4, 7] and rings == [[4, 5, 6, 4]] and spiked == 1
+    # a ring touching itself at 3, a loop inside the loop at 5
+    line, rings, spiked = mend.unpinched([1, 2, 3, 4, 5, 6, 7, 5, 8, 3, 9, 1], closed=True)
+    assert line == [1, 2, 3, 9, 1] and rings == [[5, 6, 7, 5], [3, 4, 5, 8, 3]] and spiked == 0
+    # a spike across the ring's start
+    line, rings, spiked = mend.unpinched([1, 2, 3, 4, 2, 1, 5, 6, 1], closed=True)
+    assert spiked == 1 and rings == [[2, 3, 4, 2]] and line == [1, 5, 6, 1]
+
+
+def test_merging_mends_a_contour_brought_back_to_a_node():
+    """A ring whose two strands' nodes the merge makes one: a loop through
+    one node, made two rings sharing it; a line out and back over nodes at
+    the same places, cut back; the spike's nodes go with it."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    # a figure of eight: two lobes meeting at (10.2, 10.2), the two visits two nodes
+    eight = [(10.2, 10.2), (10.3, 10.25), (10.3, 10.15), (10.2, 10.2), (10.1, 10.15), (10.1, 10.25), (10.2, 10.2)]
+    wid, ids = alloc.take(), [alloc.take() for _ in eight[:-1]]
+    edits.AddWay(wid, ids + [ids[0]], eight, {'ele': '40'}).apply(sq)
+    # a line with a spike: out to (10.6, 10.5) and back to a node at (10.5, 10.5)'s place
+    spike = [(10.4, 10.5), (10.5, 10.5), (10.6, 10.5), (10.5, 10.5), (10.5, 10.6)]
+    sid, sids = alloc.take(), [alloc.take() for _ in spike]
+    edits.AddWay(sid, sids, spike, {'ele': '40'}).apply(sq)
+    before = edits.snapshot(sq)
+    cmd = edits.tidy_contours(sq, alloc)
+    cmd.apply(sq)
+    (rid, ring, tags), = cmd.rings
+    assert tags == {'ele': '40'} and sq.ways[rid].refs == ring and len(set(ring)) == 3
+    assert len(set(sq.ways[wid].refs)) == 3 and set(ring) & set(sq.ways[wid].refs) == {ids[0]}
+    assert sq.ways[sid].refs == [sids[0], sids[1], sids[4]] and sids[2] not in sq.nodes and cmd.spikes == 1
+    assert edits.tidy_contours(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_fold_is_cut_back_and_a_touch_mid_segment_made_a_ring():
+    """Back along the same line through other nodes - a turn of 180 degrees,
+    which JOSM lists as a self-crossing way and the loops check, testing
+    proper crossings, did not - is cut back to where it turned off; a node
+    standing on the middle of a segment of its own contour is put into it,
+    and the loop that makes is a ring of its own sharing it."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+
+    def way(pts):
+        wid, ids = alloc.take(), [alloc.take() for _ in pts]
+        edits.AddWay(wid, ids, pts, {'ele': '75'}).apply(sq)
+        return wid, ids
+    # out east to 10.30 and back west to 10.25 along the line, then north
+    fold, fn = way([(10.1, 10.1), (10.2, 10.1), (10.3, 10.1), (10.25, 10.1), (10.25, 10.2)])
+    # a ring whose node at (10.55, 10.5) stands on its own segment from (10.5, 10.5) to (10.6, 10.5)
+    eight = [(10.5, 10.5), (10.6, 10.5), (10.6, 10.6), (10.55, 10.55), (10.55, 10.5), (10.52, 10.45)]
+    ring, rn = way(eight)
+    sq.ways[ring].refs.append(rn[0])
+    before = edits.snapshot(sq)
+    cmd = edits.tidy_contours(sq, alloc)
+    cmd.apply(sq)
+    assert sq.ways[fold].refs == [fn[0], fn[1], fn[3], fn[4]] and cmd.spikes == 1
+    assert fn[2] not in sq.nodes
+    (rid, loop, _), = cmd.rings
+    assert set(loop) == {rn[4], rn[1], rn[2], rn[3]} and sq.ways[rid].refs == loop
+    assert sq.ways[ring].refs == [rn[0], rn[4], rn[5], rn[0]]
+    assert edits.tidy_contours(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_water_relations_without_a_type_are_given_multipolygon():
+    """What the water import once dropped: a relation of rings, natural=water
+    or a waterway, takes ``type=multipolygon``; one with a type, or not of
+    rings, is left."""
+    from danu.core.square import Member, Relation
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    sq.relations[1] = Relation(id=1, members=[Member('way', 2, 'outer'), Member('way', 3, 'inner')],
+                               tags={'natural': 'water', 'ele': '2'})
+    sq.relations[4] = Relation(id=4, members=[Member('way', 2, 'outer')],
+                               tags={'natural': 'water', 'type': 'boundary'})
+    sq.relations[5] = Relation(id=5, members=[Member('way', 2, 'main_stream')], tags={'waterway': 'river'})
+    cmd = edits.type_water_relations(sq)
+    cmd.apply(sq)
+    assert sq.relations[1].tags == {'natural': 'water', 'ele': '2', 'type': 'multipolygon'}
+    assert sq.relations[4].tags['type'] == 'boundary' and 'type' not in sq.relations[5].tags
+    assert edits.type_water_relations(sq) is None
+    cmd.undo(sq)
+    assert sq.relations[1].tags == {'natural': 'water', 'ele': '2'}
+
+
 def _spliced():
     """A 30 m line west-east, and a 30 m ring north of it: its south node."""
     sq = Square(name=SquareName(10, 10), present=True, attrs={})
@@ -884,6 +1036,22 @@ def test_a_ring_is_laid_into_a_line_so_its_joins_do_not_cross():
     assert crossed == [], refs
     # the lower strand to the segment's lower end, the upper to its upper
     assert refs == [ln[0], ln[1], rn[5], rn[0], rn[1], rn[2], rn[3], rn[4], ln[3], ln[4]]
+
+
+def test_a_ring_hung_on_the_line_is_laid_in_without_the_node_it_hangs_by():
+    """A ring sharing a node with the line: its other nodes laid into the
+    segment, and the shared one not again - the line passed through it twice
+    (N44E026, w-49971357 onto w-49970141)."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    line, ln = alloc.take(), [alloc.take() for _ in range(3)]
+    edits.AddWay(line, ln, [(10.1, 10.5), (10.2, 10.5), (10.3, 10.5)], {'ele': '30'}).apply(sq)
+    ring, rn = alloc.take(), [alloc.take() for _ in range(2)]
+    edits.AddWay(ring, rn, [(10.22, 10.52), (10.18, 10.52)], {'ele': '30'}).apply(sq)
+    sq.ways[ring].refs = [ln[1], *rn, ln[1]]                     # hung on the line's middle node
+    cmd = edits.splice_ways(sq, ring, rn[1], line, 0)            # its west node onto the west segment
+    cmd.apply(sq)
+    assert sq.ways[line].refs == [ln[0], rn[0], ln[1], ln[2]]
 
 
 def test_two_open_lines_are_not_spliced():
