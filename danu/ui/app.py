@@ -1686,11 +1686,6 @@ class MainWindow(QMainWindow):
         self.file_index = None
         self.inside_index = None
         self.surface_findings = None
-        if self.checks_dock.isVisible():
-            # once the set is drawn: the scan's worker beside the drawing
-            # took the GIL from it, 1.2 s made 8 s on roantra, and the
-            # window "not responding" at startup
-            QTimer.singleShot(0, lambda: self._checks_shown(self.checks_dock.isVisible()))
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
@@ -1729,12 +1724,23 @@ class MainWindow(QMainWindow):
         self.surface_panel.status.setText('no surface built for this set yet')
         if self.autosave is not None:
             # once the set is on screen, so the offer is made over the squares it is about
-            QTimer.singleShot(0, self._offer_recovery)
+            QTimer.singleShot(0, self, self._offer_recovery)      # not once the window is gone
         else:
             said = '; '.join(t for t in self._tidy() if t)
             if said:
                 self.statusBar().showMessage(said)
+            self._checks_after_opening()
         self._read_alongside(ws)
+
+    def _checks_after_opening(self) -> None:
+        """The checks found over the set, if the panel is open - once the set
+        is drawn: the scan's worker beside the drawing took the GIL from it,
+        1.2 s made 8 s on roantra, and the window "not responding" at startup.
+        And once what opening does to the squares is done - a recovery, the
+        tidy: one of those landing while the scan ran is more than WIDE_EDIT
+        ways on roantra, and had the checks found twice."""
+        if self.checks_dock.isVisible():
+            QTimer.singleShot(0, self, lambda: self._checks_shown(self.checks_dock.isVisible()))
 
     def _read_alongside(self, ws: WorkingSet) -> None:
         """The zone's squares outside the set holding water that reaches into
@@ -1780,6 +1786,13 @@ class MainWindow(QMainWindow):
         self._checks_runner(self._alongside_job)
 
     def _offer_recovery(self) -> None:
+        """``_recover``, and the checks after it."""
+        try:
+            self._recover()
+        finally:
+            self._checks_after_opening()
+
+    def _recover(self) -> None:
         """This run's own unsaved edits to the set carried back onto it - the
         set read again in this run, moved or reopened - and what an earlier run
         autosaved for it and never saved offered, square by square; what is

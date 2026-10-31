@@ -61,3 +61,39 @@ def test_doubled_nodes_are_merged_and_relations_typed_when_the_set_opens(window,
     (f,) = zone.glob('S24E126*')
     saved = read_square(f)
     assert edits.tidy_contours(saved) is None and saved.relations[7].tags['type'] == 'multipolygon'
+
+
+def test_the_checks_are_found_once_after_the_tidy(qtbot, zone, tmp_path, territory_files, monkeypatch):
+    """With autosave on, the tidy is the recovery's last step, a moment after
+    the set is drawn. The checks' scan began before it, then found the tidy -
+    more than WIDE_EDIT ways across roantra - and found everything again: the
+    checks twice at every start. It begins after it now, once."""
+    from danu.core.square import SquareName as Name
+    from danu.ui import app as app_module
+    from danu.ui.app import MainWindow
+    from danu.ui.config import load_layers
+    from danu.ui.settings import Settings
+    from danu.ui.territory import TerritoryFetcher
+    scans = []
+    real = app_module.find_checks
+
+    def counted(ws, **kw):
+        scans.append(edits.tidy_contours(ws.squares[TEN]) is None)
+        return real(ws, **kw)
+    monkeypatch.setattr(app_module, 'find_checks', counted)
+    fetcher = TerritoryFetcher(tmp_path / 'tcache', geometry_url=(territory_files / 'territory.json').as_uri(),
+                               attributes_url=(territory_files / 'admin.json').as_uri())
+    w = MainWindow(load_layers(), cache_dir=None, settings=Settings(tmp_path / 'danu.ini'),
+                   territory_fetcher=fetcher, data_dir=tmp_path / 'data')
+    w.prompt_on_close = False
+    w._checks_runner = lambda job: job.run()
+    qtbot.addWidget(w)
+    w.show()
+    w.checks_dock.show()
+    assert w.autosave is not None
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.open_working_set(zone, Name(125, -24))
+    qtbot.waitUntil(lambda: bool(scans), timeout=5000)
+    qtbot.wait(300)
+    assert scans == [True], 'the scan began before the tidy, or ran twice'
+    assert w.editor.history.describe_undo() is not None
