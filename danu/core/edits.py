@@ -1491,7 +1491,7 @@ def tidy_contours(square: Square, alloc: IdAllocator | None = None) -> TidyConto
                         alloc = IdAllocator(square)
                     rings.append((alloc.take(), ring, dict(way.tags)))
             closed = len(laid) > 1 and laid[0] == laid[-1]
-            if len(set(laid)) < (3 if closed else 2):
+            if mine and len(set(laid)) < (3 if closed else 2):          # own implies mine; said again
                 drop.append(wid)
         if laid != way.refs or wid in drop:
             refs[wid] = laid

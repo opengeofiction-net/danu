@@ -2,7 +2,7 @@
 
 What JOSM lists in a vectorised square and Danu's checks did not see, the
 checks comparing node ids and testing proper crossings only - roantra's
-N44E026, once its nodes at one place were made one (``edits.merge_doubled``):
+N44E026, once its nodes at one place were made one (``edits.tidy_contours``):
 
 - **a spike** - out along the contour and back: over the same nodes (``a b
   a``), JOSM's "way contains segment twice", or along the same line through
