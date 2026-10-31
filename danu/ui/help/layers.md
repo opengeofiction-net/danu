@@ -91,7 +91,7 @@ The status bar's middle part says whose territory the open square is on,
 then whether it is yours to upload, as a mark: **^** yours, **~** shared with
 a neighbour - your own ground, and within 10 km of it - **A** yours as an
 administrator, **X** not yours, **?** not known yet. Its tooltip says it in
-full, and which zone the square is in. A square in no zone can't be
+full - and, once the data drop has answered, which zone the square is in. A square in no zone can't be
 uploaded: its **X** is a link to message **admin** on OpenGeofiction to set
 one up. The status bar's own tooltip, on the left, holds its last three
 messages.

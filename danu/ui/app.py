@@ -579,7 +579,8 @@ class MainWindow(QMainWindow):
 
     def _message_said(self, text: str) -> None:
         """A message shown: the last three, newest first, the tooltip of where
-        they are shown - in full, as a long one is cut off there."""
+        they are shown - in full, as a long one is cut off there. One said
+        again straight after itself is kept once."""
         if not text or (self._said and self._said[0] == text):
             return
         self._said.appendleft(text)
@@ -588,12 +589,12 @@ class MainWindow(QMainWindow):
     def _ownership_tips(self) -> None:
         """The territory and the upload mark share one tooltip: both lines in
         full, and what the marks mean."""
-        plain = re.sub(r'<[^>]+>', '', self.drop_line)
-        marks = ''.join(f'<br><b>{html.escape(k)}</b> {html.escape(v)}' for k, v in MARKS)
+        line = re.sub(r'<[^>]+>', '', self.drop_line)       # rich text already: its links' words kept
+        marks = '<br>'.join(f'<b>{html.escape(k)}</b> {html.escape(v)}' for k, v in MARKS)
         tip = (f'<p>{html.escape(self._territory_line or "the territory and owner under the working set")}'
                f' - from the wiki and territory.json</p>'
-               f'<p>{html.escape(html.unescape(plain) or "whether the open square is yours to upload")}'
-               f' - from the data drop</p><p>{marks[4:]}</p>')
+               f'<p>{line or "whether the open square is yours to upload"} - from the data drop</p>'
+               f'<p>{marks}</p>')
         self._territory.setToolTip(tip)
         self._drop.setToolTip(tip)
 
@@ -762,7 +763,7 @@ class MainWindow(QMainWindow):
             self.drop_actions['drop.discard'].setEnabled(on)
             self.view_actions['view.refused'].setEnabled(on)
 
-    def _drop_answered(self, square: str, line: str, warn: bool, mark: str = '?') -> None:
+    def _drop_answered(self, square: str, line: str, warn: bool, mark: str) -> None:
         if self.working_set is None or self.working_set.centre.name != square:
             return
         self.drop_line = line
