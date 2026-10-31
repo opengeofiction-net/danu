@@ -129,6 +129,7 @@ def test_the_window_says_the_open_squares_zone(window, qtbot, api):
     qtbot.waitUntil(lambda: 'pizarrales' in w.drop_line, timeout=5000)
     assert w.drop_line == 'zone pizarrales - sign in to see whether it is yours to upload'
     assert w._drop.text() == '?' and w.drop_line in w._drop.toolTip() and w.drop_line in w._territory.toolTip()
+    assert w._drop.styleSheet() == 'font-weight: bold', 'a mark, not a warning: bold as the asking one was'
     w.settings.user, w.settings.token = 'Luciano', 'tok'
     w.show_ground()
     qtbot.waitUntil(lambda: 'yours to upload' in w.drop_line and 'sign in' not in w.drop_line, timeout=5000)

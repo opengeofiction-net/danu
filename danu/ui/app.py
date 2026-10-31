@@ -727,7 +727,7 @@ class MainWindow(QMainWindow):
         if ws is not None and self._drop_asked != (ws.centre, self.settings.token):
             self._drop_asked = (ws.centre, self.settings.token)
             self._drop.setText('…')
-            self._drop.setStyleSheet('')
+            self._drop.setStyleSheet('font-weight: bold')      # a mark, as the answer's will be
             self.drop_line = 'upload: asking…'
             self._ownership_tips()
             self.drop.ask(ws.centre, self.settings.token)
