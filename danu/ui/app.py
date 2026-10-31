@@ -1731,7 +1731,7 @@ class MainWindow(QMainWindow):
             # once the set is on screen, so the offer is made over the squares it is about
             QTimer.singleShot(0, self._offer_recovery)
         else:
-            said = '; '.join(t for t in (self._close_rings(), self._drop_fill_lines()) if t)
+            said = '; '.join(t for t in self._tidy() if t)
             if said:
                 self.statusBar().showMessage(said)
         self._read_alongside(ws)
@@ -1820,9 +1820,42 @@ class MainWindow(QMainWindow):
             names = ', '.join(f'{e.square} ({e.zone.name})' for e in elsewhere[:4])
             said.append(f'autosaved edits are held for {names}{" and more" if len(elsewhere) > 4 else ""}'
                         ' - open there to recover them')
-        said += [t for t in (self._close_rings(), self._drop_fill_lines()) if t]
+        said += [t for t in self._tidy() if t]
         if said:
             self.statusBar().showMessage('; '.join(said))
+
+    def _tidy(self) -> list[str]:
+        """The steps that mend what a file holds on opening it, each its own
+        step of the history, after any recovery; what each says, or ''."""
+        return [self._close_rings(), self._merge_doubled(), self._type_water_relations(),
+                self._drop_fill_lines()]
+
+    def _merge_doubled(self) -> str:
+        """The set's nodes at one place made one, and the rings and lines
+        that leaves no line removed - one step. What it says, or ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values() if (cmd := edits.merge_doubled(sq)) is not None]
+        if not steps:
+            return ''
+        self.editor.do_across(steps)
+        n = sum(len(cmd.merges) for _, cmd in steps)
+        gone = sum(len(cmd.drop) for _, cmd in steps)
+        return (f'merged {n:,} node{"s" * (n != 1)} doubled at one place'
+                + (f', removed {gone:,} contour{"s" * (gone != 1)} that left no line' if gone else '')
+                + ', in ' + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it')
+
+    def _type_water_relations(self) -> str:
+        """``type=multipolygon`` given to the set's water relations without
+        one - one step. What it says, or ''."""
+        ws = self.working_set
+        steps = [(sq, cmd) for sq in ws.squares.values()
+                 if (cmd := edits.type_water_relations(sq)) is not None]
+        if not steps:
+            return ''
+        self.editor.do_across(steps)
+        n = sum(len(cmd.commands) for _, cmd in steps)
+        return (f'{n:,} water relation{"s" * (n != 1)} given type=multipolygon, in '
+                + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it')
 
     def _close_rings(self) -> str:
         """The set's rings closed by position only, closed onto their first

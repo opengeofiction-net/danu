@@ -141,7 +141,8 @@ def test_only_the_tags_asked_for_come_across():
     assert lake.tags == {'natural': 'water', 'water': 'lake', 'name': 'Lake Kinser'}
     assert 'source' not in lake.tags and 'wikidata' not in lake.tags
     assert water.ways[302].tags == {'waterway': 'river', 'name': 'Bosco River'}
-    assert water.relations[401].tags == {'natural': 'water', 'ele': '120'}
+    # its type kept: without it JOSM takes the lake for no multipolygon
+    assert water.relations[401].tags == {'natural': 'water', 'type': 'multipolygon', 'ele': '120'}
     assert water.relations[401].ele == 120.0
 
 

@@ -6326,3 +6326,30 @@ Now `main` sets a 1 ms switch interval, the scan no slower for it (24.4 s,
 square's ways in one call; spot heights are looked for only among nodes
 tagged `ele`; and the labels are tested against the view in Python. The
 longest stall restoring that session is about 1 s.
+
+## Nodes at one place, and water relations' type
+
+JOSM, given roantra's N44E026 with every Danu finding cleared, listed 1,206
+places holding two to four nodes, 254 self-crossing ways and two relations
+without a type. Danu's checks compare node ids, and the vectoriser's vertices
+had rounded to one place, to the seventh decimal the file holds, as different
+nodes: 877 a segment of no length, 138 one-cell knolls and pits whose four or
+five nodes stood at one or two places, 86 a contour through one place twice,
+70 two contours of a level meeting at a point.
+
+Opening a set now makes the nodes at each place one (`edits.merge_doubled`),
+one step after any recovery, said in the status bar and saved with the next
+save. A way is laid through the node kept, a node twice in a row taken once,
+and a way of the square's own that is then no line - a ring of fewer than
+three places, a line of fewer than two - goes. What is left is a shared node:
+a pinch for the loops check, which cuts it (71 on N44E026), and a meeting of
+two lines at a level, which is a join or a saddle. The node kept is the main
+map's, a tagged one, or one a relation names; a place with two such is left,
+as is one on water or a coastline, and one where two ways run together for a
+segment - Los Pizarrales's 39 contours copied node on node, which the touches
+check lists as duplicates either way.
+
+The water import kept `natural`, `water`, `waterway`, `name` and `ele`, and
+dropped the relation's `type=multipolygon`. It keeps `type` now, and opening a
+set gives it to a water relation of outer and inner rings without one
+(`edits.type_water_relations`).

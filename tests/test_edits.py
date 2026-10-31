@@ -9,7 +9,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from danu.core import edits
-from danu.core.square import Node, Square, SquareName, read_square, write_square
+from danu.core.square import Node, Square, SquareName, Way, read_square, write_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
 
@@ -819,6 +819,85 @@ def test_fill_lines_are_taken_out_in_one_step_with_their_own_nodes():
     assert cmd.describe() == 'remove 2 fill lines'
     cmd.undo(sq)
     assert edits.snapshot(sq) == before
+
+
+def test_nodes_at_one_place_are_made_one_and_a_ring_left_no_line_goes():
+    """Nodes rounded to one place - to the seventh decimal the file holds -
+    are made one: a node twice in a row taken once, two contours meeting
+    there sharing it, a ring whose nodes are all at two places removed with
+    its nodes. The main map's node is the one kept; a place with two tagged
+    nodes is left. The undo puts it all back (N44E026, JOSM's duplicated nodes
+    and self-crossing ways)."""
+    from danu.core.square import Member, Relation
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+
+    def way(pts, tags=None):
+        wid, ids = alloc.take(), [alloc.take() for _ in pts]
+        edits.AddWay(wid, ids, pts, tags or {'ele': '10'}).apply(sq)
+        return wid
+    # a line with a segment of no length, a hair under the seventh place
+    a = way([(10.1, 10.1), (10.2, 10.1), (10.20000003, 10.1), (10.3, 10.1)])
+    # a line ending where another passes: the two then share the node
+    b = way([(10.2, 10.2), (10.2, 10.1)])
+    # a one-cell knoll collapsed by rounding: five nodes, two places
+    knoll = way([(10.5, 10.5), (10.5, 10.5000001), (10.5, 10.5), (10.5, 10.5000001)])
+    sq.ways[knoll].refs.append(sq.ways[knoll].refs[0])
+    # a ring a relation names is left, though it is no line
+    lake = way([(10.6, 10.6), (10.6, 10.6), (10.6, 10.6)], {'natural': 'water'})
+    sq.ways[lake].refs.append(sq.ways[lake].refs[0])
+    sq.relations[7] = Relation(id=7, members=[Member('way', lake, 'outer')], tags={'natural': 'water'})
+    # the main map's node at a place a contour's node is: the main map's kept
+    sq.nodes[5] = Node(id=5, lat=10.7, lon=10.7)
+    sq.nodes[6] = Node(id=6, lat=10.8, lon=10.8)
+    sq.ways[9] = Way(id=9, refs=[5, 6])
+    c = way([(10.7, 10.7), (10.9, 10.9)])
+    # a contour along a lake's shore, node on node: two lines, not welded
+    shore = way([(10.4, 10.4), (10.45, 10.4), (10.45, 10.45), (10.4, 10.4)], {'natural': 'water'})
+    along = way([(10.4, 10.4), (10.45, 10.4), (10.45, 10.45)])
+    # a contour copied node on node: a duplicate for the touches check, not welded to its original
+    first = way([(10.3, 10.3), (10.35, 10.3), (10.35, 10.35)])
+    copy = way([(10.3, 10.3), (10.35, 10.3), (10.35, 10.35)])
+    # two spot heights at one place: neither goes
+    s1, s2 = alloc.take(), alloc.take()
+    sq.nodes[s1] = Node(id=s1, lat=11.0, lon=11.0, tags={'ele': '3'})
+    sq.nodes[s2] = Node(id=s2, lat=11.0, lon=11.0, tags={'ele': '4'})
+    knolled = set(sq.ways[knoll].refs)
+    before = edits.snapshot(sq)
+
+    cmd = edits.merge_doubled(sq)
+    cmd.apply(sq)
+    assert len(sq.ways[a].refs) == 3
+    assert sq.ways[b].refs[-1] == sq.ways[a].refs[1], 'the two share the node at their meeting'
+    assert knoll not in sq.ways and not knolled & set(sq.nodes)
+    assert lake in sq.ways
+    assert sq.ways[c].refs[0] == 5 and 5 in sq.nodes
+    assert s1 in sq.nodes and s2 in sq.nodes
+    assert set(sq.ways[shore].refs).isdisjoint(sq.ways[along].refs)
+    assert set(sq.ways[first].refs).isdisjoint(sq.ways[copy].refs)
+    assert edits.merge_doubled(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_water_relations_without_a_type_are_given_multipolygon():
+    """What the water import once dropped: a relation of rings, natural=water
+    or a waterway, takes ``type=multipolygon``; one with a type, or not of
+    rings, is left."""
+    from danu.core.square import Member, Relation
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    sq.relations[1] = Relation(id=1, members=[Member('way', 2, 'outer'), Member('way', 3, 'inner')],
+                               tags={'natural': 'water', 'ele': '2'})
+    sq.relations[4] = Relation(id=4, members=[Member('way', 2, 'outer')],
+                               tags={'natural': 'water', 'type': 'boundary'})
+    sq.relations[5] = Relation(id=5, members=[Member('way', 2, 'main_stream')], tags={'waterway': 'river'})
+    cmd = edits.type_water_relations(sq)
+    cmd.apply(sq)
+    assert sq.relations[1].tags == {'natural': 'water', 'ele': '2', 'type': 'multipolygon'}
+    assert sq.relations[4].tags['type'] == 'boundary' and 'type' not in sq.relations[5].tags
+    assert edits.type_water_relations(sq) is None
+    cmd.undo(sq)
+    assert sq.relations[1].tags == {'natural': 'water', 'ele': '2'}
 
 
 def _spliced():

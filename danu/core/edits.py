@@ -18,8 +18,10 @@ import math
 from dataclasses import dataclass, field
 from itertools import pairwise
 
+import numpy as np
+
 from .reconcile import Reconciled, reconcile
-from .square import Member, Node, Relation, Square, Way, is_coastline
+from .square import Member, Node, Relation, Square, Way, is_coastline, water_tags
 
 # a version the journal never saw: an id a command named only once it had
 # taken it out, without saying what it took - see Command.taken
@@ -1321,6 +1323,137 @@ def close_rings(square: Square) -> CloseRings | None:
                 and abs(a.lon - b.lon) <= SAME_PLACE and abs(a.lat - b.lat) <= SAME_PLACE):
             closes.append((wid, refs[-1]))
     return CloseRings(closes) if closes else None
+
+
+@dataclass
+class MergeDoubled(Command):
+    """Nodes standing at one place, to the seventh place the file is written
+    to, made one - the vectoriser's vertices rounded together: 2,705 nodes at
+    1,206 places in roantra's N44E026, which JOSM lists as duplicated nodes
+    and which no check here saw, the checks comparing ids. Each way through
+    one is laid through the node kept instead, a node twice in a row taken
+    once, and a way left no line - a ring of fewer than three places, a line
+    of fewer than two: 138 one-cell knolls and pits there, JOSM's
+    self-crossing ways - removed. What is left, a contour through one place
+    twice or two meeting at one, is a shared node, for the loops and touches
+    checks. One command for a square's all."""
+    merges: dict[int, int]                       # node -> the node kept at its place
+    refs: dict[int, list[int]]                   # way -> its refs after
+    drop: list[int]                              # ways no longer a line
+    before: dict[int, list[int]] = field(default_factory=dict)
+    gone: dict[int, Way] = field(default_factory=dict)
+    dropped: dict[int, Node] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return set(self.refs)
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.merges) | set(self.dropped), set(self.refs), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        return dict(self.dropped), dict(self.gone), {}
+
+    def apply(self, square: Square) -> None:
+        self.before = {wid: square.ways[wid].refs for wid in self.refs}
+        for wid, refs in self.refs.items():
+            square.ways[wid].refs = list(refs)
+        self.gone = {wid: square.ways.pop(wid) for wid in self.drop}
+        loose = set(self.merges) | {r for w in self.gone.values() for r in w.refs}
+        loose -= {r for w in square.ways.values() for r in w.refs}
+        self.dropped = {r: square.nodes.pop(r) for r in sorted(loose)
+                        if r in square.nodes and (r in self.merges or not square.nodes[r].tags)}
+
+    def undo(self, square: Square) -> None:
+        square.nodes.update(self.dropped)
+        square.ways.update(self.gone)
+        for wid, refs in self.before.items():
+            square.ways[wid].refs = refs
+        self.before, self.gone, self.dropped = {}, {}, {}
+
+    def describe(self) -> str:
+        return f'merge {len(self.merges):,} doubled node{"s" * (len(self.merges) != 1)}'
+
+
+def merge_doubled(square: Square) -> MergeDoubled | None:
+    """The command that makes the square's nodes at one place one node, or
+    None when no two share a place. Of the nodes at a place, the one kept is
+    the one that must be: a main-map node (positive), one carrying tags, one
+    a relation names. A place with two such is left as it is, and so is one
+    a node of water or a coastline stands at, sharing which would weld a
+    shore to a contour; and so is a place where two ways run together, a
+    segment of each on the other - Los Pizarrales's 39 contours copied node
+    on node, 759 places - which the touches check lists as the duplicates
+    they are, sharing their nodes or not. A way that is no line once laid through
+    the kept nodes goes only if it is the square's own (negative) and no
+    relation names it."""
+    n = len(square.nodes)
+    if n < 2:
+        return None
+    ids = np.fromiter(square.nodes.keys(), dtype=np.int64, count=n)
+    lat = np.fromiter((p.lat for p in square.nodes.values()), dtype=np.float64, count=n)
+    lon = np.fromiter((p.lon for p in square.nodes.values()), dtype=np.float64, count=n)
+    key = (np.rint(lat * 1e7).astype(np.int64) << 32) + np.rint(lon * 1e7).astype(np.int64)
+    order = np.argsort(key, kind='stable')
+    key, ids = key[order], ids[order]
+    same = np.flatnonzero(key[1:] == key[:-1])
+    if not len(same):
+        return None
+    named = {m.ref for r in square.relations.values() for m in r.members if m.type == 'node'}
+    member_ways = {m.ref for r in square.relations.values() for m in r.members if m.type == 'way'}
+    groups: dict[int, list[int]] = {}
+    for i in same:
+        groups.setdefault(int(key[i]), [int(ids[i])]).append(int(ids[i + 1]))
+    doubled = {r for g in groups.values() for r in g}
+    shore = set()
+    for way in square.ways.values():
+        if (way.id in member_ways or water_tags(way.tags) or is_coastline(way)) and not doubled.isdisjoint(way.refs):
+            shore.update(way.refs)
+    place = {r: k for k, g in groups.items() for r in g}
+    holders: dict[int, set[int]] = {}
+    for way in square.ways.values():
+        for r in way.refs:
+            if r in place:
+                holders.setdefault(place[r], set()).add(way.id)
+    together = set()
+    for way in square.ways.values():
+        if doubled.isdisjoint(way.refs):
+            continue
+        for a, b in pairwise(way.refs):
+            ka, kb = place.get(a), place.get(b)
+            if ka is not None and kb is not None and ka != kb and len(holders[ka] & holders[kb]) > 1:
+                together.update((ka, kb))
+    merges: dict[int, int] = {}
+    for k, group in groups.items():
+        fixed = [r for r in group if r > 0 or square.nodes[r].tags or r in named]
+        if len(fixed) > 1 or k in together or not shore.isdisjoint(group):
+            continue
+        keep = fixed[0] if fixed else max(group)
+        merges.update((r, keep) for r in group if r != keep)
+    if not merges:
+        return None
+    refs, drop = {}, []
+    for wid in sorted(square.ways):
+        way = square.ways[wid]
+        if merges.keys().isdisjoint(way.refs):
+            continue
+        laid = [merges.get(r, r) for r in way.refs]
+        laid = [r for i, r in enumerate(laid) if i == 0 or r != laid[i - 1]]
+        refs[wid] = laid
+        closed = len(laid) > 1 and laid[0] == laid[-1]
+        if wid < 0 and wid not in member_ways and len(set(laid)) < (3 if closed else 2):
+            drop.append(wid)
+    return MergeDoubled(merges, refs, drop)
+
+
+def type_water_relations(square: Square) -> Compound | None:
+    """``type=multipolygon`` given to each water relation of outer and inner
+    rings without a type: the water import once kept no ``type``, and JOSM
+    lists every such relation as one without. None when there are none."""
+    cmds = [SetRelationTags(rid, dict(rel.tags), {**rel.tags, 'type': 'multipolygon'})
+            for rid, rel in sorted(square.relations.items())
+            if water_tags(rel.tags) and 'type' not in rel.tags
+            and rel.members and all(m.role in ('outer', 'inner') for m in rel.members)]
+    return Compound(cmds, name=f'type {len(cmds)} water relation(s)') if cmds else None
 
 
 @dataclass
