@@ -108,15 +108,17 @@ def osm_ids(osm: tuple[str, int] | None, server: str) -> list[str]:
 
 def describe(sel, layer) -> Info:
     """The selection, as the panel shows it - with ``osm`` the object whose id
-    is copied: the relation for a ring of one, ahead of the way."""
+    is copied: the node chosen, else the relation for a ring of one, ahead
+    of the way."""
     info = _describe(sel, layer)
     if sel is None or info is NOTHING:
         return info
     if sel.relation is not None:
         osm = _identified('relation', sel.relation.id)
-    elif sel.spot:
-        osm = _identified('node', sel.node)
-    elif info.kind.startswith('point on'):
+    elif sel.node is not None:
+        # a node chosen - a spot height, a point on water, or a contour's -
+        # is what Where names last, and what is copied; the line clicked
+        # between its nodes selects the way, for its id
         osm = _identified('node', sel.node)
     else:
         rel = _water_relation(sel.square, sel.way.id)
