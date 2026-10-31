@@ -6253,9 +6253,14 @@ of crossings. The keys are a picked drag's, with shift.
 Ctrl and a drag of a node onto another contour's line at its level makes the
 two one way (`edits.splice_ways`), one step with the drag. The node goes, and
 each runs on through the other where it was: a ring dropped on a line opens at
-the node and is laid into the segment, its nearer end to the segment's nearer
-node; a line's node dropped on a ring is replaced by the ring, from one end of
-the segment round to the other. One must be a ring - two lines meeting are not
+the node and is laid into the segment; a line's node dropped on a ring is
+replaced by the ring, from one end of the segment round to the other. Of the
+two ways round, the one whose joins cross neither each other nor what is laid
+in, then the shorter joins (#307). A node the receiving way already has is
+not laid in again: a ring hung on the line at a node, as the tidy leaves a
+loop, passed through it twice. And where the result would cross itself and a
+segment beside the one dropped on would not, the nearest such takes it - not
+refused, the mapper being mid-tidy, and said. One must be a ring - two lines meeting are not
 one line. The open one keeps its id; of two rings, the one already on the
 server, so an uploaded way is not deleted for one that never was.
 

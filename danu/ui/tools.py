@@ -1240,9 +1240,33 @@ class EditController(QObject):
         keep = cmd.commands[0].way_id
         gone = other.id if keep == way.id else way.id
         refs = cmd.commands[0].pieces[0][1]
+        moved = ''
+        # nor left crossing itself, where a segment beside the one dropped on
+        # would not: the ring's free nodes laid into a segment away from where
+        # it hangs on the line ran the line out and back across itself
+        # (N44E026, w-49971357 onto w-49970141's segment 92). Not refused -
+        # the mapper is tidying - but laid in beside, the nearest that is
+        # clean, or where dropped when none is
+        tags = dict(square.ways[keep].tags)
+
+        def crossed(rs):
+            return bool(loops.find_in(square, Way(id=keep, refs=rs, tags=tags)))
+        if not any(loops.find_in(square, w) for w in (way, other)) and crossed(refs):
+            last = len(other.refs) - 2
+            for d in (1, -1, 2, -2, 3, -3):
+                s2 = seg + d
+                if not 0 <= s2 <= last:
+                    continue
+                c2 = edits.splice_ways(square, way.id, nid, other.id, s2)
+                if isinstance(c2, str):
+                    continue
+                r2 = c2.commands[0].pieces[0][1]
+                if not crossed(r2):
+                    cmd, refs, moved = c2, r2, ' - laid in beside where it was dropped, so it does not cross itself'
+                    break
         coords = [(square.nodes[r].lon, square.nodes[r].lat) for r in refs]     # the node is not among them
         self._put_absorbed(square, square.ways[keep], [way, other], (cmd, coords),
-                           edits.MoveNode(nid, before, after), f'merged way {gone} into')
+                           edits.MoveNode(nid, before, after), f'merged way {gone} into', moved)
         return True
 
     def _mergeable(self, square: Square, way: Way) -> bool:
@@ -1339,7 +1363,7 @@ class EditController(QObject):
         n = len(ways) - 1
         self._put_absorbed(square, main, ways, got, None, f'absorbed {n} piece{"s" * (n != 1)} into')
 
-    def _put_absorbed(self, square: Square, main: Way, ways: list, got, first, said: str) -> None:
+    def _put_absorbed(self, square: Square, main: Way, ways: list, got, first, said: str, also: str = '') -> None:
         """An absorb done, after ``first`` if there is one - under G8b's rule:
         a contour that crossed nothing may not be made to cross."""
         cmd, coords = got
@@ -1360,7 +1384,7 @@ class EditController(QObject):
         said = f'{said} {what}'
         if after:
             said += f'; it crosses {len(after)} contour{"s" * (len(after) != 1)}, was {len(before)}'
-        self.message.emit(said)
+        self.message.emit(said + also)
         self.overlay.update()
 
     def mark_coastline(self, on: bool):

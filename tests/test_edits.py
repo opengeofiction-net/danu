@@ -1038,6 +1038,22 @@ def test_a_ring_is_laid_into_a_line_so_its_joins_do_not_cross():
     assert refs == [ln[0], ln[1], rn[5], rn[0], rn[1], rn[2], rn[3], rn[4], ln[3], ln[4]]
 
 
+def test_a_ring_hung_on_the_line_is_laid_in_without_the_node_it_hangs_by():
+    """A ring sharing a node with the line: its other nodes laid into the
+    segment, and the shared one not again - the line passed through it twice
+    (N44E026, w-49971357 onto w-49970141)."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    line, ln = alloc.take(), [alloc.take() for _ in range(3)]
+    edits.AddWay(line, ln, [(10.1, 10.5), (10.2, 10.5), (10.3, 10.5)], {'ele': '30'}).apply(sq)
+    ring, rn = alloc.take(), [alloc.take() for _ in range(2)]
+    edits.AddWay(ring, rn, [(10.22, 10.52), (10.18, 10.52)], {'ele': '30'}).apply(sq)
+    sq.ways[ring].refs = [ln[1], *rn, ln[1]]                     # hung on the line's middle node
+    cmd = edits.splice_ways(sq, ring, rn[1], line, 0)            # its west node onto the west segment
+    cmd.apply(sq)
+    assert sq.ways[line].refs == [ln[0], rn[0], ln[1], ln[2]]
+
+
 def test_two_open_lines_are_not_spliced():
     sq, line, ln, ring, rn = _spliced()
     sq.ways[ring].refs.pop()                                      # open now

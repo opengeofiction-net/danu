@@ -637,7 +637,14 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
         # the ring opened at the node, laid into the segment between a and b
         ring = way.refs[:-1]
         k = ring.index(node)
-        path = _laid(square, ring[k + 1:] + ring[:k], a, b)
+        # less any node the line has already - a ring hung on the line at a
+        # node, as a loop the tidy made a ring of is, laid through it again
+        # passed through it twice (N44E026, w-49971357 on w-49970141)
+        on = set(other.refs)
+        path = [r for r in ring[k + 1:] + ring[:k] if r not in on]
+        if not path:
+            return 'the ring is on the line already'
+        path = _laid(square, path, a, b)
         refs = [*other.refs[:seg + 1], *path, *other.refs[seg + 1:]]     # a ring's ends untouched
     else:
         # the line's node replaced by the ring, from one end of the segment
@@ -646,7 +653,11 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
         j = way.refs.index(node)
         before = way.refs[j - 1] if j > 0 else None
         after = way.refs[j + 1] if j + 1 < len(way.refs) else None
-        path = _laid(square, ring[seg + 1:] + ring[:seg + 1], before, after)
+        on = set(way.refs)
+        path = [r for r in ring[seg + 1:] + ring[:seg + 1] if r not in on]
+        if not path:
+            return 'the line runs round the ring already'
+        path = _laid(square, path, before, after)
         refs = [*way.refs[:j], *path, *way.refs[j + 1:]]
     if not way.closed:
         keep, gone = way_id, other_id

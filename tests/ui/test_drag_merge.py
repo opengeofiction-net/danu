@@ -11,6 +11,7 @@ pytest.importorskip('PySide6')
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
+from danu.checks import loops
 from danu.core import edits
 from danu.core.square import SquareName
 from danu.ui import mercator as m
@@ -153,3 +154,46 @@ def test_where_a_drop_would_join_an_end_is_shown(board):
     # join_ways keeps the dragged end's way
     assert other.id in sq.ways and line.id not in sq.ways, w.statusBar().currentMessage()
     assert len(sq.ways[other.id].refs) == 3 and w.statusBar().currentMessage().startswith('joined')
+
+
+@pytest.fixture
+def hung(window):
+    """A 30 m line, and a 30 m triangle hung on it at one of its nodes - as
+    the tidy leaves a loop it made a ring of (N44E026, w-49971357 on
+    w-49970141)."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    line = add(w, [(-100, 10), (-20, 35), (0, 0), (-50, -50)], 30)
+    x = line.refs[2]
+    alloc = w.editor.history.alloc(sq)
+    tri, ids = alloc.take(), [alloc.take(), alloc.take()]
+    w.editor.do(sq, edits.AddWay(tri, ids, [deg(20, 40), deg(-15, 40)], {'ele': '30'}))
+    w.editor.do(sq, edits.ExtendWayWithExisting(tri, True, x))
+    w.editor.do(sq, edits.ExtendWayWithExisting(tri, False, x))
+    w.map.set_zoom(18)
+    w.map.center_on_lonlat(*deg(-30, 20))
+    return w, sq, line, sq.ways[tri], x
+
+
+def test_a_ring_hung_on_the_line_merges_through_its_node_once(hung):
+    """Its free nodes laid in, not the node it hangs by again: that ran the
+    line through it twice, which the loops check then listed."""
+    w, sq, line, tri, x = hung
+    drag(w, (-15, 40), (-10, 17.5))                               # onto the segment beside the node it hangs by
+    assert tri.id not in sq.ways, w.statusBar().currentMessage()
+    refs = sq.ways[line.id].refs
+    assert refs.count(x) == 1 and tri.refs[1] in refs and len(refs) == 5, refs
+
+
+def test_a_merge_that_would_cross_the_contour_over_itself_is_laid_in_beside(hung):
+    """Its free node laid into the segment dropped on - beyond the one beside
+    the node it hangs by - ran the line out to it and back across its own
+    segment. Not refused, the mapper tidying: laid into the segment beside,
+    where it does not cross, and said."""
+    w, sq, line, tri, x = hung
+    drag(w, (-15, 40), (-60, 22.5))
+    said = w.statusBar().currentMessage()
+    assert tri.id not in sq.ways and 'laid in beside' in said, said
+    refs = sq.ways[line.id].refs
+    assert refs.count(x) == 1 and refs.index(tri.refs[1]) == refs.index(x) - 1, refs
+    assert not loops.find_in(sq, sq.ways[line.id])
