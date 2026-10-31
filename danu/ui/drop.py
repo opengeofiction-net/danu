@@ -63,10 +63,39 @@ def describe(status: int, body: dict, server: str) -> tuple[str, bool]:
     return f'zone {zone} - not yours to upload' + (f': {others}' if others else ''), True
 
 
-class DropClient(QObject):
-    """Asks the API about a square. ``answered(square, line, warn)``."""
+# the status bar's mark for an answer, after the territory, and what each
+# means - the line itself is the mark's tooltip
+MARKS = (('^', 'yours to upload'),
+         ('~', f'yours to upload, shared: keep to your own ground, and within {REACH_M / 1000:g} km of it'),
+         ('A', 'yours to upload as an administrator'),
+         ('X', 'not yours to upload - in no zone, not your territory, or your account blocked'),
+         ('?', 'not known - not signed in, or the upload service not reached'))
 
-    answered = Signal(str, str, bool)
+
+def mark(status: int, body: dict, server: str) -> str:
+    """The answer as one character, as rich text: a link where the line has
+    one to follow - whom to ask for a zone, or the block."""
+    if status == 404 and 'square' in body:
+        return f'<a href="{html.escape(admin_link(server))}">X</a>'
+    if status != 200:
+        return '?'
+    if body.get('blocked'):
+        url = f'{server.rstrip("/")}/user/{urllib.parse.quote(str(body.get("user", "")))}/blocks'
+        return f'<a href="{html.escape(url)}">X</a>'
+    p = body.get('permission')
+    if p is None:
+        return '?'
+    if p.get('level') == 'yes':
+        return '^'
+    if p.get('level') == 'partial':
+        return '~'
+    return 'A' if body.get('admin') else 'X'
+
+
+class DropClient(QObject):
+    """Asks the API about a square. ``answered(square, line, warn, mark)``."""
+
+    answered = Signal(str, str, bool, str)
 
     def __init__(self, base_url: str = URL, server: str = 'https://opengeofiction.net', parent=None):
         super().__init__(parent)
@@ -104,9 +133,9 @@ class DropClient(QObject):
             except ValueError:
                 body = None
             if not status or not isinstance(body, dict):
-                self.answered.emit(square.name, 'upload service not reached', False)
+                self.answered.emit(square.name, 'upload service not reached', False, '?')
                 return
             line, warn = describe(int(status), body, self.server)
-            self.answered.emit(square.name, line, warn)
+            self.answered.emit(square.name, line, warn, mark(int(status), body, self.server))
         finally:
             reply.deleteLater()

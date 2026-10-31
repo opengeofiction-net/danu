@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import html
+import re
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
     QFileDialog,
+    QFrame,
     QInputDialog,
     QLabel,
     QMainWindow,
@@ -45,7 +48,7 @@ from .autosave import AutoSaver
 from .background import Job
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
-from .drop import DropClient
+from .drop import MARKS, DropClient
 from .elevation import PICK_PX, ElevationControl, ElevationPanel
 from .gone_dock import GoneDock
 from .ground import GroundItem
@@ -506,20 +509,36 @@ class MainWindow(QMainWindow):
         if self.usage is not None:
             self.editor.toolChanged.connect(lambda name: self.usage.write('tool', name=name))
             self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
+        # the status bar's three parts, a line between each: what was said,
+        # whose ground and whether it is yours to upload, and the cursor's
+        # reading. What was said keeps its last three for its tooltip
+        bar = self.statusBar()
+        self._said: deque[str] = deque(maxlen=3)
+        bar.messageChanged.connect(self._message_said)
+        bar.addPermanentWidget(self._separator())
         self._territory = QLabel('')
-        self._territory.setToolTip('the territory and owner under the working set, from the wiki and territory.json')
-        self.statusBar().addPermanentWidget(self._territory)
+        bar.addPermanentWidget(self._territory)
+        # whether it is yours to upload, as a mark after the territory; the
+        # line in full is its tooltip, and the territory's (#190)
+        self.drop_line = ''
         self._drop = QLabel('')
         self._drop.setOpenExternalLinks(True)
-        self._drop.setToolTip('whether the open square is yours to upload, from the data drop')
-        self.statusBar().addPermanentWidget(self._drop)
+        bar.addPermanentWidget(self._drop)
+        self._territory_line = ''
+        self._ownership_tips()
+        bar.addPermanentWidget(self._separator())
         self._status = QLabel()
-        self.statusBar().addPermanentWidget(self._status)
+        self._status.setToolTip('the level being drawn; what the surface reads under the cursor, where one is '
+                                'built; the cursor\'s latitude and longitude; and the zoom')
+        bar.addPermanentWidget(self._status)
         # a newer release (J7), first of the permanent ones when there is one
         self.newer = QLabel()
         self.newer.setOpenExternalLinks(True)
         self.newer.setVisible(False)
-        self.statusBar().insertPermanentWidget(0, self.newer)
+        self._newer_line = self._separator()
+        self._newer_line.setVisible(False)
+        bar.insertPermanentWidget(0, self.newer)
+        bar.insertPermanentWidget(0, self._newer_line)
         self.map.cursorMoved.connect(self._cursor)
         self.map.setFocus()
         self.map.zoomChanged.connect(lambda _: self._cursor(*self.map.center_lonlat()))
@@ -550,6 +569,33 @@ class MainWindow(QMainWindow):
         self.map.set_zoom(HOME[2])
         self.map.center_on_lonlat(HOME[0], HOME[1])
         self._cursor(HOME[0], HOME[1])
+
+    @staticmethod
+    def _separator() -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        return line
+
+    def _message_said(self, text: str) -> None:
+        """A message shown: the last three, newest first, the tooltip of where
+        they are shown - in full, as a long one is cut off there."""
+        if not text or (self._said and self._said[0] == text):
+            return
+        self._said.appendleft(text)
+        self.statusBar().setToolTip(''.join(f'<p>{html.escape(t)}</p>' for t in self._said))
+
+    def _ownership_tips(self) -> None:
+        """The territory and the upload mark share one tooltip: both lines in
+        full, and what the marks mean."""
+        plain = re.sub(r'<[^>]+>', '', self.drop_line)
+        marks = ''.join(f'<br><b>{html.escape(k)}</b> {html.escape(v)}' for k, v in MARKS)
+        tip = (f'<p>{html.escape(self._territory_line or "the territory and owner under the working set")}'
+               f' - from the wiki and territory.json</p>'
+               f'<p>{html.escape(html.unescape(plain) or "whether the open square is yours to upload")}'
+               f' - from the data drop</p><p>{marks[4:]}</p>')
+        self._territory.setToolTip(tip)
+        self._drop.setToolTip(tip)
 
     def _cursor(self, lon: float, lat: float):
         """The cursor is here: remember it, let the ladder follow the square
@@ -650,6 +696,8 @@ class MainWindow(QMainWindow):
             line += f' (owners as of {when}, the wiki being unreachable)'
         self._territory.setText(line)
         self._territory.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
+        self._territory_line = line
+        self._ownership_tips()
         if warn:
             self.statusBar().showMessage(f'{self.working_set.centre} is {line} - opening it anyway')
         self.show_ground()
@@ -677,8 +725,10 @@ class MainWindow(QMainWindow):
             self.ground.set_ground(grounds)
         if ws is not None and self._drop_asked != (ws.centre, self.settings.token):
             self._drop_asked = (ws.centre, self.settings.token)
-            self._drop.setText('upload: asking…')
+            self._drop.setText('…')
             self._drop.setStyleSheet('')
+            self.drop_line = 'upload: asking…'
+            self._ownership_tips()
             self.drop.ask(ws.centre, self.settings.token)
 
     def show_reference(self) -> None:
@@ -712,11 +762,13 @@ class MainWindow(QMainWindow):
             self.drop_actions['drop.discard'].setEnabled(on)
             self.view_actions['view.refused'].setEnabled(on)
 
-    def _drop_answered(self, square: str, line: str, warn: bool) -> None:
+    def _drop_answered(self, square: str, line: str, warn: bool, mark: str = '?') -> None:
         if self.working_set is None or self.working_set.centre.name != square:
             return
-        self._drop.setText(line)
-        self._drop.setStyleSheet('color: #b04000; font-weight: bold' if warn else '')
+        self.drop_line = line
+        self._drop.setText(mark)
+        self._drop.setStyleSheet('color: #b04000; font-weight: bold' if warn else 'font-weight: bold')
+        self._ownership_tips()
 
     # ---------------------------------------------------------- signing in
     def account(self) -> None:
@@ -1407,6 +1459,7 @@ class MainWindow(QMainWindow):
         self.newer.setText(f'<a href="{html.escape(url, quote=True)}">Danu {html.escape(tag.removeprefix("v"))} is out</a>')
         self.newer.setToolTip(f'You have {about.__version__}. {url}')
         self.newer.setVisible(True)
+        self._newer_line.setVisible(True)
 
     def apply_settings(self) -> None:
         """The settings put to use, as the preferences left them: keys at
@@ -1415,6 +1468,7 @@ class MainWindow(QMainWindow):
         theme.apply(QApplication.instance(), s.theme)
         if not s.update_check:
             self.newer.setVisible(False)                 # turned off: not said either
+            self._newer_line.setVisible(False)
         elif update.is_newer(s.update_latest[0]) and not update.from_store():
             self.show_newer(*s.update_latest)            # on again: what was found, said again
         for name, a in self.keyed_actions().items():

@@ -140,8 +140,9 @@ first for you to agree; other zones' wait until you open them.
 it is built into the elevation the night after. The status bar says first
 whether it is yours to upload: a square of your territory, or one you share
 with a neighbour - keep to your ground there, and within 10 km of it in
-theirs. A square in no zone can't be uploaded yet; its status line links to
-message admin to set one up, and an account blocked on OGF uploads nothing
+theirs - the mark after the territory, explained in its tooltip. A square
+in no zone can't be uploaded yet; its mark links to message admin to set
+one up, and an account blocked on OGF uploads nothing
 while the block lasts. **File › Rename square…** changes its name on
 the server and here, and **File › Delete square from server…** takes it off
 the server, leaving your copy. **File › Revert square to the server's…**
