@@ -228,6 +228,24 @@ def test_the_layer_projects_a_way_where_the_scalar_projection_puts_it(ws):
         break
 
 
+def test_a_square_projected_in_one_call_is_each_way_projected_alone(ws):
+    """``_project_all`` - a square's ways in one numpy call, as a set opens -
+    keeps and drops the ways ``_project`` does, with their levels, refs and
+    points."""
+    import numpy as np
+
+    from danu.ui.contours import _water_members
+
+    for square in ws.squares.values():
+        members = _water_members(square)
+        many = {g.way.id: g for g in ContourLayer._project_all(square, square.ways.values(), members)}
+        one = {w.id: g for w in square.ways.values() if (g := ContourLayer._project(square, w, members))}
+        assert many.keys() == one.keys()
+        for wid, g in one.items():
+            assert (many[wid].ele, many[wid].refs) == (g.ele, g.refs)
+            assert np.allclose(many[wid].pts, g.pts, rtol=0, atol=1e-9)
+
+
 def test_the_node_index_cache_is_a_cache_and_not_part_of_the_geometry():
     """WayGeom's lazily built node index was an annotated attribute in a
     dataclass body, which makes it a field: a constructor parameter, and part

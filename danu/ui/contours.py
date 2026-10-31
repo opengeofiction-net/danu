@@ -480,10 +480,8 @@ class ContourLayer(QGraphicsItem):
             # asked per way, which on 112 relations and four thousand ways is
             # the difference between a lookup and a search
             members = _water_members(square)
-            for way in square.ways.values():
-                geom = self._project(square, way, members)
-                if geom is not None:
-                    self._geoms[(square.name, way.id)] = geom
+            for geom in self._project_all(square, square.ways.values(), members):
+                self._geoms[(square.name, geom.way.id)] = geom
             self._add_water_fills(square, members)
         for key, geom in self._geoms.items():
             self._add_geom(key, geom)
@@ -493,8 +491,9 @@ class ContourLayer(QGraphicsItem):
         # spot height or a level on a river depends on the water's vertices
         # having been counted, and they are counted as the water is added
         for square in ws.squares.values():
-            for nid in square.nodes:
-                self._project_spot(square, nid)
+            for nid, node in square.nodes.items():
+                if 'ele' in node.tags:           # the spots start empty: an untagged node is none
+                    self._project_spot(square, nid)
         self._reindex()
         self._levels_moved = False
         self._arrays_stale = True
@@ -521,16 +520,13 @@ class ContourLayer(QGraphicsItem):
         squares away, so shows where it reaches in. That square's contours
         are not the set's."""
         members = _water_members(square)
-        for way in square.ways.values():
-            t = way.tags
-            if not (way.id in members or t.get('natural') in ('water', 'coastline') or 'waterway' in t
-                    or 'danu:fill' in t):
-                continue
-            geom = self._project(square, way, members)
-            if geom is not None:
-                key = (square.name, way.id)
-                self._geoms[key] = geom
-                self._add_geom(key, geom)
+        water = [way for way in square.ways.values()
+                 if way.id in members or way.tags.get('natural') in ('water', 'coastline')
+                 or 'waterway' in way.tags or 'danu:fill' in way.tags]
+        for geom in self._project_all(square, water, members):
+            key = (square.name, geom.way.id)
+            self._geoms[key] = geom
+            self._add_geom(key, geom)
         self._add_water_fills(square, members)
 
     def add_alongside(self, squares) -> None:
@@ -554,6 +550,35 @@ class ContourLayer(QGraphicsItem):
 
         The refs are carried alongside the points, so both drop a node the
         square does not have and the two stay aligned."""
+        got = ContourLayer._placed(square, way, water_members)
+        if got is None:
+            return None
+        ele, refs = got
+        nodes = square.nodes
+        pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
+        return WayGeom(square, way, ele, pts, refs)
+
+    @staticmethod
+    def _project_all(square: Square, ways, water_members=frozenset()) -> list[WayGeom]:
+        """``_project`` of many ways, their points projected in one call.
+
+        A call a way was 19,488 small numpy calls on roantra's N45E027 set:
+        1.2 s on the UI thread alone, and 10 s beside the checks scan on its
+        worker, each call a chance for the worker to take the GIL - which,
+        at startup, put "not responding" over the window."""
+        nodes = square.nodes
+        kept = [(way, *got) for way in ways if (got := ContourLayer._placed(square, way, water_members)) is not None]
+        if not kept:
+            return []
+        refs = [r for _, _, rs in kept for r in rs]
+        pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
+        ends = np.cumsum([len(rs) for _, _, rs in kept])[:-1]
+        return [WayGeom(square, way, ele, p, rs) for (way, ele, rs), p in zip(kept, np.split(pts, ends), strict=True)]
+
+    @staticmethod
+    def _placed(square: Square, way: Way, water_members=frozenset()) -> tuple[float | None, list[int]] | None:
+        """What ``_project`` keeps of a way before it is projected: its level
+        and its placed nodes' ids, or None for a way not drawn."""
         water = _is_water(way) or way.id in water_members
         # a lake's outline with a level - flattened at it (G7a) - is still
         # water here: drawn, filled and picked as the lake, its level the
@@ -566,11 +591,8 @@ class ContourLayer(QGraphicsItem):
         if ele is None and not water and not fill and way.tags.get('natural') != 'coastline':
             return None
         nodes = square.nodes
-        placed = [(r, nodes[r]) for r in way.refs if r in nodes]
-        if len(placed) < 2:
-            return None
-        pts = m.lonlat_to_scene_array([n.lon for _, n in placed], [n.lat for _, n in placed])
-        return WayGeom(square, way, ele, pts, [r for r, _ in placed])
+        refs = [r for r in way.refs if r in nodes]
+        return (ele, refs) if len(refs) >= 2 else None
 
     def _project_spot(self, square: Square, node_id: int) -> None:
         """Put a node in the spot dict if it carries a usable elevation, and
@@ -1896,10 +1918,15 @@ class ContourLayer(QGraphicsItem):
         font.setPointSize(FONT_PT)
         halo = QPen(QColor(255, 255, 255, 220), 3.0)
         halo.setCosmetic(True)
+        # tested in Python, not by a QPointF and rect.contains each: every Qt
+        # call hands the GIL to a worker that wants it, and sixteen thousand
+        # labels on roantra, none drawn at zoom 9, made a startup paint 2 s
+        x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
+        every = zoom >= ZOOM_ALL
         for lab in self.labels:
-            if lab.length * scale < MIN_LABEL_PX or not rect.contains(QPointF(lab.x, lab.y)):
+            if lab.length * scale < MIN_LABEL_PX or not (x0 <= lab.x <= x1 and y0 <= lab.y <= y1):
                 continue
-            if zoom < ZOOM_ALL and not self.is_index(lab.ele):
+            if not every and not self.is_index(lab.ele):
                 continue
             tp = self._text_path(f'{lab.ele:g}', font)
             painter.save()

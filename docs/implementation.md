@@ -6309,3 +6309,20 @@ the first and keeps the second as its partner (`EditController.partner`), so
 E absorbs the pair with nothing lassoed; the status bar says so. Any other
 selection forgets the partner. Picks, when there are any, are absorbed as
 before.
+
+## Not responding at startup
+
+Restoring a session with the Validation panel open stalled the window for
+8 s on roantra's N45E027 set - long enough for the desktop to say Danu was
+not responding. Opening a set alone takes about 1.2 s on the UI thread; the
+rest was the GIL. The checks scan started on its worker just before the set
+was drawn, and every numpy or Qt call the UI thread made handed the GIL to
+it for Python's whole 5 ms switch interval: projecting 19,488 ways one at a
+time was 10 s beside a busy thread, and testing 16,205 labels against the
+view with a `QPointF` each made the first paint 2-3 s though none was drawn.
+
+Now `main` sets a 1 ms switch interval, the scan no slower for it (24.4 s,
+25.1 s); the checks start once the set is drawn; `_project_all` projects a
+square's ways in one call; spot heights are looked for only among nodes
+tagged `ele`; and the labels are tested against the view in Python. The
+longest stall restoring that session is about 1 s.

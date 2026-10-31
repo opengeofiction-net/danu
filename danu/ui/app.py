@@ -1632,7 +1632,10 @@ class MainWindow(QMainWindow):
         self.inside_index = None
         self.surface_findings = None
         if self.checks_dock.isVisible():
-            self._checks_shown(True)
+            # once the set is drawn: the scan's worker beside the drawing
+            # took the GIL from it, 1.2 s made 8 s on roantra, and the
+            # window "not responding" at startup
+            QTimer.singleShot(0, lambda: self._checks_shown(self.checks_dock.isVisible()))
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
         self.elevation.set_working_set(ws, self.zone_dir.name if self.zone_dir else '')
@@ -2757,6 +2760,12 @@ def main(argv: list[str] | None = None) -> int:
         ap.error('give both a zone directory and a square, or neither')
 
     quieten_qt()          # before the first request; see danu.ui.messages
+    # the GIL handed back to the UI thread within 1 ms, not Python's 5: a
+    # worker in Python - the checks scan - took it at every Qt call the UI
+    # thread made, and held it the whole interval. A paint of labels at
+    # startup was 3.7 s for it, and the window "not responding"; 0.9 s now,
+    # the scan no slower to speak of (24.4 s, 25.1 s on roantra's N45E027)
+    sys.setswitchinterval(0.001)
     app = QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(about.__version__)
