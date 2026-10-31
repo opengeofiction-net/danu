@@ -1,6 +1,7 @@
 """danu.core.edits: every command takes itself back exactly, in any order."""
 
 import lzma
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -852,6 +853,37 @@ def test_a_lines_node_spliced_into_a_ring_takes_the_ring():
     assert ring not in sq.ways and ln[1] not in sq.nodes
     # from the west end to the ring's nearer side, round it, and on east
     assert refs == [ln[0], rn[3], rn[2], rn[1], rn[0], ln[2]]
+
+
+def test_a_ring_is_laid_into_a_line_so_its_joins_do_not_cross():
+    """A line's tip, its two strands close beside a ring: joined each to the
+    end that keeps the joins apart. By the node before the tip alone, they
+    crossed over (roantra's N44E026, w-50005438's tip onto w-49996282 - its
+    nodes here)."""
+    sq = Square(name=SquareName(26, 44), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    line, ln = alloc.take(), [alloc.take() for _ in range(5)]
+    edits.AddWay(line, ln, [(26.936111, 44.206667), (26.936667, 44.207037), (26.9375, 44.2075),
+                            (26.936667, 44.207745), (26.935833, 44.207604)], {'ele': '10'}).apply(sq)
+    ring, rn = alloc.take(), [alloc.take() for _ in range(6)]
+    edits.AddWay(ring, rn, [(26.941667, 44.208167), (26.9425, 44.208333), (26.941667, 44.209167),
+                            (26.940833, 44.208611), (26.939, 44.208333), (26.94, 44.207954)],
+                 {'ele': '10'}).apply(sq)
+    sq.ways[ring].refs.append(rn[0])
+    cmd = edits.splice_ways(sq, line, ln[2], ring, 4)            # the tip onto the ring's west side
+    cmd.apply(sq)
+    refs = sq.ways[line].refs
+    pts = [(sq.nodes[r].lon, sq.nodes[r].lat) for r in refs]
+
+    def side(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    segs = list(pairwise(pts))
+    crossed = [(i, j) for i in range(len(segs)) for j in range(i + 2, len(segs))
+               if side(*segs[i], segs[j][0]) * side(*segs[i], segs[j][1]) < 0
+               and side(*segs[j], segs[i][0]) * side(*segs[j], segs[i][1]) < 0]
+    assert crossed == [], refs
+    # the lower strand to the segment's lower end, the upper to its upper
+    assert refs == [ln[0], ln[1], rn[5], rn[0], rn[1], rn[2], rn[3], rn[4], ln[3], ln[4]]
 
 
 def test_two_open_lines_are_not_spliced():
