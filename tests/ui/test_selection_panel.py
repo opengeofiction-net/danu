@@ -332,10 +332,17 @@ def test_a_local_contours_id_is_copied_but_has_no_page(w):
     assert copied() == f'w{way.id}'
 
 
-def test_a_contour_upstream_copies_the_way_not_its_node(w):
+def test_a_contours_node_chosen_copies_the_node_and_the_line_the_way(w):
+    """Where names the node last: Copy ID gives it, not the way it is on."""
     sq, way = contour(w)
     sq.ways[4242] = Way(id=4242, refs=list(way.refs), tags=dict(way.tags))
     w.editor.selection = Selection(sq, sq.ways[4242], way.refs[1])
+    assert w.selection_panel.info.osm == ('node', way.refs[1])
+    assert f'node {way.refs[1]}' in w.selection_panel.info.where
+    menu = right_click(w.selection_panel.where)
+    menu['Copy ID'].trigger()
+    assert copied() == f'n{way.refs[1]}'
+    w.editor.selection = Selection(sq, sq.ways[4242])
     assert w.selection_panel.info.osm == ('way', 4242)
 
 

@@ -563,6 +563,39 @@ def join_ways(square: Square, way_id: int, end: int, other_id: int, onto: int) -
     return Compound(steps, name='join')
 
 
+def _laid(square: Square, path: list[int], before: int | None, after: int | None) -> list[int]:
+    """``path`` run from ``before`` to ``after``, one way round or the other:
+    the way its two joins cross neither each other nor the path, and of two
+    that both do or both don't, the shorter joins. Nearness alone, or one
+    join's alone, laid a ring crossed over itself where a line's two strands
+    came close to it - roantra's N44E026, w-50005438's tip dropped on
+    w-49996282 (#298)."""
+    k = math.cos(math.radians(square.nodes[path[0]].lat))
+
+    def xy(n):
+        p = square.nodes[n]
+        return p.lon * k, p.lat
+
+    def far(p, q):
+        (x0, y0), (x1, y1) = xy(p), xy(q)
+        return math.hypot(x0 - x1, y0 - y1)
+
+    def side(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def cross(s, t):
+        if set(s) & set(t):
+            return False                         # joined at a node: meeting, not crossing
+        p, q, r, u = map(xy, (*s, *t))
+        return side(p, q, r) * side(p, q, u) < 0 and side(r, u, p) * side(r, u, q) < 0
+
+    def cost(run):
+        joins = [j for j in ((before, run[0]), (run[-1], after)) if None not in j]
+        crossed = (len(joins) == 2 and cross(*joins)) or any(cross(j, s) for j in joins for s in pairwise(run))
+        return crossed, sum(far(*j) for j in joins)
+    return min((path, path[::-1]), key=cost)
+
+
 def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int) -> Command | str:
     """A contour's node ``node`` put on the line of ``other_id``, between its
     ``seg``-th node and the next: the two become one way. The node goes, and
@@ -597,28 +630,20 @@ def splice_ways(square: Square, way_id: int, node: int, other_id: int, seg: int)
     if node in (a, b):
         return 'the two already share that node'
 
-    def far(p, q):
-        n0, n1 = square.nodes[p], square.nodes[q]
-        return math.hypot((n0.lon - n1.lon) * math.cos(math.radians(n0.lat)), n0.lat - n1.lat)
-
     if way.closed:
-        # the ring opened at the node, laid into the segment, its nearer end to a
+        # the ring opened at the node, laid into the segment between a and b
         ring = way.refs[:-1]
         k = ring.index(node)
-        path = ring[k + 1:] + ring[:k]
-        if far(a, path[-1]) + far(b, path[0]) < far(a, path[0]) + far(b, path[-1]):
-            path.reverse()
+        path = _laid(square, ring[k + 1:] + ring[:k], a, b)
         refs = [*other.refs[:seg + 1], *path, *other.refs[seg + 1:]]     # a ring's ends untouched
     else:
         # the line's node replaced by the ring, from one end of the segment
-        # round to the other, the nearer end to the node before it
+        # round to the other, between the nodes either side of it
         ring = other.refs[:-1]
-        path = ring[seg + 1:] + ring[:seg + 1]
         j = way.refs.index(node)
-        if j > 0 and far(way.refs[j - 1], path[-1]) < far(way.refs[j - 1], path[0]):
-            path.reverse()
-        elif j == 0 and far(way.refs[1], path[0]) < far(way.refs[1], path[-1]):
-            path.reverse()
+        before = way.refs[j - 1] if j > 0 else None
+        after = way.refs[j + 1] if j + 1 < len(way.refs) else None
+        path = _laid(square, ring[seg + 1:] + ring[:seg + 1], before, after)
         refs = [*way.refs[:j], *path, *way.refs[j + 1:]]
     if not way.closed:
         keep, gone = way_id, other_id
