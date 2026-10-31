@@ -1,3 +1,24 @@
+danu (1.4.1-1) unstable; urgency=medium
+
+  * Startup no longer shows "not responding": with the Validation panel
+    open, restoring a large set held the window 8 s while the checks were
+    found; about 1 s now, and the window keeps up better whenever a check
+    or other work runs in the background (#303).
+  * Moving a node takes about 50 ms to settle on a large set, not 400
+    (#299).
+  * Ctrl and a drag of a node onto another contour at its level merges the
+    two, a ring laid into the line; the contour it would merge with is
+    haloed green before the drop (#298).
+  * Touching contours: choosing two contours of one level in the Validation
+    panel lets E absorb one into the other, nothing lassoed (#302).
+  * A contour carried with Shift and a drag turns with Ctrl and scales with
+    Ctrl+Alt (#296).
+  * Copy ID works on a contour not yet uploaded (#297).
+  * File > Upload changed squares... sends the open zone's changed squares
+    only, and says how many of other zones' it leaves (#301).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sat, 31 Oct 2026 00:35:41 +0000
+
 danu (1.4.0-1) unstable; urgency=medium
 
   * Water held where most of it lies: an import places each water feature
