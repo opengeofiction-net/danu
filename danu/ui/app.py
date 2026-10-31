@@ -1827,22 +1827,30 @@ class MainWindow(QMainWindow):
     def _tidy(self) -> list[str]:
         """The steps that mend what a file holds on opening it, each its own
         step of the history, after any recovery; what each says, or ''."""
-        return [self._close_rings(), self._merge_doubled(), self._type_water_relations(),
+        return [self._close_rings(), self._tidy_contours(), self._type_water_relations(),
                 self._drop_fill_lines()]
 
-    def _merge_doubled(self) -> str:
-        """The set's nodes at one place made one, and the rings and lines
-        that leaves no line removed - one step. What it says, or ''."""
+    def _tidy_contours(self) -> str:
+        """The set's nodes at one place made one, the rings and lines that
+        leaves no line removed, and contours that come back to themselves
+        mended - one step. What it says, or ''."""
         ws = self.working_set
-        steps = [(sq, cmd) for sq in ws.squares.values() if (cmd := edits.merge_doubled(sq)) is not None]
+        steps = [(sq, cmd) for sq in ws.squares.values() if ws.untidy is None or sq.name in ws.untidy
+                 if (cmd := edits.tidy_contours(sq, self.editor.history.alloc(sq))) is not None]
         if not steps:
             return ''
         self.editor.do_across(steps)
         n = sum(len(cmd.merges) for _, cmd in steps)
         gone = sum(len(cmd.drop) for _, cmd in steps)
-        return (f'merged {n:,} node{"s" * (n != 1)} doubled at one place'
-                + (f', removed {gone:,} contour{"s" * (gone != 1)} that left no line' if gone else '')
-                + ', in ' + ', '.join(str(sq.name) for sq, _ in steps) + ' - saving keeps it')
+        rings = sum(len(cmd.rings) for _, cmd in steps)
+        spikes = sum(cmd.spikes for _, cmd in steps)
+        said = [t for t in (
+            f'merged {n:,} node{"s" * (n != 1)} doubled at one place' if n else '',
+            f'removed {gone:,} contour{"s" * (gone != 1)} that left no line' if gone else '',
+            f'cut {spikes:,} spike{"s" * (spikes != 1)} back' if spikes else '',
+            f'made {rings:,} loop{"s" * (rings != 1)} rings of their own' if rings else '') if t]
+        return (', '.join(said) or 'tidied contours') + ', in ' + ', '.join(str(sq.name) for sq, _ in steps) \
+            + ' - saving keeps it'
 
     def _type_water_relations(self) -> str:
         """``type=multipolygon`` given to the set's water relations without

@@ -6337,17 +6337,34 @@ nodes: 877 a segment of no length, 138 one-cell knolls and pits whose four or
 five nodes stood at one or two places, 86 a contour through one place twice,
 70 two contours of a level meeting at a point.
 
-Opening a set now makes the nodes at each place one (`edits.merge_doubled`),
-one step after any recovery, said in the status bar and saved with the next
-save. A way is laid through the node kept, a node twice in a row taken once,
-and a way of the square's own that is then no line - a ring of fewer than
-three places, a line of fewer than two - goes. What is left is a shared node:
-a pinch for the loops check, which cuts it (71 on N44E026), and a meeting of
-two lines at a level, which is a join or a saddle. The node kept is the main
-map's, a tagged one, or one a relation names; a place with two such is left,
-as is one on water or a coastline, and one where two ways run together for a
-segment - Los Pizarrales's 39 contours copied node on node, which the touches
-check lists as duplicates either way.
+Opening a set now tidies each square's contours (`edits.tidy_contours`), one
+step after any recovery, said in the status bar and saved with the next save.
+The nodes at each place are made one, a way laid through the node kept and a
+node twice in a row taken once, and a way of the square's own that is then
+no line - a ring of fewer than three places, a line of fewer than two - goes.
+The node kept is the main map's, a tagged one, or one a relation names; a
+place with two such is left, as is one on water or a coastline, and one where
+two ways run together for a segment - Los Pizarrales's 39 contours copied
+node on node, which the touches check lists as duplicates either way.
+
+That done, JOSM still listed 34 ways containing a segment twice, 55
+self-intersecting and 58 self-crossing. Each contour of the square's own
+that comes back to itself is mended (`danu.core.mend`): a spike, out and
+back over the same nodes or along the same line through others - a turn of
+180 degrees within 5 cm - cut back to its root; a node standing on a segment
+of its own contour put into it; and a loop round from a node to it again made
+a ring of its own sharing the node, innermost first - a saddle at the level,
+which the touches check allows, and nothing lost, as cutting it out, the
+loops check's fix, would lose it. On N44E026: 1,499 nodes merged, 154 ways
+removed, 118 spikes cut back, 38 loops made rings, and nothing JOSM lists
+left but a main-map river. Two lines of a level meeting at a place share the
+node: a join or a saddle.
+
+The contours are tested at once in numpy, segments bucketed by cell, and only
+a contour found is walked in Python: 0.14 s on N44E026, 0.33 s on N45E030,
+roantra's largest. Clean, a square still costs 90 ms to ask, so the loader's
+worker asks it as it reads the set and opening tidies only the squares it
+found (`WorkingSet.untidy`).
 
 The water import kept `natural`, `water`, `waterway`, `name` and `ele`, and
 dropped the relation's `type=multipolygon`. It keeps `type` now, and opening a

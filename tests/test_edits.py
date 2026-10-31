@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from danu.core import edits
+from danu.core import edits, mend
 from danu.core.square import Node, Square, SquareName, Way, read_square, write_square
 
 GOLDEN = Path(__file__).parent / 'golden' / 'S24E125_Los_Pizarrales.osm.xz'
@@ -865,7 +865,7 @@ def test_nodes_at_one_place_are_made_one_and_a_ring_left_no_line_goes():
     knolled = set(sq.ways[knoll].refs)
     before = edits.snapshot(sq)
 
-    cmd = edits.merge_doubled(sq)
+    cmd = edits.tidy_contours(sq)
     cmd.apply(sq)
     assert len(sq.ways[a].refs) == 3
     assert sq.ways[b].refs[-1] == sq.ways[a].refs[1], 'the two share the node at their meeting'
@@ -875,7 +875,80 @@ def test_nodes_at_one_place_are_made_one_and_a_ring_left_no_line_goes():
     assert s1 in sq.nodes and s2 in sq.nodes
     assert set(sq.ways[shore].refs).isdisjoint(sq.ways[along].refs)
     assert set(sq.ways[first].refs).isdisjoint(sq.ways[copy].refs)
-    assert edits.merge_doubled(sq) is None
+    assert edits.tidy_contours(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_contour_back_at_a_node_has_its_spikes_cut_and_its_loops_made_rings():
+    """Out and back over its own nodes, a spike, goes back to its root; round
+    from a node to the same node, a loop, is a ring of its own sharing the
+    node - the innermost first. A ring's start is kept."""
+    # an open line: a spike b-c-b at b, then a loop d-e-f-d
+    line, rings, spiked = mend.unpinched([1, 2, 3, 2, 4, 5, 6, 4, 7], closed=False)
+    assert line == [1, 2, 4, 7] and rings == [[4, 5, 6, 4]] and spiked == 1
+    # a ring touching itself at 3, a loop inside the loop at 5
+    line, rings, spiked = mend.unpinched([1, 2, 3, 4, 5, 6, 7, 5, 8, 3, 9, 1], closed=True)
+    assert line == [1, 2, 3, 9, 1] and rings == [[5, 6, 7, 5], [3, 4, 5, 8, 3]] and spiked == 0
+    # a spike across the ring's start
+    line, rings, spiked = mend.unpinched([1, 2, 3, 4, 2, 1, 5, 6, 1], closed=True)
+    assert spiked == 1 and rings == [[2, 3, 4, 2]] and line == [1, 5, 6, 1]
+
+
+def test_merging_mends_a_contour_brought_back_to_a_node():
+    """A ring whose two strands' nodes the merge makes one: a loop through
+    one node, made two rings sharing it; a line out and back over nodes at
+    the same places, cut back; the spike's nodes go with it."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+    # a figure of eight: two lobes meeting at (10.2, 10.2), the two visits two nodes
+    eight = [(10.2, 10.2), (10.3, 10.25), (10.3, 10.15), (10.2, 10.2), (10.1, 10.15), (10.1, 10.25), (10.2, 10.2)]
+    wid, ids = alloc.take(), [alloc.take() for _ in eight[:-1]]
+    edits.AddWay(wid, ids + [ids[0]], eight, {'ele': '40'}).apply(sq)
+    # a line with a spike: out to (10.6, 10.5) and back to a node at (10.5, 10.5)'s place
+    spike = [(10.4, 10.5), (10.5, 10.5), (10.6, 10.5), (10.5, 10.5), (10.5, 10.6)]
+    sid, sids = alloc.take(), [alloc.take() for _ in spike]
+    edits.AddWay(sid, sids, spike, {'ele': '40'}).apply(sq)
+    before = edits.snapshot(sq)
+    cmd = edits.tidy_contours(sq, alloc)
+    cmd.apply(sq)
+    (rid, ring, tags), = cmd.rings
+    assert tags == {'ele': '40'} and sq.ways[rid].refs == ring and len(set(ring)) == 3
+    assert len(set(sq.ways[wid].refs)) == 3 and set(ring) & set(sq.ways[wid].refs) == {ids[0]}
+    assert sq.ways[sid].refs == [sids[0], sids[1], sids[4]] and sids[2] not in sq.nodes and cmd.spikes == 1
+    assert edits.tidy_contours(sq) is None
+    cmd.undo(sq)
+    assert edits.snapshot(sq) == before
+
+
+def test_a_fold_is_cut_back_and_a_touch_mid_segment_made_a_ring():
+    """Back along the same line through other nodes - a turn of 180 degrees,
+    which JOSM lists as a self-crossing way and the loops check, testing
+    proper crossings, did not - is cut back to where it turned off; a node
+    standing on the middle of a segment of its own contour is put into it,
+    and the loop that makes is a ring of its own sharing it."""
+    sq = Square(name=SquareName(10, 10), present=True, attrs={})
+    alloc = edits.IdAllocator(sq)
+
+    def way(pts):
+        wid, ids = alloc.take(), [alloc.take() for _ in pts]
+        edits.AddWay(wid, ids, pts, {'ele': '75'}).apply(sq)
+        return wid, ids
+    # out east to 10.30 and back west to 10.25 along the line, then north
+    fold, fn = way([(10.1, 10.1), (10.2, 10.1), (10.3, 10.1), (10.25, 10.1), (10.25, 10.2)])
+    # a ring whose node at (10.55, 10.5) stands on its own segment from (10.5, 10.5) to (10.6, 10.5)
+    eight = [(10.5, 10.5), (10.6, 10.5), (10.6, 10.6), (10.55, 10.55), (10.55, 10.5), (10.52, 10.45)]
+    ring, rn = way(eight)
+    sq.ways[ring].refs.append(rn[0])
+    before = edits.snapshot(sq)
+    cmd = edits.tidy_contours(sq, alloc)
+    cmd.apply(sq)
+    assert sq.ways[fold].refs == [fn[0], fn[1], fn[3], fn[4]] and cmd.spikes == 1
+    assert fn[2] not in sq.nodes
+    (rid, loop, _), = cmd.rings
+    assert set(loop) == {rn[4], rn[1], rn[2], rn[3]} and sq.ways[rid].refs == loop
+    assert sq.ways[ring].refs == [rn[0], rn[4], rn[5], rn[0]]
+    assert edits.tidy_contours(sq) is None
     cmd.undo(sq)
     assert edits.snapshot(sq) == before
 

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
+from ..core import edits
 from ..core.square import SquareName, WorkingSet
 
 
@@ -35,6 +36,10 @@ class _Job(QRunnable):
     def run(self):
         try:
             ws = WorkingSet.open(self.zone_dir, self.centre, self.size)
+            # which squares opening will tidy, here and not on the thread that
+            # paints: asked of a clean square it is 90 ms, of a set of nine
+            # large ones a second
+            ws.untidy = {sq.name for sq in ws.squares.values() if edits.tidy_contours(sq) is not None}
         except Exception as e:      # noqa: BLE001 - anything, reported as text
             self.signals.failed.emit(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=3)}')
             return

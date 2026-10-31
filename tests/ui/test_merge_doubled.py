@@ -45,7 +45,7 @@ def zone(tmp_path):
 
 def test_doubled_nodes_are_merged_and_relations_typed_when_the_set_opens(window, zone):
     sq = window.working_set.squares[TEN]
-    assert edits.merge_doubled(sq) is None
+    assert edits.tidy_contours(sq) is None
     assert [len(w.refs) for w in sq.ways.values() if w.tags.get('ele') == '10'] == [3]
     assert not [w for w in sq.ways.values() if w.tags.get('ele') == '20'], 'the knoll that was no line is gone'
     assert sq.relations[7].tags['type'] == 'multipolygon'
@@ -60,4 +60,4 @@ def test_doubled_nodes_are_merged_and_relations_typed_when_the_set_opens(window,
     assert window.save_all()
     (f,) = zone.glob('S24E126*')
     saved = read_square(f)
-    assert edits.merge_doubled(saved) is None and saved.relations[7].tags['type'] == 'multipolygon'
+    assert edits.tidy_contours(saved) is None and saved.relations[7].tags['type'] == 'multipolygon'

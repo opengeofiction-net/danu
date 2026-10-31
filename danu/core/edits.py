@@ -20,6 +20,7 @@ from itertools import pairwise
 
 import numpy as np
 
+from . import mend
 from .reconcile import Reconciled, reconcile
 from .square import Member, Node, Relation, Square, Way, is_coastline, water_tags
 
@@ -1326,29 +1327,31 @@ def close_rings(square: Square) -> CloseRings | None:
 
 
 @dataclass
-class MergeDoubled(Command):
-    """Nodes standing at one place, to the seventh place the file is written
-    to, made one - the vectoriser's vertices rounded together: 2,705 nodes at
-    1,206 places in roantra's N44E026, which JOSM lists as duplicated nodes
-    and which no check here saw, the checks comparing ids. Each way through
-    one is laid through the node kept instead, a node twice in a row taken
-    once, and a way left no line - a ring of fewer than three places, a line
-    of fewer than two: 138 one-cell knolls and pits there, JOSM's
-    self-crossing ways - removed. What is left, a contour through one place
-    twice or two meeting at one, is a shared node, for the loops and touches
-    checks. One command for a square's all."""
+class TidyContours(Command):
+    """What a vectorised square holds that JOSM lists and the checks here did
+    not see, the checks comparing node ids and testing proper crossings only
+    - roantra's N44E026. Nodes standing at one place, to the seventh place
+    the file is written to, made one: 2,705 nodes at 1,206 places there. Each
+    way through one is laid through the node kept instead, a node twice in a
+    row taken once, and a way left no line - a ring of fewer than three
+    places, a line of fewer than two: 138 one-cell knolls and pits - removed.
+    A contour of the square's own that comes back to itself is mended as
+    ``mend`` says, its spikes cut back and its loops made rings of their own.
+    One command for a square's all."""
     merges: dict[int, int]                       # node -> the node kept at its place
     refs: dict[int, list[int]]                   # way -> its refs after
     drop: list[int]                              # ways no longer a line
+    rings: list[tuple[int, list[int], dict[str, str]]] = field(default_factory=list)   # loops made ways
+    spikes: int = 0
     before: dict[int, list[int]] = field(default_factory=dict)
     gone: dict[int, Way] = field(default_factory=dict)
     dropped: dict[int, Node] = field(default_factory=dict)
 
     def ways(self, square: Square) -> set[int]:
-        return set(self.refs)
+        return set(self.refs) | {wid for wid, _, _ in self.rings}
 
     def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
-        return set(self.merges) | set(self.dropped), set(self.refs), set()
+        return set(self.merges) | set(self.dropped), self.ways(square), set()
 
     def taken(self, square: Square) -> tuple[dict, dict, dict]:
         return dict(self.dropped), dict(self.gone), {}
@@ -1357,8 +1360,10 @@ class MergeDoubled(Command):
         self.before = {wid: square.ways[wid].refs for wid in self.refs}
         for wid, refs in self.refs.items():
             square.ways[wid].refs = list(refs)
+        for wid, refs, tags in self.rings:
+            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(tags))
         self.gone = {wid: square.ways.pop(wid) for wid in self.drop}
-        loose = set(self.merges) | {r for w in self.gone.values() for r in w.refs}
+        loose = set(self.merges) | {r for refs in self.before.values() for r in refs}
         loose -= {r for w in square.ways.values() for r in w.refs}
         self.dropped = {r: square.nodes.pop(r) for r in sorted(loose)
                         if r in square.nodes and (r in self.merges or not square.nodes[r].tags)}
@@ -1366,40 +1371,30 @@ class MergeDoubled(Command):
     def undo(self, square: Square) -> None:
         square.nodes.update(self.dropped)
         square.ways.update(self.gone)
+        for wid, _, _ in self.rings:
+            del square.ways[wid]
         for wid, refs in self.before.items():
             square.ways[wid].refs = refs
         self.before, self.gone, self.dropped = {}, {}, {}
 
     def describe(self) -> str:
-        return f'merge {len(self.merges):,} doubled node{"s" * (len(self.merges) != 1)}'
+        return 'tidy contours'
 
 
-def merge_doubled(square: Square) -> MergeDoubled | None:
-    """The command that makes the square's nodes at one place one node, or
-    None when no two share a place. Of the nodes at a place, the one kept is
-    the one that must be: a main-map node (positive), one carrying tags, one
-    a relation names. A place with two such is left as it is, and so is one
-    a node of water or a coastline stands at, sharing which would weld a
-    shore to a contour; and so is a place where two ways run together, a
-    segment of each on the other - Los Pizarrales's 39 contours copied node
+def _doubled(square: Square, ids: np.ndarray, key: np.ndarray, member_ways: set[int]) -> dict[int, int]:
+    """Node -> the node kept at its place, for the nodes at one place, ``ids``
+    and their places' ``key`` sorted by place. Of the nodes at a place, the
+    one kept is the one that must be: a main-map node (positive), one carrying
+    tags, one a relation names. A place with two such is left as it is, and
+    so is one a node of water or a coastline stands at, sharing which would
+    weld a shore to a contour; and so is a place where two ways run together,
+    a segment of each on the other - Los Pizarrales's 39 contours copied node
     on node, 759 places - which the touches check lists as the duplicates
-    they are, sharing their nodes or not. A way that is no line once laid through
-    the kept nodes goes only if it is the square's own (negative) and no
-    relation names it."""
-    n = len(square.nodes)
-    if n < 2:
-        return None
-    ids = np.fromiter(square.nodes.keys(), dtype=np.int64, count=n)
-    lat = np.fromiter((p.lat for p in square.nodes.values()), dtype=np.float64, count=n)
-    lon = np.fromiter((p.lon for p in square.nodes.values()), dtype=np.float64, count=n)
-    key = (np.rint(lat * 1e7).astype(np.int64) << 32) + np.rint(lon * 1e7).astype(np.int64)
-    order = np.argsort(key, kind='stable')
-    key, ids = key[order], ids[order]
+    they are, sharing their nodes or not."""
     same = np.flatnonzero(key[1:] == key[:-1])
     if not len(same):
-        return None
+        return {}
     named = {m.ref for r in square.relations.values() for m in r.members if m.type == 'node'}
-    member_ways = {m.ref for r in square.relations.values() for m in r.members if m.type == 'way'}
     groups: dict[int, list[int]] = {}
     for i in same:
         groups.setdefault(int(key[i]), [int(ids[i])]).append(int(ids[i + 1]))
@@ -1429,20 +1424,69 @@ def merge_doubled(square: Square) -> MergeDoubled | None:
             continue
         keep = fixed[0] if fixed else max(group)
         merges.update((r, keep) for r in group if r != keep)
-    if not merges:
+    return merges
+
+
+def tidy_contours(square: Square, alloc: IdAllocator | None = None) -> TidyContours | None:
+    """The command that makes the square's nodes at one place one node -
+    ``_doubled`` says which - and mends each contour of its own that comes
+    back to itself (``mend``), its loops new ways from ``alloc``; or None
+    when there is nothing to do. A way that is no line once laid through the
+    kept nodes goes only if it is the square's own (negative) and no relation
+    names it."""
+    n = len(square.nodes)
+    if n < 2:
         return None
-    refs, drop = {}, []
+    ids = np.fromiter(square.nodes.keys(), dtype=np.int64, count=n)
+    lat = np.fromiter((p.lat for p in square.nodes.values()), dtype=np.float64, count=n)
+    lon = np.fromiter((p.lon for p in square.nodes.values()), dtype=np.float64, count=n)
+    key = (np.rint(lat * 1e7).astype(np.int64) << 32) + np.rint(lon * 1e7).astype(np.int64)
+    order = np.argsort(key, kind='stable')
+    member_ways = {m.ref for r in square.relations.values() for m in r.members if m.type == 'way'}
+    merges = _doubled(square, ids[order], key[order], member_ways)
+    # the nodes in metres, by id
+    _, s, _, nn = square.bounds
+    kx, ky = mend.scale((s + nn) / 2)
+    by_id = np.argsort(ids)
+    sid, xy = ids[by_id], np.column_stack([lon[by_id] * kx, lat[by_id] * ky])
+
+    def xy_of(refs):
+        return xy[np.searchsorted(sid, np.asarray(refs, dtype=np.int64))]
+    own = {wid: way for wid, way in square.ways.items()
+           if wid < 0 and wid not in member_ways and way.ele is not None and not water_tags(way.tags)
+           and not is_coastline(way) and 'danu:fill' not in way.tags
+           and all(r in square.nodes for r in way.refs)}
+    suspect = mend.suspects(xy_of, [(wid, way.refs, way.closed) for wid, way in own.items()])
+    suspect |= {wid for wid, way in own.items() if len(set(way.refs)) < len(way.refs) - way.closed}
+    refs, drop, rings, spikes = {}, [], [], 0
     for wid in sorted(square.ways):
         way = square.ways[wid]
-        if merges.keys().isdisjoint(way.refs):
+        if wid not in suspect and merges.keys().isdisjoint(way.refs):
             continue
         laid = [merges.get(r, r) for r in way.refs]
         laid = [r for i, r in enumerate(laid) if i == 0 or r != laid[i - 1]]
-        refs[wid] = laid
         closed = len(laid) > 1 and laid[0] == laid[-1]
-        if wid < 0 and wid not in member_ways and len(set(laid)) < (3 if closed else 2):
+        mine = wid < 0 and wid not in member_ways
+        if mine and len(set(laid)) < (3 if closed else 2):
+            refs[wid] = laid
             drop.append(wid)
-    return MergeDoubled(merges, refs, drop)
+            continue
+        if wid in own and (wid in suspect or len(set(laid)) < len(laid) - closed):
+            laid, loops, spiked = mend.mended(laid, closed, xy_of)
+            spikes += spiked
+            for ring in loops:
+                if len(set(ring)) >= 3:
+                    if alloc is None:
+                        alloc = IdAllocator(square)
+                    rings.append((alloc.take(), ring, dict(way.tags)))
+            closed = len(laid) > 1 and laid[0] == laid[-1]
+            if len(set(laid)) < (3 if closed else 2):
+                drop.append(wid)
+        if laid != way.refs or wid in drop:
+            refs[wid] = laid
+    if not (merges or refs or rings):
+        return None
+    return TidyContours(merges, refs, drop, rings, spikes)
 
 
 def type_water_relations(square: Square) -> Compound | None:
