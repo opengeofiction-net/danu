@@ -86,8 +86,9 @@ def suspects(xy_of, ways) -> set[int]:
 
 def _on_own_segment(P: np.ndarray, W: np.ndarray, nxt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Each node standing on a segment of its own way, not either end of it,
-    as (node index, the segment's first node's index): ``W`` the way of
-    each node, ``nxt`` the next node along its way, or -1."""
+    as (node index, the segment's first node's index): ``W`` the index of
+    each node's way - 0 up, packed into 20 bits of a key, not a way's id -
+    ``nxt`` the next node along its way, or -1."""
     idx = np.arange(len(P))
     # segments by cell, each node against its way's segments in its cell
     s = idx[nxt >= 0]
@@ -194,7 +195,8 @@ def _touch(P: np.ndarray, closed: bool) -> tuple[int, int] | None:
     n = len(P)
     nxt = np.arange(1, n + 1)
     nxt[-1] = 0 if closed else -1
-    node, seg = _on_own_segment(P, np.zeros(n, dtype=np.int64), nxt)
+    one_way = np.zeros(n, dtype=np.int64)          # every node of the one contour: way index 0
+    node, seg = _on_own_segment(P, one_way, nxt)
     if not len(node):
         return None
     k = int(np.argmin(node))
@@ -227,6 +229,9 @@ def mended(refs: list[int], closed: bool, xy_of) -> tuple[list[int], list[list[i
     spikes = 0
     while work:
         c, cl, main = work.pop()
+        # each pass takes a node out, or puts one in that the next takes out
+        # with a loop, so this ends long before the bound; the bound is a guard,
+        # and a contour it stopped is left as far as it got, for the checks
         for _ in range(4 * len(c) + 8):
             c, loops, spiked = _repeats(c, cl)
             spikes += spiked
