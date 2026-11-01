@@ -557,11 +557,16 @@ def test_the_flat_arrays_are_built_when_something_picks_not_when_an_edit_lands(v
     layer.pick(0.0, 0.0, 1.0)
     assert len(built) == 1, 'an edit that moved no node in or out built them again'
 
-    # and one that changes a way's nodes makes them stale again
+    # and one that changes a way's nodes patches them too
     way.refs.pop(1)
     layer.refresh(sq, {way.id})
     layer.pick(0.0, 0.0, 1.0)
-    assert len(built) == 2, 'an edit did not make the arrays stale'
+    assert len(built) == 1, 'an edit that changed a way\'s nodes built them again'
+
+    # a working set opened is built again
+    layer.set_working_set(ws)
+    layer.pick(0.0, 0.0, 1.0)
+    assert len(built) == 2, 'a working set opened did not make the arrays stale'
 
 
 def test_picking_finds_a_contour_moved_since_the_last_pick(view, ws):
@@ -676,7 +681,7 @@ def test_only_the_picks_read_the_flat_arrays():
                    for c in ast.walk(fn) if isinstance(c, ast.Call))
 
     # _patch_arrays writes them in place, and refuses when they are stale
-    builders = {'__init__', '_rebuild_arrays', '_patch_arrays'}
+    builders = {'__init__', '_rebuild_arrays', '_patch_arrays', '_replace_ways'}
     readers = {fn.name for fn in layer.body
                if isinstance(fn, ast.FunctionDef) and touches(fn) and fn.name not in builders}
     assert readers, 'no method reads the flat arrays, so this guard is watching nothing'

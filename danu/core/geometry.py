@@ -41,6 +41,20 @@ def crossings(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
            ((d3 > EPS) & (d4 < -EPS) | (d3 < -EPS) & (d4 > EPS))
 
 
+def pair_crossings(p: np.ndarray, q: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``crossings`` pair by pair: whether p[i]-q[i] properly crosses
+    a[i]-b[i], the same arithmetic for each pair - for many segments asked
+    of their candidates at once rather than one segment a call."""
+    if not len(a):
+        return np.zeros(0, dtype=bool)
+    d1 = _orient(a, b, p)
+    d2 = _orient(a, b, q)
+    d3 = _orient(p, q, a)
+    d4 = _orient(p, q, b)
+    return ((d1 > EPS) & (d2 < -EPS) | (d1 < -EPS) & (d2 > EPS)) & \
+           ((d3 > EPS) & (d4 < -EPS) | (d3 < -EPS) & (d4 > EPS))
+
+
 def crossing_t(p, q, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Where along p-q each line a[i]-b[i] meets it, as a fraction of p-q -
     for the segments ``crossings`` says p-q crosses; elsewhere the value
