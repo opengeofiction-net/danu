@@ -399,3 +399,35 @@ def test_alt_and_an_arrow_moves_the_set_a_square(window, qtbot, name, key, centr
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.edit_actions[name].trigger()
     assert w.working_set.centre == centre
+
+
+def test_the_zones_read_keep_each_imported_zones_extent_and_mark_what_is_outside(w, zone):
+    from danu.core import mirror
+    from danu.core.square import Square, write_square
+    w.settings.import_root = zone.parent
+    mirror.write_manifest(zone, {})                       # imported from the drop
+    write_square(Square(name=S(125, -25), present=True, attrs={'version': '0.6', 'upload': 'never'}),
+                 zone / 'S25E125.osm.xz')
+    w.zone_editor.load()
+    assert mirror.extent(zone) == Z.Rect.parse('S24E124-S23E126').cells()
+    w.waiting.refresh()
+    assert w.squares.marks.get(S(125, -25)) == 'X'
+    assert not (zone.parent / 'gobras').exists(), 'no folder made for a zone not imported'
+
+
+def test_a_set_opened_in_a_zone_imported_before_the_extent_was_kept_asks_for_it(window, zone, qtbot, monkeypatch):
+    from danu.core import dropclient, mirror
+    asked = []
+
+    def zones(api, **kw):
+        asked.append(api)
+        return dropclient.Answer(200, {'zones': [{'name': zone.name, 'squares': ['S24E124-S23E126']}]})
+    monkeypatch.setattr(dropclient, 'zones', zones)
+    window._drop_runner = lambda job: job.run()
+    mirror.write_manifest(zone, {})
+    with qtbot.waitSignal(window.loader.finished, timeout=15000):
+        window.open_working_set(zone, S(125, -24))
+    assert len(asked) == 1 and mirror.extent(zone) == Z.Rect.parse('S24E124-S23E126').cells()
+    with qtbot.waitSignal(window.loader.finished, timeout=15000):
+        window.open_working_set(zone, S(125, -24))
+    assert len(asked) == 1, 'kept: not asked again'

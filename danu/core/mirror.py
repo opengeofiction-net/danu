@@ -27,6 +27,12 @@ the server, ``N20E086_Gobras_City`` to ``N20E086_Gobras``, the copy here
 under the old name is replaced by - or, the same bytes, renamed to - the
 new, and the old name goes. The API not reached, the published copy's
 index is read as before, which is how Import works until the drop is up.
+
+**The zone's extent**, its rectangles of squares, is kept beside it in
+``.danu-zone.json`` - from the drop's listing, and whenever the zones are
+asked for - so an import knows which of the set's squares are the zone's
+without asking: a square outside it can't be uploaded from here, and a
+feature held in one is not in the zone's build.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ from .square import SquareName
 
 URL = 'https://data.opengeofiction.net/dem/osm-squares'
 MANIFEST = '.danu-mirror.json'
+EXTENT = '.danu-zone.json'
 PART = '.part-'                       # a fetched file's prefix until it is put in place
 TIMEOUT_S = 60
 
@@ -105,6 +112,59 @@ def write_manifest(zone_dir: Path, data: dict) -> None:
         raise
 
 
+def write_extent(zone_dir: Path, zone: str, rects: list[str]) -> bool:
+    """The zone's rectangles, as the drop lists them, kept beside its
+    squares - rewritten only when they differ, and whether they did."""
+    data = {'zone': zone, 'squares': [str(r) for r in rects]}
+    path = Path(zone_dir) / EXTENT
+    try:
+        if json.loads(path.read_text(encoding='utf-8')) == data:
+            return False
+    except (OSError, ValueError):
+        pass
+    fd, tmp = tempfile.mkstemp(dir=zone_dir, prefix='.extent-')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return True
+
+
+def extent(zone_dir) -> set[SquareName] | None:
+    """The zone's squares, by its kept rectangles; None where none are
+    kept - a folder last imported before they were, or never imported -
+    and nothing is known."""
+    from .zones import Rect, ZoneError
+    if zone_dir is None:
+        return None
+    try:
+        data = json.loads((Path(zone_dir) / EXTENT).read_text(encoding='utf-8'))
+        return set().union(*(Rect.parse(r).cells() for r in data['squares']))
+    except (OSError, ValueError, KeyError, TypeError, ZoneError):
+        return None
+
+
+def record_extents(root: Path, zones: list[dict]) -> bool:
+    """Each zone's rectangles, from the drop's list of them, kept in its
+    folder under ``root`` - those with a mirrored folder here - and whether
+    any changed."""
+    changed = False
+    for z in zones:
+        name = str(z.get('name') or '') if isinstance(z, dict) else ''
+        if not name or Path(name).name != name or name in ('.', '..'):
+            continue                        # a folder of root's, and nowhere else
+        d = Path(root) / name
+        if isinstance(z.get('squares'), list) and (d / MANIFEST).exists():
+            try:
+                changed |= write_extent(d, str(name), z['squares'])
+            except OSError:
+                continue
+    return changed
+
+
 @dataclass
 class Fetched:
     """What the worker found and fetched for a zone."""
@@ -119,6 +179,7 @@ class Fetched:
     current: list[str] = field(default_factory=list)          # here as there
     gone: list[str] = field(default_factory=list)             # mirrored before, no longer there
     hashes: dict[str, str] = field(default_factory=dict)      # name: sha256 of what was fetched or matched
+    rects: list[str] | None = None                            # the zone's, from the drop: kept as its extent
 
     def discard(self) -> None:
         """The fetched files not put in place, deleted."""
@@ -143,13 +204,18 @@ def list_zones(base: str = URL, opener=urllib.request.urlopen, timeout: float = 
     return zones(_get(f'{base.rstrip("/")}/', opener, timeout).decode('utf-8', 'replace'))
 
 
-def _drop_listing(api: str, zone: str, opener, timeout: float) -> tuple[dict[str, tuple[int, str]], str] | None:
-    """A zone's squares from the drop - name: (size, sha256) - and where
-    their files are; None if it isn't reached, or doesn't know the zone."""
+def _drop_listing(api: str, zone: str, opener, timeout: float) -> tuple[dict[str, tuple[int, str]], str,
+                                                                        list[str] | None] | None:
+    """A zone's squares from the drop - name: (size, sha256) - where their
+    files are, and the zone's rectangles; None if it isn't reached, or
+    doesn't know the zone."""
     url = f'{api.rstrip("/")}/zones/{urllib.parse.quote(zone)}'
     try:
-        held = json.loads(_get(url, opener, timeout))['held']
-        return {str(h['file']): (int(h['size']), str(h['sha256'])) for h in held}, url + '/'
+        body = json.loads(_get(url, opener, timeout))
+        held = body['held']
+        rects = body.get('squares')
+        return ({str(h['file']): (int(h['size']), str(h['sha256'])) for h in held}, url + '/',
+                [str(r) for r in rects] if isinstance(rects, list) else None)
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -160,17 +226,19 @@ def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen,
     published index's - and what differs fetched beside the copy here as
     ``.part-`` files. ``report((done, of, name))`` as it goes."""
     listed = _drop_listing(api, zone, opener, timeout) if api else None
+    rects = None
     if listed is not None:
-        server, zone_url, via = *listed, 'drop'
+        server, zone_url, rects = listed
+        via = 'drop'
     else:
         zone_url = f'{base.rstrip("/")}/{urllib.parse.quote(zone)}/'
         server, via = files(_get(zone_url, opener, timeout).decode('utf-8', 'replace')), 'published'
     zone_dir = root / zone
     zone_dir.mkdir(parents=True, exist_ok=True)
-    for stale in (*zone_dir.glob(PART + '*'), *zone_dir.glob('.manifest-*')):    # a mirror killed part way
+    for stale in (*zone_dir.glob(PART + '*'), *zone_dir.glob('.manifest-*'), *zone_dir.glob('.extent-*')):    # a mirror killed part way
         stale.unlink(missing_ok=True)
     manifest = read_manifest(zone_dir)
-    out = Fetched(zone, zone_dir, server, via=via)
+    out = Fetched(zone, zone_dir, server, via=via, rects=rects)
     try:
         _fetch_files(out, zone_url, manifest, opener, report, timeout)
     except BaseException:
@@ -294,6 +362,8 @@ def settle(f: Fetched, overwrite: set[str], keep: set[str] = frozenset()) -> dic
         manifest[name] = _entry(f, name)
         done['current'].append(name)
     write_manifest(f.zone_dir, manifest)
+    if f.rects is not None:
+        write_extent(f.zone_dir, f.zone, f.rects)
     return done
 
 

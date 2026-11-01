@@ -43,6 +43,7 @@ class Answer:
     nodes: frozenset = frozenset()
     skipped: tuple = ()
     beyond: int = 0                    # spot heights beyond the contours, not imported
+    outside: int = 0                   # new ones outside the zone, not imported
     # which of the answer's ways each of their nodes is on: a held way gone
     # from it with its nodes on others was merged into them (#250)
     on: dict = field(default_factory=dict)
@@ -64,6 +65,7 @@ class Snapshot:
     held: dict
     zone_dir: object = None
     copies: dict = field(default_factory=dict)      # (kind, id): every square of the set or alongside holding it
+    within: object = None                           # the zone's squares, where its extent is kept: homes only there
 
 
 def water_work(payload: bytes, working_set, held) -> Answer:
@@ -80,7 +82,7 @@ def water_work(payload: bytes, working_set, held) -> Answer:
         zone = (set(files), {k: v[0] for k, v in every.items()})
     else:
         every = {}
-    placed, moved = overpass.homes(water, working_set, snap.held, zone)
+    placed, moved = overpass.homes(water, working_set, snap.held, zone, within=snap.within)
     # every copy that is not where the feature now lives, nor the one the move
     # takes out already, goes too
     stale = []
@@ -100,26 +102,40 @@ def water_work(payload: bytes, working_set, held) -> Answer:
                   stale=tuple(sorted(stale, key=str)))
 
 
-def heights_held(working_set) -> tuple:
+def heights_held(working_set, within=None) -> tuple:
     """What the spot-height import snapshots on the UI thread: where each one
-    it holds is, and where the contours are."""
-    return peaks.held(working_set), peaks.envelopes(working_set)
+    it holds is, where the contours are, and the zone's squares if known."""
+    return peaks.held(working_set), peaks.envelopes(working_set), within
 
 
 def heights_work(payload: bytes, working_set, held: tuple) -> Answer:
     """A spot-height answer, the ones beyond the contours taken out, placed
-    - G9."""
-    at, boxes = held
+    - G9 - and a new one outside the zone left out."""
+    at, boxes, *rest = held
+    within = rest[0] if rest else None
     got = peaks.within(peaks.parse(payload), boxes, at)
-    return Answer(peaks.place(got, working_set, at), frozenset(), frozenset(),
-                  nodes=got.answered, skipped=tuple(got.skipped), beyond=len(got.beyond))
+    placed = peaks.place(got, working_set, at)
+    outside = 0
+    if within is not None:
+        for name in [n for n in placed if n not in within]:
+            new = [i for i in placed[name] if i not in at]
+            outside += len(new)
+            for i in new:
+                del placed[name][i]
+            if not placed[name]:
+                del placed[name]
+    return Answer(placed, frozenset(), frozenset(), nodes=got.answered, skipped=tuple(got.skipped),
+                  beyond=len(got.beyond), outside=outside)
 
 
-def coast_work(payload: bytes, working_set, held: dict) -> Answer:
+def coast_work(payload: bytes, working_set, held) -> Answer:
     """A coastline answer, placed as water's is - each way whole into the
-    square holding its first node, or where the set already holds it."""
+    square holding most of it, or where the set already holds it; never
+    moved, but out of a square outside the zone, into it."""
+    snap = held if isinstance(held, Snapshot) else Snapshot(held)
     got = coast.coastlines(payload)
-    return Answer(overpass.place(got, working_set, held), frozenset(got.ways), frozenset())
+    placed, moved = overpass.homes(got, working_set, snap.held, move=False, within=snap.within)
+    return Answer(placed, frozenset(got.ways), frozenset(), moved=moved)
 
 
 def fetch_coast(bounds, url: str = overpass.OVERPASS_URL) -> bytes:

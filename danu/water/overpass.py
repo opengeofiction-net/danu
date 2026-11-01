@@ -261,12 +261,12 @@ def place(water: Water, working_set, held: dict | None = None) -> dict:
     """Which square each feature belongs to, as ``{SquareName: Water}``,
     among the open set's squares. A held feature stays where it is held,
     always - this never moves one, for a caller that takes nothing out of
-    where it was, as the coastline import does. ``homes`` is the whole of it."""
+    where it was. ``homes`` is the whole of it."""
     return homes(water, working_set, held, move=False)[0]
 
 
 def homes(water: Water, working_set, held: dict | None = None,
-          zone: tuple | None = None, move: bool = True) -> tuple[dict, dict]:
+          zone: tuple | None = None, move: bool = True, within: set | None = None) -> tuple[dict, dict]:
     """Which square each feature belongs to - its *home* - as ``{SquareName:
     Water}``, and the features whose home has moved, as ``{(kind, id): (the
     square that held it, its home now)}``.
@@ -298,15 +298,25 @@ def homes(water: Water, working_set, held: dict | None = None,
     asked for; the zone's files say for the rest. A feature moved is the
     caller's to take out of the square that held it - a relation's member
     ways and relations moved with it each said too, as their own move.
+
+    **Within the zone**: ``within``, the zone's squares where its extent is
+    known, is the only place a home can be. A neighbour of the set outside
+    the zone can't be uploaded from here, and what it holds is not in the
+    zone's build; a feature held in one moves into the zone even when
+    nothing else moves - ``move`` False or not - and one wholly outside it
+    is not imported. ``place`` passes no ``within``, so never moves one.
     """
     held = held or {}
     zone_names, zone_held = zone if zone is not None else (set(), {})
     cand = set(working_set.squares) | set(zone_names)
+    strict = within is not None
+    if strict:
+        cand &= set(within)
     out: dict = {}
     moved: dict = {}
 
     def home_of(kind, fid, counts):
-        return _home(cand, counts, held.get((kind, fid)) or zone_held.get((kind, fid)), move)
+        return _home(cand, counts, held.get((kind, fid)) or zone_held.get((kind, fid)), move, strict)
 
     def note(kind, fid, home):
         was = held.get((kind, fid)) or zone_held.get((kind, fid))
@@ -332,7 +342,7 @@ def homes(water: Water, working_set, held: dict | None = None,
         # where the group is held, if all of it is in one square
         holders = {held.get(('relation', r.id)) or zone_held.get(('relation', r.id)) for r in group}
         was = next(iter(holders)) if len(holders) == 1 else None
-        square = _home(cand, _counts(water, nodes), was, move)
+        square = _home(cand, _counts(water, nodes), was, move, strict)
         if square is None:
             continue
         ways, rels = _put(out, square, water, relations=group)
@@ -352,10 +362,13 @@ def homes(water: Water, working_set, held: dict | None = None,
     return out, moved
 
 
-def _home(cand, counts, was, move):
+def _home(cand, counts, was, move, strict=False):
     """The square of ``cand`` holding most of ``counts`` - ties to the lower
     name - unless ``was``, where it is held, holds as many: or always ``was``,
-    not ``move``."""
+    not ``move``. ``strict``, held outside ``cand`` - outside the zone - it
+    goes where it would were it new, moving or not."""
+    if strict and was is not None and was not in cand:
+        was, move = None, True
     counts = {n: c for n, c in counts.items() if n in cand}
     if not counts:
         return None

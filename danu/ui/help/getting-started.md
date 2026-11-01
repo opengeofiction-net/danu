@@ -136,6 +136,13 @@ centre square's file. Only the folders an import made are marked. **File › Upl
 sends every **^** square of the open zone, one after another, listed
 first for you to agree; other zones' wait until you open them.
 
+A square outside its folder's zone is marked **X**: a neighbour of the set
+beyond the zone's edge, written by an import before Danu kept to the zone,
+or drawn there. There is nowhere to upload it, so it is never sent. Imports
+now hold what they bring in the zone's own squares: a river held in an
+**X** square moves into the zone when you import water again, and a feature
+wholly outside the zone is not imported.
+
 **File › Upload square…** sends the open square to OpenGeofiction, where
 it is built into the elevation the night after. Before you send it, the
 mark after the territory in the status bar says whether it is yours to

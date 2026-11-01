@@ -283,3 +283,63 @@ def test_revert_all_throws_the_others_edits_away_too(w, zone, qtbot):
     east = w.working_set.squares[SquareName(126, -24)]
     assert not any(x.tags.get('ele') == '999' for x in east.ways.values())
     qtbot.waitUntil(lambda: 'S24E126 not on the server' in w.statusBar().currentMessage(), timeout=5000)
+
+
+# ------------------------------------------------------------ outside the zone
+
+OUTSIDE = SquareName(125, -25)                  # the set's southern row: pizarrales is S24E124-S23E127
+
+
+def _outside(zone):
+    from danu.core.square import Square, write_square
+    write_square(Square(name=OUTSIDE, present=True, attrs={'version': '0.6', 'upload': 'never'}),
+                 zone / 'S25E125.osm.xz')
+
+
+def test_the_import_keeps_the_zones_extent(w, zone):
+    assert mirror.extent(zone) == {SquareName(lon, lat) for lon in range(124, 128) for lat in (-24, -23)}
+
+
+def test_a_square_outside_the_zone_is_marked_x_and_not_offered_for_upload(w, zone):
+    _outside(zone)
+    w.waiting.refresh()
+    assert w.squares.marks[OUTSIDE] == 'X' and OUTSIDE not in w.waiting.unsent
+    asked = []
+    w.sender.confirm = lambda title, text: asked.append(text) or True
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert 'Upload 1 square' in asked[-1] and 'S25E125.osm.xz' not in asked[-1].split('\n\n')[1]
+    assert '1 square outside the zone left, marked X - S25E125: nowhere to upload it to' in asked[-1]
+    assert not (w.there / 'S25E125.osm.xz').exists()
+
+
+def test_with_only_squares_outside_the_zone_nothing_is_sent_and_they_are_named(w, zone):
+    (zone / 'S24E126_Tenmetre.osm.xz').unlink()
+    _outside(zone)
+    w.waiting.refresh()
+    w.drop_actions['drop.upload_changed'].trigger()
+    assert w.messages[-1] == ('nothing to upload: every square of this zone is as the server has it; '
+                              '1 square outside the zone left, marked X - S25E125: nowhere to upload it to')
+
+
+def test_the_open_square_outside_the_zone_is_not_uploaded_and_its_title_says_x(w, zone, qtbot):
+    _outside(zone)
+    reopened(w, qtbot, lambda: w.open_working_set(zone, OUTSIDE))
+    qtbot.waitUntil(lambda: w.windowTitle().endswith(' X'), timeout=5000)
+    w.drop_actions['drop.upload'].trigger()
+    assert w.messages[-1] == 'S25E125 is outside the zone pizarrales: nowhere to upload it from this folder'
+    assert not (w.there / 'S25E125.osm.xz').exists()
+
+
+def test_a_square_outside_one_folders_zone_leaves_the_same_square_in_anothers_alone(w, zone):
+    """Two zones' folders, the same square in each: outside the first's zone,
+    inside the second's - only the first's is X."""
+    from danu.ui import pending
+    _outside(zone)
+    other = zone.parent / 'southern'
+    other.mkdir()
+    shutil.copy(zone / 'S25E125.osm.xz', other / 'S25E125.osm.xz')
+    mirror.write_manifest(other, {})
+    mirror.write_extent(other, 'southern', ['S25E125'])
+    unsent, outside = pending.scan_all([zone, other])
+    assert outside == {OUTSIDE: zone / 'S25E125.osm.xz'}
+    assert unsent[OUTSIDE][0] == other / 'S25E125.osm.xz', 'the other zone\'s own is still ^'

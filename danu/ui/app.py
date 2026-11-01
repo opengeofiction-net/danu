@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
-from ..core import doubled, dropclient, edits, make_square, save, territory, zone_index
+from ..core import doubled, dropclient, edits, make_square, mirror, save, territory, zone_index
 from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet, list_squares, read_square
 from ..surface import along, shade
@@ -328,9 +328,11 @@ class MainWindow(QMainWindow):
             lambda ws: surface_checks.snapshot(ws) if self.checks_dock.isVisible() else None)
         self.builder.failed.connect(self._surface_failed)
         # the zone's folder with the set's holdings: a feature's home may be a
-        # square of the zone outside the set, the sea's two squares away
+        # square of the zone outside the set, the sea's two squares away - and
+        # never one of the set's outside the zone, where the extent is kept
         self.water = WaterImporter(self, fetch=lambda bounds: overpass.fetch(bounds, url=self.settings.overpass_url),
-                                   held=lambda ws: Snapshot(held_by(ws), self.zone_dir, copies_by(ws)))
+                                   held=lambda ws: Snapshot(held_by(ws), self.zone_dir, copies_by(ws),
+                                                            mirror.extent(self.zone_dir)))
         # what the last import found held and no longer upstream - R40's
         # "reported rather than deleted". G5c gives it a dock
         self.gone_from_upstream: list = []
@@ -340,7 +342,8 @@ class MainWindow(QMainWindow):
         self.water.failed.connect(self._water_failed)
         # the main map's spot heights, on the same footing (G9)
         self.heights = WaterImporter(self, fetch=lambda bounds: fetch_heights(bounds, self.settings.overpass_url),
-                                     work=heights_work, held=heights_held)
+                                     work=heights_work,
+                                     held=lambda ws: heights_held(ws, mirror.extent(self.zone_dir)))
         self.heights.started.connect(lambda ws: self.statusBar().showMessage(
             'importing spot heights from Overpass…'))
         self.heights.finished.connect(self._heights_imported)
@@ -348,7 +351,8 @@ class MainWindow(QMainWindow):
             lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
         # and its coastlines, on the same footing again
         self.coast = WaterImporter(self, fetch=lambda bounds: fetch_coast(bounds, self.settings.overpass_url),
-                                   work=coast_work)
+                                   work=coast_work,
+                                   held=lambda ws: Snapshot(held_by(ws), within=mirror.extent(self.zone_dir)))
         self.coast.started.connect(lambda ws: self.statusBar().showMessage(
             'importing coastlines from Overpass…'))
         self.coast.finished.connect(self._coast_imported)
@@ -668,7 +672,7 @@ class MainWindow(QMainWindow):
         """Each square's marks, on its frame and on the zones map; in the
         title, the set's unsaved edits and the centre's file not uploaded."""
         dirty = {sq.name for sq in self.editor.history.dirty_squares()}
-        got = pending.marks(dirty, self.waiting.unsent)
+        got = pending.marks(dirty, self.waiting.unsent, self.waiting.outside)
         for item in (self.squares, self.zone_editor.item):
             if item.marks != got:
                 item.marks = got
@@ -676,7 +680,7 @@ class MainWindow(QMainWindow):
         if self.working_set is not None:
             ws = self.working_set
             self.setWindowTitle(about.title(ws.centre, bool(dirty), ws.squares[ws.centre].label,
-                                            ws.centre in self.waiting.unsent))
+                                            ws.centre in self.waiting.unsent, ws.centre in self.waiting.outside))
 
     # --------------------------------------------------------- territory
     def _territory_ready(self, index):
@@ -1003,6 +1007,21 @@ class MainWindow(QMainWindow):
         job = Job(lambda: dropclient.square_info(api, name, token), answered, unreached)
         self._new_square_job = job
         self._drop_runner(job)
+
+    def _ask_extent(self) -> None:
+        """A zone imported before its extent was kept beside it: asked of
+        the drop, so the squares outside it are known - for the marks, and
+        for imports to keep out of. Not reached, nothing changes."""
+        zone_dir = self.zone_dir
+        if zone_dir is None or mirror.extent(zone_dir) is not None or not (Path(zone_dir) / mirror.MANIFEST).exists():
+            return
+        api = self.settings.url('drop/url')
+
+        def answered(answer):
+            if answer.ok and mirror.record_extents(Path(zone_dir).parent, answer.body.get('zones', [])):
+                self.waiting.refresh()
+        self._extent_job = Job(lambda: dropclient.zones(api), answered, lambda _why: None)
+        self._drop_runner(self._extent_job)
 
     def _new_asking_the_directory(self, name: SquareName) -> None:
         root = self.settings.squares_root or self.settings.import_root
@@ -1706,6 +1725,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(about.title(ws.centre, label=ws.squares[ws.centre].label))
         self._show_marks()
         self.waiting.refresh()                  # the set's folder may be outside the import folder
+        self._ask_extent()
         self._territory.setText('territory: looking…')
         self.territory.refresh()
         self.show_reference()
@@ -2009,7 +2029,9 @@ class MainWindow(QMainWindow):
                 'the working set changed while the coastlines were fetched - import again')
             return
         self.gone_from_upstream = coast.gone(working_set, answer.ways)
-        steps = coast_commands(answer.placed, working_set)
+        # one held in a square outside the zone: out of it, into the zone
+        steps = move_commands(answer, working_set, self.editor.history.alloc)
+        steps += coast_commands(answer.placed, working_set)
         if steps:
             self.editor.do_across(steps)
         kept_doubled = self._doubled(working_set)
@@ -2020,6 +2042,9 @@ class MainWindow(QMainWindow):
         n = sum(len(w.ways) for w in answer.placed.values())
         kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
                 if self.gone_from_upstream else '')
+        if answer.moved:
+            m = len(answer.moved)
+            kept += f'; {m} moved into the zone out of {", ".join(sorted({str(w) for w, _ in answer.moved.values()}))}'
         if not n:
             self.statusBar().showMessage(f'no coastline in this working set{kept}{kept_doubled}')
             return
@@ -2078,6 +2103,8 @@ class MainWindow(QMainWindow):
         if answer.beyond:
             said += (f'; {answer.beyond} beyond the contours, not imported - an import once '
                      'they are drawn out to brings them')
+        if answer.outside:
+            said += f'; {answer.outside} outside the zone, not imported'
         if answer.skipped:
             said += (f'; {len(answer.skipped)} skipped, a height that reads as neither metres nor '
                      'feet')

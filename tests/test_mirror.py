@@ -228,7 +228,7 @@ class Drop(Server):
         squares = {n: d for n, d in self.zones[zone].items() if n != 'EMPTY.osm.xz'}
         if len(path) == 2:
             held = [{'file': n, 'size': len(d), 'sha256': hashlib.sha256(d).hexdigest()} for n, d in squares.items()]
-            return io.BytesIO(json.dumps({'name': zone, 'held': held}).encode())
+            return io.BytesIO(json.dumps({'name': zone, 'squares': ['N20E086-N20E087'], 'held': held}).encode())
         return io.BytesIO(squares[path[2]])
 
 
@@ -328,3 +328,35 @@ def test_a_square_renamed_and_changed_there_open_with_edits_is_held(drop, tmp_pa
     _f, done = drop_run(drop, tmp_path, keep={'N20E087_Artana.osm.xz'})
     assert done['held'] == ['N20E087_Artana_Bay.osm.xz'] and not done['updated']
     assert (tmp_path / 'gobras' / 'N20E087_Artana.osm.xz').read_bytes() == b'artana v1'
+
+
+def test_the_zones_extent_is_kept_from_the_drop_and_not_from_the_index(drop, tmp_path):
+    from danu.core.square import SquareName
+    drop_run(drop, tmp_path)
+    d = tmp_path / 'gobras'
+    assert mirror.extent(d) == {SquareName(86, 20), SquareName(87, 20)}
+    (d / mirror.EXTENT).unlink()
+    drop.down = True
+    drop_run(drop, tmp_path)
+    assert mirror.extent(d) is None, 'the published index says nothing of the extent'
+    assert mirror.extent(None) is None
+
+
+def test_extents_are_recorded_for_mirrored_folders_only_and_said_when_changed(tmp_path):
+    from danu.core.square import SquareName
+    (tmp_path / 'gobras').mkdir()
+    mirror.write_manifest(tmp_path / 'gobras', {})
+    (tmp_path / 'mine').mkdir()                             # never imported: not the server's copy
+    zones = [{'name': 'gobras', 'squares': ['N20E086']}, {'name': 'mine', 'squares': ['N1E1']},
+             {'name': 'alved', 'squares': ['N2E2']}, {'name': '..', 'squares': ['N3E3']},
+             {'name': 'gobras/..', 'squares': ['N4E4']}]
+    assert mirror.record_extents(tmp_path, zones)
+    assert mirror.extent(tmp_path / 'gobras') == {SquareName(86, 20)}
+    assert mirror.extent(tmp_path / 'mine') is None and not (tmp_path / 'alved').exists()
+    assert not (tmp_path.parent / mirror.EXTENT).exists() and not (tmp_path / mirror.EXTENT).exists(), \
+        'a name that is not a folder of root\'s writes nowhere'
+    assert not mirror.record_extents(tmp_path, zones), 'the same again is no change'
+    assert mirror.record_extents(tmp_path, [{'name': 'gobras', 'squares': ['N20E086-N20E087']}])
+    assert len(mirror.extent(tmp_path / 'gobras')) == 2
+    (tmp_path / 'gobras' / mirror.EXTENT).write_text('not json')
+    assert mirror.extent(tmp_path / 'gobras') is None
