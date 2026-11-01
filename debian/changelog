@@ -1,3 +1,29 @@
+danu (1.4.2-1) unstable; urgency=medium
+
+  * Opening a set tidies its contours: nodes at one place merged, spikes
+    cut back and a contour passing through a node twice made rings; water
+    relations keep their type=multipolygon (#308).
+  * Edits on a large set settle faster: after a merge or draw the map is
+    ready in milliseconds, not a second or more, and moving a node checks
+    the set in about 100 ms, not 350 (#311, #312).
+  * The Validation panel's bare-ring report is gone (#311). It says
+    "Validating" while it runs, naming the check it is on, counted from 1
+    (#314).
+  * Imports keep to the zone: water, coastlines and spot heights are no
+    longer written into the set's neighbours beyond the zone's edge, and
+    a river held there moves into the zone on the next import. A square
+    outside its folder's zone is marked X, and Upload changed squares
+    leaves it out (#315).
+  * The status bar has a line between its parts, upload shown as a mark,
+    and its tooltip holds the last messages in full (#306).
+  * Ctrl+drag merge no longer crosses its joins; Copy ID with a node
+    chosen copies the node (#307).
+  * Fixes: a crash when the flatten strength changed while a plan was
+    worked out (#309), and one when the checks found a way that went
+    while they ran (#310).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sun, 01 Nov 2026 22:46:03 +0000
+
 danu (1.4.1-1) unstable; urgency=medium
 
   * Startup no longer shows "not responding": with the Validation panel
