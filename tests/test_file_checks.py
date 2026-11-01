@@ -77,3 +77,29 @@ def test_the_index_follows_an_edit():
     cmd.apply(sq)
     index.update(sq, cmd.ways(sq))
     assert index.findings() == []
+
+
+def test_the_index_kept_as_edited_agrees_with_the_square_asked_whole():
+    """A way or a node at a time, as edits name them: a node's ele made
+    nonsense and mended, a way made long and deleted, a contour moved off
+    the ladder - each the same as asking the whole square again."""
+    w, sq = ws()
+    ladder(sq)
+    spot = next(_ids)
+    sq.nodes[spot] = Node(id=spot, lon=125.5, lat=-22.1, tags={'natural': 'peak', 'ele': '300'})
+    index = files.Index(w)
+    long = line(sq, files.API_LIMIT + 1, {'ele': '200'}, lat=-22.3)
+    steps = [
+        edits.SetNodeTags(spot, {'natural': 'peak', 'ele': '300'}, {'natural': 'peak', 'ele': '3oo'}),
+        edits.SetTags(long.id, dict(long.tags), {'ele': '20 ft'}),
+        edits.MoveNode(long.refs[5], (sq.nodes[long.refs[5]].lon, -22.3), (125.2, -22.31)),
+        edits.SetNodeTags(spot, {'natural': 'peak', 'ele': '3oo'}, {'natural': 'peak', 'ele': '310'}),
+        edits.DeleteWay(long.id),
+        edits.SetTags(next(iter(sq.ways)), {'ele': '100'}, {'ele': '113'}),
+    ]
+    index.update(sq, {long.id})                          # the long way, drawn
+    assert sorted(index.findings(), key=repr) == sorted(files.find(w), key=repr)
+    for cmd in steps:
+        cmd.apply(sq)
+        index.update(sq, cmd.ways(sq), cmd.spots(sq))
+        assert sorted(index.findings(), key=repr) == sorted(files.find(w), key=repr), cmd.describe()

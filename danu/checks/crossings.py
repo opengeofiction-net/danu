@@ -220,6 +220,7 @@ class Index:
 
     def __init__(self, working_set):
         self.working_set = working_set
+        self._listed = None                    # sorted, until an edit
         keys, pts = _segments(working_set)
         lat0 = float(np.mean([p[:, 1].mean() for p in pts])) if pts else 0.0
         self.k = np.array([111320.0 * math.cos(math.radians(lat0)), 110540.0])
@@ -233,8 +234,12 @@ class Index:
             self._by_way[c.b[:2]].add(c)
 
     def crossings(self) -> list[Crossing]:
-        out = {c for cs in self._by_way.values() for c in cs}
-        return sorted(out, key=lambda c: (c.lat, c.lon))
+        """Sorted once an edit: the panel and the map's marks both ask, and
+        sorting roantra's N44E029 set's was 25 ms."""
+        if self._listed is None:
+            out = {c for cs in self._by_way.values() for c in cs}
+            self._listed = sorted(out, key=lambda c: (c.lat, c.lon))
+        return self._listed
 
     def _add(self, sq, wid, ele, lonlat):
         metres = lonlat * self.k
@@ -257,6 +262,7 @@ class Index:
         """The ways an edit touched, in one square: each read again as it
         stands - gone, no longer a contour, moved or re-levelled - and its
         crossings found again."""
+        self._listed = None
         contours = {w.id: w for w in square.contours()}
         for wid in way_ids:
             key = (square.name, wid)

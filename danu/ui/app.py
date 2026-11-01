@@ -2395,7 +2395,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self._checks_again)
             return
         if self.file_index is not None and (ways or spot_ids):
-            self.file_index.update(square)               # the square asked again, 12 ms at most
+            self.file_index.update(square, ways or (), spot_ids or ())
             self._checks_due.start()
         if self.surface_findings is not None and (ways or spot_ids) and not self._surface_stale:
             self._surface_stale = True                   # said, not asked again: that is a build

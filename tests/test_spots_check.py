@@ -322,3 +322,23 @@ def test_a_long_segment_passing_close_with_both_ends_far_off_is_met():
     k = next(_ids)
     sq.ways[k] = Way(id=k, refs=ends, tags={'ele': '70'})
     assert spots.find(w) == [], 'the long contour beside it not met'
+
+
+def test_a_spot_height_taken_into_a_way_and_let_go_is_followed():
+    """The spot heights are kept as edited, not read whole on every edit: a
+    node a way takes in is a vertex, no spot height, and one let go is a spot
+    height again - as a whole read says."""
+    w, sq = ws()
+    hill(sq)
+    i = spot(sq, 125.5, -22.5, 300)
+    index = spots.Index(w)
+    assert [c.node for c in index.contradictions()] == [i]
+    j = next(_ids)
+    sq.nodes[j] = Node(id=j, lon=125.51, lat=-22.5)
+    k = next(_ids)
+    sq.ways[k] = Way(id=k, refs=[i, j], tags={'highway': 'track'})
+    index.update(sq, {k})
+    assert index.contradictions() == [] == spots.find(w)
+    del sq.ways[k]
+    index.update(sq, {k})
+    assert [c.node for c in index.contradictions()] == [c.node for c in spots.find(w)] == [i]

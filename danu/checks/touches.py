@@ -296,6 +296,7 @@ class Index:
 
     def __init__(self, working_set):
         self.working_set = working_set
+        self._listed = None                    # sorted, until an edit
         self._by_way: dict = defaultdict(set)
         self._held: dict = {}                  # square name -> {way id: (way, points, box)}
         for sq in working_set.squares.values():
@@ -314,10 +315,13 @@ class Index:
         self._by_way[t.b[:2]].add(t)
 
     def touches(self) -> list[Touch]:
-        out = {t for ts in self._by_way.values() for t in ts}
-        return sorted(out, key=lambda t: (t.kind, t.lat, t.lon))
+        if self._listed is None:
+            out = {t for ts in self._by_way.values() for t in ts}
+            self._listed = sorted(out, key=lambda t: (t.kind, t.lat, t.lon))
+        return self._listed
 
     def update(self, square, way_ids) -> None:
+        self._listed = None
         here = self._held.setdefault(square.name, {})
         k = _k(square.name.lat + 0.5)
         contours = {w.id: w for w in square.contours()}

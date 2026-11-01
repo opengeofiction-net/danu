@@ -172,7 +172,12 @@ def _on_phase(value: float, interval: float, phase: float) -> bool:
 def infer(square: Square, extend_above: int = EXTEND_ABOVE) -> Ladder | None:
     """The ladder a square's own contours describe, or None when it holds
     fewer than two distinct elevations and there is no gap to read."""
-    counts = Counter(w.ele for w in square.contours())
+    return infer_from(Counter(w.ele for w in square.contours()), square.name.name, extend_above)
+
+
+def infer_from(counts: Counter, name: str, extend_above: int = EXTEND_ABOVE) -> Ladder | None:
+    """``infer`` of a square's contours counted by level - kept as edited,
+    rather than counted again on every edit."""
     values = sorted(counts)
     if len(values) < 2:
         return None
@@ -206,7 +211,7 @@ def infer(square: Square, extend_above: int = EXTEND_ABOVE) -> Ladder | None:
             notches.add(round(n, 6))
     notches.add(0.0)
     return Ladder(tuple(sorted(notches)), float(interval), float(phase), frozenset(values),
-                  'inferred', square.name.name)
+                  'inferred', name)
 
 
 # ------------------------------------------------------------ overrides
@@ -336,7 +341,10 @@ class OffLadder:
 
 
 def off_ladder(square: Square, ladder: Ladder, at_most: int = 2) -> list[OffLadder]:
-    counts = Counter(w.ele for w in square.contours())
+    return off_ladder_from(Counter(w.ele for w in square.contours()), ladder, at_most)
+
+
+def off_ladder_from(counts: Counter, ladder: Ladder, at_most: int = 2) -> list[OffLadder]:
     values = sorted(counts)
     out = []
     for i, v in enumerate(values):

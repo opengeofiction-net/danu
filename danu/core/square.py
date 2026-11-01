@@ -19,6 +19,7 @@ build has always taken the extent from the filename; so does this.
 
 from __future__ import annotations
 
+import functools
 import lzma
 import math
 import os
@@ -194,6 +195,7 @@ def is_coastline(way) -> bool:
     return way.tags.get('natural') == 'coastline'
 
 
+@functools.lru_cache(maxsize=1 << 16)
 def parse_ele(value: str | None) -> float | None:
     """A tag's elevation, or None where there is not one.
 
@@ -202,7 +204,11 @@ def parse_ele(value: str | None) -> float | None:
     which ``float`` accepts and nothing downstream survives. An infinite
     elevation reaches a colour ramp, a ladder, a label and a rasteriser, and
     each of them does something different and silent with it. Not a number is
-    not a number however Python spells it."""
+    not a number however Python spells it.
+
+    Remembered: a square holds a few dozen levels, and every contour's is
+    read again each time the contours are listed - 400,000 times in a dozen
+    edits on roantra's N44E029 set."""
     if value is None:
         return None
     try:
