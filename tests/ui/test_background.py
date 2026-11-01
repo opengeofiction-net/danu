@@ -84,7 +84,7 @@ def test_the_checks_scan_runs_on_a_worker_and_takes_the_edits_made_meanwhile(win
     held = []
     w._checks_runner = held.append
     w.checks_dock.toggleViewAction().trigger()
-    assert 'Finding' in w.checks_dock.progress.format() and w.checks_dock.progress.isVisible()
+    assert 'Validating' in w.checks_dock.progress.format() and w.checks_dock.progress.isVisible()
     assert w.crossing_index is None
     sq = w.working_set.squares[NORTH]
     a = draw_into(w, sq, 100, 125.3, -22.5)
@@ -129,7 +129,7 @@ def test_a_scan_that_fails_says_so_in_the_panel(window, monkeypatch):
     monkeypatch.setattr(app, 'find_checks', broken)
     window.checks_dock.toggleViewAction().trigger()
     d = window.checks_dock
-    assert 'could not be found: ValueError: a square with no name' in d.status.text()
+    assert 'Validation failed: ValueError: a square with no name' in d.status.text()
     assert d.status.isVisible() and not d.progress.isVisible()
     assert window._checks_job is None
 
@@ -146,12 +146,13 @@ def test_the_scan_shows_its_progress_and_hides_the_tree(window):
     assert d.progress.isVisible() and d.progress.maximum() == 6 and d.progress.value() == 0
     assert not d.tree.isVisible()
     assert not d.cut_btn.isVisible() and not d.josm_btn.isVisible()
-    assert 'finding the checks' in w.statusBar().currentMessage()
+    assert 'validating' in w.statusBar().currentMessage()
     job = held.pop()
     seen = []
     job.signals.progress.connect(lambda step: seen.append((step, d.progress.format(), d.progress.value())))
     job.run()
-    assert [s[0][0] for s in seen] == [0, 1, 2, 3, 4, 5]
-    assert 'contours crossing themselves' in seen[1][1] and seen[1][2] == 1
+    assert [s[0][0] for s in seen] == [1, 2, 3, 4, 5, 6]
+    assert seen[0][1] == 'Validating: Crossing contours (1 of 6)' and seen[0][2] == 0
+    assert seen[1][1] == 'Validating: Contours crossing themselves (2 of 6)' and seen[1][2] == 1
     assert not d.progress.isVisible() and d.josm_btn.isVisible() and d.tree.isVisible()
-    assert w.statusBar().currentMessage().startswith('checks found in')
+    assert w.statusBar().currentMessage().startswith('validated in')

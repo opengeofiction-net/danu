@@ -131,13 +131,13 @@ def user_cache_dir() -> Path:
 
 
 # the checks' indexes in the order the scan builds them, and what the panel
-# calls each while it does
-CHECKS = (('crossings', lambda ws: crossings.Index(ws)),
-          ('contours crossing themselves', lambda ws: loops.Index(ws)),
-          ('contours touching', lambda ws: touches.Index(ws)),
-          ('spot heights', lambda ws: spots.Index(ws)),
-          ('what the files say', lambda ws: files.Index(ws)),
-          ('what lies inside the rings', lambda ws: inside.Index(ws)))
+# calls each while it does - the rows of the panel each fills
+CHECKS = (('Crossing contours', lambda ws: crossings.Index(ws)),
+          ('Contours crossing themselves', lambda ws: loops.Index(ws)),
+          ('Touching contours', lambda ws: touches.Index(ws)),
+          ('Spot heights', lambda ws: spots.Index(ws)),
+          ('Ways too long, ele, the ladder', lambda ws: files.Index(ws)),
+          ('Lakes and coastlines', lambda ws: inside.Index(ws)))
 
 
 # an edit of more ways than this has the checks found again whole, on the
@@ -149,7 +149,7 @@ WIDE_EDIT = 500
 def find_checks(ws, tries: int = 5, report=None):
     """The checks' indexes over a working set - on a worker, while the set
     goes on being edited on the UI thread. ``report`` is told (step, of,
-    name) before each, so the panel can say how far it has got. An edit
+    name) before each, counted from 1, so the panel can say which it is on. An edit
     that changes a dict under the scan stops it, and it starts again; one
     that changes a way it has read is put to the indexes when they land, so
     what was read of that way is asked again."""
@@ -158,7 +158,7 @@ def find_checks(ws, tries: int = 5, report=None):
             out = []
             for k, (name, index) in enumerate(CHECKS):
                 if report is not None:
-                    report((k, len(CHECKS), name))
+                    report((k + 1, len(CHECKS), name))
                 out.append(index(ws))
             return tuple(out)
         except RuntimeError:                   # changed size during iteration
@@ -2332,7 +2332,7 @@ class MainWindow(QMainWindow):
             self._checks_missed = []
             self.checks_dock.finding(len(CHECKS))
             self.checks_dock.raise_()
-            self.statusBar().showMessage(f'finding the checks over {ws.centre} and its neighbours…')
+            self.statusBar().showMessage(f'validating {ws.centre} and its neighbours…')
             started = time.monotonic()
             job = None
 
@@ -2360,12 +2360,12 @@ class MainWindow(QMainWindow):
                 for square, ways, spot_ids in merged.values():
                     self._checks_edited(square, ways, spot_ids)
                 self._refresh_checks()
-                self.statusBar().showMessage(f'checks found in {time.monotonic() - started:.1f} s')
+                self.statusBar().showMessage(f'validated in {time.monotonic() - started:.1f} s')
 
             def failed(why):
                 self._checks_job = None
                 first = why.splitlines()[0]
-                self.statusBar().showMessage(f'the checks failed: {first}')
+                self.statusBar().showMessage(f'validation failed: {first}')
                 self.checks_dock.failed(first)
 
             job = Job(lambda: find_checks(ws, report=job.report), done, failed,
