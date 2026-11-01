@@ -81,6 +81,20 @@ def test_crossing_contours_are_not_touches():
     assert touches.find(w) == []
 
 
+def test_a_way_gone_without_being_asked_of_the_index_is_dropped_from_it():
+    """A scan that read the square while doubled contours were removed held
+    one; the import's ways, put to the index first, scanned beside it and
+    ran into its nodes gone (N43E030, 2026-11-01)."""
+    w, sq = ws()
+    copy = way(sq, nodes(sq, [(125.30 + 0.005 * j, LAT) for j in range(5)]), 0)
+    index = touches.Index(w)
+    for r in sq.ways.pop(copy.id).refs:            # removed, the index not told
+        del sq.nodes[r]
+    coast = way(sq, nodes(sq, [(125.30 + 0.005 * j, LAT + 0.3 * M_LAT) for j in range(5)]), 0)
+    index.update(sq, {coast.id})
+    assert index.touches() == []
+
+
 def test_the_index_follows_an_edit():
     from danu.core import edits
     w, sq = ws()

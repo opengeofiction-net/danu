@@ -318,10 +318,14 @@ class Index:
         return sorted(out, key=lambda t: (t.kind, t.lat, t.lon))
 
     def update(self, square, way_ids) -> None:
-        ids = set(way_ids)
         here = self._held.setdefault(square.name, {})
         k = _k(square.name.lat + 0.5)
         contours = {w.id: w for w in square.contours()}
+        # a way held that the square no longer has goes too, asked or not: a
+        # scan that read the square while the doubled contours an import
+        # brought were removed held one, and the import's own ways, put to
+        # it first, ran into its nodes gone (N43E030, 2026-11-01)
+        ids = set(way_ids) | {wid for wid, (w, _, _) in here.items() if contours.get(wid) is not w}
         for wid in ids:
             for t in self._by_way.pop((square.name, wid), set()):
                 for other in (t.a[:2], t.b[:2]):
