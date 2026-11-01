@@ -38,7 +38,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QInputDialog, QLineEdit, QMessageBox
 
-from ..core import dropclient
+from ..core import dropclient, mirror
 from ..core.square import LABEL, SquareName, label_of
 from . import pending
 from .background import Job
@@ -107,6 +107,11 @@ class Sender(QObject):
             return None
         centre = w.working_set.centre
         sq = w.working_set.squares[centre]
+        cells = mirror.extent(w.zone_dir)
+        if cells is not None and centre not in cells:
+            self.message.emit(f'{centre} is outside the zone {Path(w.zone_dir).name}: nowhere to upload it '
+                              'from this folder')
+            return None
         if sq.path is None or not Path(sq.path).exists():
             self.message.emit(f'{centre} has no file yet: save it first')
             return None
@@ -222,13 +227,19 @@ class Sender(QObject):
             self.message.emit('sign in to OGF first: File › Sign in')
             return
         dirs = [Path(w.zone_dir)]
-        self._saved_then(lambda: self._run(lambda: pending.scan(dirs), self._chosen))
+        self._saved_then(lambda: self._run(lambda: pending.scan_all(dirs), self._chosen))
 
-    def _chosen(self, found: dict) -> None:
+    def _chosen(self, scanned) -> None:
+        found, outside = scanned
         # the ^ squares this leaves, marked all the same: other zones'
         others = len(set(self.window.waiting.unsent) - set(found))
-        left = (f'{others} changed square{"s" * (others != 1)} of other zones left - open a zone to upload its own'
-                if others else '')
+        left = '; '.join(
+            ([f'{others} changed square{"s" * (others != 1)} of other zones left - open a zone to upload its own']
+             if others else [])
+            + ([f'{len(outside)} square{"s" * (len(outside) != 1)} outside the zone left, marked X - '
+                f'{", ".join(sorted(str(c) for c in outside))}: nowhere to upload '
+                f'{"them" if len(outside) != 1 else "it"} to']
+               if outside else []))
         if not found:
             self.message.emit('nothing to upload: every square of this zone is as the server has it'
                               + (f'; {left}' if left else ''))

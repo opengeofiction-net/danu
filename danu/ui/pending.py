@@ -10,6 +10,12 @@ and the open set's folder - one an import made, with a manifest: read on a worke
 after an import, an upload or a delete - not as the mapper draws, when only
 ``*`` changes.
 
+``X`` is a square outside its folder's zone - one an import made of a
+neighbour beyond the zone's edge, or one drawn there. It can't be uploaded
+from here, so it is not ``^``, and Upload changed squares leaves it out.
+The zone's extent is the one ``mirror`` keeps beside it; without one, no
+square is known to be outside.
+
 ``runner`` is the tests' to replace.
 """
 
@@ -19,26 +25,39 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
-from ..core import dropclient
-from ..core.square import SquareName
+from ..core import dropclient, mirror
+from ..core.square import SquareName, list_squares
 from .background import Job
 
 
 def scan(dirs: list[Path]) -> dict[SquareName, tuple[Path, bool]]:
-    """``dropclient.unsent`` over each folder; one that can't be read, or
-    holds two files for a square, has nothing to say."""
+    """``dropclient.unsent`` over each folder, less its squares outside its
+    zone; one that can't be read, or holds two files for a square, has
+    nothing to say."""
+    return scan_all(dirs)[0]
+
+
+def scan_all(dirs: list[Path]) -> tuple[dict[SquareName, tuple[Path, bool]], dict[SquareName, Path]]:
+    """``scan``'s, and the squares each folder has outside its zone, with
+    their files."""
     out: dict[SquareName, tuple[Path, bool]] = {}
+    outside: dict[SquareName, Path] = {}
     for d in dirs:
         try:
-            out.update(dropclient.unsent(d))
+            found = dropclient.unsent(d)
+            cells = mirror.extent(d)
+            if cells is not None:
+                outside.update((c, p) for c, p in list_squares(d, compressed_only=True).items() if c not in cells)
         except (OSError, FileExistsError):
             continue
-    return out
+        out.update((c, v) for c, v in found.items() if c not in outside)
+    return out, outside
 
 
-def marks(dirty: set[SquareName], unsent) -> dict[SquareName, str]:
-    """Each square's marks: ``*``, ``^``, or both."""
-    return {c: ('*' if c in dirty else '') + ('^' if c in unsent else '') for c in set(dirty) | set(unsent)}
+def marks(dirty: set[SquareName], unsent, outside=()) -> dict[SquareName, str]:
+    """Each square's marks: ``*``, and ``^`` - or ``X``, outside the zone."""
+    return {c: ('*' if c in dirty else '') + ('X' if c in outside else '^' if c in unsent else '')
+            for c in set(dirty) | set(unsent) | set(outside)}
 
 
 class Pending(QObject):
@@ -49,6 +68,7 @@ class Pending(QObject):
         self.window = window
         self.runner = QThreadPool.globalInstance().start
         self.unsent: dict[SquareName, tuple[Path, bool]] = {}
+        self.outside: dict[SquareName, Path] = {}
         self.job = None
         self._again = False
         self._jobs: list[Job] = []          # every one run, for detach
@@ -75,7 +95,7 @@ class Pending(QObject):
 
         def done(found):
             self.job = None
-            self.unsent = found
+            self.unsent, self.outside = found
             try:
                 self.changed.emit()
             except RuntimeError:
@@ -91,7 +111,7 @@ class Pending(QObject):
                 self.refresh()
         for old in list(self._jobs):        # those answered, let go of here: not in their own signal
             self._let_go(old)
-        job = self.job = Job(lambda: scan(dirs), done, failed)
+        job = self.job = Job(lambda: scan_all(dirs), done, failed)
         self._jobs.append(job)
         self.runner(job)
 

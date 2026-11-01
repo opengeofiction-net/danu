@@ -54,7 +54,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core import dropclient
+from ..core import dropclient, mirror
 from ..core import zones as Z
 from ..core.square import SquareName, label_of, list_squares
 from ..core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE, ZONE, ZONE_INACTIVE
@@ -548,6 +548,9 @@ class ZoneEditor(QObject):
                 self.say(f'zones: {answer.why}')
                 return
             self.set_zones(answer.body.get('zones', []))
+            # each zone's extent kept in its folder here: what is outside it
+            if mirror.record_extents(self.window.settings.import_root, self.zones):
+                self.window.waiting.refresh()
             self.show_here()
             if self._frame_pending:
                 self.frame_all()

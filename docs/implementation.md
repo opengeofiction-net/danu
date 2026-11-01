@@ -6376,3 +6376,30 @@ The water import kept `natural`, `water`, `waterway`, `name` and `ele`, and
 dropped the relation's `type=multipolygon`. It keeps `type` now, and opening a
 set gives it to a water relation of outer and inner rings without one
 (`edits.type_water_relations`).
+
+## Squares outside the zone
+
+A water import held each feature in the square of the set with most of its
+nodes, and the set's neighbours beyond the zone's edge were candidates like
+any other: around roantra's N44E031 it wrote rivers into N43E032, N44E032 and
+N45E032, and a coastline import N47E031. Saved, each was marked ^, and
+Upload changed squares offered them to a drop that refuses a square in no
+zone - while the stretch of a river inside roantra was in no roantra file, so
+not in its build.
+
+The zone's rectangles are kept beside its squares, `.danu-zone.json`, from
+the drop's listing of the zone on each import, from the zones list whenever
+the Zones panel reads it, and asked for once on opening a set in a folder
+imported before (`mirror.extent`, `record_extents`). With them:
+
+- `overpass.homes(within=)` holds a feature only in the zone's squares; one
+  held outside moves in, the coastline import's too, which otherwise moves
+  nothing; one wholly outside is not imported. A new spot height outside is
+  not imported, and said.
+- The marks give a square outside **X**, not ^; Upload changed squares
+  leaves those out and names them, and Upload square refuses an open one.
+
+Without an extent - a folder never imported, or the drop not reached -
+nothing changes. On a copy of roantra, a water import around N44E031 wrote
+none of N43E032, N44E032 and N45E032, and moved three rivers held in the
+last two into N44E031 and N46E031.
