@@ -303,7 +303,8 @@ def homes(water: Water, working_set, held: dict | None = None,
     known, is the only place a home can be. A neighbour of the set outside
     the zone can't be uploaded from here, and what it holds is not in the
     zone's build; a feature held in one moves into the zone even when
-    nothing else moves - and one wholly outside it is not imported.
+    nothing else moves - ``move`` False or not - and one wholly outside it
+    is not imported. ``place`` passes no ``within``, so never moves one.
     """
     held = held or {}
     zone_names, zone_held = zone if zone is not None else (set(), {})

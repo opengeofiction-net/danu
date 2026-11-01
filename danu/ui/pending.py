@@ -46,11 +46,12 @@ def scan_all(dirs: list[Path]) -> tuple[dict[SquareName, tuple[Path, bool]], dic
         try:
             found = dropclient.unsent(d)
             cells = mirror.extent(d)
-            if cells is not None:
-                outside.update((c, p) for c, p in list_squares(d, compressed_only=True).items() if c not in cells)
+            here = ({} if cells is None else
+                    {c: p for c, p in list_squares(d, compressed_only=True).items() if c not in cells})
         except (OSError, FileExistsError):
             continue
-        out.update((c, v) for c, v in found.items() if c not in outside)
+        outside.update(here)
+        out.update((c, v) for c, v in found.items() if c not in here)
     return out, outside
 
 

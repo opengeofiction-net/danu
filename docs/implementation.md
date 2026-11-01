@@ -6382,7 +6382,7 @@ set gives it to a water relation of outer and inner rings without one
 A water import held each feature in the square of the set with most of its
 nodes, and the set's neighbours beyond the zone's edge were candidates like
 any other: around roantra's N44E031 it wrote rivers into N43E032, N44E032 and
-N45E032, and a coastline import N47E031. Saved, each was marked ^, and
+N45E032, and a coastline import wrote coastlines into N47E031. Saved, each was marked ^, and
 Upload changed squares offered them to a drop that refuses a square in no
 zone - while the stretch of a river inside roantra was in no roantra file, so
 not in its build.
@@ -6395,11 +6395,13 @@ imported before (`mirror.extent`, `record_extents`). With them:
 - `overpass.homes(within=)` holds a feature only in the zone's squares; one
   held outside moves in, the coastline import's too, which otherwise moves
   nothing; one wholly outside is not imported. A new spot height outside is
-  not imported, and said.
+  not imported, and said; one already held outside stays where it is - a
+  spot height is a node of its square, not moved as a feature is.
 - The marks give a square outside **X**, not ^; Upload changed squares
   leaves those out and names them, and Upload square refuses an open one.
 
 Without an extent - a folder never imported, or the drop not reached -
 nothing changes. On a copy of roantra, a water import around N44E031 wrote
-none of N43E032, N44E032 and N45E032, and moved three rivers held in the
-last two into N44E031 and N46E031.
+none of N43E032, N44E032 and N45E032, and moved three rivers into the zone:
+one from N44E032 into N44E031, and two from N45E032 into N46E031, a square
+of the zone outside the set.

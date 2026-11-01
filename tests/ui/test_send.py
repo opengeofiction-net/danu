@@ -328,3 +328,18 @@ def test_the_open_square_outside_the_zone_is_not_uploaded_and_its_title_says_x(w
     w.drop_actions['drop.upload'].trigger()
     assert w.messages[-1] == 'S25E125 is outside the zone pizarrales: nowhere to upload it from this folder'
     assert not (w.there / 'S25E125.osm.xz').exists()
+
+
+def test_a_square_outside_one_folders_zone_leaves_the_same_square_in_anothers_alone(w, zone):
+    """Two zones' folders, the same square in each: outside the first's zone,
+    inside the second's - only the first's is X."""
+    from danu.ui import pending
+    _outside(zone)
+    other = zone.parent / 'southern'
+    other.mkdir()
+    shutil.copy(zone / 'S25E125.osm.xz', other / 'S25E125.osm.xz')
+    mirror.write_manifest(other, {})
+    mirror.write_extent(other, 'southern', ['S25E125'])
+    unsent, outside = pending.scan_all([zone, other])
+    assert outside == {OUTSIDE: zone / 'S25E125.osm.xz'}
+    assert unsent[OUTSIDE][0] == other / 'S25E125.osm.xz', 'the other zone\'s own is still ^'

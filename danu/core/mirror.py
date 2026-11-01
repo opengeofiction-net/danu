@@ -153,9 +153,11 @@ def record_extents(root: Path, zones: list[dict]) -> bool:
     any changed."""
     changed = False
     for z in zones:
-        name = z.get('name') if isinstance(z, dict) else None
-        d = Path(root) / str(name)
-        if name and isinstance(z.get('squares'), list) and (d / MANIFEST).exists():
+        name = str(z.get('name') or '') if isinstance(z, dict) else ''
+        if not name or Path(name).name != name or name in ('.', '..'):
+            continue                        # a folder of root's, and nowhere else
+        d = Path(root) / name
+        if isinstance(z.get('squares'), list) and (d / MANIFEST).exists():
             try:
                 changed |= write_extent(d, str(name), z['squares'])
             except OSError:

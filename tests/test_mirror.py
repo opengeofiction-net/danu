@@ -348,10 +348,13 @@ def test_extents_are_recorded_for_mirrored_folders_only_and_said_when_changed(tm
     mirror.write_manifest(tmp_path / 'gobras', {})
     (tmp_path / 'mine').mkdir()                             # never imported: not the server's copy
     zones = [{'name': 'gobras', 'squares': ['N20E086']}, {'name': 'mine', 'squares': ['N1E1']},
-             {'name': 'alved', 'squares': ['N2E2']}]
+             {'name': 'alved', 'squares': ['N2E2']}, {'name': '..', 'squares': ['N3E3']},
+             {'name': 'gobras/..', 'squares': ['N4E4']}]
     assert mirror.record_extents(tmp_path, zones)
     assert mirror.extent(tmp_path / 'gobras') == {SquareName(86, 20)}
     assert mirror.extent(tmp_path / 'mine') is None and not (tmp_path / 'alved').exists()
+    assert not (tmp_path.parent / mirror.EXTENT).exists() and not (tmp_path / mirror.EXTENT).exists(), \
+        'a name that is not a folder of root\'s writes nowhere'
     assert not mirror.record_extents(tmp_path, zones), 'the same again is no change'
     assert mirror.record_extents(tmp_path, [{'name': 'gobras', 'squares': ['N20E086-N20E087']}])
     assert len(mirror.extent(tmp_path / 'gobras')) == 2

@@ -96,7 +96,8 @@ def test_a_coastline_held_outside_the_zone_moves_into_it_and_is_said(window, zon
 def test_a_coastline_held_in_the_zone_is_never_moved(window, zone):
     zoned(zone)
     w = window
-    # most of it in S24E126, held in HERE: the coastline import moves nothing
+    # first wholly in HERE, so held there; then grown with most of it in
+    # S24E126 - also the zone's - and the coastline import moves nothing
     pts = [(125.9, -23.4), (126.2, -23.4), (126.5, -23.4)]
     ws = w.working_set
     coastline(w, line(602, pts[:1] + [(125.8, -23.4)], {'natural': 'coastline'}))
