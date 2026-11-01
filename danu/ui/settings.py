@@ -225,15 +225,6 @@ class Settings:
         self.q.setValue('ogf/token', value)
 
     @property
-    def bare_min_hectares(self) -> float:
-        """The smallest closed contour the checks report as holding nothing
-        (R39), in hectares - 10 unless the INI says otherwise."""
-        try:
-            return float(self.q.value('checks/bare_min_hectares', 10))
-        except (TypeError, ValueError):
-            return 10.0
-
-    @property
     def wms_port(self) -> int:
         """The loopback port the surface is served on (H5), the same from
         one run to the next so a layer JOSM keeps finds it again."""
@@ -246,10 +237,6 @@ class Settings:
     @wms_port.setter
     def wms_port(self, port: int):
         self.q.setValue('josm/wms_port', int(port))
-
-    @bare_min_hectares.setter
-    def bare_min_hectares(self, ha: float):
-        self.q.setValue('checks/bare_min_hectares', float(ha))
 
     # ------------------------------------------------------------ the look
     @property

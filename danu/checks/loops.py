@@ -254,6 +254,7 @@ class Index:
 
     def __init__(self, working_set):
         self.working_set = working_set
+        self._listed = None                    # sorted, until an edit
         self._by_way: dict = defaultdict(list)
         for sq in working_set.squares.values():
             for w in sq.contours():
@@ -262,10 +263,13 @@ class Index:
                     self._by_way[(sq.name, w.id)] = found
 
     def loops(self) -> list[Loop]:
-        out = [lp for found in self._by_way.values() for lp in found]
-        return sorted(out, key=lambda lp: (lp.lat, lp.lon))
+        if self._listed is None:
+            out = [lp for found in self._by_way.values() for lp in found]
+            self._listed = sorted(out, key=lambda lp: (lp.lat, lp.lon))
+        return self._listed
 
     def update(self, square, way_ids) -> None:
+        self._listed = None
         contours = {w.id: w for w in square.contours()}
         for wid in way_ids:
             self._by_way.pop((square.name, wid), None)

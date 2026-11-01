@@ -3722,7 +3722,9 @@ The checks panel's sixth list, the last two rows of H1:
 - **rings with nothing inside** (R39) - a closed contour holding no other
   contour and no spot height: a hilltop or a hollow with nothing to say how
   high or deep it goes. A report, so under a heading that starts folded and
-  puts no mark on the map.
+  puts no mark on the map. Removed 2026-11-01, with its area in Preferences:
+  it said little a mapper acted on, and its rings were asked again on every
+  edit near them.
 
 **Inside is a vertex in it, or a segment across it.** The first version took
 a vertex in the water, by crossings of a ray with every ring counted together
@@ -4439,8 +4441,7 @@ dialog of three tabs, from File › Preferences…; it writes the settings, and
 `MainWindow.apply_settings` puts them to use.
 
 - **General**: the small and big steps - the Elevation panel's, set there too
-  - and the area bare rings are reported from. A new area finds the checks
-  again, if they have been found.
+  (the area bare rings were reported from went with them, 2026-11-01).
 - **Keys**: every action under `[keys]`, listed in the menus' order by where
   it is in them (`MainWindow.action_labels`: "Edit › Water › Grade"), each
   edited in place with a `QKeySequenceEdit`, one key each, clearable. A key
@@ -5136,7 +5137,7 @@ Python bindings and `libisofill` have not been in one Windows process there. On
 6.8.2 and testing 6.11.2; the UI suite has only run on 6.11.2. A `.deb` reaches
 Debian 13 and later, so the AppImage is what reaches everyone else.
 
-**A settings UI exists.** Preferences (H6e): the steps, bare rings, where an
+**A settings UI exists.** Preferences (H6e): the steps, where an
 import goes, the keys, the servers and the WMS port.
 
 **A crash goes nowhere.** No exception hook, no fault handler. What there is:

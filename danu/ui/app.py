@@ -132,12 +132,12 @@ def user_cache_dir() -> Path:
 
 # the checks' indexes in the order the scan builds them, and what the panel
 # calls each while it does
-CHECKS = (('crossings', lambda ws, _: crossings.Index(ws)),
-          ('contours crossing themselves', lambda ws, _: loops.Index(ws)),
-          ('contours touching', lambda ws, _: touches.Index(ws)),
-          ('spot heights', lambda ws, _: spots.Index(ws)),
-          ('what the files say', lambda ws, _: files.Index(ws)),
-          ('what lies inside the rings', lambda ws, bare_min: inside.Index(ws, bare_min)))
+CHECKS = (('crossings', lambda ws: crossings.Index(ws)),
+          ('contours crossing themselves', lambda ws: loops.Index(ws)),
+          ('contours touching', lambda ws: touches.Index(ws)),
+          ('spot heights', lambda ws: spots.Index(ws)),
+          ('what the files say', lambda ws: files.Index(ws)),
+          ('what lies inside the rings', lambda ws: inside.Index(ws)))
 
 
 # an edit of more ways than this has the checks found again whole, on the
@@ -146,7 +146,7 @@ CHECKS = (('crossings', lambda ws, _: crossings.Index(ws)),
 WIDE_EDIT = 500
 
 
-def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report=None):
+def find_checks(ws, tries: int = 5, report=None):
     """The checks' indexes over a working set - on a worker, while the set
     goes on being edited on the UI thread. ``report`` is told (step, of,
     name) before each, so the panel can say how far it has got. An edit
@@ -159,7 +159,7 @@ def find_checks(ws, tries: int = 5, bare_min: float = inside.BARE_MIN_M2, report
             for k, (name, index) in enumerate(CHECKS):
                 if report is not None:
                     report((k, len(CHECKS), name))
-                out.append(index(ws, bare_min))
+                out.append(index(ws))
             return tuple(out)
         except RuntimeError:                   # changed size during iteration
             if attempt == tries - 1:
@@ -241,7 +241,7 @@ class MainWindow(QMainWindow):
         self.touch_index = None                 # touching or lying on one another (G8e)
         self.spot_index = None                  # spot heights the rings contradict (R38)
         self.file_index = None                  # what the files say: long ways, ele, the ladder (H1a)
-        self.inside_index = None                # what lies inside the rings: lakes, bare rings (H1b)
+        self.inside_index = None                # what lies inside the rings: lakes, coasts (H1b)
         self.surface_findings = None            # what the last build said (H2), or None
         self._surface_found_at = ''             # when that build landed
         self._surface_stale = False             # edits since it
@@ -1488,11 +1488,6 @@ class MainWindow(QMainWindow):
             self._drop_asked = None
             self.show_ground()
         self.published.url = s.url('published/dem')
-        if self.checks_dock.bare_min_ha != s.bare_min_hectares and self.crossing_index is not None:
-            # the rings reported from another area: found again. The indexes
-            # are found together, and no crossing index is what asks for them
-            self.crossing_index = None
-            self._checks_shown(self.checks_dock.isVisible())
 
     # ------------------------------------------------------------ panels
     def docks(self) -> list[QDockWidget]:
@@ -2373,9 +2368,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f'the checks failed: {first}')
                 self.checks_dock.failed(first)
 
-            self.checks_dock.bare_min_ha = self.settings.bare_min_hectares
-            bare_min = self.checks_dock.bare_min_ha * 1e4
-            job = Job(lambda: find_checks(ws, bare_min=bare_min, report=job.report), done, failed,
+            job = Job(lambda: find_checks(ws, report=job.report), done, failed,
                       on_progress=lambda step: self.checks_dock.finding_step(*step))
             self._checks_job = job
             self._checks_runner(job)
@@ -2402,7 +2395,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, self._checks_again)
             return
         if self.file_index is not None and (ways or spot_ids):
-            self.file_index.update(square)               # the square asked again, 12 ms at most
+            self.file_index.update(square, ways or (), spot_ids or ())
             self._checks_due.start()
         if self.surface_findings is not None and (ways or spot_ids) and not self._surface_stale:
             self._surface_stale = True                   # said, not asked again: that is a build

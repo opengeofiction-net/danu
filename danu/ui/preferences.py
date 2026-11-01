@@ -1,9 +1,9 @@
 """The preferences (H6e): what the INI holds, edited in a dialog rather than
-in the file - the elevation steps and the checks' threshold, a key for each
+in the file - the elevation steps, a key for each
 action, and the servers Danu talks to.
 
 Three tabs. **General**: the small and big steps, which the Elevation panel
-also sets, the area a bare ring is reported from, where File › Import
+also sets, where File › Import
 puts a zone's squares; the theme, the start page shown at every start, and -
 run from an AppImage - Danu in the applications menu (J5c). **Keys**: every
 rebindable action, by where it is in the menus, its key edited in place; a
@@ -76,14 +76,8 @@ class PreferencesDialog(QDialog):
         self.big.setRange(0.1, 5000.0)
         self.big.setDecimals(1)
         self.big.setValue(settings.big_step)
-        self.bare = QDoubleSpinBox()
-        self.bare.setRange(0.0, 100000.0)
-        self.bare.setDecimals(0)
-        self.bare.setValue(settings.bare_min_hectares)
-        self.bare.setToolTip('Bare rings are reported from this area up')
         form.addRow('Small step', unit(self.small))
         form.addRow('Big step', unit(self.big))
-        form.addRow('Bare rings from', unit(self.bare, 'ha'))
         # where File › Import puts a zone's squares (H6g)
         self.import_root = QLineEdit(settings.q.value('squares/import_root', '') or '')
         self.import_root.setPlaceholderText(str(settings.import_root) if not self.import_root.text() else '')
@@ -198,7 +192,6 @@ class PreferencesDialog(QDialog):
             return
         s = self.settings
         s.small_step, s.big_step = self.small.value(), self.big.value()
-        s.bare_min_hectares = self.bare.value()
         s.import_root = Path(self.import_root.text().strip()) if self.import_root.text().strip() else None
         s.theme = self.theme.currentData()
         s.start_always = self.start_always.isChecked()

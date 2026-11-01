@@ -67,8 +67,6 @@ CHECKS = {
     'coast': ('Coastlines drawn backwards', "A coastline with land on its right - clockwise round an island, "
                                            "or the contours beside it on its sea side. Land is on a coastline's "
                                            'left, so the build reads it as sea - R reverses a way'),
-    'bare': ('Bare rings', 'A report: rings of {ha} ha or more with nothing inside (R39) - '
-                           'a spot height would say how high'),
     'climb': ('Climbing rivers', 'Rivers which climb on the surface (R29) - B burns a climb'),
     'backwards': ('Rivers drawn backwards', 'Rivers that climb where they should fall - drawn '
                                             'backwards, likely (R29)'),
@@ -76,7 +74,7 @@ CHECKS = {
     'unreached': ('Unreached ground', 'Ground the first pass did not reach (R20), a row a square'),
 }
 FILES = ('long', 'ele', 'ladder')
-INSIDE = ('lake', 'coast', 'bare')
+INSIDE = ('lake', 'coast')
 SURFACE = ('climb', 'backwards', 'sea', 'unreached')
 
 
@@ -92,8 +90,6 @@ class ChecksDock(QDockWidget):
     spotChosen = Signal(object)
     # a finding of the files' (H1a), the rings' (H1b) or the surface's (H2)
     findingChosen = Signal(object)
-
-    bare_min_ha = 10.0                     # the checks' threshold, said in the tooltip
 
     def __init__(self, parent=None):
         super().__init__('Validation', parent)
@@ -231,7 +227,7 @@ class ChecksDock(QDockWidget):
                                  if item.child(i).data(0, _PART) == part), item)
         label, what = CHECKS[check]
         node.setText(0, f'{label} ({len(rows):,})' if count is None else f'{label} ({count})')
-        node.setToolTip(0, (tip + '\n' if tip else '') + what.format(ha=f'{self.bare_min_ha:g}'))
+        node.setToolTip(0, (tip + '\n' if tip else '') + what)
         # nothing to say: greyed, and nothing under it
         node.setForeground(0, self.palette().brush(
             QPalette.ColorGroup.Disabled if not rows else QPalette.ColorGroup.Active, QPalette.ColorRole.Text))
@@ -339,8 +335,8 @@ class ChecksDock(QDockWidget):
         self._show_findings(FILES, found)
 
     def show_inside(self, found: list) -> None:
-        """What lies inside the rings (H1b): lakes spanning contours, and the
-        report of rings with nothing inside."""
+        """What lies inside the rings (H1b): lakes spanning contours, and
+        coastlines drawn backwards."""
         self._show_findings(INSIDE, found)
 
     def show_surface(self, found, at: str = '', stale: bool = False, pending: bool = False) -> None:

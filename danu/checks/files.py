@@ -13,12 +13,13 @@ validation table:
   like. A row a contour, to choose and fix; the elevation panel's advice line
   that said it before is gone.
 
-Each is cheap enough to ask of a whole square again on any edit to it: 12 ms
-for N20E086's 260,000 nodes and 7,000 ways. No Qt.
+Kept as edited, a way or a node at a time: asked of a whole square on every
+edit, roantra's N44E029 with its water imported was 140 ms of each. No Qt.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from ..core import ladder as L
@@ -64,64 +65,63 @@ def _box(square, refs):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def long_ways(square) -> list[Finding]:
-    out = []
-    for w in square.ways.values():
-        n = len(w.refs)
-        if n <= API_LIMIT:
-            continue
-        box = _box(square, w.refs)
-        if box is None:
-            continue
-        mid = square.nodes.get(w.refs[n // 2])
-        if n > GDAL_LIMIT:
-            why = (f'{n:,} nodes: GDAL drops a way over {GDAL_LIMIT:,} without a word, and the build '
-                   'would refuse the square - save splits it')
-        else:
-            why = f'{n:,} nodes: the OSM API refuses a way over {API_LIMIT:,} - save splits it'
-        out.append(Finding(square.name, 'long', f'{_what(w)} - {n:,} nodes', why,
-                           mid.lon if mid else box[0], mid.lat if mid else box[1], box, way=w.id))
-    return out
+def _long(square, w) -> Finding | None:
+    n = len(w.refs)
+    if n <= API_LIMIT:
+        return None
+    box = _box(square, w.refs)
+    if box is None:
+        return None
+    mid = square.nodes.get(w.refs[n // 2])
+    if n > GDAL_LIMIT:
+        why = (f'{n:,} nodes: GDAL drops a way over {GDAL_LIMIT:,} without a word, and the build '
+               'would refuse the square - save splits it')
+    else:
+        why = f'{n:,} nodes: the OSM API refuses a way over {API_LIMIT:,} - save splits it'
+    return Finding(square.name, 'long', f'{_what(w)} - {n:,} nodes', why,
+                   mid.lon if mid else box[0], mid.lat if mid else box[1], box, way=w.id)
 
 
-def bad_ele(square) -> list[Finding]:
-    out = []
-    for w in square.ways.values():
-        v = w.tags.get('ele')
-        if v is None or parse_ele(v) is not None:
-            continue
-        box = _box(square, w.refs)
-        if box is None:
-            continue
-        mid = square.nodes.get(w.refs[len(w.refs) // 2])
-        out.append(Finding(square.name, 'ele', f'{_what(w)} - ele "{v}"',
-                           f'"{v}" is not a height in metres: the build drops it rather than read it as 0 - '
-                           'set a number, or take the tag off', mid.lon if mid else box[0],
-                           mid.lat if mid else box[1], box, way=w.id))
-    for i, n in square.nodes.items():
-        v = n.tags.get('ele')
-        if v is None or parse_ele(v) is not None:
-            continue
-        name = n.tags.get('name')
-        what = f'{n.tags.get("natural", "node")} "{name}"' if name else f'{n.tags.get("natural", "node")} {i}'
-        out.append(Finding(square.name, 'ele', f'{what} - ele "{v}"',
-                           f'"{v}" is not a height in metres: the build drops it - set a number',
-                           n.lon, n.lat, (n.lon, n.lat, n.lon, n.lat), node=i))
-    return out
+def _bad_way(square, w) -> Finding | None:
+    v = w.tags.get('ele')
+    if v is None or parse_ele(v) is not None:
+        return None
+    box = _box(square, w.refs)
+    if box is None:
+        return None
+    mid = square.nodes.get(w.refs[len(w.refs) // 2])
+    return Finding(square.name, 'ele', f'{_what(w)} - ele "{v}"',
+                   f'"{v}" is not a height in metres: the build drops it rather than read it as 0 - '
+                   'set a number, or take the tag off', mid.lon if mid else box[0],
+                   mid.lat if mid else box[1], box, way=w.id)
 
 
-def off_ladder(square) -> list[Finding]:
+def _bad_node(i, n, square_name) -> Finding | None:
+    v = n.tags.get('ele') if n.tags else None
+    if v is None or parse_ele(v) is not None:
+        return None
+    name = n.tags.get('name')
+    what = f'{n.tags.get("natural", "node")} "{name}"' if name else f'{n.tags.get("natural", "node")} {i}'
+    return Finding(square_name, 'ele', f'{what} - ele "{v}"',
+                   f'"{v}" is not a height in metres: the build drops it - set a number',
+                   n.lon, n.lat, (n.lon, n.lat, n.lon, n.lat), node=i)
+
+
+def _ladder_rows(square, eles: dict) -> list[Finding]:
     """A row a contour at a value off the square's ladder used once or
-    twice, with the values either side."""
-    lad = L.infer(square)
+    twice, with the values either side - from the contours' levels,
+    ``eles``, way id to level."""
+    counts = Counter(eles.values())
+    lad = L.infer_from(counts, square.name.name)
     if lad is None:
         return []
-    found = {a.value: a for a in L.off_ladder(square, lad)}
+    found = {a.value: a for a in L.off_ladder_from(counts, lad)}
     out = []
-    for w in square.contours():
-        a = found.get(w.ele)
+    for wid, ele in eles.items():
+        a = found.get(ele)
         if a is None:
             continue
+        w = square.ways[wid]
         box = _box(square, w.refs)
         if box is None:
             continue
@@ -131,6 +131,19 @@ def off_ladder(square) -> list[Finding]:
                            'value looks like this - set the right one, or leave it if it is meant',
                            mid.lon if mid else box[0], mid.lat if mid else box[1], box, way=w.id))
     return out
+
+
+def long_ways(square) -> list[Finding]:
+    return [f for w in square.ways.values() if (f := _long(square, w)) is not None]
+
+
+def bad_ele(square) -> list[Finding]:
+    out = [f for w in square.ways.values() if (f := _bad_way(square, w)) is not None]
+    return out + [f for i, n in square.nodes.items() if (f := _bad_node(i, n, square.name)) is not None]
+
+
+def off_ladder(square) -> list[Finding]:
+    return _ladder_rows(square, {w.id: w.ele for w in square.contours()})
 
 
 KINDS = {'long': long_ways, 'ele': bad_ele, 'ladder': off_ladder}
@@ -144,18 +157,66 @@ def find(working_set) -> list[Finding]:
     return [f for sq in working_set.squares.values() for f in find_in(sq)]
 
 
+class _Held:
+    """One square's findings, kept as edited: a way's rows, a node's row,
+    and the ladder's rows, which are the contours' levels counted again."""
+
+    def __init__(self, square):
+        self.square = square
+        self.ways = {}
+        for w in square.ways.values():
+            rows = [f for f in (_long(square, w), _bad_way(square, w)) if f is not None]
+            if rows:
+                self.ways[w.id] = rows
+        self.nodes = {i: f for i, n in square.nodes.items() if (f := _bad_node(i, n, square.name)) is not None}
+        self.ladder = off_ladder(square)
+
+    def update(self, way_ids, spot_ids) -> None:
+        square = self.square
+        asked = set(spot_ids)
+        for wid in way_ids:
+            self.ways.pop(wid, None)
+            w = square.ways.get(wid)
+            if w is None:
+                continue
+            rows = [f for f in (_long(square, w), _bad_way(square, w)) if f is not None]
+            if rows:
+                self.ways[wid] = rows
+            asked.update(w.refs)
+        for i in [i for i in self.nodes if i not in square.nodes]:
+            del self.nodes[i]
+        for i in asked:
+            self.nodes.pop(i, None)
+            n = square.nodes.get(i)
+            if n is not None and (f := _bad_node(i, n, square.name)) is not None:
+                self.nodes[i] = f
+        # the levels counted again whole - 2 ms - since what is a contour
+        # turns on the water round it as well as on the way
+        self.ladder = off_ladder(square)
+
+    def findings(self) -> list[Finding]:
+        return ([f for rows in self.ways.values() for f in rows if f.kind == 'long']
+                + [f for rows in self.ways.values() for f in rows if f.kind == 'ele']
+                + list(self.nodes.values()) + self.ladder)
+
+
 class Index:
-    """The findings of a working set, a square asked again on any edit to
-    it - cheap enough not to be cleverer. ``update`` takes the edit's ways
-    and spot heights as the other indexes do, and asks the whole square."""
+    """The findings of a working set, kept as edited. A way an edit names is
+    asked again, and the nodes of it and the spot heights it names; the
+    ladder's rows are worked out again from the contours' levels. Asked whole
+    on every edit, roantra's N44E029 with its water was 140 ms of each."""
 
     def __init__(self, working_set):
         self.working_set = working_set
-        self._by_square = {sq.name: find_in(sq) for sq in working_set.squares.values()}
+        self._by_square = {sq.name: _Held(sq) for sq in working_set.squares.values()}
 
-    def update(self, square, *_):
-        self._by_square[square.name] = find_in(square)
+    def update(self, square, way_ids=(), spot_ids=()) -> None:
+        held = self._by_square.get(square.name)
+        if held is None or held.square is not square:
+            self._by_square[square.name] = _Held(square)
+            return
+        held.update(set(way_ids or ()), set(spot_ids or ()))
 
     def findings(self, kind: str | None = None) -> list[Finding]:
-        out = [f for found in self._by_square.values() for f in found if kind is None or f.kind == kind]
+        out = [f for held in self._by_square.values() for f in held.findings() if kind is None or f.kind == kind]
         return sorted(out, key=lambda f: (f.kind, str(f.square), f.text))

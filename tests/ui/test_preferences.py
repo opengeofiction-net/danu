@@ -122,16 +122,6 @@ def test_the_wms_port_is_written(window, dlg):
     assert window.settings.wms_port == 9115
 
 
-def test_a_new_bare_ring_threshold_finds_the_checks_again(window, dlg, qtbot):
-    window.checks_dock.toggleViewAction().trigger()
-    qtbot.waitUntil(lambda: window.inside_index is not None, timeout=5000)
-    before = window.inside_index
-    dlg.bare.setValue(1000)
-    assert ok(window, dlg)
-    qtbot.waitUntil(lambda: window.inside_index is not before and window.inside_index is not None, timeout=5000)
-    assert window.checks_dock.bare_min_ha == 1000 and '1000 ha' in window.checks_dock.node('bare').toolTip(0)
-
-
 def test_the_keys_are_listed_in_the_menus_order(window, dlg):
     rows = [dlg.table.item(r, 0).text() for r in range(dlg.table.rowCount())]
     assert rows[0] == 'File › Save' and rows.index('Edit › Undo') < rows.index('Edit › Water › Grade') \
