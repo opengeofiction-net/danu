@@ -424,6 +424,8 @@ class ContourLayer(QGraphicsItem):
         self._seg_ele = np.zeros(0); self._seg_way = np.zeros(0, dtype=np.int64); self._seg_i = np.zeros(0, dtype=np.int64)
         self._node_xy = np.zeros((0, 2)); self._node_ref: list[tuple[Square, int]] = []
         self._arrays_stale = False
+        self._geoms_at_build: dict = {}        # (square name, way id) -> the geometry its points in _node_xy are
+        self._dead_segs = self._dead_nodes = 0  # emptied by _patch_arrays, until the next build
         self._grade_index = None             # see _graded_index
         self._seg_grid = None                # see _segment_grid
         self._text: dict[tuple[str, str], QPainterPath] = {}
@@ -646,7 +648,7 @@ class ContourLayer(QGraphicsItem):
         # once for the call, not once per way: the same reason set_working_set
         # gathers it once per square
         members = _water_members(square)
-        moved = []                              # (key, geom) where only points moved
+        changed = []                            # (key, geom as it was, geom as it is), None for none
         for wid in way_ids:
             key = (square.name, wid)
             self._drop_way(key)
@@ -663,8 +665,7 @@ class ContourLayer(QGraphicsItem):
             way = square.ways.get(wid)
             geom = (self._project(square, way, members)
                     if way is not None else None)
-            moved.append((key, geom if old is not None and geom is not None and old.ele == geom.ele
-                          and old.refs == geom.refs else None))
+            changed.append((key, old, geom))
             if geom is not None:
                 self._geoms[key] = geom
                 self._add_coast(key, geom)
@@ -685,32 +686,53 @@ class ContourLayer(QGraphicsItem):
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
-        if not self._patch_arrays(moved):
+        if not self._patch_arrays(changed):
             self._arrays_stale = True
         self.update()
 
-    def _patch_arrays(self, moved) -> bool:
-        """The arrays brought up to date in place, where an edit moved points
-        and nothing else - every way changed holding the same nodes, in the
-        same order, at the same level: a node dragged, nodes picked and moved,
-        turned or scaled. Each way's slice of the arrays is written again, and
-        its segments that moved are taken out of the grid cells they left and
-        put in the ones they reached. False, and nothing touched, otherwise.
+    # a patch leaves the segments and points of what it replaced in the
+    # arrays, emptied; past this share of them, the emptied counted in, the
+    # arrays are built whole - so they hold at most a third more than is live
+    DEAD_SHARE = 0.25
+
+    def _patch_arrays(self, changed) -> bool:
+        """The arrays brought up to date in place, for ``changed``: (key, the
+        way's geometry as it was, as it is), None where there is none. A way
+        whose points only moved - a node dragged, nodes picked and moved,
+        turned or scaled - has its slice written again, and its segments that
+        moved are taken out of the grid cells they left and put in the ones
+        they reached. Any other - a node added or taken out, a merge, a way
+        drawn or deleted - has its old segments and points emptied and taken
+        out of the grid, and the new appended. False, and nothing touched,
+        when the arrays are stale - built whole when next asked - or when
+        what is emptied has grown past ``DEAD_SHARE`` of them.
 
         Building them again was most of a node move's time on roantra's
         N45E030 set: 64 ms for the arrays and 261 ms for the grid, over 1.2
-        million segments, for the two segments either side of one node."""
-        if self._arrays_stale or not moved or any(g is None or key not in self._node_at for key, g in moved):
-            return False                           # stale arrays are built whole, when next asked
-        if any(g.ele is not None and key not in self._way_at for key, g in moved):
+        million segments, for the two segments either side of one node. And
+        after any edit that changed a way's nodes - a merge, on N44E029 with
+        its water, 1.26 million segments - the next release paid 0.3 to 0.8 s
+        for the arrays and 0.7 s for the grid."""
+        if self._arrays_stale:
             return False
-        # the same refs is the same points and segments, so each way keeps its
-        # place in _ways, its slices, and _seg_way, _seg_i and _node_ref as
-        # they are; everything is checked above, before anything is written
+        same, other = [], []
+        for key, old, new in changed:
+            if (old is not None and new is not None and old.ele == new.ele and old.refs == new.refs
+                    and key in self._node_at and (new.ele is None or key in self._way_at)):
+                same.append((key, new))
+            elif old is not None or new is not None:
+                other.append((key, old, new))
+        dead_segs = self._dead_segs + sum(len(self._ways[self._way_at[k]].pts) - 1 for k, _, _ in other
+                                          if k in self._way_at)
+        dead_nodes = self._dead_nodes + sum(len(self._geoms_at_build[k].pts) for k, _, _ in other if k in self._node_at)
+        if dead_segs > self.DEAD_SHARE * max(len(self._seg_a), 1) or \
+                dead_nodes > self.DEAD_SHARE * max(len(self._node_xy), 1):
+            return False
         grid = self._seg_grid
-        for key, g in moved:
+        for key, g in same:
             j = self._node_at[key]
             self._node_xy[j:j + len(g.pts)] = g.pts
+            self._geoms_at_build[key] = g
             i = self._way_at.get(key)
             if i is None:
                 continue                           # a coastline with no level: no segments
@@ -736,8 +758,80 @@ class ContourLayer(QGraphicsItem):
                         del grid[c]
                 for c in after - before:
                     grid[c] = np.append(grid[c], seg) if c in grid else np.array([seg], dtype=np.int64)
+        if other:
+            self._replace_ways(other)
+        self._dead_segs, self._dead_nodes = dead_segs, dead_nodes
         self._grade_index = None                   # by node and cell; asked of rarely, built again then
         return True
+
+    def _replace_ways(self, other) -> None:
+        """``_patch_arrays``'s ways that are not the same ways moved: the old
+        emptied - its points and segments NaN, which no box or distance test
+        meets, and its segments out of the grid - and the new appended."""
+        grid = self._seg_grid
+        gone: dict = {}                            # grid cell -> segments to take out of it
+        for key, _old, _new in other:
+            j = self._node_at.pop(key, None)
+            if j is not None:
+                g = self._geoms_at_build.pop(key)
+                self._node_xy[j:j + len(g.pts)] = np.nan
+            i = self._way_at.pop(key, None)
+            if i is None:
+                continue
+            s0, n = self._seg_start[i], len(self._ways[i].pts) - 1
+            if grid is not None:
+                for k in range(s0, s0 + n):
+                    for c in self._cells(self._seg_a[k], self._seg_b[k]):
+                        gone.setdefault(c, []).append(k)
+            for arr in (self._seg_a, self._seg_b, self._seg_lo, self._seg_hi):
+                arr[s0:s0 + n] = np.nan
+            self._ways[i] = None
+        for c, segs in gone.items():
+            left = grid[c][~np.isin(grid[c], segs)]
+            if len(left):
+                grid[c] = left
+            else:
+                del grid[c]
+        new = [(key, g) for key, _old, g in other if g is not None]
+        pts = [g.pts for _, g in new if len(g.pts)]
+        if pts:
+            at = len(self._node_xy)
+            for key, g in new:
+                if len(g.pts):
+                    self._node_at[key] = at
+                    self._geoms_at_build[key] = g
+                    at += len(g.pts)
+            self._node_xy = np.concatenate([self._node_xy, *pts])
+            self._node_ref += list(chain.from_iterable(g.node_ref for _, g in new if len(g.pts)))
+        ways = [(key, g) for key, g in new if g.ele is not None]
+        if not ways:
+            return
+        start = len(self._seg_a)
+        counts = [len(g.pts) - 1 for _, g in ways]
+        for (key, g), n in zip(ways, counts, strict=True):
+            self._way_at[key] = len(self._ways)
+            self._seg_start.append(start)
+            self._ways.append(g)
+            start += n
+        a = np.concatenate([g.pts[:-1] for _, g in ways])
+        b = np.concatenate([g.pts[1:] for _, g in ways])
+        first = len(self._seg_a)
+        self._seg_a = np.concatenate([self._seg_a, a])
+        self._seg_b = np.concatenate([self._seg_b, b])
+        self._seg_lo = np.concatenate([self._seg_lo, np.minimum(a, b)])
+        self._seg_hi = np.concatenate([self._seg_hi, np.maximum(a, b)])
+        self._seg_ele = np.concatenate([self._seg_ele, np.repeat([float(g.ele) for _, g in ways], counts)])
+        self._seg_way = np.concatenate([self._seg_way, np.repeat(
+            np.arange(len(self._ways) - len(ways), len(self._ways), dtype=np.int64), counts)])
+        self._seg_i = np.concatenate([self._seg_i, np.concatenate([np.arange(n, dtype=np.int64) for n in counts])])
+        if grid is not None:
+            added: dict = {}
+            for k in range(first, len(self._seg_a)):
+                for c in self._cells(self._seg_a[k], self._seg_b[k]):
+                    added.setdefault(c, []).append(k)
+            for c, segs in added.items():
+                more = np.array(segs, dtype=np.int64)
+                grid[c] = np.concatenate([grid[c], more]) if c in grid else more
 
     def _cells(self, a, b) -> set:
         """The grid cells a segment's rectangle covers, as ``_segment_grid``
@@ -1052,6 +1146,8 @@ class ContourLayer(QGraphicsItem):
                 at += len(g.pts)
         self._node_xy = np.concatenate(pts) if pts else empty
         self._node_ref = list(chain.from_iterable(g.node_ref for g in geoms if len(g.pts)))
+        self._geoms_at_build = {(g.square.name, g.way.id): g for g in geoms if len(g.pts)}
+        self._dead_segs = self._dead_nodes = 0
 
     @staticmethod
     def _label(ele: float, pts: list[tuple[float, float]]) -> Label:
@@ -1099,6 +1195,23 @@ class ContourLayer(QGraphicsItem):
         if not as_built:
             self._ensure_arrays()
         lo, hi = self._seg_lo, self._seg_hi
+        grid = self._seg_grid
+        if grid is not None:
+            # by the grid, once there is one - kept as edited, so it is there
+            # after the first crossing check: a segment whose rectangle reaches
+            # the box shares a cell with it. The comparisons over every
+            # segment were 29 ms each on N44E029's 1.26 million, and a node
+            # let go asks several
+            c0x, c0y = math.floor(x0 / self.GRID), math.floor(y0 / self.GRID)
+            c1x, c1y = math.floor(x1 / self.GRID), math.floor(y1 / self.GRID)
+            if (c1x - c0x + 1) * (c1y - c0y + 1) <= self.GRID_BOX_CELLS:
+                parts = [grid[(cx, cy)] for cx in range(c0x, c1x + 1) for cy in range(c0y, c1y + 1)
+                         if (cx, cy) in grid]
+                if not parts:
+                    return np.zeros(0, dtype=np.int64)
+                cand = np.unique(np.concatenate(parts))
+                keep = (hi[cand, 0] >= x0) & (lo[cand, 0] <= x1) & (hi[cand, 1] >= y0) & (lo[cand, 1] <= y1)
+                return cand[keep]
         return np.flatnonzero((hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1))
 
     def pick_lines(self, x: float, y: float, tolerance: float,
@@ -1186,30 +1299,41 @@ class ContourLayer(QGraphicsItem):
         if not len(self._seg_ele):
             return out
         pts = np.asarray(pts, dtype=float)
-        for p, q in zip(pts[:-1], pts[1:], strict=True):
-            x0, y0 = np.floor(np.minimum(p, q) / self.GRID).astype(np.int64)
-            x1, y1 = np.floor(np.maximum(p, q) / self.GRID).astype(np.int64)
-            parts = [grid[(cx, cy)] for cx in range(x0, x1 + 1) for cy in range(y0, y1 + 1)
-                     if (cx, cy) in grid]
-            if not parts:
-                continue
-            cand = np.unique(np.concatenate(parts)) if len(parts) > 1 else parts[0]
-            hit = geometry.crossings(p, q, self._seg_a[cand], self._seg_b[cand])
-            for i in cand[hit]:
-                g = self._ways[int(self._seg_way[i])]
-                key = (g.square.name, g.way.id)
-                if key not in skips:
-                    out.add(key)
+        if len(pts) < 2:
+            return out
+        # every segment's candidates gathered by the grid, then every pair
+        # asked at once: a segment at a time, the "did it cross before" a
+        # node let go asks of its whole contour was 0.9 s for 2,000 nodes
+        P, Q = pts[:-1], pts[1:]
+        c0 = np.floor(np.minimum(P, Q) / self.GRID).astype(np.int64).tolist()
+        c1 = np.floor(np.maximum(P, Q) / self.GRID).astype(np.int64).tolist()
+        mine, theirs = [], []
+        for k, ((x0, y0), (x1, y1)) in enumerate(zip(c0, c1, strict=True)):
+            for cx in range(x0, x1 + 1):
+                for cy in range(y0, y1 + 1):
+                    cand = grid.get((cx, cy))
+                    if cand is not None:
+                        mine.append(np.full(len(cand), k, dtype=np.int64))
+                        theirs.append(cand)
+        if not mine:
+            return out
+        k, cand = np.concatenate(mine), np.concatenate(theirs)
+        hit = geometry.pair_crossings(P[k], Q[k], self._seg_a[cand], self._seg_b[cand])
+        for w in np.unique(self._seg_way[cand[hit]]).tolist():
+            g = self._ways[w]
+            key = (g.square.name, g.way.id)
+            if key not in skips:
+                out.add(key)
         return out
 
     def crossing_points(self, pts, key) -> list:
         """Where a run of scene points properly crosses one contour, as scene
         points - to ring what a refused move would have crossed (G8b)."""
         self._ensure_arrays()
-        mine = np.flatnonzero([(self._ways[int(i)].square.name, self._ways[int(i)].way.id) == key
-                               for i in range(len(self._ways))])
-        if not len(mine):
+        i = self._way_at.get(key)
+        if i is None:
             return []
+        mine = np.array([i], dtype=np.int64)
         segs = np.flatnonzero(np.isin(self._seg_way, mine))
         a, b = self._seg_a[segs], self._seg_b[segs]
         out = []
@@ -1726,6 +1850,7 @@ class ContourLayer(QGraphicsItem):
         return refs, [0.0, *np.cumsum(seg).tolist()]
 
     GRID = 2048.0          # scene units a cell, some 570 m at the gobras latitude
+    GRID_BOX_CELLS = 64    # a box over more cells than this is asked of every segment
 
     def _segment_grid(self):
         """Every contour segment by the grid cells its rectangle covers, as
@@ -1741,8 +1866,10 @@ class ContourLayer(QGraphicsItem):
         self._ensure_arrays()
         if self._seg_grid is not None:
             return self._seg_grid
-        c0 = np.floor(np.minimum(self._seg_a, self._seg_b) / self.GRID).astype(np.int64)
-        c1 = np.floor(np.maximum(self._seg_a, self._seg_b) / self.GRID).astype(np.int64)
+        # the segments _patch_arrays emptied are NaN, and in no cell
+        live = np.flatnonzero(~np.isnan(self._seg_a[:, 0]))
+        c0 = np.floor(np.minimum(self._seg_a[live], self._seg_b[live]) / self.GRID).astype(np.int64)
+        c1 = np.floor(np.maximum(self._seg_a[live], self._seg_b[live]) / self.GRID).astype(np.int64)
         ny = c1[:, 1] - c0[:, 1] + 1
         n = (c1[:, 0] - c0[:, 0] + 1) * ny
         seg = np.repeat(np.arange(len(n), dtype=np.int64), n)
@@ -1750,7 +1877,7 @@ class ContourLayer(QGraphicsItem):
         cx = c0[seg, 0] + k // ny[seg]
         cy = c0[seg, 1] + k % ny[seg]
         order = np.lexsort((seg, cy, cx))
-        seg, cx, cy = seg[order], cx[order], cy[order]
+        seg, cx, cy = live[seg[order]], cx[order], cy[order]   # back to the arrays' own indices
         cut = np.flatnonzero((np.diff(cx) != 0) | (np.diff(cy) != 0)) + 1
         starts = np.concatenate(([0], cut)).tolist()
         ends = [*cut.tolist(), len(seg)]
@@ -1777,6 +1904,8 @@ class ContourLayer(QGraphicsItem):
         grid = self._segment_grid()
         vertices = {}
         for g in self._ways:
+            if g is None:
+                continue                         # emptied by _patch_arrays
             for r in g.refs:
                 vertices.setdefault((g.square.name, r), float(g.ele))
         self._grade_index = (grid, vertices)

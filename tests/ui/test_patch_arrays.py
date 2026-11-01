@@ -1,5 +1,6 @@
-"""The layer's pick arrays and segment grid patched in place when an edit only
-moves points - the same answers as building them again, without the cost."""
+"""The layer's pick arrays and segment grid patched in place after an edit -
+points moved, or a way's nodes changed, added or deleted - the same answers
+as building them again, without the cost."""
 
 import pytest
 
@@ -76,12 +77,39 @@ def test_nodes_moved_together_and_a_ring_turned_patch_too(board):
     assert by_way(layer) == rebuilt(layer)
 
 
-def test_an_edit_that_changes_a_ways_nodes_builds_them_again(board):
+def test_an_edit_that_changes_a_ways_nodes_patches_them_too(board):
+    """A node put in, a way drawn, one deleted, and each undone: the old
+    emptied and the new appended - and picked, and crossed, where they are."""
     w, sq, layer, a, b, ring = board
     alloc = w.editor.history.alloc(sq)
     w.editor.do(sq, edits.InsertNode(a.id, 1, alloc.take(), (125.305, -22.70)))
-    assert layer._arrays_stale
+    assert not layer._arrays_stale, 'built again, not patched'
     assert by_way(layer) == rebuilt(layer)
+    c = add(w, [(125.36, -22.62), (125.36, -22.58)], 175)
+    # a line across b's middle segment, square to it
+    (x, y), (qx, qy) = layer.node_xy(sq, b.refs[1]), layer.node_xy(sq, b.refs[2])
+    mx, my, dx, dy = (x + qx) / 2, (y + qy) / 2, qx - x, qy - y
+    across = [(mx - dy * 0.1, my + dx * 0.1), (mx + dy * 0.1, my - dx * 0.1)]
+    assert layer.crossed_by(across) == {(NORTH, b.id)}
+    w.editor.do(sq, edits.DeleteWay(b.id))
+    assert not layer._arrays_stale
+    assert by_way(layer) == rebuilt(layer)
+    assert layer.crossed_by(across) == set(), 'a deleted way crossed still'
+    x, y = layer.node_xy(sq, c.refs[0])
+    assert layer.pick_node(x, y, 1.0)[1] == c.refs[0], 'a drawn way not picked'
+    for _ in range(3):
+        w.editor.undo()
+        assert not layer._arrays_stale
+        assert by_way(layer) == rebuilt(layer)
+
+
+def test_past_their_share_emptied_the_arrays_are_built_whole(board, monkeypatch):
+    w, sq, layer, a, b, ring = board
+    monkeypatch.setattr(type(layer), 'DEAD_SHARE', 0.0)
+    alloc = w.editor.history.alloc(sq)
+    w.editor.do(sq, edits.InsertNode(a.id, 1, alloc.take(), (125.305, -22.70)))
+    assert layer._arrays_stale
+    assert by_way(layer) == rebuilt(layer) and layer._dead_segs == 0
 
 
 def test_a_moved_node_is_picked_where_it_is_now(board):
@@ -96,3 +124,38 @@ def test_a_moved_node_is_picked_where_it_is_now(board):
     qx, qy = layer.node_xy(sq, b.refs[2])
     mx, my, dx, dy = (x + qx) / 2, (y + qy) / 2, qx - x, qy - y
     assert layer.crossed_by([(mx - dy * 0.1, my + dx * 0.1), (mx + dy * 0.1, my - dx * 0.1)]) == {(NORTH, b.id)}
+
+
+def test_a_box_asked_by_the_grid_is_what_every_segment_asked_says(board):
+    """Once the grid is there, a box's segments are its cells' - the same
+    segments, ascending, as the comparisons over all of them."""
+    import random
+    w, sq, layer, a, b, ring = board
+    alloc = w.editor.history.alloc(sq)
+    w.editor.do(sq, edits.InsertNode(a.id, 1, alloc.take(), (125.305, -22.70)))   # patched, some emptied
+    layer._segment_grid()
+    xs = [layer.node_xy(sq, r) for way in (a, b, ring) for r in sq.ways[way.id].refs]
+    random.seed(4)
+    for _ in range(200):
+        x, y = random.choice(xs)
+        r = random.choice((0.5, 50.0, 3000.0, 1e6))          # the last over more cells than the grid asks
+        box = (x - r, y - r * random.random(), x + r * random.random(), y + r)
+        by_grid = layer._segments_in(*box)
+        grid, layer._seg_grid = layer._seg_grid, None
+        by_all = layer._segments_in(*box)
+        layer._seg_grid = grid
+        assert by_grid.tolist() == by_all.tolist()
+
+
+def test_a_grid_first_built_after_a_patch_leaves_out_what_it_emptied(board):
+    """The grid built when first asked, after a patch emptied a way's
+    segments: those are in no cell, and the rest are where a build puts them."""
+    w, sq, layer, a, b, ring = board
+    layer._seg_grid = None
+    alloc = w.editor.history.alloc(sq)
+    w.editor.do(sq, edits.InsertNode(a.id, 1, alloc.take(), (125.305, -22.70)))
+    assert layer._dead_segs and layer._seg_grid is None
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert by_way(layer) == rebuilt(layer)

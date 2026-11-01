@@ -79,3 +79,10 @@ def test_simplified_points_are_a_subsequence_within_tolerance(pts, tol):
     for (i, s), (j, e) in pairwise(zip(idx, out, strict=True)):
         d = np.array([g.nearest_point_on_segments(p, np.array([s]), np.array([e]))[1][0] for p in a[i:j + 1]])
         assert (d <= tol + 1e-9).all()
+
+
+def test_pair_crossings_is_crossings_asked_a_pair_at_a_time():
+    rng = np.random.default_rng(7)
+    p, q, a, b = (rng.integers(0, 6, size=(400, 2)).astype(float) for _ in range(4))
+    want = [bool(g.crossings(p[i], q[i], a[i:i + 1], b[i:i + 1])[0]) for i in range(400)]
+    assert g.pair_crossings(p, q, a, b).tolist() == want and any(want) and not all(want)
