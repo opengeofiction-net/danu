@@ -551,10 +551,12 @@ def test_a_plan_never_changes_the_square_it_is_worked_out_on():
                  (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)
     contour(sq, [(125.525, -22.50 - 3 / 110540), (125.535, -22.50 - 3 / 110540)], 140)
     refs = {i: list(x.refs) for i, x in sq.ways.items()}
+    at = {i: (n.lon, n.lat, dict(n.tags)) for i, n in sq.nodes.items()}
     sq.nodes, sq.ways, sq.relations = Frozen(sq.nodes), Frozen(sq.ways), Frozen(sq.relations)
     p = flatten.plan(w, sq, lk, allocator(sq), pull_back_m=100)
     assert p.wrapped == 1
-    assert {i: list(x.refs) for i, x in sq.ways.items()} == refs
+    assert {i: list(x.refs) for i, x in sq.ways.items()} == refs, 'a way changed in place'
+    assert {i: (n.lon, n.lat, dict(n.tags)) for i, n in sq.nodes.items()} == at, 'a node changed in place'
 
 
 def test_a_sea_with_coastline_rings_at_0_m_is_no_flattened_lake():
