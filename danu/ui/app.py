@@ -2353,8 +2353,16 @@ class MainWindow(QMainWindow):
                     return
                 (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
                  self.file_index, self.inside_index) = indexes
+                # put to it a square at a time, everything edited there
+                # together: one step's ways asked before a later one's
+                # removals were met what the later had taken
                 missed, self._checks_missed = self._checks_missed, []
+                merged: dict = {}
                 for square, ways, spot_ids in missed:
+                    _, w, s = merged.setdefault(id(square), (square, set(), set()))
+                    w |= ways
+                    s |= spot_ids
+                for square, ways, spot_ids in merged.values():
                     self._checks_edited(square, ways, spot_ids)
                 self._refresh_checks()
                 self.statusBar().showMessage(f'checks found in {time.monotonic() - started:.1f} s')
