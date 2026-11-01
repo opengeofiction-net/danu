@@ -138,7 +138,7 @@ def test_a_box_asked_by_the_grid_is_what_every_segment_asked_says(board):
     random.seed(4)
     for _ in range(200):
         x, y = random.choice(xs)
-        r = random.choice((0.5, 50.0, 3000.0))
+        r = random.choice((0.5, 50.0, 3000.0, 1e6))          # the last over more cells than the grid asks
         box = (x - r, y - r * random.random(), x + r * random.random(), y + r)
         by_grid = layer._segments_in(*box)
         grid, layer._seg_grid = layer._seg_grid, None

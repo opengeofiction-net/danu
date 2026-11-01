@@ -691,7 +691,8 @@ class ContourLayer(QGraphicsItem):
         self.update()
 
     # a patch leaves the segments and points of what it replaced in the
-    # arrays, emptied; past this share of them, the arrays are built whole
+    # arrays, emptied; past this share of them, the emptied counted in, the
+    # arrays are built whole - so they hold at most a third more than is live
     DEAD_SHARE = 0.25
 
     def _patch_arrays(self, changed) -> bool:
