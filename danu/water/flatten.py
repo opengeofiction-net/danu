@@ -45,6 +45,7 @@ what is inside it.
 
 from __future__ import annotations
 
+import copy
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -377,12 +378,11 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
             out.removed += [[proj.lonlat(*q) for q in run] for run in gone]
             # what was not pushed and still reaches the water, cut there: the
             # cut worked out on the contour as pushed, then the push taken back
-            cmd.apply(sq)
-            now = sq.ways[way.id]
+            then = _tried(sq, cmd)
+            now = then.ways[way.id]
             aside = Plan(level)
-            rest = _reshape(sq, now, [proj.xy(sq.nodes[r]) for r in now.refs], e, level, shore, proj, alloc,
-                            pull_back_m, aside)
-            cmd.undo(sq)
+            rest = _reshape(then, now, [proj.xy(then.nodes[r]) for r in now.refs], e, level, shore, proj,
+                            alloc, pull_back_m, aside)
             if rest is not None:
                 cmd = edits.Compound([cmd, rest], name=cmd.describe())
                 out.removed += aside.removed
@@ -397,6 +397,22 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
     out.steps = [(by_name[k], edits.Compound(cmds, name=f'flatten {name} at {text} m'))
                  for k, cmds in per_square.items()]
     return out
+
+
+def _tried(sq: Square, cmd) -> Square:
+    """The square as ``cmd`` would leave it, ``sq`` itself untouched: a plan
+    is worked out on a worker, and two at once - the strength changed while
+    one ran - that applied and undid on the open square broke it between
+    them (N44E028, 2026-11-01). What the command changes is copied; the
+    rest is shared."""
+    nodes, ways, relations = cmd.touched(sq)
+    then = Square(name=sq.name, nodes=dict(sq.nodes), ways=dict(sq.ways), relations=dict(sq.relations))
+    for held, ids in ((then.nodes, nodes), (then.ways, ways), (then.relations, relations)):
+        for i in ids:
+            if i in held:
+                held[i] = copy.deepcopy(held[i])
+    cmd.apply(then)
+    return then
 
 
 def _reshape(sq, way, pts, e, level, shore, proj, alloc, pull_back_m, out):

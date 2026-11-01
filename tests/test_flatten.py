@@ -532,6 +532,31 @@ def test_where_the_next_contour_crowds_the_shore_only_that_stretch_is_cut():
         assert all(off_shore(sq, r) > 0 for r in x.refs), 'a piece reaches into the water'
 
 
+class Frozen(dict):
+    """A square's dict that will not be changed."""
+    def _no(self, *args, **kwargs):
+        raise AssertionError('the plan changed the square')
+    __setitem__ = __delitem__ = pop = popitem = clear = update = setdefault = _no
+
+
+def test_a_plan_never_changes_the_square_it_is_worked_out_on():
+    """A plan runs on a worker, and two at once - the strength changed while
+    one ran - each applying and undoing on the open square broke it between
+    them: N44E028, 2026-11-01, a KeyError and then a way gone. What a push
+    leaves, cut at the shore, is worked out on a copy."""
+    pytest.importorskip('osgeo.ogr')
+    w, sq = ws()
+    lk = lake(sq)
+    contour(sq, [(125.51, -22.52), (125.51, -22.48), (125.51, -22.44),
+                 (125.53, -22.44), (125.53, -22.48), (125.53, -22.52)], 120)
+    contour(sq, [(125.525, -22.50 - 3 / 110540), (125.535, -22.50 - 3 / 110540)], 140)
+    refs = {i: list(x.refs) for i, x in sq.ways.items()}
+    sq.nodes, sq.ways, sq.relations = Frozen(sq.nodes), Frozen(sq.ways), Frozen(sq.relations)
+    p = flatten.plan(w, sq, lk, allocator(sq), pull_back_m=100)
+    assert p.wrapped == 1
+    assert {i: list(x.refs) for i, x in sq.ways.items()} == refs
+
+
 def test_a_sea_with_coastline_rings_at_0_m_is_no_flattened_lake():
     """The sea, r470432, is partly made of coastline ways carrying 0 m: with
     no level of its own it was taken for a flattened lake and said, on the
