@@ -235,7 +235,7 @@ class Index:
 
     def crossings(self) -> list[Crossing]:
         """Sorted once an edit: the panel and the map's marks both ask, and
-        sorting roantra's N44E029 set's was 25 ms."""
+        sorting the crossings of roantra's N44E029 set took 25 ms."""
         if self._listed is None:
             out = {c for cs in self._by_way.values() for c in cs}
             self._listed = sorted(out, key=lambda c: (c.lat, c.lon))

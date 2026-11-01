@@ -680,9 +680,9 @@ class Index:
         if not way_ids:
             return                     # a spot height is nothing to a lake or a coast
         # what moved: the points an edited line or outline had and has not
-        # now, or has and had not. Only a lake or a body round one of those can have changed - a node
-        # moved at one end of a contour two thousand long asks the lakes at
-        # that end, not every lake in the contour's box
+        # now, or has and had not. Only a lake round one of those can have
+        # changed - a node moved at one end of a contour two thousand long
+        # asks the lakes at that end, not every lake in the contour's box
         before = {i: s.lines[i] for i in way_ids if i in s.lines}
         bodies_before = [b for b in s.bodies.values() if b.ways & way_ids]
         coasts_before = [b for b in s.coasts.values() if b.ways & way_ids]
