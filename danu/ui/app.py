@@ -136,7 +136,7 @@ CHECKS = (('Crossing contours', lambda ws: crossings.Index(ws)),
           ('Contours crossing themselves', lambda ws: loops.Index(ws)),
           ('Touching contours', lambda ws: touches.Index(ws)),
           ('Spot heights', lambda ws: spots.Index(ws)),
-          ('Ways too long, ele, the ladder', lambda ws: files.Index(ws)),
+          ('Way lengths, ele and the ladder', lambda ws: files.Index(ws)),
           ('Lakes and coastlines', lambda ws: inside.Index(ws)))
 
 
