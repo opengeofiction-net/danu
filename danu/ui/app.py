@@ -2359,7 +2359,7 @@ class MainWindow(QMainWindow):
                 missed, self._checks_missed = self._checks_missed, []
                 merged: dict = {}
                 for square, ways, spot_ids in missed:
-                    _, w, s = merged.setdefault(id(square), (square, set(), set()))
+                    _, w, s = merged.setdefault(square.name, (square, set(), set()))
                     w |= ways
                     s |= spot_ids
                 for square, ways, spot_ids in merged.values():
