@@ -165,7 +165,7 @@ class ChecksDock(QDockWidget):
         until there is something to put in it."""
         self.progress.setRange(0, steps)
         self.progress.setValue(0)
-        self.progress.setFormat('Finding the checks - %v of %m')
+        self.progress.setFormat('Validating')
         self.progress.setVisible(True)
         self.status.setVisible(False)
         self.tree.setVisible(False)
@@ -174,13 +174,13 @@ class ChecksDock(QDockWidget):
 
     def finding_step(self, step: int, steps: int, name: str) -> None:
         self.progress.setRange(0, steps)
-        self.progress.setValue(step)
-        self.progress.setFormat(f'Finding the checks: {name} - %v of %m')
+        self.progress.setValue(step - 1)          # the ones done; the text names the one on
+        self.progress.setFormat(f'Validating: {name} ({step} of {steps})')
 
     def failed(self, why: str) -> None:
         self.progress.setVisible(False)
-        self.status.setText(f'The checks could not be found: {why}. Close the panel and open it again '
-                            'to try again.')
+        self.status.setText(f'Validation failed: {why}. Close the panel and open it again '
+                            'to retry.')
         self.status.setVisible(True)
 
     def _found(self) -> None:
