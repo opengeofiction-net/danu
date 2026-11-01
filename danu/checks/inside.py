@@ -6,13 +6,6 @@
   descends along its course (R27) - and a lake's own fill lines and the
   contours at its level, which flatten leaves touching its shore, are not
   other levels.
-- **a ring with nothing inside it** (R39) - a closed contour holding no other
-  contour and no spot height: the top of a hill, or the bottom of a hollow,
-  with nothing to say how high or how deep it goes. A report rather than a
-  warning: plenty are meant, and a hill's top ring is still a hill. And only
-  a ring of some size, 10 ha by default: half the 3,758 on gobras are under
-  0.6 ha, knolls a few dozen metres across where a spot height would say
-  nothing the ring does not; 170 are 10 ha or more.
 - **a coastline drawn backwards** - a ring of ``natural=coastline``, one way
   or several end to end, winding clockwise round contours above sea level. A
   coastline keeps land on its left, so the build reads what it holds as sea:
@@ -57,7 +50,6 @@ from ..core.rings import closed_rings, relation_rings
 from ..core.square import parse_ele
 from ..water.overpass import flows
 from .files import Finding
-from .spots import spot_heights
 
 CHUNK = 64                       # a ring's edges asked a chunk at a time, each by its own box
 
@@ -182,17 +174,6 @@ class _Line:
     X: np.ndarray
     Y: np.ndarray
     box: tuple
-    closed: bool
-    area: float                  # square metres, a closed one's; 0 for an open one
-
-
-BARE_MIN_M2 = 100_000            # 10 ha: the smallest ring reported as holding nothing
-
-
-def _area(X, Y) -> float:
-    """A ring's area in square metres, the degrees scaled at its latitude."""
-    kx = 111320 * math.cos(math.radians(float(Y.mean())))
-    return abs(float(np.dot(X[:-1], Y[1:]) - np.dot(X[1:], Y[:-1]))) / 2 * kx * 110540
 
 
 def _line(square, way) -> _Line | None:
@@ -201,9 +182,7 @@ def _line(square, way) -> _Line | None:
         return None
     X = np.array([square.nodes[r].lon for r in refs])
     Y = np.array([square.nodes[r].lat for r in refs])
-    closed = len(way.refs) > 3 and way.refs[0] == way.refs[-1] and len(refs) == len(way.refs)
-    return _Line(way.id, way.ele, np.array(refs, dtype=np.int64), X, Y,
-                 (X.min(), Y.min(), X.max(), Y.max()), closed, _area(X, Y) if closed else 0.0)
+    return _Line(way.id, way.ele, np.array(refs, dtype=np.int64), X, Y, (X.min(), Y.min(), X.max(), Y.max()))
 
 
 @dataclass
@@ -428,11 +407,10 @@ class _Sides:
 
 
 class _Square:
-    """One square's contours by their boxes, its bodies and its spot heights."""
+    """One square's contours by their boxes, and its bodies."""
 
-    def __init__(self, square, bare_min: float = BARE_MIN_M2):
+    def __init__(self, square):
         self.square = square
-        self.bare_min = bare_min
         self.lines = {}
         for w in square.contours():
             ln = _line(square, w)
@@ -444,16 +422,12 @@ class _Square:
         self.sides = _Sides(square, ringed)
         self.side_votes = ({i: self.sides.votes(ln) for i, ln in self.lines.items() if i not in self.coast_ids}
                            if not self.sides.empty else {})
-        self.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
         self._arrays = None
         # body key -> line id -> whether that line lies in or across it: what
         # spanned() found, kept so that an edit asks again only the lines it
         # changed - a line not edited cannot have moved into or out of a lake
         # that was not. Roantra's estuary, asked whole, is seconds
         self.held: dict = {}
-        # ring id -> what bare() found inside it, a line's id or 'spot': a ring
-        # not edited stays covered until that is
-        self.inner: dict = {}
 
     def arrays(self):
         if self._arrays is None:
@@ -614,37 +588,6 @@ class _Square:
                                  tuple(map(float, box))))
         return out
 
-    # -------------------------------------------------------------- R39
-    def bare(self, ln, only=None, spots=True) -> Finding | None:
-        """A ring with nothing inside - or, given ``only``, whether the lines
-        of it, and the spot heights unless ``spots`` is false, leave a ring
-        that was bare so: nothing else of it has changed."""
-        self.inner.pop(ln.id, None)
-        if not ln.closed or ln.area < self.bare_min:
-            return None
-        x0, y0, x1, y1 = ln.box
-        ring = [(ln.X, ln.Y)]
-        for other in self.lines_near(ln.box, but=ln.id):
-            if only is not None and other.id not in only:
-                continue
-            m = (other.X >= x0) & (other.X <= x1) & (other.Y >= y0) & (other.Y <= y1)
-            if m.any():
-                m[m] = ~np.isin(other.refs[m], ln.refs)
-            if (m.any() and inside(other.X[m], other.Y[m], ring).any()) or crosses(other.X, other.Y, ring, ln.box):
-                self.inner[ln.id] = other.id
-                return None
-        near = [p for p in self.spots.values() if x0 <= p[0] <= x1 and y0 <= p[1] <= y1] if spots else []
-        if near and inside([p[0] for p in near], [p[1] for p in near], ring).any():
-            self.inner[ln.id] = 'spot'
-            return None
-        text = f'{L.format_ele(ln.ele)} m ring, way {ln.id} - {ln.area / 1e4:,.0f} ha, nothing inside'
-        why = ('a closed contour with no contour and no spot height inside: the top of a hill or the '
-               'bottom of a hollow, with nothing to say how high or deep it goes - a spot height '
-               'would (R37); plenty are meant')
-        k = len(ln.X) // 2
-        return Finding(self.square.name, 'bare', text, why, float(ln.X[k]), float(ln.Y[k]),
-                       tuple(map(float, ln.box)), way=ln.id)
-
 
 def _all(sq: _Square) -> dict:
     out = {}
@@ -652,10 +595,6 @@ def _all(sq: _Square) -> dict:
         f = sq.spanned(body)
         if f is not None:
             out[('lake', key)] = f
-    for ln in sq.lines.values():
-        f = sq.bare(ln)
-        if f is not None:
-            out[('bare', ln.id)] = f
     out.update(_coast_findings(sq))
     return out
 
@@ -710,22 +649,21 @@ def held(square) -> tuple[dict, int]:
     return out, spanned
 
 
-def find_in(square, bare_min: float = BARE_MIN_M2) -> list[Finding]:
-    return list(_all(_Square(square, bare_min)).values())
+def find_in(square) -> list[Finding]:
+    return list(_all(_Square(square)).values())
 
 
-def find(working_set, bare_min: float = BARE_MIN_M2) -> list[Finding]:
-    return [f for sq in working_set.squares.values() for f in find_in(sq, bare_min)]
+def find(working_set) -> list[Finding]:
+    return [f for sq in working_set.squares.values() for f in find_in(sq)]
 
 
 class Index:
     """The findings of a working set, kept as edited: the rings and bodies
     whose box an edit touched, as it was and as it is, are asked again."""
 
-    def __init__(self, working_set, bare_min: float = BARE_MIN_M2):
+    def __init__(self, working_set):
         self.working_set = working_set
-        self.bare_min = bare_min
-        self._squares = {sq.name: _Square(sq, bare_min) for sq in working_set.squares.values()}
+        self._squares = {sq.name: _Square(sq) for sq in working_set.squares.values()}
         self._found = {name: _all(s) for name, s in self._squares.items()}
 
     def findings(self, kind: str | None = None) -> list[Finding]:
@@ -735,21 +673,19 @@ class Index:
     def update(self, square, way_ids=(), spot_ids=()) -> None:
         s = self._squares.get(square.name)
         if s is None or s.square is not square:
-            self._squares[square.name] = s = _Square(square, self.bare_min)
+            self._squares[square.name] = s = _Square(square)
             self._found[square.name] = _all(s)
             return
-        way_ids, spot_ids = set(way_ids or ()), set(spot_ids or ())
-        if not (way_ids or spot_ids):
-            return
+        way_ids = set(way_ids or ())
+        if not way_ids:
+            return                     # a spot height is nothing to a lake or a coast
         # what moved: the points an edited line or outline had and has not
-        # now, or has and had not, and where an edited spot height was and is.
-        # Only a ring or a body round one of those can have changed - a node
-        # moved at one end of a contour two thousand long asks the rings at
-        # that end, not every ring in the contour's box
+        # now, or has and had not. Only a lake or a body round one of those can have changed - a node
+        # moved at one end of a contour two thousand long asks the lakes at
+        # that end, not every lake in the contour's box
         before = {i: s.lines[i] for i in way_ids if i in s.lines}
         bodies_before = [b for b in s.bodies.values() if b.ways & way_ids]
         coasts_before = [b for b in s.coasts.values() if b.ways & way_ids]
-        spots_before = {i: s.spots[i] for i in spot_ids if i in s.spots}
         water = square.water_bodies()
         for i in way_ids:
             s.lines.pop(i, None)
@@ -761,9 +697,7 @@ class Index:
                 if ln is not None:
                     s.lines[i] = ln
         s._arrays = None
-        # the bodies again only when water was edited, and the spot heights
-        # only when one was, or a way now passes through or off one - each is
-        # the whole square read, 15 ms of N20E087's spot heights
+        # the bodies again only when water was edited: the whole square read
         if way_ids & (water | {i for b in bodies_before for i in b.ways}):
             s.bodies = _bodies(square)
             s.held = {k: v for k, v in s.held.items() if k in s.bodies or k in s.coasts}
@@ -784,13 +718,6 @@ class Index:
                 s.side_votes.pop(i, None)
                 if i in s.lines and i not in s.coast_ids:
                     s.side_votes[i] = s.sides.votes(s.lines[i])
-        touched = {r for i in way_ids for r in getattr(square.ways.get(i), 'refs', ())}
-        touched |= {int(r) for ln in before.values() for r in ln.refs}
-        spots_held = s.spots
-        if spot_ids or touched & (set(s.spots) | {i for i, n in ((r, square.nodes.get(r)) for r in touched)
-                                                    if n is not None and 'ele' in n.tags}):
-            s.spots = {i: (n.lon, n.lat) for i, (n, _) in spot_heights(square).items()}
-        spots_moved = s.spots != spots_held
         moved = set()
         for i in way_ids:
             old, new = before.get(i), s.lines.get(i)
@@ -799,14 +726,10 @@ class Index:
         for b in bodies_before + [b for b in s.bodies.values() if b.ways & way_ids]:
             for X, Y in b.rings:
                 moved |= set(zip(X, Y, strict=True))
-        for i in spot_ids:
-            moved |= {p for p in (spots_before.get(i), s.spots.get(i)) if p is not None}
         # and the boxes of the segments edited, as they were and are: a node
         # moved outside a lake's box can still take its segment across it
         spans = _segments_at([*before.values(), *(s.lines[i] for i in way_ids if i in s.lines)], moved)
         found = self._found[square.name]
-        for key in [k for k in found if k[0] == 'bare' and k[1] in way_ids and k[1] not in s.lines]:
-            del found[key]
         for key in [k for k in found if k[0] == 'lake' and k[1] not in s.bodies]:
             del found[key]
         # the coast's findings again, every ring and way of it: a ring not
@@ -826,25 +749,6 @@ class Index:
                 found.pop(('lake', key), None)
                 if f is not None:
                     found[('lake', key)] = f
-        # a ring not edited is asked again only of what changed: one covered
-        # stays so while what covers it is not edited, and one bare is asked
-        # of the lines edited. Asked whole, the 210 rings round N20E066's
-        # 1991 m top were 8.8 s an edit there
-        for ln in s.lines.values():
-            if not (ln.id in way_ids or _holds_any(ln.box, P) or _overlap(ln.box, spans).any()):
-                continue
-            if ln.id in way_ids:
-                f = s.bare(ln)
-            elif ('bare', ln.id) in found:
-                f = s.bare(ln, way_ids, spots_moved)
-            else:
-                by = s.inner.get(ln.id)
-                if by is not None and by not in way_ids and not (by == 'spot' and spots_moved):
-                    continue
-                f = s.bare(ln)
-            found.pop(('bare', ln.id), None)
-            if f is not None:
-                found[('bare', ln.id)] = f
 
 
 def _segments_at(lines, moved) -> np.ndarray:
