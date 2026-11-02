@@ -6443,3 +6443,27 @@ A node moved now paints once, over a part of the view: 19 to 23 ms a move
 against 50 or so. A paint's cost is still mostly fixed, whatever its size: a
 rectangle test of every contour in Python and the zone outlines worked out
 again.
+
+## A paint's fixed costs
+
+With an edit redrawing a part of the view, what a paint cost was mostly what
+it did whatever its size: on roantra's N44E029 set at z16, 19 ms for a few
+pixels.
+
+- Each contour's rectangle was tested against the part in Python, a
+  `QRectF.intersects` each: 33,000 a paint, 10 ms. The water's, the fill
+  lines' and the water fills' were tested the same way. Now each is one
+  array test (`ContourLayer._in`), the array built again when what it is of
+  changed - the dicts count their own changes (`_Counted`).
+- The zones' outlines worked out each square's rectangle afresh, twice, for
+  784 squares: 4.4 ms. They are kept (`zones._cell_rect`).
+- Roantra's sea, r470432, is one water fill of 113,963 points, and its
+  rectangle is every view's: it was drawn whole, 6 ms, in every paint. A fill
+  of more than `BIG_FILL` points is drawn cut to the view and a margin
+  (`_cut_ring`, Sutherland-Hodgman in numpy), kept until the view moves.
+  Inside the view it is the fill exactly; what the cut adds runs along the
+  margin, outside it. Rendered both ways at five views, two pixels differ, by
+  one unit of one channel - the rasteriser's sums over other edges.
+
+At z16 a part redrawn for a node is now 5 ms, and a whole paint 9.4 ms
+against 31.6; at z14 12.0 against 33.7, at z12 26.2 against 48.8.
