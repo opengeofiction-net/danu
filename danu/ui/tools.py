@@ -2999,11 +2999,18 @@ class EditController(QObject):
                        f'{"s" * (p.dropped != 1)} crossing it or at sea replaced by {p.laid}, at {levels} m')
             if p.left:
                 summary += f'; {p.left} that would still have crossed not laid'
+            if p.pinched:
+                k = len(p.pinched)
+                summary += (f'; {k} place{"s" * (k != 1)} where a contour kept comes too near the coast '
+                            'for the levels below it - listed')
             if p.refused:
                 summary += f'; {len(p.refused)} not fitted - {refused}'
             sq = p.steps[0][0]
             issues = [Issue('unfitted', f'not fitted: {why}, at {lat:.5f}, {lon:.5f}',
                             (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in p.refused]
+            issues += [Issue('pinched', f'no room for {", ".join(format_ele(v) for v in levels)} m between the '
+                                        f'coast and the contour kept, at {lat:.5f}, {lon:.5f}',
+                             (m.lonlat_to_scene(lon, lat),)) for levels, lon, lat in p.pinched]
             scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
             self._set_proposal(Proposal(
                 sq, None, None, summary, issues=issues, steps=p.steps,

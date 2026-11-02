@@ -1,5 +1,5 @@
-"""Fit to the coast: an island's low contours laid again in the land between
-its coastline and the lowest of its contours that keeps off it.
+"""Fit to the coast: an island's contours that run out past its coastline
+laid again in the land between the coast and the contours that keep off it.
 
 Contours made from one source and a coastline drawn from another disagree
 at the shore: on roantra's N43E029, 10, 20 and 30 m ran out to sea round
@@ -11,19 +11,22 @@ So, an island at a time - its coastline a closed ring in the open set:
 
 - What goes: its contours that cross its coast, and those lying wholly at
   sea beside it - touching no coastline - the low ground run out past the
-  shore; and the lower ones inside it that lie in the band they leave.
-- The band's top: the lowest of the island's own contours above all of
-  those - so every contour that goes is below it, and its level is laid
-  again wherever the band has room for it. With none - an islet whose every level crosses - the top is its
-  highest spot height, or the ladder's next level up, at the point of it
-  furthest from the shore.
+  shore. Nothing else: every contour of the island that keeps inside it is
+  kept, at whatever level, and is what the rest is laid against - a lobe's
+  own 40 m hill keeps its ring, and its lower levels are laid up to it.
 - The band: the island's land reached from its coast without crossing a
   contour kept.
 - In it, on a grid fine enough for a band 50 m wide, a height by where a
-  point lies between the coast and the contours kept: ``top * dc / (dc + du)``
-  - or, for an islet, ``top * dc / dc_max``. The levels that went are that
-  height's contours: 0 at the coast and the top short of what is kept, so
-  they keep off both, and off each other.
+  point lies between the coast and the contours kept: ``lu * dc / (dc + du)``,
+  ``du`` the distance to the nearest kept contour and ``lu`` the kept levels
+  about the point, each weighed by its nearness. An islet with nothing kept
+  above what goes is laid up to its highest spot height, or the next level,
+  at its point furthest from the shore: ``top * dc / dc_max``. The levels
+  that went are that height's contours: 0 at the coast and short of each
+  kept level at it, so they keep off both, and off each other. Where a laid
+  level is a kept one too, it is not laid along the kept line itself.
+- Where a kept contour comes too near the coast for the levels below it to
+  pass, a level laid stops there; each place is said, as ``pinched``.
 
 What is laid is a proposal, as a flatten is; accepted, one step across the
 squares the island is in. Nothing here is Qt's.
@@ -44,6 +47,8 @@ CELL_M = 3.5                    # the grid's cell: a band 50 m wide is fourteen 
 MAX_CELLS = 16_000_000          # and a big island's coarser, to keep to this
 SEA_NEAR_M = 150.0              # a low contour wholly at sea this near an island is its
 MIN_RING_CELLS = 4.0            # a ring laid smaller across than this many cells is noise
+MIN_LINE_CELLS = 8.0            # and an open line shorter than this, a level squeezed out
+PINCH_M = 60.0                  # ends of levels laid nearer each other than this are one place
 MIN_NODES = 4
 
 
@@ -74,9 +79,10 @@ class Plan:
     dropped: int = 0                                 # contours taken out
     laid: int = 0                                    # and laid in their place
     levels: set = field(default_factory=set)         # the levels laid
-    tops: list = field(default_factory=list)         # each island's band top
+    tops: list = field(default_factory=list)         # each island's lowest kept level above what goes
     refused: list = field(default_factory=list)      # (why, lon, lat): islands not fitted
     left: int = 0                                    # lines laid that would have crossed, not laid
+    pinched: list = field(default_factory=list)      # ([levels], lon, lat): where levels laid stop
 
 
 # ------------------------------------------------------------------ islands
@@ -246,10 +252,11 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
             continue
         if got is None:
             continue
-        dropped, lines, top, left = got
+        dropped, lines, top, left, pinched = got
         out.islands += 1
         out.tops.append(top)
         out.left += left
+        out.pinched += pinched
         for sq, w in dropped:
             taken.add((sq.name, w.id))
             by_square.setdefault(sq.name, (sq, [], []))[1].append(w)
@@ -343,29 +350,51 @@ def _fit(isl: Island, contours, sea: _Sea, coasts, proj: _Proj, cell_m: float, t
         top, islet = above[0], False
     else:
         top, islet = _islet_top(working_set, land, isl.bounds, worst, contours), True
-    kept = [pts for _, _, ele, pts in inside if ele >= top]
-    low_inside = [(sq, way, ele, pts) for sq, way, ele, pts in inside if ele < top]
+    # every contour inside the island that keeps off its coast is kept
+    kept = [(ele, pts) for _, _, ele, pts in inside]
+    levels = sorted({ele for _, _, ele, _ in wrong})
     grid = _Grid(isl, proj, cell_m)
-    band = grid.band(kept)
-    # the low contours inside the island that lie in the band go too; one
-    # beyond a kept contour - a valley inland - stays
-    drop = [(sq, way, ele, pts) for sq, way, ele, pts in wrong]
-    drop += [c for c in low_inside if grid.in_band(band, c[3])]
-    levels = sorted({ele for _, _, ele, _ in drop if ele < top})
-    if not levels:
-        return None
-    h = grid.height(band, kept, top, islet)
+    band = grid.band([pts for _, pts in kept])
+    h = grid.height(band, kept, top, islet, levels)
     lines = grid.contours(h, levels)
     # what would cross the coast or a contour kept is not laid
-    keep_lines = [shore] + [_line(p) for p in kept]
-    laid, left = [], 0
+    keep_lines = [shore] + [_line(p) for _, p in kept]
+    same = {}
+    for ele, pts in kept:
+        same.setdefault(ele, []).append(_line(pts))
+    laid, left, pinched = [], 0, []
+    reach = 3 * grid.cell / proj.ky
     for ele, pts in lines:
         g = _line(pts)
         if any(g.Intersects(k) for k in keep_lines):
             left += 1
             continue
         laid.append((ele, pts))
-    return [(sq, way) for sq, way, _, _ in drop], laid, top, left
+        if pts[0] != pts[-1]:
+            # an end where it meets its own level kept is a join; any other
+            # is where there was no room for it
+            for end in (pts[0], pts[-1]):
+                p = _ogr().CreateGeometryFromWkt(f'POINT ({end[0]} {end[1]})')
+                if not any(k.Distance(p) <= reach for k in same.get(ele, ())):
+                    pinched.append((ele, *end))
+    return [(sq, way) for sq, way, _, _ in wrong], laid, top, left, _places(pinched, proj)
+
+
+def _places(ends, proj: _Proj) -> list:
+    """The ends of levels laid where there was no room, as places: those
+    within PINCH_M of one another one place - the levels that stop at a neck
+    stop there together, each twice, one end from either side - as
+    ([levels], lon, lat)."""
+    places: list = []
+    for ele, lon, lat in ends:
+        for p in places:
+            if math.hypot((p[1] - lon) * proj.kx, (p[2] - lat) * proj.ky) <= PINCH_M:
+                if ele not in p[0]:
+                    p[0].append(ele)
+                break
+        else:
+            places.append([[ele], lon, lat])
+    return [(sorted(levels), lon, lat) for levels, lon, lat in places]
 
 
 def _islet_top(working_set, land, bounds, worst: float, contours) -> float:
@@ -487,29 +516,49 @@ class _Grid:
         touched = np.unique(labels[wide & passable])
         return passable & np.isin(labels, touched[touched > 0])
 
-    def in_band(self, band: np.ndarray, pts) -> bool:
-        """Whether most of a line's points are in the band."""
-        a = np.asarray(pts, dtype=float)
-        col = ((a[:, 0] - self.x0) / self.dx).astype(int)
-        row = ((self.y1 - a[:, 1]) / self.dy).astype(int)
-        ok = (col >= 0) & (col < self.cols) & (row >= 0) & (row < self.rows)
-        if not ok.any():
-            return False
-        return bool(band[row[ok], col[ok]].mean() > 0.5)
-
-    def height(self, band, kept, top: float, islet: bool) -> np.ndarray:
+    def height(self, band, kept, top: float, islet: bool, laid=()) -> np.ndarray:
+        """The band's heights: by the coast and the kept contours bordering
+        the band, each level weighed by its nearness - or an islet's, up to
+        ``top`` at its point furthest from the shore. ``kept`` is (level,
+        points); ``laid`` the levels to be laid, which are not laid along a
+        kept line of their own level."""
         dc = self._distance(self._coast)
-        with np.errstate(invalid='ignore', divide='ignore'):
-            if islet or not kept:
+        near_own = np.zeros_like(band)
+        by_level: dict = {}
+        for ele, pts in kept:
+            by_level.setdefault(ele, []).append(pts)
+        cells = {ele: self._burn([_line(p) for p in pl]) for ele, pl in by_level.items()}
+        # the levels whose lines border the band: those the band is laid against
+        grown = band.copy()
+        grown[1:, :] |= band[:-1, :]
+        grown[:-1, :] |= band[1:, :]
+        grown[:, 1:] |= band[:, :-1]
+        grown[:, :-1] |= band[:, 1:]
+        bordering = [ele for ele, c in cells.items() if (c & grown).any()]
+        if islet or not bordering:
+            with np.errstate(invalid='ignore', divide='ignore'):
                 peak = float(dc[band].max()) if band.any() else 1.0
                 h = top * dc / max(peak, 1.0)
-            else:
-                du = self._distance(self._kept)
-                h = top * dc / (dc + du)
-                h[dc + du == 0] = top / 2
+        else:
+            dist = {ele: self._distance(cells[ele]) for ele in bordering}
+            du = np.minimum.reduce([dist[e] for e in bordering])
+            weight = {e: 1.0 / (dist[e] + 0.5) ** 4 for e in bordering}
+            total = np.add.reduce([weight[e] for e in bordering])
+            lu = np.add.reduce([e * weight[e] for e in bordering]) / total
+            with np.errstate(invalid='ignore', divide='ignore'):
+                h = lu * dc / (dc + du)
+            h[(dc + du) == 0] = lu[(dc + du) == 0] / 2
+            for ele in laid:
+                if ele in dist:
+                    near_own |= dist[ele] <= 1.5
+                elif ele in cells:
+                    near_own |= self._distance(cells[ele]) <= 1.5
         # land beyond the band is no height at all - a value beside the sea
-        # would draw every level along the coast - and the sea is below 0
-        return np.where(band, h, np.where(self._land, -9999.0, -10.0)).astype(np.float32)
+        # would draw every level along the coast - and the sea is below 0;
+        # and a level laid is no height beside its own kept line
+        h = np.where(band, h, np.where(self._land, -9999.0, -10.0))
+        h[band & near_own] = -9999.0
+        return h.astype(np.float32)
 
     def contours(self, h: np.ndarray, levels) -> list:
         """The levels' lines through ``h``, as (level, [(lon, lat)]), thinned
@@ -535,5 +584,8 @@ class _Grid:
                 x0, x1, y0, y1 = g.GetEnvelope()
                 if max((x1 - x0) / self.dx, (y1 - y0) / self.dy) < MIN_RING_CELLS:
                     continue
+            elif sum(math.hypot((b[0] - a[0]) / self.dx, (b[1] - a[1]) / self.dy)
+                     for a, b in zip(pts, pts[1:], strict=False)) < MIN_LINE_CELLS:
+                continue
             out.append((float(f.GetField('ele')), pts))
         return out

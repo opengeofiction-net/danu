@@ -6482,21 +6482,28 @@ a quarter of the 40 m line is within 102 m of the coast.
 Shift+K, on the coastline selected or every coastline with a node picked,
 fits each island it is of (`danu.water.coastfit`):
 
-- What goes: the island's contours crossing its coast, those wholly at sea
-  within 150 m of it, touching no coastline - the low ground run out past the
-  shore - and the lower ones inside it that lie in the band they leave. One
-  inland beyond a kept contour, a hollow, stays.
-- The band's top: the lowest of the island's contours above all of those;
-  for an islet with none, its highest spot height, or the next level up. So
-  every contour that goes is below the top, and its level is laid again
-  wherever the band has room for it.
+- What goes: the island's contours crossing its coast, and those wholly at
+  sea within 150 m of it, touching no coastline - the low ground run out
+  past the shore. Nothing else: every contour inside it is kept, at whatever
+  level, and is what the rest is laid against. The first version took every
+  contour below the island's lowest clean level, and roantra's w1388 lost
+  the 40 m ring of its west lobe - a hill that crossed nothing - with its
+  lobes laid as low ground: all their height came from the one 50 m line.
 - The band: the island's land reached from its coast without crossing a kept
   contour - regions of land and no kept line on the grid, 4-connected, that
   the coast touches.
 - On a grid of 3.5 m cells - coarser for a big island, to 16 million cells -
-  a height `top * dc / (dc + du)` from the distances to the coast and to the
-  contours kept, or `top * dc / dc_max` for an islet; the levels that went
-  are its contours, cut at the squares' edges.
+  a height `lu * dc / (dc + du)`: `dc` the distance to the coast, `du` to the
+  nearest kept contour bordering the band, and `lu` those contours' levels,
+  each weighed by its nearness (to the fourth power), so a lobe is laid up
+  to its own hill and the middle up to its own. An islet with nothing kept
+  above what goes is laid up to its highest spot height, or the next level,
+  at its point furthest from the shore: `top * dc / dc_max`. The levels that
+  went are its contours, cut at the squares' edges; a level that is kept too
+  is not laid within a cell and a half of its kept line.
+- Where a kept contour comes too near the coast for the levels below it -
+  w1388's 50 m at its neck - they stop either side; each such place is said,
+  the ends within 60 m of each other one place.
 
 The surface build was tried first and is the wrong tool: at 1" a cell is
 22 by 31 m, wider than the band in places, and the build smooths. Laid from
@@ -6504,6 +6511,6 @@ it, the levels crossed the contours kept 3,136 times.
 
 An island is a closed coastline ring in the open set, land on its left; the
 mainland, and an island running out of the set, are refused for now. Fitting
-every island of N43E029 takes 15 s: 76 islands, 238 contours replaced by
-234, every island's crossing of its coast gone - 1,837 - and none between
-contours made; the 416 left are on the mainland.
+every island of N43E029 takes 20 s: 76 islands, 193 contours replaced by
+269, every island's crossing of its coast gone - 1,837 - and none between
+contours made; the 417 left are on the mainland.

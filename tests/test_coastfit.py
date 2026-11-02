@@ -221,3 +221,57 @@ def test_a_contour_at_sea_crossing_another_island_is_left_to_that_one():
     theirs = ring(sq, -2, 140, {'contour': 'elevation', 'ele': '10'}, wobble=30, lon0=125.5 + 700 / KX)
     p = apply(w, [(sq, shore)])
     assert p.islands == 1 and theirs.id in sq.ways and other.id in sq.ways
+
+
+def test_a_lobes_own_hill_is_kept_and_the_levels_crossing_are_laid_up_to_it():
+    """A long island: a 50 m hill at its east end, a 40 m hill at its west,
+    each ring keeping inside; 10 and 20 m crossing the coast all along. The
+    west hill keeps its ring - it crossed nothing - and 10 and 20 are laid
+    under both hills."""
+    w, sq = one()
+    # the coast a stadium 3 km by 1 km, anticlockwise
+    pts = []
+    for i in range(48):
+        a = math.pi / 2 + math.pi * i / 47
+        pts.append((-1000 + 500 * math.cos(a), 500 * math.sin(a)))
+    for i in range(48):
+        a = -math.pi / 2 + math.pi * i / 47
+        pts.append((1000 + 500 * math.cos(a), 500 * math.sin(a)))
+
+    def way(wid, xy, tags):
+        refs = []
+        for x, y in xy:
+            nid = (max((abs(j) for j in sq.nodes), default=0) + 1) * (1 if wid > 0 else -1)
+            sq.nodes[nid] = Node(id=nid, lon=deg(x, y)[0], lat=deg(x, y)[1])
+            refs.append(nid)
+        sq.ways[wid] = Way(id=wid, refs=refs + [refs[0]], tags=tags)
+        return sq.ways[wid]
+    shore = way(4015, pts, {'natural': 'coastline', 'ele': '0'})
+    way(-1, [(x * 1.02, y * 1.15) for x, y in pts], {'contour': 'elevation', 'ele': '10'})   # over the coast
+    way(-2, [(x * 0.97 + 15 * math.sin(i), y * 1.05) for i, (x, y) in enumerate(pts)],
+        {'contour': 'elevation', 'ele': '20'})
+    ring(sq, -3, 250, {'contour': 'elevation', 'ele': '40'}, lon0=125.5 - 1100 / KX)        # the west hill
+    ring(sq, -4, 250, {'contour': 'elevation', 'ele': '50'}, lon0=125.5 + 1100 / KX)        # the east hill
+    p = apply(w, [(sq, shore)])
+    assert p.islands == 1 and p.levels == {10.0, 20.0}
+    assert -3 in sq.ways and -4 in sq.ways, 'a hill that crossed nothing kept'
+    assert not crossings.find(w)
+    assert radii(sq, 10) and radii(sq, 20), 'not laid'
+
+
+def test_where_a_kept_contour_meets_the_coast_the_levels_stop_and_it_is_said():
+    """The 40 m ring touching the coast at one point: 10, 20 and 30 have no
+    room there, stop either side of it, and the place is said."""
+    w, sq = one()
+    shore = coast(sq)
+    contour(sq, -1, 10, 1080)
+    contour(sq, -2, 20, 960, wobble=90)
+    contour(sq, -3, 30, 900, wobble=150, k=7)
+    # 40 m: a ring nudged east until it all but touches the coast there
+    ring(sq, -4, 600, {'contour': 'elevation', 'ele': '40'}, lon0=125.5 + 395 / KX)
+    p = apply(w, [(sq, shore)])
+    assert p.pinched, 'no pinch said'
+    levels_at, lon, lat = p.pinched[0]
+    assert 10.0 in levels_at
+    assert (lon - 125.5) * KX > 800, 'said somewhere other than where 40 m meets the coast'
+    assert not crossings.find(w)
