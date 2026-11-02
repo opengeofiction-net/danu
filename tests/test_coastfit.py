@@ -271,7 +271,9 @@ def test_where_a_kept_contour_meets_the_coast_the_levels_stop_and_it_is_said():
     ring(sq, -4, 600, {'contour': 'elevation', 'ele': '40'}, lon0=125.5 + 395 / KX)
     p = apply(w, [(sq, shore)])
     assert p.pinched, 'no pinch said'
-    levels_at, lon, lat = p.pinched[0]
-    assert 10.0 in levels_at
-    assert (lon - 125.5) * KX > 800, 'said somewhere other than where 40 m meets the coast'
+    # each place where the levels stop, near where 40 m meets the coast: how
+    # their ends group into places is GDAL's lines' to say, which differ by
+    # version - all of them there, and 10 m among them
+    assert all((lon - 125.5) * KX > 800 for _, lon, _ in p.pinched), p.pinched
+    assert 10.0 in {v for levels_at, _, _ in p.pinched for v in levels_at}
     assert not crossings.find(w)
