@@ -71,6 +71,9 @@ DEFAULT_KEYS = {
     'edit.reverse_coastline': 'R',
     # K marks the 0 m line selected as the coastline, or unmarks one
     'edit.mark_coastline': 'K',
+    # and the low contours of its island laid again between it and the lowest
+    # contour that keeps off it
+    'edit.fit_coast': 'Shift+K',
     'edit.import_coastline': 'Ctrl+Alt+I',
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map

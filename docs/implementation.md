@@ -6469,3 +6469,39 @@ pixels.
 
 At z16 a part redrawn for a node is now 5 ms, and a whole paint 9.4 ms
 against 31.6; at z14 12.0 against 33.7, at z12 26.2 against 48.8.
+
+## Fit to the coast
+
+On roantra's N43E029 the low contours ran out past the coastline: 2,376
+crossings of the coast, by 10 m (1,108), 20 m (962) and 30 m (254), and 40 m
+and up nearly all inside it - the contours and the coastline from two sources
+that do not agree at the shore. Pushing a contour back off the coast cannot
+help where three levels have to fit, in order, in the strip below the fourth:
+a quarter of the 40 m line is within 102 m of the coast.
+
+Shift+K, on the coastline selected or every coastline with a node picked,
+fits each island it is of (`danu.water.coastfit`):
+
+- What goes: the island's contours crossing its coast, those wholly at sea
+  within 150 m of it - the low ground run out past the shore - and the lower
+  ones inside it that lie in the band they leave. One inland beyond a kept
+  contour, a hollow, stays.
+- The band's top: the lowest of the island's contours above all of those;
+  for an islet with none, its highest spot height, or the next level up.
+- The band: the island's land reached from its coast without crossing a kept
+  contour - regions of land and no kept line on the grid, 4-connected, that
+  the coast touches.
+- On a grid of 3.5 m cells - coarser for a big island, to 16 million cells -
+  a height `top * dc / (dc + du)` from the distances to the coast and to the
+  contours kept, or `top * dc / dc_max` for an islet; the levels that went
+  are its contours, cut at the squares' edges.
+
+The surface build was tried first and is the wrong tool: at 1" a cell is
+22 by 31 m, wider than the band in places, and the build smooths. Laid from
+it, the levels crossed the contours kept 3,136 times.
+
+An island is a closed coastline ring in the open set, land on its left; the
+mainland, and an island running out of the set, are refused for now. Fitting
+every island of N43E029 takes 15 s: 76 islands, 238 contours replaced by
+234, every island's crossing of its coast gone - 1,837 - and none between
+contours made; the 416 left are on the mainland.

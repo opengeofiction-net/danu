@@ -1175,6 +1175,7 @@ class MainWindow(QMainWindow):
                 ('edit.import_coastline', '&Import', self.import_coastline),
                 ('edit.mark_coastline', '&Mark / unmark', ed.toggle_coastline),
                 ('edit.reverse_coastline', '&Reverse', ed.reverse_coastline),
+                ('edit.fit_coast', '&Fit contours to the coast', ed.fit_coast),
                 ('edit.set_level', 'Set &level', ed.set_level),
                 ('edit.grade', '&Grade', ed.grade),
                 ('edit.grade_network', 'Grade river &network', ed.grade_network),
@@ -1277,7 +1278,7 @@ class MainWindow(QMainWindow):
             water.addAction(e[name])
         edit.addMenu('Spot &height').addAction(e['edit.import_heights'])
         coastline = edit.addMenu('&Coastline')
-        for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline'):
+        for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast'):
             coastline.addAction(e[name])
         edit.addAction(e['edit.cut_loop'])
 
