@@ -75,7 +75,8 @@ _CELLS: dict = {}
 def _cell_rect(c: SquareName) -> QRectF:
     """A square's rectangle in the scene - kept, as a square does not move:
     worked out afresh for each of roantra's zones' 784 squares, twice a
-    square, it was 4.4 ms of every paint."""
+    square, it was 4.4 ms of every paint. Kept for the session: there are
+    64,800 squares in the world, and one is a QRectF."""
     r = _CELLS.get(c)
     if r is None:
         x0, y0 = m.lonlat_to_scene(c.lon, c.lat + 1)

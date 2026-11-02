@@ -244,7 +244,9 @@ class _Piece:
 
 class _Counted(dict):
     """A dict that counts its changes, so what is worked out from it - the
-    rectangles a paint culls by - is worked out again only when it changed."""
+    rectangles a paint culls by - is worked out again only when it changed.
+    Every way a dict is changed in place is counted here, ``|=`` among them:
+    one missed would leave a paint culling by rectangles gone stale."""
     gen = 0
 
     def __setitem__(self, k, v):
@@ -268,12 +270,17 @@ class _Counted(dict):
         super().clear()
 
     def setdefault(self, k, v=None):
-        self.gen += 1
+        if k not in self:
+            self.gen += 1
         return super().setdefault(k, v)
 
     def update(self, *a, **k):
         self.gen += 1
         super().update(*a, **k)
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
 
 
 BIG_FILL = 4000
@@ -822,7 +829,9 @@ class ContourLayer(QGraphicsItem):
         """Those of ``pieces()`` whose rectangle meets ``rect``, in their
         order - by one array test, not a QRectF.intersects each: that was
         33,000 calls a paint on roantra, 10 ms whatever part was redrawn.
-        The array is built again when ``source``, a ``_Counted``, changed."""
+        The array is built again when ``source``, a ``_Counted``, changed -
+        known by its identity and its count: ``set_working_set`` makes new
+        dicts, so a new id. A plain dict is built again every call."""
         key = (id(source), getattr(source, 'gen', None))
         hit = self._boxes.get(name)
         if hit is None or hit[0] != key or key[1] is None:
@@ -1094,6 +1103,8 @@ class ContourLayer(QGraphicsItem):
             path.closeSubpath()
         piece = _Piece(path, path.boundingRect(), ele, None)
         if sum(len(r) for r in rings) > BIG_FILL:
+            # without the closing point, as _cut_ring takes them: it closes
+            # each ring itself, last point to first - _ring_path's rings close
             arrays = [np.asarray(r, dtype=float) for r in rings]
             piece.rings = [a[:-1] if len(a) > 1 and (a[0] == a[-1]).all() else a for a in arrays]
         self.water_fills[key] = piece

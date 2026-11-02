@@ -1,6 +1,6 @@
 """A water fill too big to draw whole every paint - roantra's sea is 113,963
 points, and its rectangle every view's - is drawn cut to the view: the same
-inside it, pixel for pixel, as drawn whole."""
+inside it as drawn whole, to within a unit of a channel (``same``)."""
 
 import math
 
@@ -93,3 +93,21 @@ def test_the_cut_is_kept_until_the_view_moves():
 def test_a_small_fill_is_drawn_whole():
     piece = piece_of([star(150, 150, 50, 80, 40)])
     assert piece.rings is None and piece.fill(VIEW) is piece.path
+
+
+def test_a_counted_dict_counts_every_change_and_not_a_setdefault_of_a_key_it_has():
+    d = C._Counted()
+    seen = []
+    for change in (lambda: d.__setitem__('a', 1), lambda: d.update(b=2), lambda: d.__ior__({'c': 3}),
+                   lambda: d.pop('a'), lambda: d.__delitem__('b'), lambda: d.setdefault('e', 5),
+                   lambda: d.popitem(), lambda: d.clear()):
+        g = d.gen
+        change()
+        seen.append(d.gen > g)
+    assert all(seen), seen
+    d |= {'f': 6}
+    assert d.gen > g and d['f'] == 6, 'the operator, not only the method'
+    d['k'] = 1
+    g = d.gen
+    d.setdefault('k', 2)
+    assert d.gen == g, 'nothing changed'

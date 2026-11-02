@@ -6462,8 +6462,10 @@ pixels.
   of more than `BIG_FILL` points is drawn cut to the view and a margin
   (`_cut_ring`, Sutherland-Hodgman in numpy), kept until the view moves.
   Inside the view it is the fill exactly; what the cut adds runs along the
-  margin, outside it. Rendered both ways at five views, two pixels differ, by
-  one unit of one channel - the rasteriser's sums over other edges.
+  margin, outside it. Drawn both ways, pixels can differ by one unit of a
+  channel - the rasteriser's sums over other edges: on roantra at five views,
+  two pixels; `tests/ui/test_fill_cut.py`'s concave sea, 23 of 90,000, which
+  is what that test allows.
 
 At z16 a part redrawn for a node is now 5 ms, and a whole paint 9.4 ms
 against 31.6; at z14 12.0 against 33.7, at z12 26.2 against 48.8.
