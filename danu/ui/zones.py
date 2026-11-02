@@ -69,10 +69,20 @@ ADDED = QColor(31, 120, 180, 90)
 TAKEN = QColor(210, 30, 30, 110)
 
 
+_CELLS: dict = {}
+
+
 def _cell_rect(c: SquareName) -> QRectF:
-    x0, y0 = m.lonlat_to_scene(c.lon, c.lat + 1)
-    x1, y1 = m.lonlat_to_scene(c.lon + 1, c.lat)
-    return QRectF(x0, y0, x1 - x0, y1 - y0)
+    """A square's rectangle in the scene - kept, as a square does not move:
+    worked out afresh for each of roantra's zones' 784 squares, twice a
+    square, it was 4.4 ms of every paint. Kept for the session: there are
+    64,800 squares in the world, and one is a QRectF."""
+    r = _CELLS.get(c)
+    if r is None:
+        x0, y0 = m.lonlat_to_scene(c.lon, c.lat + 1)
+        x1, y1 = m.lonlat_to_scene(c.lon + 1, c.lat)
+        r = _CELLS[c] = QRectF(x0, y0, x1 - x0, y1 - y0)
+    return r                     # read, never changed, by every caller
 
 
 def _outline(cells) -> QPainterPath:

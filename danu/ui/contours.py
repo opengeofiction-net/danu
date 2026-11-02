@@ -189,6 +189,23 @@ class _Piece:
     pts: np.ndarray | None = field(default=None, compare=False, repr=False)
     parts: list | None = field(default=None, compare=False, repr=False)
     runs: tuple = field(default=((), []), compare=False, repr=False)
+    # a water fill's rings, as arrays, for one too big to draw whole every
+    # paint; and its path cut to the view last drawn, by that view
+    rings: list | None = field(default=None, compare=False, repr=False)
+    cut: tuple = field(default=(None, None), compare=False, repr=False)
+
+    def fill(self, view: QRectF) -> QPainterPath:
+        """What of a water fill to draw in ``view``: the whole path, or for
+        one of more than BIG_FILL points, the path cut to the view - kept
+        until the view moves. Roantra's sea, r470432, is 113,963 points and
+        its rectangle every view's: drawn whole it was 6 ms of every paint,
+        of the whole view or of a node's few pixels."""
+        if self.rings is None:
+            return self.path
+        key = (view.left(), view.top(), view.right(), view.bottom())
+        if self.cut[0] != key:
+            self.cut = (key, _cut_rings(self.rings, *key))
+        return self.cut[1]
 
     def drawn(self, rect: QRectF, scale: float) -> list:
         """What of it to draw in a view: the whole path, or, for a long way
@@ -223,6 +240,90 @@ class _Piece:
                 paths.append(path)
             self.runs = (key, paths)
         return self.runs[1]
+
+
+class _Counted(dict):
+    """A dict that counts its changes, so what is worked out from it - the
+    rectangles a paint culls by - is worked out again only when it changed.
+    Every way a dict is changed in place is counted here, ``|=`` among them:
+    one missed would leave a paint culling by rectangles gone stale."""
+    gen = 0
+
+    def __setitem__(self, k, v):
+        self.gen += 1
+        super().__setitem__(k, v)
+
+    def __delitem__(self, k):
+        self.gen += 1
+        super().__delitem__(k)
+
+    def pop(self, *a):
+        self.gen += 1
+        return super().pop(*a)
+
+    def popitem(self):
+        self.gen += 1
+        return super().popitem()
+
+    def clear(self):
+        self.gen += 1
+        super().clear()
+
+    def setdefault(self, k, v=None):
+        if k not in self:
+            self.gen += 1
+        return super().setdefault(k, v)
+
+    def update(self, *a, **k):
+        self.gen += 1
+        super().update(*a, **k)
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
+
+
+BIG_FILL = 4000
+
+
+def _cut_ring(pts: np.ndarray, x0: float, y0: float, x1: float, y1: float) -> np.ndarray:
+    """A ring cut to a rectangle, side by side (Sutherland-Hodgman), in
+    numpy. Inside the rectangle it is the ring exactly; what it adds runs
+    along the rectangle's sides, which ``_Piece.fill`` keeps outside the
+    view. ``pts`` is the ring without its closing point."""
+    for axis, bound, above in ((0, x0, True), (0, x1, False), (1, y0, True), (1, y1, False)):
+        if len(pts) == 0:
+            break
+        q = np.roll(pts, -1, axis=0)                       # each edge, p to q
+        a = pts[:, axis] >= bound if above else pts[:, axis] <= bound
+        b = q[:, axis] >= bound if above else q[:, axis] <= bound
+        cross = a != b
+        with np.errstate(divide='ignore', invalid='ignore'):
+            t = np.where(cross, (bound - pts[:, axis]) / (q[:, axis] - pts[:, axis]), 0.0)
+        x = pts + t[:, None] * (q - pts)
+        x[:, axis] = np.where(cross, bound, x[:, axis])
+        # in to in: q; in to out: where it leaves; out to in: where it comes
+        # in, then q; out to out: nothing
+        first = np.where((a & b)[:, None], q, x)
+        out = np.stack([first, q], axis=1)
+        keep = np.stack([a | b, ~a & b], axis=1)
+        pts = out[keep]
+    return pts
+
+
+def _cut_rings(rings: list, x0: float, y0: float, x1: float, y1: float) -> QPainterPath:
+    path = QPainterPath()
+    path.setFillRule(Qt.FillRule.OddEvenFill)
+    for ring in rings:
+        cut = _cut_ring(ring, x0, y0, x1, y1)
+        if len(cut) < 3:
+            continue
+        pts = cut.tolist()
+        path.moveTo(pts[0][0], pts[0][1])
+        for x, y in pts[1:]:
+            path.lineTo(x, y)
+        path.closeSubpath()
+    return path
 
 
 def _member_ways(rel) -> tuple:
@@ -390,7 +491,10 @@ class ContourLayer(QGraphicsItem):
         self.ground = None
         self._geoms: dict[tuple[SquareName, int], WayGeom] = {}
         # the piece each way contributes, so an edit can replace one of them
-        self._pieces: dict[tuple[SquareName, int], _Piece] = {}
+        self._pieces: dict[tuple[SquareName, int], _Piece] = _Counted()
+        # the rectangles a paint culls by, as arrays, by what they are of:
+        # (what they were worked out from and its count, the pieces, the array)
+        self._boxes: dict = {}
         # and the spot heights, by square and node. Drawn over the contours and
         # picked before them: a spot height is a few pixels across and sits on
         # ground a contour runs through, so a click that could mean either
@@ -399,8 +503,8 @@ class ContourLayer(QGraphicsItem):
         # the water, drawn under everything. Here and not only in
         # set_working_set because _paint_water reads it, and a layer can be
         # painted before it is given a set
-        self.water: dict[tuple[SquareName, int], _Piece] = {}
-        self.fills: dict[tuple[SquareName, int], _Piece] = {}    # lakes' fill lines, G7a
+        self.water: dict[tuple[SquareName, int], _Piece] = _Counted()
+        self.fills: dict[tuple[SquareName, int], _Piece] = _Counted()    # lakes' fill lines, G7a
         # the coastlines, whose direction is drawn over everything: their
         # points, the length along them to each, and their rectangle
         self.coasts: dict[tuple[SquareName, int], tuple] = {}
@@ -411,7 +515,7 @@ class ContourLayer(QGraphicsItem):
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         # and the bodies among it, as filled shapes: by relation where one
         # holds the rings, by way where a way is its own ring
-        self.water_fills: dict[tuple, _Piece] = {}
+        self.water_fills: dict[tuple, _Piece] = _Counted()
         # the member ways each relation fill was built from, so an edit that
         # rewrote a member list is noticed - the changed way ids alone cannot
         # say that a relation stopped naming one
@@ -462,9 +566,9 @@ class ContourLayer(QGraphicsItem):
         # which is bounded and small - and the font being in the key is what
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
-        self._geoms, self._pieces, self.spots, self.water = {}, {}, {}, {}
-        self.fills, self.coasts = {}, {}
-        self.water_fills, self._rel_members = {}, {}
+        self._geoms, self._pieces, self.spots, self.water = {}, _Counted(), {}, _Counted()
+        self.fills, self.coasts = _Counted(), {}
+        self.water_fills, self._rel_members = _Counted(), {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
             self._bounds = QRectF()
@@ -721,6 +825,27 @@ class ContourLayer(QGraphicsItem):
                 dirty += [p.rect for p in (was, now) if p is not None]
         update_around(self, dirty, DRAWN_PAD_PX)
 
+    def _in(self, name: str, source: dict, pieces, rect: QRectF) -> list:
+        """Those of ``pieces()`` whose rectangle meets ``rect``, in their
+        order - by one array test, not a QRectF.intersects each: that was
+        33,000 calls a paint on roantra, 10 ms whatever part was redrawn.
+        The array is built again when ``source``, a ``_Counted``, changed -
+        known by its identity and its count: ``set_working_set`` makes new
+        dicts, so a new id. A plain dict is built again every call."""
+        key = (id(source), getattr(source, 'gen', None))
+        hit = self._boxes.get(name)
+        if hit is None or hit[0] != key or key[1] is None:
+            items = list(pieces())
+            arr = np.array([(p.rect.left(), p.rect.top(), p.rect.right(), p.rect.bottom()) for p in items],
+                           dtype=float).reshape(-1, 4)
+            hit = self._boxes[name] = (key, items, arr)
+        _, items, arr = hit
+        if not items:
+            return []
+        on = ((arr[:, 2] > rect.left()) & (arr[:, 0] < rect.right())
+              & (arr[:, 3] > rect.top()) & (arr[:, 1] < rect.bottom()))
+        return [items[i] for i in np.flatnonzero(on)]
+
     def _changed_part(self, key, old, new) -> list:
         """Where a way's drawing changed: only round the points that moved,
         and the segments either side of them, when it has the same nodes as
@@ -976,7 +1101,13 @@ class ContourLayer(QGraphicsItem):
             for x, y in ring[1:]:
                 path.lineTo(x, y)
             path.closeSubpath()
-        self.water_fills[key] = _Piece(path, path.boundingRect(), ele, None)
+        piece = _Piece(path, path.boundingRect(), ele, None)
+        if sum(len(r) for r in rings) > BIG_FILL:
+            # without the closing point, as _cut_ring takes them: it closes
+            # each ring itself, last point to first - _ring_path's rings close
+            arrays = [np.asarray(r, dtype=float) for r in rings]
+            piece.rings = [a[:-1] if len(a) > 1 and (a[0] == a[-1]).all() else a for a in arrays]
+        self.water_fills[key] = piece
 
     def _refresh_water_fills(self, square: Square, way_ids) -> None:
         """The fills a set of changed ways can have altered, and no others.
@@ -1508,15 +1639,16 @@ class ContourLayer(QGraphicsItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         dark = self.style == 'dark'
         levels = []
-        for ele in sorted(self.paths):
+        # the rectangle is each way's own. A level's ways joined into one
+        # path have a rectangle that spans the working set, and culling by
+        # it culls nothing - see _Piece. Level by level, in order
+        seen = self._in('ways', self._pieces, lambda: (p for e in sorted(self.paths) for p in self.paths[e]), rect)
+        by_level: dict = {}
+        for piece in seen:
+            by_level.setdefault(piece.ele, []).append(piece)
+        for ele, visible in by_level.items():
             index = self.is_index(ele)
             if zoom < ZOOM_ALL and not index:
-                continue
-            # the rectangle is each way's own. A level's ways joined into one
-            # path have a rectangle that spans the working set, and culling by
-            # it culls nothing - see _Piece
-            visible = [piece for piece in self.paths[ele] if piece.rect.intersects(rect)]
-            if not visible:
                 continue
             pen = QPen(DARK if dark else self.colour(ele), line_width(zoom, index))
             pen.setCosmetic(True)
@@ -1540,7 +1672,7 @@ class ContourLayer(QGraphicsItem):
             # the level being drawn at, over everything: the mapper needs to
             # see where it already runs. Black and heavy - in its own colour
             # it was lost, a blue line on blue ground
-            active = [piece for piece in self.paths[self.active] if piece.rect.intersects(rect)]
+            active = by_level.get(self.active, [])
             if active:
                 pen = QPen(ACTIVE, ACTIVE_WIDTH)
                 pen.setCosmetic(True)
@@ -1688,18 +1820,20 @@ class ContourLayer(QGraphicsItem):
         try:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(WATER_FILL)
-            for piece in self.water_fills.values():
-                if piece.rect.intersects(rect):
-                    painter.drawPath(piece.path)
-                    self.drawn_water_fills += 1
+            # cut, for a big one, to the view and a margin: what the cut adds
+            # along its sides is outside what is seen
+            pad = 8.0 / scale
+            view = device_scene_rect(painter).adjusted(-pad, -pad, pad, pad)
+            for piece in self._in('water_fills', self.water_fills, self.water_fills.values, rect):
+                painter.drawPath(piece.fill(view))
+                self.drawn_water_fills += 1
             if self.fills:
                 faint = QPen(WATER.lighter(130), 1.0, Qt.PenStyle.DashLine)
                 faint.setCosmetic(True)
                 painter.setPen(faint)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                for piece in self.fills.values():
-                    if piece.rect.intersects(rect):
-                        painter.drawPath(piece.path)
+                for piece in self._in('fills', self.fills, self.fills.values, rect):
+                    painter.drawPath(piece.path)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(WATER_FILL)
             if not self.water:
@@ -1708,10 +1842,9 @@ class ContourLayer(QGraphicsItem):
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            for piece in self.water.values():
-                if piece.rect.intersects(rect):
-                    painter.drawPath(piece.path)
-                    self.drawn_water += 1
+            for piece in self._in('water', self.water, self.water.values, rect):
+                painter.drawPath(piece.path)
+                self.drawn_water += 1
             self._paint_lake_levels(painter, rect if near is None else near, scale, zoom)
         finally:
             painter.restore()
