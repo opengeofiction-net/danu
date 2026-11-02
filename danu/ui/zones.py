@@ -62,7 +62,7 @@ from . import mercator as m
 from . import topo_style as style
 from .background import Job
 from .mapview import visible_rect
-from .squares import MARK_MIN_PX, NAME_MIN_PX, draw_mark, draw_name
+from .squares import MARK_MIN_PX, NAME_MIN_PX, draw_mark, draw_name, redraw_names
 
 # while a zone is edited: its squares as they will be, and those the drag can't have
 ADDED = QColor(31, 120, 180, 90)
@@ -120,6 +120,10 @@ class ZonesItem(QGraphicsItem):
         self.editing = None if cells is None else set(cells)
         self.refused = set(refused)
         self.update()
+
+    def marks_changed(self, names) -> None:
+        """Those squares' marks changed: their names redrawn, not the map."""
+        redraw_names(self, [_cell_rect(c) for c in names if c not in self.skip])
 
     def boundingRect(self) -> QRectF:
         # the world, as the graticule's: a name is drawn at a size in pixels,

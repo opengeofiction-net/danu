@@ -59,6 +59,58 @@ def visible_rect(painter: QPainter, option, bounding: QRectF) -> QRectF:
     return inv.mapRect(device_rect).intersected(option.exposedRect).intersected(bounding)
 
 
+def device_scene_rect(painter: QPainter) -> QRectF:
+    """The whole of the painter's device in item coordinates - the view,
+    where ``visible_rect`` is the part of it this paint is redrawing."""
+    dev = painter.device()
+    inv, ok = painter.worldTransform().inverted()
+    return inv.mapRect(QRectF(0, 0, dev.width(), dev.height())) if ok else QRectF()
+
+
+def view_scale(item: QGraphicsItem) -> float | None:
+    """Pixels a scene unit in the item's view, or None with no view."""
+    scene = item.scene()
+    views = scene.views() if scene is not None else []
+    return views[0].transform().m11() if views else None
+
+
+def box(pts) -> QRectF | None:
+    """The rectangle round some points - (x, y) pairs or an (n, 2) array -
+    or None for none."""
+    if pts is None or len(pts) == 0:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x0, y0 = min(xs), min(ys)
+    return QRectF(float(x0), float(y0), float(max(xs) - x0), float(max(ys) - y0))
+
+
+def update_around(item: QGraphicsItem, rects, pad_px: float) -> None:
+    """An item redrawn over what changed only: the rectangles given, in its
+    coordinates, padded by ``pad_px`` pixels for what is drawn in pixels
+    round them - a label, a mark, a halo. A None among them, or no view to
+    take the scale from, is the whole item; none at all is nothing.
+
+    What it buys: an edit redrew the whole map - 30 to 50 ms on roantra -
+    for a node that moved a few pixels. Qt paints only the region asked for,
+    and each item culls what it draws by it."""
+    rects = list(rects)
+    if not rects:
+        return
+    scale = view_scale(item)
+    if scale is None or scale <= 0 or any(r is None for r in rects):
+        item.update()
+        return
+    # by the corners, not QRectF.united, which drops an empty rectangle - and
+    # a point that moved, a spot height, is one
+    x0 = min(r.left() for r in rects)
+    y0 = min(r.top() for r in rects)
+    x1 = max(r.right() for r in rects)
+    y1 = max(r.bottom() for r in rects)
+    pad = pad_px / scale
+    item.update(QRectF(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad))
+
+
 class Graticule(QGraphicsItem):
     """Lines of longitude and latitude at a spacing chosen for the current
     scale, so they neither crowd at world view nor vanish when zoomed in.
