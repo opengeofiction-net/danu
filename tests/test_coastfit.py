@@ -195,3 +195,29 @@ def test_an_island_across_a_square_edge_is_laid_in_both_squares():
         w0, s0, e0, n0 = sq.name.bounds
         assert all(w0 - 1e-9 <= sq.nodes[r].lon <= e0 + 1e-9 for x in sq.ways.values()
                    if x.tags.get('ele') in ('10', '20') for r in x.refs), 'a piece laid over the edge'
+
+
+def test_a_crossing_level_under_a_kept_one_is_laid_again_below_it():
+    """40 m crosses the coast and 50 m keeps inside: the top is 50, and 40 is
+    laid with the levels under it - nothing that goes is lost."""
+    w, sq = one()
+    shore = coast(sq)
+    contour(sq, -1, 10, 1080)
+    contour(sq, -2, 20, 960, wobble=90)
+    contour(sq, -4, 40, 900, wobble=150, k=7)
+    contour(sq, -5, 50, 600)
+    p = apply(w, [(sq, shore)])
+    assert p.tops == [50.0] and p.levels == {10.0, 20.0, 40.0}
+    assert not crossings.find(w)
+    assert levels(sq) == [10.0, 20.0, 40.0, 50.0]
+
+
+def test_a_contour_at_sea_crossing_another_island_is_left_to_that_one():
+    w, sq = one()
+    shore = coast(sq, r=500)
+    contour(sq, -1, 10, 520, wobble=40)                       # this island's, over its coast
+    # another island east, its own 10 m out over its coast and within 150 m of this one
+    other = ring(sq, 4016, 120, {'natural': 'coastline', 'ele': '0'}, n=48, lon0=125.5 + 700 / KX)
+    theirs = ring(sq, -2, 140, {'contour': 'elevation', 'ele': '10'}, wobble=30, lon0=125.5 + 700 / KX)
+    p = apply(w, [(sq, shore)])
+    assert p.islands == 1 and theirs.id in sq.ways and other.id in sq.ways

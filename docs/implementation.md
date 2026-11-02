@@ -6483,11 +6483,13 @@ Shift+K, on the coastline selected or every coastline with a node picked,
 fits each island it is of (`danu.water.coastfit`):
 
 - What goes: the island's contours crossing its coast, those wholly at sea
-  within 150 m of it - the low ground run out past the shore - and the lower
-  ones inside it that lie in the band they leave. One inland beyond a kept
-  contour, a hollow, stays.
+  within 150 m of it, touching no coastline - the low ground run out past the
+  shore - and the lower ones inside it that lie in the band they leave. One
+  inland beyond a kept contour, a hollow, stays.
 - The band's top: the lowest of the island's contours above all of those;
-  for an islet with none, its highest spot height, or the next level up.
+  for an islet with none, its highest spot height, or the next level up. So
+  every contour that goes is below the top, and its level is laid again
+  wherever the band has room for it.
 - The band: the island's land reached from its coast without crossing a kept
   contour - regions of land and no kept line on the grid, 4-connected, that
   the coast touches.

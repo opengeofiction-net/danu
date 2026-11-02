@@ -10,10 +10,11 @@ where three levels have to fit, in order, in the strip below the fourth.
 So, an island at a time - its coastline a closed ring in the open set:
 
 - What goes: its contours that cross its coast, and those lying wholly at
-  sea beside it - the low ground run out past the shore - with the levels
-  below them that lie in the band they leave.
+  sea beside it - touching no coastline - the low ground run out past the
+  shore; and the lower ones inside it that lie in the band they leave.
 - The band's top: the lowest of the island's own contours above all of
-  those. With none - an islet whose every level crosses - the top is its
+  those - so every contour that goes is below it, and its level is laid
+  again wherever the band has room for it. With none - an islet whose every level crosses - the top is its
   highest spot height, or the ladder's next level up, at the point of it
   furthest from the shore.
 - The band: the island's land reached from its coast without crossing a
@@ -220,13 +221,14 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
     lat0 = sum(i.bounds[1] + i.bounds[3] for i in islands) / (2 * len(islands))
     proj = _Proj(lat0)
     sea = _Sea(working_set, proj)
+    coasts = [(g, g.GetEnvelope()) for g in (_line(_way_pts(sq, w)) for sq, w in _coast_ways(working_set))]
     contours = [(sq, w, parse_ele(w.tags.get('ele'))) for sq in working_set.squares.values()
                 for w in sq.ways.values() if not is_coastline(w) and parse_ele(w.tags.get('ele')) is not None]
     taken: set = set()                              # (square name, way id) dropped already
     by_square: dict = {}
     for isl in islands:
         try:
-            got = _fit(isl, contours, sea, proj, cell_m, taken, working_set)
+            got = _fit(isl, contours, sea, coasts, proj, cell_m, taken, working_set)
         except Refused as why:
             w, s, e, n = isl.bounds
             out.refused.append((str(why), (w + e) / 2, (s + n) / 2))
@@ -289,7 +291,12 @@ def _per_square(working_set, pts):
     return out
 
 
-def _fit(isl: Island, contours, sea: _Sea, proj: _Proj, cell_m: float, taken: set, working_set):
+def _touches_a_coast(g, coasts) -> bool:
+    x0, x1, y0, y1 = g.GetEnvelope()
+    return any(not (e[1] < x0 or e[0] > x1 or e[3] < y0 or e[2] > y1) and g.Intersects(c) for c, e in coasts)
+
+
+def _fit(isl: Island, contours, sea: _Sea, coasts, proj: _Proj, cell_m: float, taken: set, working_set):
     """One island: (the contours dropped, the lines laid as (level, points),
     the band's top, the lines not laid for crossing) - or None, nothing on
     it crossing its coast."""
@@ -311,7 +318,10 @@ def _fit(isl: Island, contours, sea: _Sea, proj: _Proj, cell_m: float, taken: se
             crossing.append((sq, way, ele, pts))
         elif land.Contains(g):
             inside.append((sq, way, ele, pts))
-        elif (g.Distance(land) * proj.ky <= SEA_NEAR_M and sea.at_sea(*pts[0])):
+        elif (g.Distance(land) * proj.ky <= SEA_NEAR_M and sea.at_sea(*pts[0])
+              and not _touches_a_coast(g, coasts)):
+            # wholly at sea: one crossing another island's coast is that
+            # island's to fit, not this one's to take away
             at_sea.append((sq, way, ele, pts))
     wrong = crossing + at_sea
     if not wrong:
