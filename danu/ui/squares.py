@@ -32,7 +32,7 @@ from ..core.square import WorkingSet
 from ..core.topo_style import SQUARE_BLANK, square_class
 from . import mercator as m
 from . import topo_style as style
-from .mapview import visible_rect
+from .mapview import view_scale, visible_rect
 
 NAME_MIN_PX = 80.0                # narrower than this, no name at all: it would not fit
 MARK_MIN_PX = 12.0                # and narrower than this, not even a square's marks
@@ -68,6 +68,14 @@ class SquaresItem(QGraphicsItem):
 
     def boundingRect(self) -> QRectF:
         return self._bounds
+
+    def marks_changed(self, names) -> None:
+        """Those squares' marks changed: their names redrawn, not the map -
+        a first edit gives its square a *, which redrew every contour."""
+        ws = self.working_set
+        if ws is None:
+            return
+        redraw_names(self, [self.square_rect(ws, n) for n in names if n in ws.squares])
 
     def square_rect(self, ws: WorkingSet, name) -> QRectF:
         """The square's rect on the set's continuous longitude axis, so one
@@ -125,6 +133,26 @@ class SquaresItem(QGraphicsItem):
                                                            else '  (absent)')
         draw_name(painter, r, text, label, scale, font, QColor(40, 40, 40) if present else QColor(110, 110, 110))
         self.drawn_names += 1
+
+
+# where a square's name and marks are drawn, in pixels from its top-left
+# corner - two lines of up to 400 - and the mark alone, about its middle
+NAME_BOX_PX = (420.0, 64.0)
+MARK_BOX_PX = (48.0, 32.0)
+
+
+def redraw_names(item, rects) -> None:
+    """The names and marks of the squares at ``rects`` redrawn, and not the
+    rest of them; no view to take the scale from, the whole item."""
+    scale = view_scale(item)
+    if not scale:
+        item.update()
+        return
+    (nw, nh), (mw, mh) = NAME_BOX_PX, MARK_BOX_PX
+    for r in rects:
+        item.update(QRectF(r.left(), r.top(), min(r.width(), nw / scale), min(r.height(), nh / scale)))
+        c = r.center()
+        item.update(QRectF(c.x() - mw / 2 / scale, c.y() - mh / 2 / scale, mw / scale, mh / scale))
 
 
 def draw_name(painter, r: QRectF, text: str, label: str, scale: float, font: QFont, colour: QColor) -> None:

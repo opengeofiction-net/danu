@@ -38,7 +38,8 @@ from ..water import burn, contradict, flatten
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
-from .mapview import MapView, visible_rect
+from .mapview import MapView, update_around, visible_rect
+from .mapview import box as _bbox
 
 SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
@@ -3106,17 +3107,124 @@ class EditController(QObject):
         return found
 
 
+# what the overlay draws in pixels round its points - a halo, a handle, a
+# ring, a mark - reaches this far: its redraws are padded by it
+OVERLAY_PAD_PX = 24.0
+# more marks changed than this, and the whole is redrawn rather than each
+MARKS_ONE_BY_ONE = 400
+
+
 class EditOverlay(QGraphicsItem):
-    """The rubber band, the snap mark, the selection and its node handles."""
+    """The rubber band, the snap mark, the selection and its node handles.
+
+    ``update()`` redraws what it showed and what it shows now, not the whole
+    map: a node dragged redrew every contour in view, 30 to 50 ms on roantra,
+    on every mouse move. What it may have shown is kept as the rectangles of
+    each state redrawn or painted since (``_shown``); a state it can't bound
+    cheaply - a grade proposed, a transform, a relation chosen - is the whole
+    view, as before."""
 
     def __init__(self, ctl: EditController):
         super().__init__()
         self.ctl = ctl
         self.setZValue(200)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
+        self._shown: list | None = None          # None: not known, the whole
 
     def boundingRect(self) -> QRectF:
         return QRectF(-m.WORLD, -m.WORLD, 3 * m.WORLD, 3 * m.WORLD)
+
+    def update(self, *args) -> None:
+        if args:
+            super().update(*args)
+            return
+        now = self.extent()
+        was, self._shown = self._shown, now
+        if now is None or was is None:
+            super().update()
+        else:
+            update_around(self, was + now, OVERLAY_PAD_PX)
+
+    def marks_changed(self, old: list, new: list) -> None:
+        """The checks' marks changed from ``old`` to ``new``: those that
+        went or came redrawn, and nothing where they are the same."""
+        if old == new:
+            return
+        gone = set(old) ^ set(new)
+        if len(gone) > MARKS_ONE_BY_ONE:
+            super().update()
+            return
+        update_around(self, [QRectF(x, y, 0, 0) for x, y in gone], OVERLAY_PAD_PX)
+
+    def _way_box(self, square, way) -> QRectF | None:
+        g = self.ctl.layer._geoms.get((square.name, way.id))
+        if g is not None:
+            return _bbox(g.pts)
+        return _bbox([m.lonlat_to_scene(lon, lat) for lon, lat in square.coords(way)])
+
+    def extent(self) -> list | None:
+        """Where what the overlay now draws lies, besides the checks' marks
+        - each a rectangle in the scene - or None where that isn't bounded
+        here, and the whole is."""
+        ctl = self.ctl
+        if ctl.proposal is not None or ctl.transform_ghost is not None:
+            return None
+        sel = ctl.selection
+        if sel is not None and sel.relation is not None:
+            return None
+        pts: list = []
+        out: list = []
+        if ctl.picked and ctl.working_set is not None:
+            for name, ids in ctl.picked.items():
+                sq = ctl.working_set.square(name)
+                if sq is not None:
+                    pts += [ctl.layer.node_xy(sq, i) for i in ids if i in sq.nodes]
+        if ctl.marquee is not None:
+            pts += [(p.x(), p.y()) for p in ctl.marquee[2]]
+        if sel is not None:
+            if sel.way is not None and sel.way.id in sel.square.ways:
+                out.append(self._way_box(sel.square, sel.square.ways[sel.way.id]))
+            if sel.node is not None and sel.node in sel.square.nodes:
+                pts.append(ctl.layer.node_xy(sel.square, sel.node) if not sel.spot
+                           else m.lonlat_to_scene(sel.square.nodes[sel.node].lon, sel.square.nodes[sel.node].lat))
+        pts += list(ctl.marks_focus or ())
+        if ctl.drop_target is not None:
+            square, wid, end = ctl.drop_target
+            if wid in square.ways:
+                out.append(self._way_box(square, square.ways[wid]))
+        if ctl.ghost:
+            pts += list(ctl.ghost)
+        if ctl.tool == 'draw':
+            anchor = ctl._anchor()
+            if anchor is not None:
+                pts.append(anchor)
+            if ctl.snap is not None:
+                pts.append((ctl.snap[2], ctl.snap[3]))
+            if ctl.cursor is not None:
+                pts.append(ctl.cursor)
+            if ctl._stroke:
+                pts += list(ctl._stroke)
+        if pts:
+            out.append(_bbox(pts))
+        return [r for r in out if r is not None]
+
+    def _painted(self) -> None:
+        """What was painted, added to what may be on screen - a state it
+        drew that no ``update`` was asked for."""
+        if self._shown is None:
+            return
+        now = self.extent()
+        if now is None:
+            self._shown = None
+            return
+        shown = self._shown + now
+        if len(shown) > 8:
+            x0 = min(r.left() for r in shown)
+            y0 = min(r.top() for r in shown)
+            x1 = max(r.right() for r in shown)
+            y1 = max(r.bottom() for r in shown)
+            shown = [QRectF(x0, y0, x1 - x0, y1 - y0)]
+        self._shown = shown
 
     def _paint_proposal(self, painter: QPainter, proposal) -> None:
         """A grade not yet accepted - G6b. The spans left ungraded in red, and
@@ -3293,10 +3401,19 @@ class EditOverlay(QGraphicsItem):
                 painter.drawPath(path)
 
     def paint(self, painter: QPainter, option, widget=None):
+        try:
+            self._paint(painter, option)
+        finally:
+            self._painted()
+
+    def _paint(self, painter: QPainter, option):
         ctl = self.ctl
         scale = painter.worldTransform().m11()
         px = 1.0 / scale
-        rect = visible_rect(painter, option, self.boundingRect())
+        # culled by the part redrawn, padded: a mark or handle whose point is
+        # just outside it is drawn into it, not cut off
+        pad = OVERLAY_PAD_PX * px
+        rect = visible_rect(painter, option, self.boundingRect()).adjusted(-pad, -pad, pad, pad)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._paint_picked(painter, ctl, px)
         sel = ctl.selection

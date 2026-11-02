@@ -675,8 +675,8 @@ class MainWindow(QMainWindow):
         got = pending.marks(dirty, self.waiting.unsent, self.waiting.outside)
         for item in (self.squares, self.zone_editor.item):
             if item.marks != got:
-                item.marks = got
-                item.update()
+                old, item.marks = item.marks, got
+                item.marks_changed({c for c in old.keys() | got.keys() if old.get(c) != got.get(c)})
         if self.working_set is not None:
             ws = self.working_set
             self.setWindowTitle(about.title(ws.centre, bool(dirty), ws.squares[ws.centre].label,
@@ -2507,6 +2507,7 @@ class MainWindow(QMainWindow):
         not what drawing a contour is."""
         on = self.checks_dock.isVisible() and self.crossing_index is not None
         sh = self._shown
+        old, focus = self.editor.marks, self.editor.marks_focus
         self.editor.marks = ([m.lonlat_to_scene(c.lon, c.lat) for c in sh(self.crossing_index.crossings())]
                              + [m.lonlat_to_scene(lp.lon, lp.lat)
                                 for lp in sh(self.loop_index.loops() if self.loop_index is not None else [])]
@@ -2526,7 +2527,12 @@ class MainWindow(QMainWindow):
                              if on else [])
         if not on:
             self.editor.marks_focus = []
-        self.editor.overlay.update()
+        # those that went or came, not the whole map: after an edit the marks
+        # are nearly always the same, and redrawing every contour in view for
+        # them was the second of an edit's two whole paints
+        self.editor.overlay.marks_changed(old, self.editor.marks)
+        if self.editor.marks_focus != focus:
+            self.editor.overlay.update()
 
     def _choose_crossing(self, key, found) -> None:
         """A row of the Validation panel chosen: its contour selected, its

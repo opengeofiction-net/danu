@@ -6405,3 +6405,41 @@ nothing changes. On a copy of roantra, a water import around N44E031 wrote
 none of N43E032, N44E032 and N45E032, and moved three rivers into the zone:
 one from N44E032 into N44E031, and two from N45E032 into N46E031, a square
 of the zone outside the set.
+
+## An edit redraws what changed
+
+A node moved on roantra's N44E029 set at z16 painted the map twice, the whole
+view each time, 24 to 40 ms a paint here (offscreen, one pixel a point): once
+for the edit and again 280 ms later when the checks' marks were refreshed,
+though they had not changed.
+
+Every redraw in Danu was of the whole view, whatever part was asked for. The
+loupe followed the scene by `QGraphicsScene.changed`, and with a slot on that
+signal Qt's view repaints the whole of itself for every update. It is
+connected now only while the loupe is on.
+
+With that, each part redraws what it changed:
+
+- `ContourLayer.refresh` asks for the segments either side of the nodes that
+  moved, where a way keeps its nodes, or the way as it was and is; its label
+  as it was and is; and the water fills it rebuilt. A coastline is whole - its
+  arrows are spaced from its start - and so is everything when the levels
+  that are index ones change. `refresh_spots` asks for the spot heights that
+  changed.
+- `EditOverlay.update()` redraws what it showed and shows now - the
+  selection's halo, the picked, the rubber band - from `extent()`; a grade
+  proposed, a transform or a relation chosen is the whole, as before.
+- The checks' marks redraw only those that went or came: an edit that
+  changes none redraws nothing. A square's marks redraw its name.
+
+Culling is by the part redrawn, padded by what is drawn in pixels round a
+line (`LINE_PAD_PX`) or a point (`DRAWN_PAD_PX`, `OVERLAY_PAD_PX`), so a label
+whose point is just outside the part is drawn into it, not cut off. Which
+water levels are labelled is settled over the whole view, so a part redrawn
+labels the same ones. `tests/ui/test_partial_paint.py` compares the window as
+painted with a whole repaint, pixel for pixel.
+
+A node moved now paints once, over a part of the view: 19 to 23 ms a move
+against 50 or so. A paint's cost is still mostly fixed, whatever its size: a
+rectangle test of every contour in Python and the zone outlines worked out
+again.

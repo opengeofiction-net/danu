@@ -44,7 +44,8 @@ from ..core.rings import is_closed, relation_rings
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele, water_tags
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
-from .mapview import visible_rect
+from .mapview import box as _bbox
+from .mapview import device_scene_rect, update_around, visible_rect
 
 ZOOM_INDEX = 8
 ZOOM_ALL = 11
@@ -83,6 +84,13 @@ ZOOM_SPOTS = 12
 # diamonds are all drawn at every zoom: where a level is matters as much as
 # what it is
 ZOOM_WATER_LABELS = 16
+
+# what is drawn in pixels round a point or a line - a label, a spot height's
+# value, a coastline's arrow, a pen's width - reaches this far from it: an
+# edit's redraw is padded by it, and a paint culls by its rect padded by it,
+# so a label just outside the part redrawn is drawn into it, not cut off
+DRAWN_PAD_PX = 64.0
+LINE_PAD_PX = 4.0                     # a line's own: half the widest pen, and some
 WATER_LABEL_PX = 60.0
 # how the lines meet the surface under them, which colours the ground by the
 # same ramp they are drawn in - so a line in its own colour on ground of its
@@ -628,9 +636,15 @@ class ContourLayer(QGraphicsItem):
         """
         if not node_ids:
             return
+        dirty = []
         for nid in node_ids:
+            key = (square.name, nid)
+            was = self.spots.get(key)
             self._project_spot(square, nid)
-        self.update()
+            now = self.spots.get(key)
+            if was is not now:
+                dirty += [QRectF(s.x, s.y, 0, 0) for s in (was, now) if s is not None]
+        update_around(self, dirty, DRAWN_PAD_PX)
 
     def refresh(self, square: Square, way_ids: set[int]):
         """Some ways of a square changed - an edit, or its undo. Re-project
@@ -649,8 +663,13 @@ class ContourLayer(QGraphicsItem):
         # gathers it once per square
         members = _water_members(square)
         changed = []                            # (key, geom as it was, geom as it is), None for none
+        # what this changes on the map, to redraw that and nothing else: the
+        # ways as they were and are, and the water fills rebuilt for them
+        fills_before = {k: p for k, p in self.water_fills.items() if k[0] == square.name}
+        labels = []                             # each way's label as it was and is: it moves with the line
         for wid in way_ids:
             key = (square.name, wid)
+            labels.append(self._pieces.get(key))
             self._drop_way(key)
             self.fills.pop(key, None)
             self.coasts.pop(key, None)
@@ -683,12 +702,43 @@ class ContourLayer(QGraphicsItem):
         # check for it was unreachable on the only path where it is the only
         # thing that could fire
         self._refresh_water_fills(square, way_ids)
+        whole = self._levels_moved                # which levels are index ones may have changed
         if self._levels_moved:
             self._reindex()
             self._levels_moved = False
         if not self._patch_arrays(changed):
             self._arrays_stale = True
-        self.update()
+        if whole:
+            self.update()
+            return
+        dirty = [r for key, old, new in changed for r in self._changed_part(key, old, new)]
+        for (key, _, _), was in zip(changed, labels, strict=True):
+            now = self._pieces.get(key)
+            dirty += [QRectF(p.label.x, p.label.y, 0, 0) for p in (was, now) if p is not None and p.label is not None]
+        for k in set(fills_before) | {k for k in self.water_fills if k[0] == square.name}:
+            was, now = fills_before.get(k), self.water_fills.get(k)
+            if was is not now:
+                dirty += [p.rect for p in (was, now) if p is not None]
+        update_around(self, dirty, DRAWN_PAD_PX)
+
+    def _changed_part(self, key, old, new) -> list:
+        """Where a way's drawing changed: only round the points that moved,
+        and the segments either side of them, when it has the same nodes as
+        before - a node dragged on a contour across the view redrew the view -
+        or the whole of it as it was and is. A coastline is whole: its arrows
+        are spaced from its start, and one node moved moves them all."""
+        same = (old is not None and new is not None and key not in self.coasts
+                and old.refs == new.refs and len(old.pts) == len(new.pts) and len(old.pts) > 0)
+        if not same:
+            return [b for g in (old, new) if g is not None for b in (_bbox(g.pts),) if b is not None]
+        moved = np.flatnonzero(np.any(old.pts != new.pts, axis=1))
+        if not len(moved):
+            return []
+        closed = len(old.refs) > 2 and old.refs[0] == old.refs[-1]
+        n = len(old.pts)
+        idx = np.concatenate([moved - 1, moved, moved + 1])
+        idx = np.unique(idx % n if closed else idx[(idx >= 0) & (idx < n)])
+        return [_bbox(old.pts[idx]), _bbox(new.pts[idx])]
 
     # a patch leaves the segments and points of what it replaced in the
     # arrays, emptied; past this share of them, the emptied counted in, the
@@ -1444,8 +1494,15 @@ class ContourLayer(QGraphicsItem):
         rect = visible_rect(painter, option, self._bounds)
         if rect.isEmpty():
             return
+        # what is culled by: the part being redrawn, padded by what is drawn
+        # in pixels round a line or a point - so a label whose point is just
+        # outside a part an edit redraws is drawn into it, not cut off there
+        pad, lpad = DRAWN_PAD_PX / scale, LINE_PAD_PX / scale
+        view = device_scene_rect(painter).adjusted(-pad, -pad, pad, pad)
+        near = rect.adjusted(-pad, -pad, pad, pad)              # points, and what is written by them
+        rect = rect.adjusted(-lpad, -lpad, lpad, lpad)          # lines
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self._paint_water(painter, rect, scale, zoom)
+        self._paint_water(painter, rect, scale, zoom, near)
         # said rather than inherited: a contour is a line, and the pass below
         # sets a pen per level and no brush
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1491,10 +1548,10 @@ class ContourLayer(QGraphicsItem):
                 for piece in active:
                     for path in piece.drawn(rect, scale):
                         painter.drawPath(path)
-        self._paint_coasts(painter, rect, scale, zoom)
-        self._paint_spots(painter, rect, scale, zoom)
+        self._paint_coasts(painter, near, scale, zoom)
+        self._paint_spots(painter, near, scale, zoom, view)
         if zoom >= ZOOM_LABELS:
-            self._paint_labels(painter, rect, scale, zoom)
+            self._paint_labels(painter, near, scale, zoom)
 
     def coast_marks(self, key, scale: float, rect: QRectF | None = None) -> list:
         """Where a coastline's marks go at a scale: (x, y, dx, dy) per mark,
@@ -1601,7 +1658,7 @@ class ContourLayer(QGraphicsItem):
         return [(burn, inside), (plain, outside.subtracted(inside))]
 
     def _paint_water(self, painter: QPainter, rect: QRectF, scale: float = 1.0,
-                     zoom: float = 0.0):
+                     zoom: float = 0.0, near: QRectF | None = None):
         """The water, under the contours: the bodies filled, then every
         water way outlined over them.
 
@@ -1655,7 +1712,7 @@ class ContourLayer(QGraphicsItem):
                 if piece.rect.intersects(rect):
                     painter.drawPath(piece.path)
                     self.drawn_water += 1
-            self._paint_lake_levels(painter, rect, scale, zoom)
+            self._paint_lake_levels(painter, rect if near is None else near, scale, zoom)
         finally:
             painter.restore()
 
@@ -1724,7 +1781,8 @@ class ContourLayer(QGraphicsItem):
             painter.restore()
             self.drawn_lake_levels += 1
 
-    def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float):
+    def _paint_spots(self, painter: QPainter, rect: QRectF, scale: float, zoom: float,
+                     view: QRectF | None = None):
         """The spot heights: a ring in the elevation's own colour, and the
         value beside it once there is room for it.
 
@@ -1747,13 +1805,24 @@ class ContourLayer(QGraphicsItem):
         font.setPointSize(FONT_PT)
         self.drawn_water_levels = self.labelled_water_levels = 0
         taken: dict = {}                     # label places so far, by cell, in pixels
+        # which water levels are labelled is settled over the whole view, in
+        # the same order whatever part of it is redrawn: settled over the
+        # part, a level beside an edit took a place a level outside it held,
+        # and drew a second label over the first
+        view = rect if view is None else view
+        x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
         for spot in self.spots.values():
-            if not rect.contains(QPointF(spot.x, spot.y)):
-                continue
+            inside = x0 <= spot.x <= x1 and y0 <= spot.y <= y1
             if spot.on_water:
+                if not (inside if zoom >= ZOOM_WATER_LABELS or zoom < ZOOM_LABELS
+                        else view.contains(QPointF(spot.x, spot.y))):
+                    continue
                 label = zoom >= ZOOM_WATER_LABELS or (
                     zoom >= ZOOM_LABELS and _room(taken, spot.x * scale, spot.y * scale))
-                self._paint_water_level(painter, spot, scale, label, font)
+                if inside:
+                    self._paint_water_level(painter, spot, scale, label, font)
+                continue
+            if not inside:
                 continue
             colour = self.colour(spot.ele)
             painter.save()
