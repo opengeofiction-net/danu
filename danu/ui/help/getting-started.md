@@ -95,6 +95,16 @@ page back over whatever is open.
   between it and the contour beyond. Proposed first; **Enter** takes it.
   Levels further apart, two recovered contours crossing, and stretches with
   no room are left in the Validation panel.
+- **Fit contours to the coast** with **Shift+K**: where the low contours run
+  out past an island's coastline - 10, 20 and 30 m over the sea, and 40 m
+  keeping inside - choose the coastline, or **Shift**-lasso nodes on several,
+  and the contours that cross it, or lie at sea beside it, are laid again
+  between the coast and the contours that keep off it, following both.
+  Every contour inside the island is kept. An islet with nothing kept above
+  is laid up to its highest spot height. Where a kept contour comes too
+  near the coast for the levels below it, they stop there, and the place is
+  listed. Proposed first; **Enter** takes it. The mainland, and an island
+  running out of the open set, are not fitted yet.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
   **Alt** it scales it there. The keys can be pressed or let go during the

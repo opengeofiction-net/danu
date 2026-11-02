@@ -34,7 +34,7 @@ from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele
-from ..water import burn, contradict, flatten
+from ..water import burn, coastfit, contradict, flatten
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
@@ -2955,6 +2955,71 @@ class EditController(QObject):
         from .background import Job
         job = self._push_job = Job(lambda: crossfix.plan(ws, self.history.alloc, only={ws.centre}, pull_back_m=at),
                                    done, failed)
+        self.runner(job)
+
+    def fit_coast(self):
+        """Shift+K: the islands of the coastline selected - or of every
+        coastline with a node picked - their low contours laid again between
+        the coast and the lowest of their contours that keeps off it
+        (``danu.water.coastfit``). Proposed, on a worker; Enter takes it as one
+        step across the squares the islands are in."""
+        ws = self.working_set
+        if ws is None:
+            return
+        chosen = []
+        sel = self.selection
+        if sel is not None and sel.relation is None and sel.way is not None and is_coastline(sel.way):
+            chosen.append((sel.square, sel.way))
+        for name, ids in self.picked.items():
+            sq = ws.square(name)
+            if sq is None:
+                continue
+            chosen += [(sq, w) for w in sq.ways.values() if is_coastline(w) and ids.intersection(w.refs)]
+        if not chosen:
+            self.message.emit('choose a coastline, or pick nodes on several, then Shift+K fits '
+                              'the contours to the coast')
+            return
+        gen = self.history.generation
+        self.message.emit('fitting the contours to the coast…')
+
+        def done(p):
+            if self._fit_job is not job:
+                return                     # a later Shift+K is the one asked
+            if self.working_set is not ws or self.history.generation != gen:
+                self.message.emit('the set changed while the coast was fitted - Shift+K again')
+                return
+            refused = '; '.join(sorted({why for why, _, _ in p.refused}))
+            if not p.steps:
+                self.message.emit('nothing to fit: ' + (refused if refused else
+                                                        'no contour crosses the coast chosen'))
+                return
+            n = p.islands
+            levels = ', '.join(format_ele(v) for v in sorted(p.levels))
+            summary = (f'{n} island{"s" * (n != 1)} fitted to the coast: {p.dropped} contour'
+                       f'{"s" * (p.dropped != 1)} crossing it or at sea replaced by {p.laid}, at {levels} m')
+            if p.left:
+                summary += f'; {p.left} that would still have crossed not laid'
+            if p.pinched:
+                k = len(p.pinched)
+                summary += (f'; {k} place{"s" * (k != 1)} where a contour kept comes too near the coast '
+                            'for the levels below it - listed')
+            if p.refused:
+                summary += f'; {len(p.refused)} not fitted - {refused}'
+            sq = p.steps[0][0]
+            issues = [Issue('unfitted', f'not fitted: {why}, at {lat:.5f}, {lon:.5f}',
+                            (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in p.refused]
+            issues += [Issue('pinched', f'no room for {", ".join(format_ele(v) for v in levels)} m between the '
+                                        f'coast and the contour kept, at {lat:.5f}, {lon:.5f}',
+                             (m.lonlat_to_scene(lon, lat),)) for levels, lon, lat in p.pinched]
+            scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
+            self._set_proposal(Proposal(
+                sq, None, None, summary, issues=issues, steps=p.steps,
+                removed=scene(p.removed), added=scene(p.added), kind='fit'))
+
+        def failed(why):
+            self.message.emit(f'not fitted to the coast: {why.splitlines()[0]}')
+        from .background import Job
+        job = self._fit_job = Job(lambda: coastfit.plan(ws, chosen, self.history.alloc), done, failed)
         self.runner(job)
 
     def _propose_lake(self, sq: Square, feature) -> None:
