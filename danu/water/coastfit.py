@@ -158,6 +158,17 @@ def _ogr():
     return ogr
 
 
+def _vectors():
+    """An in-memory vector data source: GDAL 3.11 calls the driver MEM, and
+    the 3.10 of Debian 13 Memory."""
+    ogr = _ogr()
+    for name in ('MEM', 'Memory'):
+        drv = ogr.GetDriverByName(name)
+        if drv is not None:
+            return drv.CreateDataSource('')
+    raise RuntimeError('GDAL has no in-memory vector driver')
+
+
 def _line(pts):
     ogr = _ogr()
     g = ogr.Geometry(ogr.wkbLineString)
@@ -418,7 +429,7 @@ class _Grid:
     def _burn(self, geoms, polygons=False) -> np.ndarray:
         from osgeo import gdal, ogr
         r = self._raster(gdal.GDT_Byte)
-        mem = ogr.GetDriverByName('MEM').CreateDataSource('')
+        mem = _vectors()
         lyr = mem.CreateLayer('g', self.srs, ogr.wkbUnknown)
         for g in geoms:
             f = ogr.Feature(lyr.GetLayerDefn())
@@ -454,7 +465,7 @@ class _Grid:
         passable = self._land & ~lines
         src = self._raster(gdal.GDT_Byte)
         src.GetRasterBand(1).WriteArray(passable.astype(np.uint8))
-        mem = ogr.GetDriverByName('MEM').CreateDataSource('')
+        mem = _vectors()
         regions = mem.CreateLayer('r', self.srs, ogr.wkbPolygon)
         regions.CreateField(ogr.FieldDefn('v', ogr.OFTInteger))
         gdal.Polygonize(src.GetRasterBand(1), src.GetRasterBand(1), regions, 0)
@@ -506,7 +517,7 @@ class _Grid:
         from osgeo import gdal, ogr
         r = self._raster(gdal.GDT_Float32)
         r.GetRasterBand(1).WriteArray(h)
-        mem = ogr.GetDriverByName('MEM').CreateDataSource('')
+        mem = _vectors()
         lyr = mem.CreateLayer('c', self.srs, ogr.wkbLineString)
         lyr.CreateField(ogr.FieldDefn('id', ogr.OFTInteger))
         lyr.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
