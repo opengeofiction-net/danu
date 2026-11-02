@@ -49,7 +49,7 @@ class Loupe(QWidget):
         view.pointerMoved.connect(self.follow)
         view.pointerLeft.connect(self._left)
         view.zoomChanged.connect(lambda _: self.update())
-        self._watching = False
+        self._watching = None            # the scene followed, while the loupe is on
 
     def _watch(self, on: bool) -> None:
         """The scene's changes followed while the loupe is on, and not
@@ -57,13 +57,16 @@ class Loupe(QWidget):
         the whole of itself for every update, whatever part was asked for -
         and connected for good, it made every edit, mark and hover repaint
         the whole map, 30 to 50 ms on roantra, with the loupe off."""
-        if on == self._watching:
+        if on == (self._watching is not None):
             return
-        self._watching = on
         if on:
-            self.view.scene().changed.connect(self._scene_changed)
+            self._watching = self.view.scene()
+            self._watching.changed.connect(self._scene_changed)
         else:
-            self.view.scene().changed.disconnect(self._scene_changed)
+            # the scene connected to, not the view's now: should it ever be
+            # replaced, the old one is let go of and the new not asked
+            self._watching.changed.disconnect(self._scene_changed)
+            self._watching = None
 
     def _scene_changed(self, _rects) -> None:
         if self.isVisible():

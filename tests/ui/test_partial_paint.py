@@ -140,11 +140,11 @@ def test_marks_unchanged_by_an_edit_redraw_nothing(window, qtbot):
 
 def test_the_loupe_follows_the_scene_only_while_it_is_on(window):
     loupe = window.loupe
-    assert not loupe._watching, 'connected with the loupe off, the map redraws whole for every update'
+    assert loupe._watching is None, 'connected with the loupe off, the map redraws whole for every update'
     loupe.set_on(True)
-    assert loupe._watching
+    assert loupe._watching is window.map.scene()
     loupe.set_on(False)
-    assert not loupe._watching
+    assert loupe._watching is None
 
 
 def test_a_node_of_a_contour_across_the_view_redraws_round_the_node_not_the_contour(window, qtbot):
