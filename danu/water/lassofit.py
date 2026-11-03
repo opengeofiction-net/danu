@@ -99,6 +99,8 @@ def plan(working_set, lasso, picked: dict, alloc, cell_m: float = CELL_M, report
         return all(set(w.refs) <= picked.get(sq.name, set()) for sq, w in isl.ways)
     inside = [i for i in islands if whole(i)]
     out = coastfit.plan(working_set, [isl.ways[0] for isl in inside], alloc, cell_m) if inside else Plan()
+    # a coast that doesn't close in the set - the mainland, an island running
+    # out of it - is what the lasso fits, not a refusal
     out.refused += [r for r in refused if 'does not close' not in r[0]]
     upper = upper_of(working_set, picked)
     if upper is None:
@@ -109,6 +111,8 @@ def plan(working_set, lasso, picked: dict, alloc, cell_m: float = CELL_M, report
     try:
         _fit(working_set, lasso, upper, inside, out, alloc, cell_m, say)
     except Refused as why:
+        # _fit refuses before it adds anything to ``out``: a refusal leaves
+        # the islands' plan as it was
         xs = [p[0] for p in lasso]
         ys = [p[1] for p in lasso]
         out.refused.append((str(why), (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2))
