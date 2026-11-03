@@ -6509,8 +6509,46 @@ The surface build was tried first and is the wrong tool: at 1" a cell is
 22 by 31 m, wider than the band in places, and the build smooths. Laid from
 it, the levels crossed the contours kept 3,136 times.
 
-An island is a closed coastline ring in the open set, land on its left; the
-mainland, and an island running out of the set, are refused for now. Fitting
-every island of N43E029 takes 20 s: 76 islands, 193 contours replaced by
-269, every island's crossing of its coast gone - 1,837 - and none between
+An island is a closed coastline ring in the open set, land on its left.
+Fitting every island of N43E029 takes 20 s: 76 islands, 193 contours replaced
+by 269, every island's crossing of its coast gone - 1,837 - and none between
 contours made; the 417 left are on the mainland.
+
+### The mainland, in a lasso
+
+The mainland's coast does not close in the open set, and a contour crossing
+it is one long way, right for nearly all its length: N43E029's 21 are 1,364
+km. Three square-wide fits failed. As islands, over land faces of the set's
+coastlines, the long ways went whole and the band ran up the valleys they had
+run along, levels laid there from a coast kilometres away. Cutting the ways
+within 300 m of the coast cut a 50 m line right 200 m inland to pieces. Each
+excursion out to sea replaced by itself was safe, but found room for few:
+the higher contours are pressed against the coast too, and 540 crossings
+went to 526. Moving the right parts of the higher contours as well needs to
+be told how far up and where, so the mapper says, with a lasso
+(`danu.water.lassofit`):
+
+- The upper level: the highest level the lasso picked. A range filter of 0
+  to 40 m keeps it to 40; with none, the lasso's highest contour.
+- What goes: every contour below it, inside the lasso, but a closed ring
+  wholly inside, on land, touching no coast - a hill - and the islands
+  wholly inside, which are fitted as islands first.
+- The area: the land inside the lasso reached from the coast without crossing
+  the upper level or a hill. Built from where the picked lines stopped
+  instead, it lost the 10 and 20 m round a headland whose 30 m was a hill.
+- A harmonic height in it: 0 on the coast, the upper level along it, a hill
+  at its level, and along the lasso's edge linear between where the coast,
+  the upper level and the contours that go cross it. Red-black
+  over-relaxation (omega 1.9) from a guess by distance; numpy, no scipy. So
+  each level laid leaves the lasso where its old line did, and is joined to
+  what is kept of it there, within four cells. Joining further, to 60 m, made
+  crossings of its own.
+- An end that reaches no cut end is where the upper level comes down to the
+  coast and there is no room, or where the lasso's edge cuts a V of one
+  level, which crosses the edge twice close together; listed as pinched.
+
+The lasso's shape is kept with what it picked; Shift or Ctrl adding or taking
+away leaves no one shape, and drops it. On six stretches of N43E029's
+mainland, lassoed 1.2 km along and 250 m in with the range filter to 30-50
+m: 0.3 to 0.7 s each, and every crossing inside the lasso gone at five - 12,
+13, 13, 16 and 8 - and 5 to 1 at the sixth, where the lasso cut a V.
