@@ -68,6 +68,7 @@ SMALL_M2 = 20000.0         # a ring smaller than this, or
 NARROW_M = 100.0           # narrower than this however long, may be a splinter
 MIN_RING_M2 = 500.0        # a loop the surface makes smaller than this is noise
 JOIN_CELLS = 8.0           # a line laid ends this near its old line's cut end: joined
+SNAP_HELD_M = 60.0         # a loose end this near a held stretch of its level is joined to it there
 MIN_HELD_M = 80.0          # a line held for less than this between stretches laid is laid too
 EDGE_BAND_CELLS = 30       # either side of the lasso's edge, the ground as it was is solved over
 HELD_BAND_CELLS = 2.5      # either side of a held line, its level is not drawn again
@@ -301,7 +302,10 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
         pm = _ring_poly([tuple(np.array(p) * k) for p in _way_pts(sq, w)])
         if pm is None or not small_ring(pm):
             continue
-        if _hollow(pm, ele, to_m(g), [(e, to_m(h)) for _, _, e, h in in_lasso if e != ele]):
+        # a ring the river runs through is the valley's: the river is below it
+        through = any(_line(rp).Intersects(g) or _ring_poly(_way_pts(sq, w)).Contains(_line(rp))
+                      for _, rp, _ in profiled)
+        if through or _hollow(pm, ele, to_m(g), [(e, to_m(h)) for _, _, e, h in in_lasso if e != ele]):
             rings_m.append(pm)
         else:
             knoll_ids.add((sq.name, w.id))
@@ -528,7 +532,7 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
                 pt.AddPoint_2D(*p)
                 if bound.Distance(pt) < 1e-9:
                     cuts[(sq.name, p)] = ele
-            by_square.setdefault(sq.name, (sq, [], []))[1].append((ele, pts, w.tags))
+            by_square.setdefault(sq.name, (sq, [], []))[1].append([ele, pts, w.tags])
         by_square.setdefault(sq.name, (sq, [], []))[2].append(w)
         out.removed += _parts(g.Intersection(corridor))
 
@@ -587,6 +591,62 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
         b_free = joined[j][3] if ej == 0 else joined[j][2]
         joined[i] = [joined[i][0], a_pts + b_pts, a_free, b_free]
         joined[j] = None
+    # a loose end near a stretch of its level held outside the corridor: the
+    # line laid left the corridor elsewhere than its old line was cut, and
+    # ran beside it to the band it is not drawn in. Joined to it there, the
+    # held stretch cut back to that place, the stub to its cut end dropped -
+    # where the join crosses nothing
+    held_pieces = [(name, piece) for name, (_sq, pcs, _ws) in by_square.items() for piece in pcs]
+    others = [to_m(g) for _, _, _, g in near]
+    for j in joined:
+        if j is None:
+            continue
+        for e in (0, 1):
+            if not j[2 + e]:
+                continue
+            p = j[1][0 if e == 0 else -1]
+            pm = np.array(p) * k
+            best = None
+            for name, piece in held_pieces:
+                if piece[0] != j[0]:
+                    continue
+                cut_ends = [i for i in (0, -1) if (name, piece[1][i]) in cuts and (name, piece[1][i]) not in taken]
+                if not cut_ends:
+                    continue
+                xy = np.array(piece[1]) * k
+                for i in range(len(xy) - 1):
+                    a, b = xy[i], xy[i + 1]
+                    ab = b - a
+                    t = float(np.clip(((pm - a) * ab).sum() / max((ab * ab).sum(), 1e-9), 0, 1))
+                    q = a + t * ab
+                    dd = float(np.hypot(*(q - pm)))
+                    if dd <= SNAP_HELD_M and (best is None or dd < best[0]):
+                        best = (dd, name, piece, i, (q[0] / proj.kx, q[1] / proj.ky), cut_ends)
+            if best is None:
+                continue
+            _, name, piece, i, q, cut_ends = best
+            bridge = _line([tuple(pm), (q[0] * proj.kx, q[1] * proj.ky)])
+            if any(bridge.Crosses(o) for o in others):
+                continue
+            pts = piece[1]
+            # the side dropped: towards a cut end, the shorter if both are
+            keep_start = [*pts[:i + 1], q]          # dropping towards pts[-1]
+            keep_end = [q, *pts[i + 1:]]            # dropping towards pts[0]
+            options = []
+            if -1 in cut_ends:
+                options.append((len(pts) - i, keep_start, keep_end, pts[-1]))
+            if 0 in cut_ends:
+                options.append((i + 1, keep_end, keep_start, pts[0]))
+            _, kept_, dropped, cut = min(options, key=lambda o: o[0])
+            piece[1] = kept_
+            out.removed.append(dropped)
+            taken.add((name, cut))
+            if e == 0:
+                j[1].insert(0, q)
+            else:
+                j[1].append(q)
+            j[2 + e] = False
+
     loose = []
     for j in joined:
         if j is None:

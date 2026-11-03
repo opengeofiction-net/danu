@@ -6591,8 +6591,14 @@ solver, cut and chain:
 - Each level drawn over the whole lasso but within 2.5 cells of its own held
   lines, so it stops where it meets them; its ends joined to the cut ends
   of its old lines within 8 cells, then to one another, a scrap held between
-  two pieces of one line. A loop under 500 m2 is noise.
+  two pieces of one line, then to a held stretch of its level within 60 m -
+  it left the corridor elsewhere than its line was cut - the stretch cut
+  back there. A loop under 500 m2 is noise. A ring the river runs through
+  is never a knoll.
 
 On the Xoltzogo's valley in N43E029, four lassos from the mapper's session:
 24, 24, 3 and 15 splinters gone, every end joined, no crossing made, 0.5 to
-6.8 s.
+6.4 s. Swept along every river of N43E029, N44E029 and N45E030 - 45
+stretches of 1.5 km lassoed 250 m either side, the lowest three levels each
+crosses picked: all fitted, no crossing made, 4 ends joined to nothing, at
+most 16 s.
