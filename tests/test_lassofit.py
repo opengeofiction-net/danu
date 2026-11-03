@@ -164,7 +164,7 @@ def test_the_highest_level_picked_crossing_the_coast_is_refused():
     lasso = box(-1000, -200, 1000, 240)      # up to 30 m, which crosses
     p = fit(w, lasso)
     assert not p.steps
-    assert p.upper == 30.0
+    assert p.upper is None, 'the coast in the lasso said fitted'
     assert any('30 m, the highest level picked, crosses the coast' in why for why, _, _ in p.refused), p.refused
 
 
@@ -191,3 +191,15 @@ def test_the_upper_level_is_the_highest_picked():
     assert lassofit.upper_of(w, pick(w, LASSO)) == 40.0
     assert lassofit.upper_of(w, pick(w, box(-1000, -200, 1000, 400))) == 50.0
     assert lassofit.upper_of(w, {A: {sq.ways[COAST].refs[0]}}) is None
+
+
+def test_islands_fitted_and_the_coast_refused_say_so_apart():
+    """The islands wholly in the lasso fitted, and the mainland's part
+    refused: the plan is the islands', with no upper level of its own."""
+    w, sq = mainland()
+    line(sq, 4016, {'natural': 'coastline', 'ele': '0'}, circle(0, -600, 100))
+    contour(sq, -7, 10, circle(0, -600, 100, wobble=30))
+    p = fit(w, box(-1000, -800, 1000, 240))      # up to 30 m, which crosses the mainland's coast
+    assert p.islands == 1 and p.steps
+    assert p.upper is None
+    assert any('crosses the coast' in why for why, _, _ in p.refused), p.refused

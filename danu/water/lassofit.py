@@ -104,7 +104,6 @@ def plan(working_set, lasso, picked: dict, alloc, cell_m: float = CELL_M, report
     if upper is None:
         out.refused.append(('no contour picked: lasso up to the level to keep the fit under', *lasso[0]))
         return out
-    out.upper = upper
     out.outline.append([(float(a), float(b)) for a, b in lasso] + [(float(lasso[0][0]), float(lasso[0][1]))])
     say(f'fitting the coast in the lasso, under {upper:g} m…')
     try:
@@ -477,6 +476,7 @@ def _fit(ws, lasso, U: float, islands, out: Plan, alloc, cell_m: float, say) -> 
         out.taken.add((sq.name, w.id))
     out.dropped += len(gone)
     out.pinched += _places(loose, proj)
+    out.upper = U                         # the coast in the lasso fitted, not only its islands
     out.outline += _outline(area, raster, srs)
 
     for name in sorted(by_square, key=str):
