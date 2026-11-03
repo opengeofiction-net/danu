@@ -3075,6 +3075,66 @@ class EditController(QObject):
         job = self._fit_job = Job(lambda: work(job.report), done, failed, on_progress=self.message.emit)
         self.runner(job)
 
+    def absorb_splinters(self):
+        """Shift+E: every chain of small rings picked - a valley's hollows up
+        from its contour's tip, a ring touching its line at a corner -
+        absorbed into the line of its level beside it, as E would each
+        (``danu.core.splinters``). Knolls are kept. Proposed, on a worker,
+        the lasso drawn while it is; Enter takes it as one step. The chains
+        not absorbed are listed."""
+        ws = self.working_set
+        if ws is None:
+            return
+        if not self.picked:
+            self.message.emit('lasso the splinters - the small rings up a valley, or touching their line - '
+                              'then Shift+E absorbs each into the line of its level')
+            return
+        self._drop_cue()
+        lasso = list(self.lasso) if self.lasso else None
+        picked = {name: set(ids) for name, ids in self.picked.items()}
+        if lasso:
+            self.fit_cue = [m.lonlat_to_scene(lon, lat) for lon, lat in lasso]
+            self.overlay.update()
+        gen = self.history.generation
+        self.message.emit('absorbing the splinters…')
+
+        def done(p):
+            if self._splinter_job is not job:
+                return                     # a later Shift+E is the one asked
+            self._drop_cue()
+            if self.working_set is not ws or self.history.generation != gen:
+                self.message.emit('the set changed while the splinters were worked out - Shift+E again')
+                return
+            held = '; '.join(sorted({why for why, _, _ in p.held}))
+            if not p.steps:
+                kept = f' - {p.knolls} knoll{"s" * (p.knolls != 1)} kept' if p.knolls else ''
+                self.message.emit('no splinters absorbed: ' + (held or 'no small ring of a valley picked') + kept)
+                return
+            summary = (f'{p.rings} splinter{"s" * (p.rings != 1)} absorbed, in {p.chains} '
+                       f'chain{"s" * (p.chains != 1)}, into {p.lines} line{"s" * (p.lines != 1)}')
+            if p.knolls:
+                summary += f'; {p.knolls} knoll{"s" * (p.knolls != 1)} kept'
+            if p.held:
+                summary += f'; {len(p.held)} chain{"s" * (len(p.held) != 1)} not absorbed - listed'
+            issues = [Issue('unabsorbed', f'not absorbed: {why}, at {lat:.5f}, {lon:.5f}',
+                            (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in p.held]
+            scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
+            self._set_proposal(Proposal(
+                p.steps[0][0], None, None, summary, issues=issues, steps=p.steps,
+                removed=scene(p.removed), added=scene(p.added), kind='fit',
+                outline=scene(p.outline) or None))
+
+        def failed(why):
+            if self._splinter_job is job:
+                self._drop_cue()
+            self.message.emit(f'no splinters absorbed: {why.splitlines()[0]}')
+        from ..core import splinters  # GDAL's geometry, asked for when it is used
+        from .background import Job
+        job = self._splinter_job = Job(
+            lambda: splinters.plan(ws, lasso, picked, self.history.alloc, report=job.report),
+            done, failed, on_progress=self.message.emit)
+        self.runner(job)
+
     def _drop_cue(self) -> None:
         if self.fit_cue is not None:
             self.fit_cue = None

@@ -6552,3 +6552,24 @@ away leaves no one shape, and drops it. On six stretches of N43E029's
 mainland, lassoed 1.2 km along and 250 m in with the range filter to 30-50
 m: 0.3 to 0.7 s each, and every crossing inside the lasso gone at five - 12,
 13, 13, 16 and 8 - and 5 to 1 at the sixth, where the lasso cut a V.
+
+## Absorbing splinters
+
+A recovered square holds thousands of small rings beside a line of their
+level - a valley's tip and its hollows up the river, a ring touching its line
+at a corner - and E took them one chain at a time. Shift+E takes every chain
+a lasso picks (`danu.core.splinters`):
+
+- A splinter: a ring under 20,000 m2 that is a hollow - the nearest contour
+  of another level outside it higher. Nearest lower, it is a knoll, and kept.
+- A chain: splinters of one level linked ring to ring within absorb's 100 m,
+  absorbed by `danu.core.absorb` into the nearest line of that level within
+  100 m of them. Levels in turn from the lowest, on a copy of the square, so
+  a line absorbed into twice takes the second from where the first left it.
+- Held back and listed: a chain whose line would meet a contour more often
+  than before, one absorb refuses, and one no line reaches.
+
+Over a copy of roantra's 24 squares, the whole of each picked: 5,522 rings
+in 4,385 chains absorbed, 95 chains held back as crossing, 22 refused, 2,158
+with no line in reach, 5,221 rings kept as knolls; at most 15 s a square,
+and no crossing made. Most are a ring touching its line at a corner.
