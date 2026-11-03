@@ -83,6 +83,9 @@ class Plan:
     refused: list = field(default_factory=list)      # (why, lon, lat): islands not fitted
     left: int = 0                                    # lines laid that would have crossed, not laid
     pinched: list = field(default_factory=list)      # ([levels], lon, lat): where levels laid stop
+    taken: set = field(default_factory=set)          # (square name, way id) of what goes
+    upper: float | None = None                       # a lasso's: the level it is fitted under
+    outline: list = field(default_factory=list)      # a lasso's: it and its area, as rings
 
 
 # ------------------------------------------------------------------ islands
@@ -131,7 +134,7 @@ def islands_of(working_set, chosen) -> tuple[list[Island], list]:
         where = (n0.lon, n0.lat) if n0 is not None else (0.0, 0.0)
         if ring[0] != ring[-1] or len(ring) < 4:
             refused.append(('its coastline does not close in the open set - the mainland, or an island '
-                            'running out of it', *where))
+                            'running out of it: lasso a stretch of it to fit it there', *where))
             continue
         nodes = [_node(working_set, r) for r in ring]
         if any(n is None for n in nodes):
@@ -241,7 +244,7 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
     coasts = [(g, g.GetEnvelope()) for g in (_line(_way_pts(sq, w)) for sq, w in _coast_ways(working_set))]
     contours = [(sq, w, parse_ele(w.tags.get('ele'))) for sq in working_set.squares.values()
                 for w in sq.ways.values() if not is_coastline(w) and parse_ele(w.tags.get('ele')) is not None]
-    taken: set = set()                              # (square name, way id) dropped already
+    taken = out.taken                               # (square name, way id) dropped already
     by_square: dict = {}
     for isl in islands:
         try:

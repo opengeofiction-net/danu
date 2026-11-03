@@ -25,7 +25,7 @@ from itertools import pairwise
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..checks import loops
@@ -34,7 +34,7 @@ from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele
-from ..water import burn, coastfit, contradict, flatten
+from ..water import burn, coastfit, contradict, flatten, lassofit
 from ..water.overpass import flows
 from . import mercator as m
 from .contours import ContourLayer, water_feature, water_tags
@@ -226,6 +226,21 @@ def _path(points) -> QPainterPath:
     return path
 
 
+def _paint_lasso(painter: QPainter, ring) -> None:
+    """A lasso a fit works inside: wide, dashed, orange - drawn from the
+    moment Shift+K is pressed until the proposal is let go."""
+    if len(ring) < 3:
+        return
+    pen = QPen(QColor(255, 140, 0, 230), 3.0)
+    pen.setCosmetic(True)
+    pen.setStyle(Qt.PenStyle.DashLine)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    path = _path(ring)
+    path.closeSubpath()
+    painter.drawPath(path)
+
+
 def _point_at(scene, dist, d):
     """The scene point ``d`` metres along a run of points."""
     for (a, da), (b, db) in pairwise(zip(scene, dist, strict=True)):
@@ -337,6 +352,8 @@ class Proposal:
     added: list | None = None
     dropped: list | None = None
     joins: list | None = None             # (scene x, y, gap metres)
+    # a lasso fit's: the lasso, then the area inside it fitted, as scene rings
+    outline: list | None = None
 
     @property
     def acceptable(self) -> bool:
@@ -422,6 +439,13 @@ class EditController(QObject):
         # selection, which picking clears and which clears it. A lasso or a
         # rectangle being drawn: shape, what it does, the points so far
         self.picked: dict = {}
+        # the lasso or rectangle that picked them, as (lon, lat) - when one
+        # did, alone: Shift+K fits the coast inside it. Shift or ctrl adding
+        # to it or taking away leaves no one shape, and drops it
+        self.lasso: list | None = None
+        # where a fit is being worked out: the lasso, as scene points, drawn
+        # until the proposal comes - so what it operates on shows at once
+        self.fit_cue: list | None = None
         self.marquee: tuple[str, str, list[QPointF]] | None = None
         # what a lasso picks: 'all', or only nodes on contours at the active
         # elevation, or in a range - (kind, from, to); the panel sets it
@@ -452,11 +476,14 @@ class EditController(QObject):
         self.partner = None                      # a touch's other contour, for E: this selection's alone
         if value is not None:
             self.picked = {}                     # one thing selected, or many: not both
+            self.lasso = None
         self.selectionChanged.emit()
 
-    def set_picked(self, picked: dict) -> None:
-        """Many nodes picked, by square name: the one selection goes."""
+    def set_picked(self, picked: dict, lasso: list | None = None) -> None:
+        """Many nodes picked, by square name: the one selection goes.
+        ``lasso`` the shape that picked them, as (lon, lat), if one did."""
         self.picked = {name: set(ids) for name, ids in picked.items() if ids}
+        self.lasso = lasso if self.picked else None
         if self.picked:
             self._selection = None
         self.selectionChanged.emit()
@@ -565,7 +592,7 @@ class EditController(QObject):
             kept = {n: {i for i in ids if self.working_set.square(n) is not None and i in self.working_set.square(n).nodes}
                     for n, ids in self.picked.items()}
             if kept != self.picked:
-                self.set_picked(kept)
+                self.set_picked(kept, self.lasso)    # what an edit took away: the lasso the same
         self.overlay.update()
         self.edited.emit()
 
@@ -1027,8 +1054,10 @@ class EditController(QObject):
         else:
             poly = list(zip(xs, ys, strict=True))
         found = self._nodes_in(poly)
+        lasso = None
         if op == 'set':
             picked = found
+            lasso = [m.scene_to_lonlat(x, y) for x, y in poly]
         else:
             picked = {n: set(ids) for n, ids in self.picked.items()}
             sel = self.selection
@@ -1041,7 +1070,7 @@ class EditController(QObject):
                     picked.setdefault(n, set()).update(ids)
                 else:
                     picked[n] = picked.get(n, set()) - ids
-        self.set_picked(picked)
+        self.set_picked(picked, lasso)
         n = self.picked_count()
         said = self._filter_said()
         self.message.emit((f'{n:,} node{"s" * (n != 1)} picked' if n else 'nothing picked') + said)
@@ -2958,45 +2987,66 @@ class EditController(QObject):
         self.runner(job)
 
     def fit_coast(self):
-        """Shift+K: the islands of the coastline selected - or of every
-        coastline with a node picked - their low contours laid again between
-        the coast and the lowest of their contours that keeps off it
-        (``danu.water.coastfit``). Proposed, on a worker; Enter takes it as one
-        step across the squares the islands are in."""
+        """Shift+K: the contours fitted to the coast. With nodes picked by a
+        lasso, inside it (``danu.water.lassofit``): the islands wholly in it
+        as below, and the coast running through it - its contours below the
+        highest level picked laid again between the coast and that level.
+        Otherwise the islands of the coastline selected, or of every coastline
+        with a node picked - their low contours laid again between the coast
+        and the lowest of their contours that keeps off it
+        (``danu.water.coastfit``). Proposed, on a worker, the lasso drawn
+        while it is; Enter takes it as one step across the squares it is in."""
         ws = self.working_set
         if ws is None:
             return
-        chosen = []
-        sel = self.selection
-        if sel is not None and sel.relation is None and sel.way is not None and is_coastline(sel.way):
-            chosen.append((sel.square, sel.way))
-        for name, ids in self.picked.items():
-            sq = ws.square(name)
-            if sq is None:
-                continue
-            chosen += [(sq, w) for w in sq.ways.values() if is_coastline(w) and ids.intersection(w.refs)]
-        if not chosen:
-            self.message.emit('choose a coastline, or pick nodes on several, then Shift+K fits '
-                              'the contours to the coast')
-            return
+        self._drop_cue()                   # an earlier Shift+K's, still being worked out
+        if self.lasso and self.picked:
+            lasso = list(self.lasso)
+            picked = {name: set(ids) for name, ids in self.picked.items()}
+            self.fit_cue = [m.lonlat_to_scene(lon, lat) for lon, lat in lasso]
+            self.overlay.update()
+            work = lambda report: lassofit.plan(ws, lasso, picked, self.history.alloc, report=report)  # noqa: E731
+            nothing = 'no contour crosses the coast in the lasso'
+        else:
+            chosen = []
+            sel = self.selection
+            if sel is not None and sel.relation is None and sel.way is not None and is_coastline(sel.way):
+                chosen.append((sel.square, sel.way))
+            for name, ids in self.picked.items():
+                sq = ws.square(name)
+                if sq is None:
+                    continue
+                chosen += [(sq, w) for w in sq.ways.values() if is_coastline(w) and ids.intersection(w.refs)]
+            if not chosen:
+                self.message.emit('choose a coastline, or lasso a stretch of coast up to the level to keep '
+                                  'under, then Shift+K fits the contours to the coast')
+                return
+            work = lambda report: coastfit.plan(ws, chosen, self.history.alloc)  # noqa: E731
+            nothing = 'no contour crosses the coast chosen'
         gen = self.history.generation
         self.message.emit('fitting the contours to the coast…')
 
         def done(p):
             if self._fit_job is not job:
                 return                     # a later Shift+K is the one asked
+            self._drop_cue()
             if self.working_set is not ws or self.history.generation != gen:
                 self.message.emit('the set changed while the coast was fitted - Shift+K again')
                 return
             refused = '; '.join(sorted({why for why, _, _ in p.refused}))
             if not p.steps:
-                self.message.emit('nothing to fit: ' + (refused if refused else
-                                                        'no contour crosses the coast chosen'))
+                self.message.emit('nothing to fit: ' + (refused if refused else nothing))
                 return
-            n = p.islands
             levels = ', '.join(format_ele(v) for v in sorted(p.levels))
-            summary = (f'{n} island{"s" * (n != 1)} fitted to the coast: {p.dropped} contour'
-                       f'{"s" * (p.dropped != 1)} crossing it or at sea replaced by {p.laid}, at {levels} m')
+            replaced = (f'{p.dropped} contour{"s" * (p.dropped != 1)} replaced by {p.laid}, at {levels} m')
+            n = p.islands
+            if p.upper is not None:
+                summary = f'fitted to the coast in the lasso, under {format_ele(p.upper)} m: {replaced}'
+                if n:
+                    summary += f'; {n} island{"s" * (n != 1)} wholly in it among them'
+            else:
+                summary = (f'{n} island{"s" * (n != 1)} fitted to the coast: {p.dropped} contour'
+                           f'{"s" * (p.dropped != 1)} crossing it or at sea replaced by {p.laid}, at {levels} m')
             if p.left:
                 summary += f'; {p.left} that would still have crossed not laid'
             if p.pinched:
@@ -3014,13 +3064,21 @@ class EditController(QObject):
             scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
             self._set_proposal(Proposal(
                 sq, None, None, summary, issues=issues, steps=p.steps,
-                removed=scene(p.removed), added=scene(p.added), kind='fit'))
+                removed=scene(p.removed), added=scene(p.added), kind='fit',
+                outline=scene(p.outline) or None))
 
         def failed(why):
+            if self._fit_job is job:
+                self._drop_cue()
             self.message.emit(f'not fitted to the coast: {why.splitlines()[0]}')
         from .background import Job
-        job = self._fit_job = Job(lambda: coastfit.plan(ws, chosen, self.history.alloc), done, failed)
+        job = self._fit_job = Job(lambda: work(job.report), done, failed, on_progress=self.message.emit)
         self.runner(job)
+
+    def _drop_cue(self) -> None:
+        if self.fit_cue is not None:
+            self.fit_cue = None
+            self.overlay.update()
 
     def _propose_lake(self, sq: Square, feature) -> None:
         name = feature.tags.get('name') or 'the lake'
@@ -3246,6 +3304,8 @@ class EditOverlay(QGraphicsItem):
                     pts += [ctl.layer.node_xy(sq, i) for i in ids if i in sq.nodes]
         if ctl.marquee is not None:
             pts += [(p.x(), p.y()) for p in ctl.marquee[2]]
+        if ctl.fit_cue:
+            pts += list(ctl.fit_cue)
         if sel is not None:
             if sel.way is not None and sel.way.id in sel.square.ways:
                 out.append(self._way_box(sel.square, sel.square.ways[sel.way.id]))
@@ -3317,6 +3377,20 @@ class EditOverlay(QGraphicsItem):
         for run in proposal.removed or ():
             if len(run) >= 2:
                 painter.drawPath(_path(run))
+        # a lasso fit's: the lasso dashed, and the area it fits shaded
+        if proposal.outline:
+            _paint_lasso(painter, proposal.outline[0])
+            area = QPainterPath()
+            area.setFillRule(Qt.FillRule.OddEvenFill)
+            for run in proposal.outline[1:]:
+                if len(run) >= 3:
+                    area.addPolygon(QPolygonF([QPointF(*pt) for pt in run]))
+            edge = QPen(QColor(255, 140, 0, 200), 1.5)
+            edge.setCosmetic(True)
+            painter.setPen(edge)
+            painter.setBrush(QColor(255, 140, 0, 45))
+            painter.drawPath(area)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
         # a burn's new lines, solid, and the pieces it drops, grey (G7b)
         made = QPen(QColor(120, 60, 0), 2.0)
         made.setCosmetic(True)
@@ -3450,6 +3524,8 @@ class EditOverlay(QGraphicsItem):
             h = 2.5 * px
             for x, y in ghost.values():
                 painter.drawRect(QRectF(x - h, y - h, 2 * h, 2 * h))
+        if ctl.fit_cue:
+            _paint_lasso(painter, ctl.fit_cue)
         if ctl.marquee is not None:
             shape, op, pts = ctl.marquee
             pen = QPen(QColor(255, 140, 0) if op != 'remove' else QColor(200, 30, 30), 1.5)

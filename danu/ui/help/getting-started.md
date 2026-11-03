@@ -103,8 +103,15 @@ page back over whatever is open.
   Every contour inside the island is kept. An islet with nothing kept above
   is laid up to its highest spot height. Where a kept contour comes too
   near the coast for the levels below it, they stop there, and the place is
-  listed. Proposed first; **Enter** takes it. The mainland, and an island
-  running out of the open set, are not fitted yet.
+  listed. Proposed first; **Enter** takes it.
+- **Fit the mainland's coast in a lasso** with **Shift+K** too: lasso a
+  stretch of coast and the contours up to the level to keep under - the
+  highest level the lasso picks, so the range filter keeps it to the low
+  levels. The contours below it are laid again between the coast and it
+  inside the lasso, and joined to their old lines where they leave it;
+  islands wholly inside are fitted as above. The lasso is drawn while it is
+  worked out, and its area shaded in the proposal. Adding to the lasso with
+  **Shift**, or taking away with **Ctrl**, leaves no one shape to fit in.
 - **Move what is picked** by dragging one of its nodes; with **Shift** and
   **Ctrl** held the drag turns it about its middle, and with **Ctrl** and
   **Alt** it scales it there. The keys can be pressed or let go during the
