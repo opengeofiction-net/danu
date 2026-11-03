@@ -106,8 +106,8 @@ page back over whatever is open.
   listed. Proposed first; **Enter** takes it.
 - **Fit the mainland's coast in a lasso** with **Shift+K** too: lasso a
   stretch of coast and the contours up to the level to keep under - the
-  highest level the lasso picks, so the range filter keeps it to the low
-  levels. The contours below it are laid again between the coast and it
+  highest level of the contours the lasso picks; set the range filter to
+  keep that low. The contours below it are laid again between the coast and it
   inside the lasso, and joined to their old lines where they leave it;
   islands wholly inside are fitted as above. The lasso is drawn while it is
   worked out, and its area shaded in the proposal. Adding to the lasso with
