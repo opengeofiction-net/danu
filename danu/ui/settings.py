@@ -74,6 +74,8 @@ DEFAULT_KEYS = {
     # and the low contours of its island laid again between it and the lowest
     # contour that keeps off it
     'edit.fit_coast': 'Shift+K',
+    # and every island of the open square at once
+    'edit.fit_square': 'Ctrl+Shift+K',
     'edit.import_coastline': 'Ctrl+Alt+I',
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map

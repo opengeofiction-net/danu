@@ -2979,19 +2979,39 @@ class EditController(QObject):
             self.message.emit('choose a coastline, or pick nodes on several, then Shift+K fits '
                               'the contours to the coast')
             return
+        self._fit(lambda report: coastfit.plan(ws, chosen, self.history.alloc), 'Shift+K',
+                  'no contour crosses the coast chosen')
+
+    def fit_square(self):
+        """Ctrl+Shift+K: every island of the open square fitted as Shift+K
+        fits one (``coastfit.fit_square``) - the square's whole pile at once,
+        proposed, on a worker; Enter takes it as one step. The mainland's
+        coast is not fitted, and said."""
+        ws = self.working_set
+        if ws is None:
+            return
+        self._fit(lambda report: coastfit.fit_square(ws, self.history.alloc, report=report), 'Ctrl+Shift+K',
+                  f'no contour crosses an island\'s coast in {ws.centre}')
+
+    def _fit(self, work, key: str, nothing: str) -> None:
+        """A fit worked out on a worker - ``work(report)`` gives the plan -
+        and proposed: what goes and what is laid drawn, what is not fitted and
+        where levels stop listed."""
+        ws = self.working_set
         gen = self.history.generation
         self.message.emit('fitting the contours to the coast…')
 
         def done(p):
             if self._fit_job is not job:
-                return                     # a later Shift+K is the one asked
+                return                     # a later fit is the one asked
             if self.working_set is not ws or self.history.generation != gen:
-                self.message.emit('the set changed while the coast was fitted - Shift+K again')
+                self.message.emit(f'the set changed while the coast was fitted - {key} again')
                 return
             refused = '; '.join(sorted({why for why, _, _ in p.refused}))
             if not p.steps:
-                self.message.emit('nothing to fit: ' + (refused if refused else
-                                                        'no contour crosses the coast chosen'))
+                # why nothing was fitted, if something was refused: "nothing
+                # crosses" beside a reason refused is not so
+                self.message.emit('nothing to fit: ' + (refused or nothing))
                 return
             n = p.islands
             levels = ', '.join(format_ele(v) for v in sorted(p.levels))
@@ -3008,9 +3028,9 @@ class EditController(QObject):
             sq = p.steps[0][0]
             issues = [Issue('unfitted', f'not fitted: {why}, at {lat:.5f}, {lon:.5f}',
                             (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in p.refused]
-            issues += [Issue('pinched', f'no room for {", ".join(format_ele(v) for v in levels)} m between the '
+            issues += [Issue('pinched', f'no room for {", ".join(format_ele(v) for v in at)} m between the '
                                         f'coast and the contour kept, at {lat:.5f}, {lon:.5f}',
-                             (m.lonlat_to_scene(lon, lat),)) for levels, lon, lat in p.pinched]
+                             (m.lonlat_to_scene(lon, lat),)) for at, lon, lat in p.pinched]
             scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
             self._set_proposal(Proposal(
                 sq, None, None, summary, issues=issues, steps=p.steps,
@@ -3019,7 +3039,7 @@ class EditController(QObject):
         def failed(why):
             self.message.emit(f'not fitted to the coast: {why.splitlines()[0]}')
         from .background import Job
-        job = self._fit_job = Job(lambda: coastfit.plan(ws, chosen, self.history.alloc), done, failed)
+        job = self._fit_job = Job(lambda: work(job.report), done, failed, on_progress=self.message.emit)
         self.runner(job)
 
     def _propose_lake(self, sq: Square, feature) -> None:

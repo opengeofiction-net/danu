@@ -6514,3 +6514,29 @@ mainland, and an island running out of the set, are refused for now. Fitting
 every island of N43E029 takes 20 s: 76 islands, 193 contours replaced by
 269, every island's crossing of its coast gone - 1,837 - and none between
 contours made; the 417 left are on the mainland.
+
+## Fit the square's islands to the coast
+
+Ctrl+Shift+K fits every island of the open square at once - each coastline
+ring of the set with a part in the square, as Shift+K fits one, an island
+reaching a neighbour fitted there too (`coastfit.fit_square`). On roantra's
+N43E028: 76 islands in 14 s, 183 contours replaced by 223, all 2,048 of the
+square's island crossings of the coast gone and none between contours made.
+
+The mainland is not fitted, and said. A mainland contour that crosses the
+coast is a long way - N43E029's 21 wrong ones are 1,364 km - right nearly
+all its length and wrong where it runs out to sea. Three ways of fitting it
+were tried on N43E029 and none was good enough:
+
+- The island's way over the land the set's coastlines and outline make, a
+  tile at a time: dropping the long ways whole let the band reach up the
+  valleys they ran inland along, and laid levels there from a coast
+  kilometres off.
+- Cutting the ways where they come within 300 m of the coast, the runs
+  inland kept: a 50 m right 200 m inland was cut to pieces, and laid
+  levels ran beside the kept runs round their open ends, in dashes.
+- Each excursion out to sea replaced alone, spliced into its way between
+  where it leaves the land and comes back, on one grid with those beside
+  it: safe, but it found room for few - the mainland's higher contours are
+  pressed to the coast as well, the band a sliver, and fitting it means
+  moving the right parts of those too. N43E029's 540 crossings went to 526.

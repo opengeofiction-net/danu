@@ -48,6 +48,7 @@ MAX_CELLS = 16_000_000          # and a big island's coarser, to keep to this
 SEA_NEAR_M = 150.0              # a low contour wholly at sea this near an island is its
 MIN_RING_CELLS = 4.0            # a ring laid smaller across than this many cells is noise
 MIN_LINE_CELLS = 8.0            # and an open line shorter than this, a level squeezed out
+OWN_CELLS = 1.5                 # a level laid keeps this far off a kept line of its own level
 PINCH_M = 60.0                  # ends of levels laid nearer each other than this are one place
 MIN_NODES = 4
 
@@ -236,13 +237,31 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
     if not islands:
         return out
     lat0 = sum(i.bounds[1] + i.bounds[3] for i in islands) / (2 * len(islands))
-    proj = _Proj(lat0)
-    sea = _Sea(working_set, proj)
-    coasts = [(g, g.GetEnvelope()) for g in (_line(_way_pts(sq, w)) for sq, w in _coast_ways(working_set))]
-    contours = [(sq, w, parse_ele(w.tags.get('ele'))) for sq in working_set.squares.values()
-                for w in sq.ways.values() if not is_coastline(w) and parse_ele(w.tags.get('ele')) is not None]
-    taken: set = set()                              # (square name, way id) dropped already
+    ctx = _Context(working_set, _Proj(lat0))
     by_square: dict = {}
+    _fit_islands(ctx, islands, out, by_square, cell_m)
+    _build(out, by_square, alloc)
+    return out
+
+
+class _Context:
+    """What every fit in a set asks of it, worked out once: the projection,
+    the sea, the coastlines as lines, and every contour with its level."""
+
+    def __init__(self, working_set, proj):
+        self.working_set, self.proj = working_set, proj
+        self.sea = _Sea(working_set, proj)
+        self.coasts = [(g, g.GetEnvelope()) for g in (_line(_way_pts(sq, w))
+                                                      for sq, w in _coast_ways(working_set))]
+        self.contours = [(sq, w, parse_ele(w.tags.get('ele'))) for sq in working_set.squares.values()
+                         for w in sq.ways.values()
+                         if not is_coastline(w) and parse_ele(w.tags.get('ele')) is not None]
+        self.taken: set = set()                         # (square name, way id) dropped already
+
+
+def _fit_islands(ctx, islands, out, by_square, cell_m):
+    working_set, proj, sea, coasts, contours, taken = (ctx.working_set, ctx.proj, ctx.sea, ctx.coasts,
+                                                       ctx.contours, ctx.taken)
     for isl in islands:
         try:
             got = _fit(isl, contours, sea, coasts, proj, cell_m, taken, working_set)
@@ -268,6 +287,11 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
             out.laid += 1
             for name, part, closed in _per_square(working_set, pts):
                 by_square.setdefault(name, (working_set.squares[name], [], []))[2].append((ele, part, closed))
+
+
+def _build(out, by_square, alloc):
+    """The steps: in each square, what goes deleted and what is laid
+    added - a ring closed onto its first node - one compound to a square."""
     for name in sorted(by_square, key=str):
         sq, gone, new = by_square[name]
         ids = alloc(sq)
@@ -281,7 +305,6 @@ def plan(working_set, chosen, alloc, cell_m: float = CELL_M) -> Plan:
                 cmds.append(edits.ExtendWayWithExisting(wid, True, nodes[0]))
         if cmds:
             out.steps.append((sq, edits.Compound(cmds, name=f'fit the contours to the coast in {name}')))
-    return out
 
 
 def _per_square(working_set, pts):
@@ -353,7 +376,7 @@ def _fit(isl: Island, contours, sea: _Sea, coasts, proj: _Proj, cell_m: float, t
     # every contour inside the island that keeps off its coast is kept
     kept = [(ele, pts) for _, _, ele, pts in inside]
     levels = sorted({ele for _, _, ele, _ in wrong})
-    grid = _Grid(isl, proj, cell_m)
+    grid = _Grid(isl.bounds, [land], [shore], proj, cell_m)
     band = grid.band([pts for _, pts in kept])
     h = grid.height(band, kept, top, islet, levels)
     lines = grid.contours(h, levels)
@@ -424,13 +447,14 @@ def _islet_top(working_set, land, bounds, worst: float, contours) -> float:
 
 
 class _Grid:
-    """An island's grid: square cells in metres over its rectangle, a few
-    cells round it."""
+    """A grid over some land - an island, or a stretch of the mainland's
+    coast: square cells in metres over a rectangle, a few cells round it,
+    the land and its coast burned in."""
 
-    def __init__(self, isl: Island, proj: _Proj, cell_m: float):
+    def __init__(self, bounds, land: list, coast: list, proj: _Proj, cell_m: float):
         from osgeo import gdal, osr
         gdal.UseExceptions()
-        w, s, e, n = isl.bounds
+        w, s, e, n = bounds
         wm, hm = (e - w) * proj.kx, (n - s) * proj.ky
         cell = max(cell_m, math.sqrt(max(wm * hm, 1.0) / MAX_CELLS))
         self.cell = cell
@@ -444,9 +468,8 @@ class _Grid:
         srs.ImportFromEPSG(4326)
         srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         self.srs = srs
-        self.isl = isl
-        self._land = self._burn([_polygon(isl.pts)], polygons=True)
-        self._coast = self._burn([_line(isl.pts)])
+        self._land = self._burn(land, polygons=True)
+        self._coast = self._burn(coast)
 
     def _raster(self, kind):
         from osgeo import gdal
@@ -550,9 +573,9 @@ class _Grid:
             h[(dc + du) == 0] = lu[(dc + du) == 0] / 2
             for ele in laid:
                 if ele in dist:
-                    near_own |= dist[ele] <= 1.5
+                    near_own |= dist[ele] <= OWN_CELLS
                 elif ele in cells:
-                    near_own |= self._distance(cells[ele]) <= 1.5
+                    near_own |= self._distance(cells[ele]) <= OWN_CELLS
         # land beyond the band is no height at all - a value beside the sea
         # would draw every level along the coast - and the sea is below 0;
         # and a level laid is no height beside its own kept line
@@ -589,3 +612,43 @@ class _Grid:
                 continue
             out.append((float(f.GetField('ele')), pts))
         return out
+
+
+# ------------------------------------------------------------------ the square
+
+def fit_square(working_set, alloc, cell_m: float = CELL_M, report=None) -> Plan:
+    """What fitting every island of the open square would do: each coastline
+    ring of the open set with a part in the square, fitted as ``plan`` fits
+    one - an island reaching a neighbour fitted there too, whole, as Shift+K
+    fits it. The coast that does not close in the set - the mainland, an
+    island running out of it - is not fitted, and said: its contours run out
+    to sea at stretches of a long way that is right elsewhere, against a
+    coast whose higher contours are pressed to it as well, and fitting it
+    is not this. ``report(text)`` says how far it has got."""
+    centre = working_set.centre
+    w0, s0, e0, n0 = centre.bounds
+    ways = _coast_ways(working_set)
+    chains = _chains([w.refs for _, w in ways])
+    by_first = {w.refs[0]: (sq, w) for sq, w in ways if w.refs}
+    chosen, open_at = [], None
+    for c in chains:
+        nodes = [_node(working_set, r) for r in c]
+        if any(n is None for n in nodes):
+            continue
+        xs, ys = [n.lon for n in nodes], [n.lat for n in nodes]
+        if max(xs) < w0 or min(xs) > e0 or max(ys) < s0 or min(ys) > n0:
+            continue                               # no part of it in the square
+        if c[0] == c[-1] and len(c) > 3:
+            first = next((by_first[r] for r in c if r in by_first), None)
+            if first is not None:
+                chosen.append(first)
+        elif open_at is None:
+            inside = [(n.lon, n.lat) for n in nodes if w0 <= n.lon <= e0 and s0 <= n.lat <= n0]
+            open_at = inside[len(inside) // 2] if inside else (nodes[0].lon, nodes[0].lat)
+    if report:
+        report(f'fitting {len(chosen)} island{"s" * (len(chosen) != 1)}…')
+    out = plan(working_set, chosen, alloc, cell_m) if chosen else Plan()
+    if open_at is not None:
+        out.refused.append(('the mainland coast, or an island running out of the open set, is not fitted '
+                            'yet', *open_at))
+    return out

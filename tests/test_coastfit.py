@@ -277,3 +277,33 @@ def test_where_a_kept_contour_meets_the_coast_the_levels_stop_and_it_is_said():
     assert all((lon - 125.5) * KX > 800 for _, lon, _ in p.pinched), p.pinched
     assert 10.0 in {v for levels_at, _, _ in p.pinched for v in levels_at}
     assert not crossings.find(w)
+
+
+def test_the_square_fits_every_island_in_it_and_says_the_mainland_is_not():
+    w, sq = one()
+    west = coast(sq, wid=4015, r=500, lon0=125.5 - 1500 / KX)
+    contour(sq, -1, 10, 540, wobble=40, lon0=125.5 - 1500 / KX)
+    contour(sq, -2, 20, 300, lon0=125.5 - 1500 / KX)
+    east = coast(sq, wid=4016, r=500, lon0=125.5 + 1500 / KX)
+    contour(sq, -3, 10, 540, wobble=40, lon0=125.5 + 1500 / KX)
+    contour(sq, -4, 20, 300, lon0=125.5 + 1500 / KX)
+    # and a mainland, its coastline running off the set
+    ids = []
+    for i, (x, y) in enumerate(((-2000, -3000), (2000, -3000))):
+        lon, lat = deg(x, y)
+        sq.nodes[600 + i] = Node(id=600 + i, lon=lon, lat=lat)
+        ids.append(600 + i)
+    sq.ways[17] = Way(id=17, refs=ids, tags={'natural': 'coastline', 'ele': '0'})
+    p = coastfit.fit_square(w, lambda s: edits.IdAllocator(s))
+    assert p.islands == 2 and p.levels == {10.0}
+    assert [why for why, _, _ in p.refused] == ['the mainland coast, or an island running out of the open set, '
+                                                'is not fitted yet']
+    for s, step in p.steps:
+        step.apply(s)
+    assert not [c for c in crossings.find(w) if {c.a[1], c.b[1]} & {west.id, east.id}]
+
+
+def test_the_square_with_no_island_has_nothing_to_fit():
+    w, sq = one()
+    p = coastfit.fit_square(w, lambda s: edits.IdAllocator(s))
+    assert not p.steps and not p.refused

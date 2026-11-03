@@ -41,7 +41,7 @@ def test_the_water_work_has_a_menu_of_its_own(window):
     assert heights.actions() == [e['edit.import_heights']]
     coastline = _menu(edit, 'Coastline')
     assert coastline.actions() == [e['edit.import_coastline'], e['edit.mark_coastline'], e['edit.reverse_coastline'],
-                                   e['edit.fit_coast']]
+                                   e['edit.fit_coast'], e['edit.fit_square']]
 
 
 def test_the_surface_in_josm_is_under_surface(window):
@@ -119,7 +119,7 @@ def test_single_level_ground_waits_on_unknown_ground(window):
 
 
 @pytest.mark.parametrize('name', ['edit.set_level', 'edit.import_heights', 'edit.import_coastline',
-                                  'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast',
+                                  'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast', 'edit.fit_square',
                                   'view.josm_surface'])
 def test_a_key_still_reaches_an_action_in_a_sub_menu(window, name):
     fired = []
