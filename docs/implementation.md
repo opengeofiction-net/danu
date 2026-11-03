@@ -6562,14 +6562,16 @@ a lasso picks (`danu.core.splinters`):
 
 - A splinter: a ring under 20,000 m2 that is a hollow - the nearest contour
   of another level outside it higher. Nearest lower, it is a knoll, and kept.
-- A chain: splinters of one level linked ring to ring within absorb's 100 m,
+- A chain: splinters of one level linked ring to ring within a reach,
   absorbed by `danu.core.absorb` into the nearest line of that level within
-  100 m of them. Levels in turn from the lowest, on a copy of the square, so
+  the reach of them. The reach is the proposal's to change; 200 m to start,
+  since on N43E029 100 m left 251 chains no line reached and 200 m 77, and
+  300 and 500 m held more back as crossing than they took. Levels in turn from the lowest, on a copy of the square, so
   a line absorbed into twice takes the second from where the first left it.
 - Held back and listed: a chain whose line would meet a contour more often
   than before, one absorb refuses, and one no line reaches.
 
-Over a copy of roantra's 24 squares, the whole of each picked: 5,522 rings
+Over a copy of roantra's 24 squares, the whole of each picked, at 100 m: 5,522 rings
 in 4,385 chains absorbed, 95 chains held back as crossing, 22 refused, 2,158
 with no line in reach, 5,221 rings kept as knolls; at most 15 s a square,
 and no crossing made. Most are a ring touching its line at a corner.

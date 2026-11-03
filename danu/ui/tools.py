@@ -226,19 +226,40 @@ def _path(points) -> QPainterPath:
     return path
 
 
+# a proposal's lines, bold on a white casing so they stand off the contours
+# under them: what goes red and dashed, what is laid green; and each place a
+# proposal lists that has no pen of its own, ringed
+_GONE = QColor(215, 20, 20)
+_LAID = QColor(0, 150, 70)
+_PLACE = QColor(220, 0, 130)
+
+
+def _paint_bold(painter: QPainter, runs, colour: QColor, width: float, style=Qt.PenStyle.SolidLine) -> None:
+    casing = QPen(QColor(255, 255, 255, 220), width + 3.0)
+    casing.setCosmetic(True)
+    pen = QPen(colour, width)
+    pen.setCosmetic(True)
+    pen.setStyle(style)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    paths = [_path(run) for run in runs or () if len(run) >= 2]
+    for p in (casing, pen):
+        painter.setPen(p)
+        for path in paths:
+            painter.drawPath(path)
+
+
 def _paint_lasso(painter: QPainter, ring) -> None:
     """A lasso a fit works inside: wide, dashed, orange - drawn from the
     moment Shift+K is pressed until the proposal is let go."""
     if len(ring) < 3:
         return
-    pen = QPen(QColor(255, 140, 0, 230), 3.0)
-    pen.setCosmetic(True)
-    pen.setStyle(Qt.PenStyle.DashLine)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
     path = _path(ring)
     path.closeSubpath()
-    painter.drawPath(path)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for pen in (QPen(QColor(255, 255, 255, 220), 7.0), QPen(QColor(255, 120, 0, 240), 4.0, Qt.PenStyle.DashLine)):
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.drawPath(path)
 
 
 def _point_at(scene, dist, d):
@@ -395,6 +416,8 @@ class EditController(QObject):
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
         self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
         self.push_m = crossfix.PUSH_M                 # how far a crossing contour is pushed back
+        self.splinter_reach_m = 200.0                 # Shift+E's reach, ring to ring and to the line
+        self._splinters_asked = None                  # what it was asked of, to ask again at a new reach
         # where a long job runs: the window gives its pool; here, on the spot
         self.runner = lambda job: job.run()
         self._burn_job: list | None = None            # what the last burn was asked to burn
@@ -3075,23 +3098,30 @@ class EditController(QObject):
         job = self._fit_job = Job(lambda: work(job.report), done, failed, on_progress=self.message.emit)
         self.runner(job)
 
-    def absorb_splinters(self):
+    def absorb_splinters(self, reach_m: float | None = None):
         """Shift+E: every chain of small rings picked - a valley's hollows up
         from its contour's tip, a ring touching its line at a corner -
         absorbed into the line of its level beside it, as E would each
         (``danu.core.splinters``). Knolls are kept. Proposed, on a worker,
         the lasso drawn while it is; Enter takes it as one step. The chains
-        not absorbed are listed."""
+        not absorbed are listed. ``reach_m``, from the proposal's Reach, asks
+        the same picks again at that reach."""
         ws = self.working_set
         if ws is None:
             return
-        if not self.picked:
+        if reach_m is not None and self._splinters_asked is not None:
+            self.splinter_reach_m = max(25.0, float(reach_m))
+            lasso, picked = self._splinters_asked
+        elif not self.picked:
             self.message.emit('lasso the splinters - the small rings up a valley, or touching their line - '
                               'then Shift+E absorbs each into the line of its level')
             return
+        else:
+            lasso = list(self.lasso) if self.lasso else None
+            picked = {name: set(ids) for name, ids in self.picked.items()}
+            self._splinters_asked = (lasso, picked)
         self._drop_cue()
-        lasso = list(self.lasso) if self.lasso else None
-        picked = {name: set(ids) for name, ids in self.picked.items()}
+        reach = self.splinter_reach_m
         if lasso:
             self.fit_cue = [m.lonlat_to_scene(lon, lat) for lon, lat in lasso]
             self.overlay.update()
@@ -3121,8 +3151,9 @@ class EditController(QObject):
             scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
             self._set_proposal(Proposal(
                 p.steps[0][0], None, None, summary, issues=issues, steps=p.steps,
-                removed=scene(p.removed), added=scene(p.added), kind='fit',
-                outline=scene(p.outline) or None))
+                removed=scene(p.removed), added=scene(p.added), kind='splinters',
+                outline=scene(p.outline) or None, pull_back_m=reach,
+                strength_label='Reach, ring to ring and to the line'))
 
         def failed(why):
             if self._splinter_job is job:
@@ -3131,7 +3162,7 @@ class EditController(QObject):
         from ..core import splinters  # GDAL's geometry, asked for when it is used
         from .background import Job
         job = self._splinter_job = Job(
-            lambda: splinters.plan(ws, lasso, picked, self.history.alloc, report=job.report),
+            lambda: splinters.plan(ws, lasso, picked, self.history.alloc, report=job.report, gap_m=reach),
             done, failed, on_progress=self.message.emit)
         self.runner(job)
 
@@ -3428,15 +3459,9 @@ class EditOverlay(QGraphicsItem):
             for pt in run[1:]:
                 path.lineTo(*pt)
             painter.drawPath(path)
-        # what a flatten takes away: struck through in red, dashed, so the
-        # contour under it still shows what is being lost
-        cut = QPen(QColor(200, 30, 30, 220), 2.5)
-        cut.setCosmetic(True)
-        cut.setStyle(Qt.PenStyle.DashLine)
-        painter.setPen(cut)
-        for run in proposal.removed or ():
-            if len(run) >= 2:
-                painter.drawPath(_path(run))
+        # what goes: struck through in red, dashed, so the contour under it
+        # still shows what is being lost
+        _paint_bold(painter, proposal.removed, _GONE, 3.5, Qt.PenStyle.DashLine)
         # a lasso fit's: the lasso dashed, and the area it fits shaded
         if proposal.outline:
             _paint_lasso(painter, proposal.outline[0])
@@ -3451,19 +3476,9 @@ class EditOverlay(QGraphicsItem):
             painter.setBrush(QColor(255, 140, 0, 45))
             painter.drawPath(area)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-        # a burn's new lines, solid, and the pieces it drops, grey (G7b)
-        made = QPen(QColor(120, 60, 0), 2.0)
-        made.setCosmetic(True)
-        painter.setPen(made)
-        for run in proposal.added or ():
-            if len(run) >= 2:
-                painter.drawPath(_path(run))
-        gone = QPen(QColor(110, 110, 110, 200), 2.0, Qt.PenStyle.DotLine)
-        gone.setCosmetic(True)
-        painter.setPen(gone)
-        for run in proposal.dropped or ():
-            if len(run) >= 2:
-                painter.drawPath(_path(run))
+        # the new lines, solid, and the pieces a burn drops, grey (G7b)
+        _paint_bold(painter, proposal.added, _LAID, 4.0)
+        _paint_bold(painter, proposal.dropped, QColor(90, 90, 90), 3.0, Qt.PenStyle.DotLine)
         # each gap walked across: a ring, so the mapping error can be found
         ring = QPen(QColor(120, 60, 0), 2.0)
         ring.setCosmetic(True)
@@ -3485,6 +3500,12 @@ class EditOverlay(QGraphicsItem):
                 else:
                     painter.drawPath(_path(issue.path))
             if issue.kind not in ISSUE_PEN:
+                if len(issue.path) == 1:        # a place listed: not fitted, not absorbed, pinched
+                    for pen in (QPen(QColor(255, 255, 255, 220), 6.0), QPen(_PLACE, 3.0)):
+                        pen.setCosmetic(True)
+                        painter.setPen(pen)
+                        painter.setBrush(Qt.BrushStyle.NoBrush)
+                        painter.drawEllipse(QPointF(*issue.path[0]), 10.0 / scale, 10.0 / scale)
                 continue
             pen = QPen(ISSUE_PEN[issue.kind], 4.0)
             pen.setCosmetic(True)

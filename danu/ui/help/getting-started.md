@@ -93,8 +93,10 @@ page back over whatever is open.
   ground, and every chain of small rings in it - a valley's hollows up from
   its contour's tip, a ring touching its line - is absorbed into the line of
   its level beside it, as **E** would. A small ring that is a hill is kept.
-  Chains that would make their line cross, or that no line reaches within
-  100 m, are listed. Proposed first; **Enter** takes it.
+  Chains that would make their line cross, or that no line reaches, are
+  listed and ringed. The proposal's **Reach** - 200 m to start - is how far
+  apart rings may be and still be one chain, and how far the chain may be
+  from its line; change it to try again. **Enter** takes it.
 - **Push back crossings** with **Shift+P**: in the open square, a recovered
   contour stepping back and forth over the line at the next level - a 10 m
   over the coastline - is pushed back off it to its own side, as one line,

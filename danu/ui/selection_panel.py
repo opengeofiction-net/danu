@@ -606,6 +606,8 @@ class SelectionPanel(QDockWidget):
             self.editor.burn(setback_m=value, again=True)
         elif p.kind == 'push':
             self.editor.push_crossings(push_m=value)
+        elif p.kind == 'splinters':
+            self.editor.absorb_splinters(reach_m=value)
         else:
             self.editor.flatten(pull_back_m=value)
 

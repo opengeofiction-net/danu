@@ -130,8 +130,21 @@ def test_no_splinter_picked_says_so(valley):
     assert w.statusBar().currentMessage().startswith('no splinters absorbed'), w.statusBar().currentMessage()
 
 
-def test_shift_e_is_on_the_edit_menu(window):
-    a = window.edit_actions['edit.absorb_splinters']
-    assert a.shortcut().toString() == 'Shift+E'
-    edit = next(x.menu() for x in window.menuBar().actions() if x.text() == '&Edit')
-    assert a in edit.actions()
+def test_shift_e_is_the_key(window):
+    # on the Edit menu: test_menus, which reaches the menus as PySide 6.8 allows
+    assert window.edit_actions['edit.absorb_splinters'].shortcut().toString() == 'Shift+E'
+
+
+def test_the_reach_asks_the_lasso_again(valley):
+    w, sq = valley
+    lasso(w)
+    w.editor.absorb_splinters()
+    p = w.editor.proposal
+    assert p.kind == 'splinters' and p.pull_back_m == 200
+    w.editor.set_picked({})                 # the panel's Reach asks the same picks, whatever is picked now
+    w.editor.absorb_splinters(reach_m=25)
+    q = w.editor.proposal
+    assert q is not p and q.pull_back_m == 25
+    # the rings 40 m apart: at 25 m only the one touching the tip goes
+    assert q.summary.startswith('1 splinter absorbed, in 1 chain') and '2 chains not absorbed' in q.summary, q.summary
+    assert len(q.issues) == 2

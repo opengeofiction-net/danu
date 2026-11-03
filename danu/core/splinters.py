@@ -5,7 +5,7 @@ A recovery from a coarse DEM leaves a valley's contour as a tip and a chain
 of small rings at its level up the valley, or a ring touching its line at a
 corner. Here a splinter is a ring under SMALL_M2 that is a hollow - the
 nearest contour of another level outside it is higher - linked ring to ring
-within absorb's reach, the chain within that reach of a line of its level.
+within a reach - 200 m unless asked - the chain within it of a line of its level.
 A knoll - the nearest outside lower - is a hill, and kept.
 
 Each chain is absorbed into the nearest line of its level, levels in turn
@@ -30,7 +30,9 @@ from .edits import Compound
 from .square import Square, is_coastline
 
 SMALL_M2 = 20000.0         # a ring smaller than this may be a splinter
-GAP_M = absorb.GAP_M       # ring to ring, and chain to line
+# ring to ring, and chain to line, unless asked: on N43E029, 100 m left 251
+# chains no line reached, 200 m 77, and further held more back as crossing
+GAP_M = 200.0
 _LOOK_M = (100.0, 300.0, 1000.0)   # how far out a hollow's neighbour is looked for, in turn
 
 
@@ -80,7 +82,9 @@ def _near(e, f, d: float) -> bool:
 
 
 class _Work:
-    """One square's contours in metres, kept as the absorbs go on a copy."""
+    """One square's contours in metres, kept as the absorbs go on a copy:
+    the copy is what the plan changes, and the steps it gives are for the
+    square itself."""
 
     def __init__(self, sq: Square):
         lats = [n.lat for n in sq.nodes.values()] or [0.0]
@@ -118,10 +122,10 @@ class _Work:
         return x / self.kx, y / self.ky
 
 
-def plan(working_set, lasso, picked: dict, alloc, report=None) -> Plan:
+def plan(working_set, lasso, picked: dict, alloc, report=None, gap_m: float = GAP_M) -> Plan:
     """The splinters among what ``picked`` ({square name: node ids}) holds,
     absorbed; ``lasso`` [(lon, lat)] is drawn round them. ``alloc(square)``
-    gives the ids."""
+    gives the ids; ``gap_m`` is the reach, ring to ring and chain to line."""
     out = Plan()
     if lasso:
         out.outline.append([*lasso, lasso[0]])
@@ -129,11 +133,11 @@ def plan(working_set, lasso, picked: dict, alloc, report=None) -> Plan:
         sq = working_set.square(name)
         if sq is None or not ids:
             continue
-        _square(sq, ids, alloc(sq), out, report)
+        _square(sq, ids, alloc(sq), out, report, gap_m)
     return out
 
 
-def _square(sq: Square, ids: set, alloc, out: Plan, report) -> None:
+def _square(sq: Square, ids: set, alloc, out: Plan, report, gap_m: float) -> None:
     work = _Work(sq)
     s = work.sq
     rings = {}
@@ -159,7 +163,7 @@ def _square(sq: Square, ids: set, alloc, out: Plan, report) -> None:
         if report is not None:
             report(f'absorbing the splinters at {ele:g} m…')
         level = [i for i in hollow if s.ways[i].ele == ele]
-        for chain in _chains(work, level, hollow):
+        for chain in _chains(work, level, hollow, gap_m):
             blob = ogr.Geometry(ogr.wkbGeometryCollection)
             for i in chain:
                 blob.AddGeometry(hollow[i])
@@ -167,19 +171,19 @@ def _square(sq: Square, ids: set, alloc, out: Plan, report) -> None:
             where = work.lonlat(c.GetX(), c.GetY())
             lines = sorted((work.geo[w.id].Distance(blob), w.id) for w in s.ways.values()
                            if w.ele == ele and w.id not in small and not is_coastline(w) and w.id in work.geo
-                           and _near(work.env[w.id], blob.GetEnvelope(), GAP_M))
-            lines = [wid for d, wid in lines if d <= GAP_M]
+                           and _near(work.env[w.id], blob.GetEnvelope(), gap_m))
+            lines = [wid for d, wid in lines if d <= gap_m]
             if not lines:
-                out.held.append((f'no {ele:g} m line within {GAP_M:g} m', *where))
+                out.held.append((f'no {ele:g} m line within {gap_m:g} m', *where))
                 continue
             main = lines[0]
-            got = absorb.absorb(s, main, chain, alloc)
+            got = absorb.absorb(s, main, chain, alloc, gap_m=gap_m)
             if isinstance(got, str):
                 out.held.append((got.split(' - ')[0], *where))
                 continue
             cmd, coords = got
             new = _line([(lon * work.kx, lat * work.ky) for lon, lat in coords])
-            if _crosses(work, main, set(chain), new, blob.GetEnvelope()):
+            if _crosses(work, main, set(chain), new, blob.GetEnvelope(), gap_m):
                 out.held.append((f'its {ele:g} m line would cross a contour', *where))
                 continue
             original.setdefault(main, [(s.nodes[r].lon, s.nodes[r].lat) for r in s.ways[main].refs if r in s.nodes])
@@ -222,12 +226,12 @@ def _is_hollow(work: _Work, wid: int, g: ogr.Geometry) -> bool:
             d = line.Distance(work.geo[o])
             if d < best:
                 best, lev = d, w.ele
-        if lev is not None and (best <= reach or reach == _LOOK_M[-1]):
+        if lev is not None and best <= reach:
             return lev > ele
     return True
 
 
-def _chains(work: _Work, level: list, polys: dict) -> list[list[int]]:
+def _chains(work: _Work, level: list, polys: dict, gap_m: float) -> list[list[int]]:
     """The rings linked ring to ring within reach, each chain once."""
     parent = {i: i for i in level}
 
@@ -238,7 +242,7 @@ def _chains(work: _Work, level: list, polys: dict) -> list[list[int]]:
         return i
     for a, i in enumerate(level):
         for j in level[a + 1:]:
-            if _near(work.env[i], work.env[j], GAP_M) and polys[i].Distance(polys[j]) <= GAP_M:
+            if _near(work.env[i], work.env[j], gap_m) and polys[i].Distance(polys[j]) <= gap_m:
                 parent[root(i)] = root(j)
     chains = {}
     for i in level:
@@ -246,13 +250,13 @@ def _chains(work: _Work, level: list, polys: dict) -> list[list[int]]:
     return sorted(chains.values(), key=lambda c: min(c))
 
 
-def _crosses(work: _Work, main: int, chain: set, new: ogr.Geometry, where) -> bool:
+def _crosses(work: _Work, main: int, chain: set, new: ogr.Geometry, where, gap_m: float) -> bool:
     """The line as absorbed meeting a contour more often than it did. Only
     what lies about the chain is asked: absorb changes the line no further
     from it than its reach, and elsewhere the line is as it was."""
     old = work.geo[main]
     for o, f in work.env.items():
-        if o == main or o in chain or not _near(where, f, 2 * GAP_M):
+        if o == main or o in chain or not _near(where, f, 2 * gap_m):
             continue
         g = work.geo[o]
         if _meets(new, g) > _meets(old, g):

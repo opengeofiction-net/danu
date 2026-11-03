@@ -120,7 +120,7 @@ def test_a_knoll_is_kept():
     w, sq = valley()
     way(sq, 21, 20, ring(-1500, 600, 120, 90))
     way(sq, -15, 30, ring(-1500, 600, 40, 30))
-    way(sq, 31, 30, [(-1700, 700), (-1300, 700)])               # a 30 m line in reach of it
+    way(sq, 31, 30, [(-1700, 700), (-1300, 700)])               # a line it would be absorbed into, were it a hollow
     p = fit(w, everything(sq))
     assert -15 in sq.ways and p.knolls == 1, (p.knolls, p.held)
 
@@ -142,3 +142,13 @@ def test_one_that_would_cross_is_held_back():
     assert all(i in sq.ways for i in RINGS), 'absorbed across the 35 m line'
     assert any('would cross' in why for why, _, _ in p.held), p.held
     assert len(crossings.find(w)) == before
+
+
+def test_the_reach_is_the_callers():
+    """A fourth ring 140 m past the third: one chain at 200 m, alone at 100."""
+    w, sq = valley()
+    way(sq, -16, 30, ring(520, 0, 40, 25))
+    near = splinters.plan(w, None, everything(sq), edits.SetUndoStack().alloc, gap_m=100)
+    assert any('no 30 m line within 100 m' in why for why, _, _ in near.held), near.held
+    p = fit(w, everything(sq))
+    assert -16 not in sq.ways, p.held
