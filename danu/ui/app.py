@@ -1187,7 +1187,8 @@ class MainWindow(QMainWindow):
                 ('edit.split', 'S&plit', ed.split),
                 ('edit.unglue', 'U&nglue', ed.unglue),
                 ('edit.absorb', '&Absorb pieces', ed.absorb),
-                ('edit.absorb_splinters', 'Absorb &splinters', ed.absorb_splinters),
+                # a lambda, as flatten: triggered passes checked=False, taken for a reach
+                ('edit.absorb_splinters', 'Absorb &splinters', lambda: ed.absorb_splinters()),
                 ('edit.push_crossings', 'Push back &crossings', lambda: ed.push_crossings()),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),

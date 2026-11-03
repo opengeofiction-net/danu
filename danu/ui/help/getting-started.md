@@ -92,7 +92,8 @@ page back over whatever is open.
 - **Absorb splinters** with **Shift+E**: lasso a stretch of recovered
   ground, and every chain of small rings in it - a valley's hollows up from
   its contour's tip, a ring touching its line - is absorbed into the line of
-  its level beside it, as **E** would. A small ring that is a hill is kept.
+  its level beside it, as **E** would - small rings, and narrow ones however
+  long they run up the valley. A ring that is a hill is kept.
   Chains that would make their line cross, or that no line reaches, are
   listed and ringed. The proposal's **Reach** - 200 m to start - is how far
   apart rings may be and still be one chain, and how far the chain may be

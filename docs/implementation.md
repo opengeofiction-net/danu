@@ -6560,18 +6560,29 @@ level - a valley's tip and its hollows up the river, a ring touching its line
 at a corner - and E took them one chain at a time. Shift+E takes every chain
 a lasso picks (`danu.core.splinters`):
 
-- A splinter: a ring under 20,000 m2 that is a hollow - the nearest contour
-  of another level outside it higher. Nearest lower, it is a knoll, and kept.
+- A splinter: a ring under 20,000 m2, or under 100 m wide however long - twice
+  its area over its perimeter - that is a hollow: the nearest contour of
+  another level outside it higher. Nearest lower, it is a knoll, and kept.
+  w-49978846 in N43E029, a valley's 30 m piece 600 m up it and 76 m across,
+  is 47,000 m2, and was left while the 20 m beside it went.
+- A long piece - its area's square root over its width past 2.5, a 4:1
+  rectangle - is bridged by absorb on its part near the bridge, and a touch
+  on it opened only as far as it is wide. Its whole hull with 200 m of line
+  took w-49978846's 30 m over the 40 m either side; E does the same now.
 - A chain: splinters of one level linked ring to ring within a reach,
   absorbed by `danu.core.absorb` into the nearest line of that level within
   the reach of them. The reach is the proposal's to change; 200 m to start,
   since on N43E029 100 m left 251 chains no line reached and 200 m 77, and
-  300 and 500 m held more back as crossing than they took. Levels in turn from the lowest, on a copy of the square, so
-  a line absorbed into twice takes the second from where the first left it.
+  300 and 500 m held more back as crossing than they took. Levels in turn
+  from the lowest, on a copy of the square, so a line absorbed into twice
+  takes the second from where the first left it.
 - Held back and listed: a chain whose line would meet a contour more often
   than before, one absorb refuses, and one no line reaches.
 
-Over a copy of roantra's 24 squares, the whole of each picked, at 100 m: 5,522 rings
-in 4,385 chains absorbed, 95 chains held back as crossing, 22 refused, 2,158
+Over a copy of roantra's 24 squares, the whole of each picked, at 100 m:
+5,522 rings in 4,385 chains absorbed, 95 chains held back as crossing, 22 refused, 2,158
 with no line in reach, 5,221 rings kept as knolls; at most 15 s a square,
-and no crossing made. Most are a ring touching its line at a corner.
+and no crossing made. At 200 m, with the narrow rings and the long pieces
+bridged near: 7,363 rings in 5,397 chains, 786 chains with no line in reach,
+108 held back as crossing, 28 refused; at most 19 s a square, no crossing
+made. Most are a ring touching its line at a corner.

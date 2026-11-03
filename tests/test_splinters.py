@@ -152,3 +152,15 @@ def test_the_reach_is_the_callers():
     assert any('no 30 m line within 100 m' in why for why, _, _ in near.held), near.held
     p = fit(w, everything(sq))
     assert -16 not in sq.ways, p.held
+
+
+def test_a_narrow_ring_however_long_is_a_splinter():
+    """A strip 600 m up the valley and 70 m across is 42,000 m2 - past the
+    small rings' size - and still a splinter."""
+    w, sq = valley()
+    for i in (*RINGS, -14):
+        del sq.ways[i]
+    way(sq, -17, 30, [(20, 0), (300, 35), (620, 35), (620, -35), (300, -35), (20, 0)])
+    p = fit(w, everything(sq))
+    assert -17 not in sq.ways, p.held
+    assert not crossings.find(w)

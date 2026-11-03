@@ -175,3 +175,28 @@ def test_a_ring_absorbs_its_pieces_too_whichever_node_it_begins_at():
         'the far side of the ring kept as it was'
     cmd.undo(sq)
     assert {i: list(w.refs) for i, w in sq.ways.items()} == ways and sq.nodes == nodes
+
+
+def test_a_long_piece_is_bridged_near_the_touch_not_by_its_whole_hull():
+    """w-49978846's shape: a 30 m tip touched at its end by a strip 600 m
+    up the valley and 76 m across, bending, with the 40 m line close either
+    side. Its whole hull with the line took the 30 m over the 40 m."""
+    sq = Square(name=A, present=True, attrs={})
+    ids = iter(range(-1, -10_000, -1))
+    main = way(sq, [(-600, 250), (-300, 120), (0, 0), (-300, -120), (-600, -250)], 30, ids)
+    strip = [(0, 0), (150, 40), (300, 120), (450, 230), (600, 380),
+             (640, 320), (500, 170), (340, 50), (170, -40)]
+    piece = way(sq, strip, 30, ids)
+    piece.refs.append(piece.refs[0])
+    bend = [(x, y + 60) for x, y in [(-600, 200), (-200, 60), (150, 100), (450, 290), (600, 450)]]
+    forty = way(sq, bend, 40, ids)
+    got = absorb.absorb(sq, main.id, [piece.id], edits.IdAllocator(sq), gap_m=200)
+    assert not isinstance(got, str), got
+    _, coords = got
+    new = ogr.Geometry(ogr.wkbLineString)
+    for lon, lat in coords:
+        new.AddPoint_2D(lon * KX, lat * KY)
+    old = ogr.Geometry(ogr.wkbLineString)
+    for r in forty.refs:
+        old.AddPoint_2D(sq.nodes[r].lon * KX, sq.nodes[r].lat * KY)
+    assert not new.Intersects(old), 'the 30 m taken over the 40 m'

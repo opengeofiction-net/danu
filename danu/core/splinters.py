@@ -3,7 +3,8 @@ of their level beside it - E (danu.core.absorb) done for each, as one step.
 
 A recovery from a coarse DEM leaves a valley's contour as a tip and a chain
 of small rings at its level up the valley, or a ring touching its line at a
-corner. Here a splinter is a ring under SMALL_M2 that is a hollow - the
+corner. Here a splinter is a ring under SMALL_M2, or narrower than
+NARROW_M however long, that is a hollow - the
 nearest contour of another level outside it is higher - linked ring to ring
 within a reach - 200 m unless asked - the chain within it of a line of its level.
 A knoll - the nearest outside lower - is a hill, and kept.
@@ -30,8 +31,13 @@ from .edits import Compound
 from .square import Square, is_coastline
 
 SMALL_M2 = 20000.0         # a ring smaller than this may be a splinter
+# and one narrower than this, however long: a valley's piece 600 m up it and
+# 76 m across, w-49978846 in N43E029, is 47,000 m2. Width as twice the area
+# over the perimeter - a strip's own width
+NARROW_M = 100.0
 # ring to ring, and chain to line, unless asked: on N43E029, 100 m left 251
-# chains no line reached, 200 m 77, and further held more back as crossing
+# chains no line reached and held 11 as crossing, 200 m 77 and 25, 300 m 33
+# and 41, 500 m 11 and 54
 GAP_M = 200.0
 _LOOK_M = (100.0, 300.0, 1000.0)   # how far out a hollow's neighbour is looked for, in turn
 
@@ -65,6 +71,19 @@ def _poly(pts) -> ogr.Geometry | None:
     g.AddGeometry(r)
     g = g.Buffer(0)
     return g if g is not None and not g.IsEmpty() and g.GetArea() > 0 else None
+
+
+def _runs(g) -> list:
+    """A line's parts as [(x, y)] runs."""
+    if g is None or g.IsEmpty():
+        return []
+    parts = [g.GetGeometryRef(i) for i in range(g.GetGeometryCount())] if g.GetGeometryCount() else [g]
+    return [[p.GetPoint_2D(k) for k in range(p.GetPointCount())] for p in parts if p.GetPointCount() >= 2]
+
+
+def _small(g: ogr.Geometry) -> bool:
+    a = g.GetArea()
+    return a < SMALL_M2 or 2 * a / (g.GetBoundary().Length() or 1.0) < NARROW_M
 
 
 def _meets(a: ogr.Geometry, b: ogr.Geometry) -> int:
@@ -144,7 +163,7 @@ def _square(sq: Square, ids: set, alloc, out: Plan, report, gap_m: float) -> Non
     for w in sq.ways.values():
         if w.closed and w.ele is not None and not is_coastline(w) and len(w.refs) > 3 and ids.intersection(w.refs):
             g = _poly(work.pts(w.id))
-            if g is not None and g.GetArea() < SMALL_M2:
+            if g is not None and _small(g):
                 rings[w.id] = g
     if not rings:
         return
@@ -183,7 +202,7 @@ def _square(sq: Square, ids: set, alloc, out: Plan, report, gap_m: float) -> Non
                 continue
             cmd, coords = got
             new = _line([(lon * work.kx, lat * work.ky) for lon, lat in coords])
-            if _crosses(work, main, set(chain), new, blob.GetEnvelope(), gap_m):
+            if _crosses(work, main, set(chain), new):
                 out.held.append((f'its {ele:g} m line would cross a contour', *where))
                 continue
             original.setdefault(main, [(s.nodes[r].lon, s.nodes[r].lat) for r in s.ways[main].refs if r in s.nodes])
@@ -200,9 +219,15 @@ def _square(sq: Square, ids: set, alloc, out: Plan, report, gap_m: float) -> Non
                 cmds.append(cmd)
             out.rings += len(chain)
             out.chains += 1
+    # each line drawn where it changes only: its old stretch struck through,
+    # its new one laid, and what is the same on both left as it is
     out.lines += len(original)
-    out.removed += [*original.values(), *gone]
-    out.added += [[(s.nodes[r].lon, s.nodes[r].lat) for r in s.ways[m].refs if r in s.nodes] for m in original]
+    out.removed += gone
+    for m, was in original.items():
+        now = [(s.nodes[r].lon, s.nodes[r].lat) for r in s.ways[m].refs if r in s.nodes]
+        a, b = _line(was), _line(now)
+        out.removed += _runs(a.Difference(b))
+        out.added += _runs(b.Difference(a))
 
 
 def _is_hollow(work: _Work, wid: int, g: ogr.Geometry) -> bool:
@@ -250,13 +275,17 @@ def _chains(work: _Work, level: list, polys: dict, gap_m: float) -> list[list[in
     return sorted(chains.values(), key=lambda c: min(c))
 
 
-def _crosses(work: _Work, main: int, chain: set, new: ogr.Geometry, where, gap_m: float) -> bool:
+def _crosses(work: _Work, main: int, chain: set, new: ogr.Geometry) -> bool:
     """The line as absorbed meeting a contour more often than it did. Only
-    what lies about the chain is asked: absorb changes the line no further
-    from it than its reach, and elsewhere the line is as it was."""
+    the contours about what changed are asked - the stretches of the line
+    old and new that the other does not share; elsewhere it is as it was."""
     old = work.geo[main]
+    changed = old.SymDifference(new)
+    if changed is None or changed.IsEmpty():
+        return False
+    where = changed.GetEnvelope()
     for o, f in work.env.items():
-        if o == main or o in chain or not _near(where, f, 2 * gap_m):
+        if o == main or o in chain or not _near(where, f, 0.0):
             continue
         g = work.geo[o]
         if _meets(new, g) > _meets(old, g):

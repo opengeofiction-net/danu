@@ -145,6 +145,21 @@ def test_the_reach_asks_the_lasso_again(valley):
     w.editor.absorb_splinters(reach_m=25)
     q = w.editor.proposal
     assert q is not p and q.pull_back_m == 25
-    # the rings 40 m apart: at 25 m only the one touching the tip goes
+    # the rings 120 m apart, their edges 40: at 25 m only the one touching the tip goes
     assert q.summary.startswith('1 splinter absorbed, in 1 chain') and '2 chains not absorbed' in q.summary, q.summary
     assert len(q.issues) == 2
+
+
+def test_a_second_shift_e_asks_the_new_lasso_at_the_reach_set(valley):
+    """The key twice, on two lassos: the second is of its own picks, at the
+    reach the first left - the action's checked=False is no reach."""
+    w, sq = valley
+    drag(w, [(-100, -80), (130, -80), (130, 80), (-100, 80), (-100, -75)])     # the first ring only
+    w.edit_actions['edit.absorb_splinters'].trigger()
+    assert w.editor.proposal.summary.startswith('1 splinter absorbed'), w.editor.proposal.summary
+    w.editor.proposal = None
+    lasso(w)
+    w.edit_actions['edit.absorb_splinters'].trigger()
+    p = w.editor.proposal
+    assert p is not None and p.pull_back_m == 200, w.statusBar().currentMessage()
+    assert p.summary.startswith('3 splinters absorbed'), p.summary
