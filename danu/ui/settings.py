@@ -63,8 +63,8 @@ DEFAULT_KEYS = {
     'edit.unglue': 'U',
     # E: the contour picked made to enclose the pieces picked beside it, as one
     'edit.absorb': 'E',
-    # Shift+E: every chain of small rings a lasso picks absorbed into the line of its level
-    'edit.absorb_splinters': 'Shift+E',
+    # Shift+E: the levels a lasso picks laid again along its valley, off its river
+    'edit.fit_valley': 'Shift+E',
     # Shift+P: the open square's contours straying over the line at the next
     # level pushed back off it
     'edit.push_crossings': 'Shift+P',

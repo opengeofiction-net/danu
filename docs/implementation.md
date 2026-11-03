@@ -6553,36 +6553,46 @@ mainland, lassoed 1.2 km along and 250 m in with the range filter to 30-50
 m: 0.3 to 0.7 s each, and every crossing inside the lasso gone at five - 12,
 13, 13, 16 and 8 - and 5 to 1 at the sixth, where the lasso cut a V.
 
-## Absorbing splinters
+## A valley fitted to its river
 
 A recovered square holds thousands of small rings beside a line of their
-level - a valley's tip and its hollows up the river, a ring touching its line
-at a corner - and E took them one chain at a time. Shift+E takes every chain
-a lasso picks (`danu.core.splinters`):
+level - a valley's contour stopping short, and its hollows up the river
+beyond - and E took them one chain at a time. Absorbing them chain by chain
+in one pass (`danu.core.absorb` for each) left the levels to argue: a 30 m
+taken up the valley met the 40 m tip it should have gone under, and pushing
+the 40 m out of the way bent the valley. Shift+E lays the levels picked
+again off one surface instead (`danu.water.valleyfit`), the lasso fit's
+solver, cut and chain:
 
-- A splinter: a ring under 20,000 m2, or under 100 m wide however long - twice
-  its area over its perimeter - that is a hollow: the nearest contour of
-  another level outside it higher. Nearest lower, it is a knoll, and kept.
-  w-49978846 in N43E029, a valley's 30 m piece 600 m up it and 76 m across,
-  is 47,000 m2, and was left while the 20 m beside it went.
-- A long piece - its area's square root over its width past 2.5, a 4:1
-  rectangle - is bridged by absorb on its part near the bridge, and a touch
-  on it opened only as far as it is wide. Its whole hull with 200 m of line
-  took w-49978846's 30 m over the 40 m either side; E does the same now.
-- A chain: splinters of one level linked ring to ring within a reach,
-  absorbed by `danu.core.absorb` into the nearest line of that level within
-  the reach of them. The reach is the proposal's to change; 200 m to start,
-  since on N43E029 100 m left 251 chains no line reached and 200 m 77, and
-  300 and 500 m held more back as crossing than they took. Levels in turn
-  from the lowest, on a copy of the square, so a line absorbed into twice
-  takes the second from where the first left it.
-- Held back and listed: a chain whose line would meet a contour more often
-  than before, one absorb refuses, and one no line reaches.
+- The corridor: within 50 m of the river, and 10 m round each splinter,
+  inside the lasso. Outside it every line is held as drawn, so the valley's
+  sides keep their shape; a line held for less than 80 m between stretches
+  in it is taken in too, or the edge cuts it into pieces that do not meet.
+- A splinter: a ring of a level picked under 20,000 m2, or under 100 m wide
+  however long - twice its area over its perimeter, w-49978846 in N43E029 a
+  30 m piece 600 m up its valley and 76 m across - whose nearest contour of
+  another level outside is higher. Nearest lower, it is a knoll, held, and
+  nothing is drawn inside it.
+- The river's profile: each level placed at the furthest upstream it
+  crosses the river - its splinters lie below it, so its line reaches that
+  far up - kept in order up the levels, linear between, and on past the
+  ends at the gradient next to them but never half way to the next level.
+  The grader's `profile.grade_along` refuses a span that climbs, which a
+  river through its splinters does all the way up. Without a floor, the
+  throat of the valley came out raised - the 30 and 40 m carried across it
+  between the sides - and a lasso with no river is refused.
+- The lasso's edge: from the ground as drawn, a surface held to every
+  contour, splinters and all, solved in a band 30 cells along the edge from
+  a filled-in guess - over the whole box from a mean it took a minute.
+  Linear between crossings, two of one level made the edge flat at it and a
+  line ran along it to nowhere; with the river in it, levels crossed the
+  edge where none of theirs did. The river is let go of within 4 cells of
+  the edge, and no line is drawn within 1.5.
+- Each level drawn over the whole lasso but within 2.5 cells of its own held
+  lines, so it stops where it meets them; its ends joined to the cut ends
+  of its old lines within 8 cells, then to one another, a scrap held between
+  two pieces of one line. A loop under 500 m2 is noise.
 
-Over a copy of roantra's 24 squares, the whole of each picked, at 100 m:
-5,522 rings in 4,385 chains absorbed, 95 chains held back as crossing, 22 refused, 2,158
-with no line in reach, 5,221 rings kept as knolls; at most 15 s a square,
-and no crossing made. At 200 m, with the narrow rings and the long pieces
-bridged near: 7,363 rings in 5,397 chains, 786 chains with no line in reach,
-108 held back as crossing, 28 refused; at most 19 s a square, no crossing
-made. Most are a ring touching its line at a corner.
+On the Xoltzogo's valley in N43E029, four lassos from the mapper's session:
+24, 24, 3 and 15 splinters gone, every end joined, no crossing made, 0.5 to
+6.8 s.
