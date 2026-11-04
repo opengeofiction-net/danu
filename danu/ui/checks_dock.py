@@ -67,7 +67,8 @@ CHECKS = {
     'coast': ('Coastlines drawn backwards', "A coastline with land on its right - clockwise round an island, "
                                            "or the contours beside it on its sea side. Land is on a coastline's "
                                            'left, so the build reads it as sea - R reverses a way'),
-    'climb': ('Climbing rivers', 'Rivers which climb on the surface (R29) - B burns a climb'),
+    'climb': ('Climbing rivers', 'Rivers which climb on the surface (R29) - choose one, and B burns its climb '
+              'there, or sets back the contour that crowds it'),
     'backwards': ('Rivers drawn backwards', 'Rivers that climb where they should fall - drawn '
                                             'backwards, likely (R29)'),
     'sea': ('Sea level off the shore', 'Sea level off the drawn coastline (R32)'),

@@ -359,13 +359,91 @@ def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=Non
     finally:
         for sq, cmd in reversed(applied):
             cmd.undo(sq)
-    # one Compound per square, the order kept
+    out.steps = _steps(cmds, 'burn', 'cut')
+    return out
+
+
+def _steps(cmds, what, done) -> list:
+    """One Compound per square, the order kept."""
     by_sq: dict = {}
     for sq, cmd in cmds:
         by_sq.setdefault(sq.name, (sq, []))[1].append(cmd)
-    out.steps = [(sq, edits.Compound(cs, name=f'burn: {len(cs)} contour' + 's' * (len(cs) != 1) + ' cut'))
-                 for sq, cs in by_sq.values()]
+    return [(sq, edits.Compound(cs, name=f'{what}: {len(cs)} contour' + 's' * (len(cs) != 1) + f' {done}'))
+            for sq, cs in by_sq.values()]
+
+
+def plan_near(working_set, river: list, alloc, at, setback_m: float = SETBACK_M) -> Plan:
+    """What setting back the contours that crowd ``river`` about ``at``
+    (lon, lat) would do - a contour above the river's level beside it, where
+    it crosses none: the grade's steep place (G7c). w37737 in roantra's
+    N43E029, graded to 162 m between its 175 m crossing upstream and its
+    150 m downstream, has the 175 m 17 m beside it - a climb on the surface,
+    with no climb in its crossings for ``plan`` to burn.
+
+    The stretch between the crossings either side of ``at`` is burned as a
+    run at the lower one's level: each contour above it kept its setback
+    from the river, ``setback_m`` a contour step, as a climb's run is. The
+    stretch stops short of a crossing above that level by twice that
+    contour's setback - ``setback_m`` for each step it stands above the
+    stretch's level - where the contour has to come in to cross. Without a
+    crossing on both sides there is no stretch, and nothing is set back."""
+    out = Plan()
+    margin = setback_m * 12
+    found = _crossings(working_set, river, margin)
+    if found is None:
+        return out
+    proj, R, contours, crossings, dist = found
+    r_at = _foot_along(R, dist, proj.to(at))
+    below = [c for c in crossings if c.r < r_at]
+    above = [c for c in crossings if c.r > r_at]
+    if not below or not above:
+        out.skipped.append(('no contour crosses the river on ' + ('either side' if not below and not above
+                            else 'one side') + ' of it, to set back between', *at))
+        return out
+    ends = [below[-1], above[0]]
+    base = min(c.ele for c in ends)
+    levels = sorted({w.ele for _, w, _ in contours.values() if w.ele is not None and w.ele > base})
+    if not levels:
+        return out
+    step = levels[0] - base
+    lo, hi = below[-1].r, above[0].r
+    if below[-1].ele > base:
+        lo += 2 * setback_m * (below[-1].ele - base) / step
+    if above[0].ele > base:
+        hi -= 2 * setback_m * (above[0].ele - base) / step
+    if not lo < r_at < hi:
+        out.skipped.append((f'too near where the river crosses the {max(c.ele for c in ends):g} m '
+                            'to set it back', *at))
+        return out
+    applied: list = []
+    try:
+        got = _burn_run(working_set, river, _Run(base, lo, hi, []), setback_m, margin, alloc, applied,
+                        found, step=step)
+        if isinstance(got, tuple):
+            out.skipped.append(got)
+        else:
+            out.pushed += got['pushed']
+            out.contours_cut += len(got['cut'])
+            out.added += got['added']
+            out.dropped += got['dropped']
+            out.removed += got['removed']
+        cmds = list(applied)
+    finally:
+        for sq, cmd in reversed(applied):
+            cmd.undo(sq)
+    out.steps = _steps(cmds, 'set back', 'crowding a river')
     return out
+
+
+def _foot_along(R, dist, p) -> float:
+    """How far along the river the point nearest ``p`` is."""
+    a, b = R[:-1], R[1:]
+    d = b - a
+    ll = np.einsum('ij,ij->i', d, d)
+    t = np.clip(np.einsum('ij,ij->i', p - a, d) / np.where(ll > 0, ll, 1.0), 0.0, 1.0)
+    gap = np.hypot(*(a + t[:, None] * d - p).T)
+    i = int(gap.argmin())
+    return float(dist[i] + t[i] * (dist[i + 1] - dist[i]))
 
 
 @dataclass
@@ -409,7 +487,7 @@ def _runs(crossings, rejected, upstream):
     return runs, lost
 
 
-def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=None):
+def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=None, step=None):
     """Burn one run on the squares, its commands added to ``applied``: what
     it cut, pushed and drew - or why not, (why, lon, lat), with its own
     commands undone.
@@ -419,16 +497,19 @@ def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=
     to the other. What of a contour lies nearer is clipped out, and its ends
     joined along the notch's rim on the side the ground is higher. That is
     the cut of a contour crossing the river, each pair of crossings of one
-    weaving across it, and the push of one that only comes near, alike."""
+    weaving across it, and the push of one that only comes near, alike.
+    ``step``, the contour interval, is for a run no contour crosses inside -
+    ``plan_near``'s; a climb's run reads it from its crossings."""
     mark = len(applied)
     proj, R, contours, crossings, dist = found or _crossings(working_set, river, margin)
     inside = [c for c in crossings if run.lo + 1e-6 < c.r < run.hi - 1e-6]
     got = {'cut': set(), 'pushed': 0, 'added': [], 'dropped': [], 'removed': []}
-    if not inside:
+    if not inside and step is None:
         return got
     # all above the run's level: it ends at the first crossing back at or below it
-    levels = sorted({run.base, *(c.ele for c in inside)})
-    step = min((b - a for a, b in zip(levels, levels[1:], strict=False)), default=1.0)
+    if step is None:
+        levels = sorted({run.base, *(c.ele for c in inside)})
+        step = min((b - a for a, b in zip(levels, levels[1:], strict=False)), default=1.0)
 
     def refuse(why, xy):
         for sq, cmd in reversed(applied[mark:]):

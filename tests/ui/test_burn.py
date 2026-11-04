@@ -83,12 +83,86 @@ def test_shift_b_burns_every_climb_the_grade_found(climbing):
     assert w.editor.proposal.kind == 'burn' and 'burn: 1 climb' in w.editor.proposal.summary
 
 
-def test_b_with_no_climb_chosen_says_how(climbing):
+def test_b_with_no_climb_chosen_and_no_river_says_how(climbing):
+    w, sq, finger = climbing
+    w.editor.focused_issue = None
+    w.editor.selection = None
+    w.edit_actions['edit.burn'].trigger()
+    assert w.editor.proposal is None or w.editor.proposal.kind != 'burn'
+    assert 'choose a climb' in w.statusBar().currentMessage()
+
+
+def test_b_with_a_river_selected_grades_it_and_burns_its_climb(climbing):
+    """No climb chosen, the river selected - a click on it: B grades it and
+    burns the climb the grade finds."""
     w, sq, finger = climbing
     w.editor.focused_issue = None
     w.edit_actions['edit.burn'].trigger()
+    assert w.editor.proposal.kind == 'burn' and w.editor.proposal.summary.startswith('burn: 1 climb')
+
+
+def finding(w, sq, lon, lat):
+    from danu.checks.files import Finding
+    w._choose_finding(Finding(sq.name, 'climb', 'river "Bosco", way 100 - climbs', 'burn the climb (B)',
+                              lon, lat, (lon - 0.001, lat - 0.001, lon + 0.001, lat + 0.001), way=100))
+
+
+def test_b_on_a_validation_climbing_row_burns_the_climb_there(climbing):
+    w, sq, finger = climbing
+    finding(w, sq, 125.355, LAT)
+    w.edit_actions['edit.burn'].trigger()
+    p = w.editor.proposal
+    assert p.kind == 'burn' and p.summary.startswith('burn: 1 climb'), p.summary
+    w.editor.accept_proposal()
+    assert min(sq.nodes[r].lat for r in sq.ways[finger.id].refs) == pytest.approx(LAT + 50 * M_LAT, abs=1e-6)
+
+
+@pytest.fixture
+def crowded(window):
+    """The river graded between its 75 m and 50 m crossings, and the 75 m
+    running 15 m beside it between them - w37737's 175 m in N43E029, a
+    climb on the surface with none in the crossings."""
+    water = overpass.Water()
+    for k in range(41):
+        water.nodes[k + 1] = Node(id=k + 1, lon=125.30 + 0.0025 * k + 0.0001, lat=LAT)
+    water.ways[100] = Way(id=100, refs=list(range(1, 42)), tags={'waterway': 'river', 'name': 'Bosco'})
+    window._water_imported(Answer({NORTH: water}, frozenset(water.ways), frozenset()), window.working_set)
+    for lon, ele in ((125.31, 100), (125.33, 75), (125.39, 50)):
+        draw(window, [(lon, LAT - 0.02), (lon, LAT + 0.02)], ele)
+    near = draw(window, [(125.345, LAT + 0.002), (125.35, LAT + 15 * M_LAT), (125.37, LAT + 15 * M_LAT),
+                         (125.375, LAT + 0.002)], 75)
+    sq = window.working_set.squares[NORTH]
+    window.editor.selection = Selection(sq, sq.ways[100])
+    window.editor.grade()
+    window.editor.accept_proposal()
+    return window, sq, near
+
+
+def test_b_on_a_row_where_a_contour_crowds_the_river_sets_it_back(crowded):
+    w, sq, near = crowded
+    before = edits.snapshot(sq)
+    finding(w, sq, 125.36, LAT)
+    w.edit_actions['edit.burn'].trigger()
+    p = w.editor.proposal
+    assert p.kind == 'burn' and p.acceptable, w.statusBar().currentMessage()
+    assert p.summary.startswith('set back: 1 contour crowding the river, 50 m a step back'), p.summary
+    w.editor.accept_proposal()
+    laid = [x for x in sq.ways.values() if x.tags.get('ele') == '75' and
+            min(sq.nodes[r].lon for r in x.refs) > 125.34]
+    assert laid and min(sq.nodes[r].lat for x in laid for r in x.refs) >= LAT + 50 * M_LAT - 1e-6
+    w.editor.undo()
+    assert edits.snapshot(sq) == before
+
+
+def test_a_row_of_another_river_is_not_its_place(crowded):
+    """The place a row named is that row's way's: B on a river selected by a
+    click afterwards does not aim at it."""
+    w, sq, near = crowded
+    finding(w, sq, 125.36, LAT)
+    w.editor.finding_at = (sq.name, 999, 125.36, LAT)
+    w.edit_actions['edit.burn'].trigger()
     assert w.editor.proposal.kind != 'burn'
-    assert 'choose a climb' in w.statusBar().currentMessage()
+    assert 'nothing for B here' in w.statusBar().currentMessage()
 
 
 def test_a_climb_not_burnable_is_listed_with_why(window):
@@ -173,3 +247,11 @@ def test_two_runs_cutting_one_contour_are_both_burned(window):
     assert not [i for i in p.issues if i.kind == 'unburned'], [i.text for i in p.issues]
     window.editor.accept_proposal()
     assert min(sq.nodes[r].lat for r in sq.ways[w_.id].refs) > LAT
+
+
+def test_a_click_after_a_row_forgets_its_place(crowded):
+    w, sq, near = crowded
+    finding(w, sq, 125.36, LAT)
+    assert w.editor.finding_at is not None
+    w.editor.selection = Selection(sq, sq.ways[100])
+    assert w.editor.finding_at is None

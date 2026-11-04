@@ -6626,3 +6626,33 @@ the seven under the limit touch 160 to 250 nodes each, not 7,700 to 18,700.
 What is new is 68 to 116 m apart at the median. There are no crossings and
 no loose ends, and the times are as before. An unnamed river is "a stream"
 in the summary, not its way's id.
+
+## B from Validation's climbing rivers
+
+Validation's "Climbing rivers" said B burns a climb, but B read only a
+climb chosen in a grade's list. A row chosen there selects its river and
+nothing more, so B said to choose a climb. Now B, with no climb chosen and a
+waterway selected, grades the waterway (G). It acts on the climb nearest the
+place the row named, or on the worst climb if no row was chosen. The place
+is kept with its way, so it is not used once another river is selected.
+
+w37737 in roantra's N43E029 had no climb in its crossings for B to find.
+G graded it to 162 m at 43.91181, 29.31604, between its 175 m crossing
+930 m upstream and its 150 m crossing 820 m down. The 175 m runs 17 m beside
+it there. The editor's surface is 3 arcseconds, 67 by 92 m a cell, so the
+stream and the 175 m share cells. Sampled between its nodes, the stream
+reads 175 m and climbs 12 m. G7c's steep check flags a contour more than
+25 m off the river's level within 30 m, and this one is 13 m off.
+
+`burn.plan_near` sets back what crowds a river where it crosses nothing. It
+takes the stretch between the crossings either side of the place and burns
+it as a run at the lower crossing's level. Each contour above that level is
+kept its setback from the river for each contour step, as a climb's run is.
+The stretch stops short of a crossing above that level by twice that
+contour's setback, because the contour has to come in there to cross. B
+uses it in two cases:
+- on a steep place from the grade with the contour above the river's level;
+- on a Validation row whose river's grade finds nothing B can act on.
+
+On w37737 it set the 175 m back 50 m. The rebuilt surface no longer lists
+the stream, and no crossing was made.
