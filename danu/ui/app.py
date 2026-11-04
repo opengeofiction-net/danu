@@ -1187,6 +1187,7 @@ class MainWindow(QMainWindow):
                 ('edit.split', 'S&plit', ed.split),
                 ('edit.unglue', 'U&nglue', ed.unglue),
                 ('edit.absorb', '&Absorb pieces', ed.absorb),
+                ('edit.fit_valley', 'Fit contours to the &valley', ed.fit_valley),
                 ('edit.push_crossings', 'Push back &crossings', lambda: ed.push_crossings()),
                 ('edit.cut_loop', 'Cut &out the loop chosen',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
@@ -1267,7 +1268,7 @@ class MainWindow(QMainWindow):
 
         edit = self.menuBar().addMenu('&Edit')
         for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
-                     'edit.absorb', 'edit.push_crossings', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
+                     'edit.absorb', 'edit.fit_valley', 'edit.push_crossings', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
             if name:
                 edit.addAction(e[name])
             else:

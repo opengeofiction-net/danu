@@ -89,6 +89,15 @@ page back over whatever is open.
   rings picked, the largest is kept. Pieces more than 100 m apart are not joined.
   Two contours of one level listed in Validation's **Touching contours** need
   no lasso: choose the row, and **E** absorbs one into the other.
+- **Fit contours to the valley** with **Shift+E**: where a valley's contours
+  stop short and leave small rings at their levels up the river, lasso the
+  valley with its river in it, the range filter on the levels to lay again.
+  They are laid again off a surface the river's profile is the floor of: each
+  runs up the valley past its rings, the rings go, and the valley's sides are
+  held as drawn - only a corridor along the river and round the rings is
+  laid again, shown in the proposal. A small ring that is a hill is kept. The
+  river comes from **Import** water; a lasso with none is refused. Proposed
+  first; **Enter** takes it.
 - **Push back crossings** with **Shift+P**: in the open square, a recovered
   contour stepping back and forth over the line at the next level - a 10 m
   over the coastline - is pushed back off it to its own side, as one line,

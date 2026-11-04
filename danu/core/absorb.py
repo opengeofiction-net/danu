@@ -67,6 +67,36 @@ def _hull(*geoms) -> ogr.Geometry:
     return c.ConvexHull()
 
 
+def _width(g: ogr.Geometry) -> float:
+    """Twice the area over the perimeter: a strip's own width."""
+    return 2 * g.GetArea() / (g.GetBoundary().Length() or 1.0)
+
+
+def _long(g: ogr.Geometry) -> bool:
+    """Longer than four times as wide: the square root of its area over its
+    width past 2.5, which a 4:1 rectangle is at. A circle is 1.8, a diamond
+    2.2; w-49978846 2.9."""
+    return math.sqrt(g.GetArea()) > 2.5 * _width(g)
+
+
+def _reach(g: ogr.Geometry, gap_m: float) -> float:
+    """How far a touch on a piece is opened along the line: a round piece's
+    size, but a long one's width - a valley's strip 600 m up it and 76 m
+    across, w-49978846, opened to its size took the line over the 40 m
+    beside it."""
+    return min(gap_m, _width(g) if _long(g) else math.sqrt(g.GetArea()))
+
+
+def _near_part(g: ogr.Geometry, other: ogr.Geometry, r: float) -> ogr.Geometry:
+    """A long piece's part within ``r`` past where it is nearest ``other`` -
+    so the hull of a bridge to it takes in where it is made, not the whole
+    of its curve. A round piece whole."""
+    if not _long(g):
+        return g
+    part = g.Intersection(other.Buffer(g.Distance(other) + r, 8))
+    return part if part is not None and not part.IsEmpty() else g
+
+
 def _line(pts) -> ogr.Geometry:
     g = ogr.Geometry(ogr.wkbLineString)
     for x, y in pts:
@@ -142,7 +172,8 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         d, i, j = min((polys[i].Distance(polys[j]), i, j) for i in linked for j in rest)
         if d > gap_m:
             return f'two pieces are {d:,.0f} m apart - past the {gap_m:,.0f} m that is one valley'
-        blob = blob.Union(_hull(polys[i], polys[j]))
+        a, b = polys[i], polys[j]
+        blob = blob.Union(b).Union(_hull(_near_part(a, b, _reach(a, gap_m)), _near_part(b, a, _reach(b, gap_m))))
         linked.append(j)
         rest.discard(j)
     pieces_area = blob.Clone()
@@ -157,7 +188,8 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
         # the contour bridged to the nearest piece as the pieces are to each other
         k = min(range(len(L) - 1), key=lambda k: _line(L[k:k + 2]).Distance(blob))
         near = min(polys, key=lambda g: g.Distance(_line(L[k:k + 2])))
-        blob = blob.Union(_hull(near, _line(L[k:k + 2])))
+        seg = _line(L[k:k + 2])
+        blob = blob.Union(_hull(_near_part(near, seg, _reach(near, gap_m)), seg))
     else:
         # the contour grazing the pieces - touching one at a corner, w-49980634
         # met by its 20 m line - runs in and out at one point, and the line
@@ -178,14 +210,14 @@ def absorb(square: Square, main_id: int, piece_ids, alloc: IdAllocator,
             if g.IsEmpty():
                 continue
             near = min(polys, key=lambda p: p.Distance(g))
-            w = min(gap_m, math.sqrt(near.GetArea()))
+            w = _reach(near, gap_m)
             if 'LINESTRING' in g.GetGeometryName() and g.Length() >= w / 4:
                 continue
             c = g.Centroid()
             s = _along(L, cum, (c.GetX(), c.GetY()))
             i0, p0 = _at(L, cum, max(0.0, s - w))
             i1, p1 = _at(L, cum, min(cum[-1], s + w))
-            blob = blob.Union(_hull(near, _line([p0, *L[i0 + 1:i1 + 1], p1])))
+            blob = blob.Union(_hull(_near_part(near, g, w), _line([p0, *L[i0 + 1:i1 + 1], p1])))
     blob = blob.Buffer(_EDGE_M, _MITRE).SimplifyPreserveTopology(SIMPLIFY_M)
     if blob.GetGeometryName() != 'POLYGON':
         return 'the pieces do not make one shape'

@@ -6552,3 +6552,53 @@ away leaves no one shape, and drops it. On six stretches of N43E029's
 mainland, lassoed 1.2 km along and 250 m in with the range filter to 30-50
 m: 0.3 to 0.7 s each, and every crossing inside the lasso gone at five - 12,
 13, 13, 16 and 8 - and 5 to 1 at the sixth, where the lasso cut a V.
+
+## A valley fitted to its river
+
+A recovered square holds thousands of small rings beside a line of their
+level - a valley's contour stopping short, and its hollows up the river
+beyond - and E took them one chain at a time. Absorbing them chain by chain
+in one pass (`danu.core.absorb` for each) left the levels to argue: a 30 m
+taken up the valley met the 40 m tip it should have gone under, and pushing
+the 40 m out of the way bent the valley. Shift+E lays the levels picked
+again off one surface instead (`danu.water.valleyfit`), the lasso fit's
+solver, cut and chain:
+
+- The corridor: within 50 m of the river, and 10 m round each splinter,
+  inside the lasso. Outside it every line is held as drawn, so the valley's
+  sides keep their shape; a line held for less than 80 m between stretches
+  in it is taken in too, or the edge cuts it into pieces that do not meet.
+- A splinter: a ring of a level picked under 20,000 m2, or under 100 m wide
+  however long - twice its area over its perimeter, w-49978846 in N43E029 a
+  30 m piece 600 m up its valley and 76 m across - whose nearest contour of
+  another level outside is higher. Nearest lower, it is a knoll, held, and
+  nothing is drawn inside it.
+- The river's profile: each level placed at the furthest upstream it
+  crosses the river - its splinters lie below it, so its line reaches that
+  far up - kept in order up the levels, linear between, and on past the
+  ends at the gradient next to them but never half way to the next level.
+  The grader's `profile.grade_along` refuses a span that climbs, which a
+  river through its splinters does all the way up. Without a floor, the
+  throat of the valley came out raised - the 30 and 40 m carried across it
+  between the sides - and a lasso with no river is refused.
+- The lasso's edge: from the ground as drawn, a surface held to every
+  contour, splinters and all, solved in a band 30 cells along the edge from
+  a filled-in guess - over the whole box from a mean it took a minute.
+  Linear between crossings, two of one level made the edge flat at it and a
+  line ran along it to nowhere; with the river in it, levels crossed the
+  edge where none of theirs did. The river is let go of within 4 cells of
+  the edge, and no line is drawn within 1.5.
+- Each level drawn over the whole lasso but within 2.5 cells of its own held
+  lines, so it stops where it meets them; its ends joined to the cut ends
+  of its old lines within 8 cells, then to one another, a scrap held between
+  two pieces of one line, then to a held stretch of its level within 60 m -
+  it left the corridor elsewhere than its line was cut - the stretch cut
+  back there. A loop under 500 m2 is noise. A ring the river runs through
+  is never a knoll.
+
+On the Xoltzogo's valley in N43E029, four lassos from the mapper's session:
+24, 24, 3 and 15 splinters gone, every end joined, no crossing made, 0.5 to
+6.4 s. Swept along every river of N43E029, N44E029 and N45E030 - 45
+stretches of 1.5 km lassoed 250 m either side, the lowest three levels each
+crosses picked: all fitted, no crossing made, 4 ends joined to nothing, at
+most 16 s.
