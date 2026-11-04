@@ -307,8 +307,16 @@ def steep_issues(label, scene, dist, found, shown) -> list:
         text = (f'{label}: the {c.ele:g} m contour comes {c.apart_m:.0f} m from it, '
                 f'up to {abs(c.diff):.0f} m {way} its level, {c.level:g} m there - a cell apart; '
                 'move the contour or fix the level')
-        out.append(Issue('steep', text, tuple(run), (c.d0, c.d1) if shown else None))
+        # one above the river's level is set back from it by B, as a climb's
+        # run is; one below is the level's to fix
+        out.append(Issue('steep', text, tuple(run), (c.d0, c.d1) if shown else None,
+                         tuple(tuple(p) for p in scene) if c.diff > 0 else None))
     return out
+
+
+def _burnable(issue) -> bool:
+    """A climb, or a contour crowding the river above its level: B's."""
+    return issue is not None and issue.kind in ('climb', 'steep') and bool(issue.river)
 
 
 def steep_part(n: int) -> str:
@@ -413,6 +421,7 @@ class EditController(QObject):
         self.partner: int | None = None
         self.proposal: Proposal | None = None
         self.focused_issue: Issue | None = None   # the one the map was last taken to
+        self.finding_at: tuple | None = None      # (square, way, lon, lat): a Validation row's place
         self.pull_back_m = flatten.PULL_BACK_M        # how far a flatten draws contours back
         self.setback_m = burn.SETBACK_M               # a burn's setback per contour step
         self.push_m = crossfix.PUSH_M                 # how far a crossing contour is pushed back
@@ -495,6 +504,7 @@ class EditController(QObject):
         # each having to remember to
         self._selection = value
         self.partner = None                      # a touch's other contour, for E: this selection's alone
+        self.finding_at = None                   # a Validation row's place: its selection's alone
         if value is not None:
             self.picked = {}                     # one thing selected, or many: not both
             self.lasso = None
@@ -2812,19 +2822,23 @@ class EditController(QObject):
                 job = [(river, None) for river in rivers]
             else:
                 issue = self.focused_issue
-                if issue is None or issue.kind != 'climb' or not issue.river:
-                    self.message.emit('choose a climb in the grade\'s list or on its profile, '
-                                      'then B burns it - Shift+B burns them all')
+                if not _burnable(issue):
+                    issue = self._burnable_here()
+                if issue is None:
                     return
                 mid = issue.path[len(issue.path) // 2]
-                job = [(issue.river, m.scene_to_lonlat(*mid))]
+                job = [(issue.river, m.scene_to_lonlat(*mid), issue.kind == 'steep')]
         self._burn_job = job
         steps, used = [], set()
         total = burn.Plan()
-        for river, only in job:
+        for river, place, *near in job:
             lonlat = [m.scene_to_lonlat(x, y) for x, y in river]
-            p = burn.plan(self.working_set, lonlat, self.history.alloc, setback_m=self.setback_m,
-                          only=only)
+            if near and near[0]:
+                p = burn.plan_near(self.working_set, lonlat, self.history.alloc, place,
+                                   setback_m=self.setback_m)
+            else:
+                p = burn.plan(self.working_set, lonlat, self.history.alloc, setback_m=self.setback_m,
+                              only=place)
             # two rivers may share a contour; it is cut once, and the second
             # is left for another burn
             for sq, compound in p.steps:
@@ -2852,6 +2866,9 @@ class EditController(QObject):
             if total.dropped:
                 parts.append(f'{len(total.dropped)} piece{"s" * (len(total.dropped) != 1)} too thin '
                              'to keep, dropped')
+        elif total.pushed:
+            parts.append(f'set back: {total.pushed} contour{"s" * (total.pushed != 1)} crowding the '
+                         f'river, {self.setback_m:g} m a step back')
         else:
             parts.append('nothing burned')
         if total.skipped:
@@ -2866,6 +2883,41 @@ class EditController(QObject):
             issues=issues, steps=steps or None, removed=scene(total.removed),
             pull_back_m=self.setback_m, kind='burn', strength_label='Setback per contour step',
             added=scene(total.added), dropped=scene(total.dropped)))
+
+    def _burnable_here(self) -> Issue | None:
+        """B with no climb chosen, but a waterway selected - a row of
+        Validation's climbing rivers, or a click: the way graded (G), and of
+        what the grade finds B can act on, the one nearest the place the row
+        named, or the worst climb. Said, and None, when there is nothing."""
+        sel = self.selection
+        if sel is None or sel.way is None or not sel.way.tags.get('waterway'):
+            self.message.emit('choose a climb in the grade\'s list or on its profile, or select '
+                              'a river, then B burns it - Shift+B burns them all')
+            return None
+        at = self.finding_at
+        if at is not None and at[:2] != (sel.square.name, sel.way.id):
+            at = None
+        self.grade()
+        p = self.proposal
+        found = [i for i in (p.issues or ()) if _burnable(i)] if p else []
+        if not found and at is not None:
+            # the surface climbs here and the crossings do not: a contour
+            # beside the river, nearer than the build's cell - w37737, the
+            # 175 m 17 m from it at 162 m. What crowds it there is set back
+            ns = sel.square.nodes
+            river = tuple(m.lonlat_to_scene(ns[r].lon, ns[r].lat) for r in sel.way.refs if r in ns)
+            return Issue('steep', 'the surface climbs here: a contour crowding the river',
+                         (m.lonlat_to_scene(*at[2:]),), None, river)
+        if not found:
+            self.message.emit(f'{p.summary if p else "not graded"} - nothing for B here: no climb in its '
+                              'crossings, and no contour crowding it above its level')
+            return None
+        if at is not None:
+            x, y = m.lonlat_to_scene(*at[2:])
+            found.sort(key=lambda i: min(math.hypot(px - x, py - y) for px, py in i.path))
+        else:
+            found.sort(key=lambda i: i.kind != 'climb')
+        return found[0]
 
     def flatten(self, pull_back_m: float | None = None):
         """F: flatten the selected lake at its level - G7a, R26 - proposed, not

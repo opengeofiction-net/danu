@@ -2633,6 +2633,7 @@ class MainWindow(QMainWindow):
         self.editor.selection = (Selection(square, square.ways[f.way]) if f.way is not None
                                  else Selection(square, None, relation=square.relations[f.relation])
                                  if f.relation is not None else Selection(square, None, f.node))
+        self.editor.finding_at = (f.square, f.way, f.lon, f.lat)      # after: a selection clears it
         self._focus([m.lonlat_to_scene(f.lon, f.lat)])
         self._show_place(*f.box)
         self.editor.overlay.update()

@@ -440,3 +440,51 @@ def test_a_rim_that_would_cross_the_river_where_it_comes_back_is_refused():
     p = burn.plan(w, hairpin, lambda s: edits.IdAllocator(s), setback_m=80)
     assert p.burned == 0
     assert any('125 m contour would cross the river' in why for why, _, _ in p.skipped), p.skipped
+
+
+def test_a_contour_crowding_the_river_where_it_crosses_none_is_set_back():
+    """w37737 in roantra's N43E029: graded between its 175 m crossing and
+    its 150 m, with the 175 m 17 m beside it. Here the 75 m runs 15 m north
+    of the river between its 75 m and 50 m crossings: set back 50 m - one
+    step above the 50 m the stretch is burned at."""
+    w, sq = ws()
+    descent(sq)
+    near = way(sq, [(125.345, LAT + 0.002), (125.35, LAT + 15 * M_LAT), (125.37, LAT + 15 * M_LAT),
+                    (125.375, LAT + 0.002)], 75)
+    before = {i: list(x.refs) for i, x in sq.ways.items()}
+    p = burn.plan_near(w, RIVER, lambda s: edits.IdAllocator(s), (125.36, LAT))
+    assert p.pushed == 1 and not p.skipped and p.burned == 0, (p.pushed, p.skipped)
+    assert {i: list(x.refs) for i, x in sq.ways.items()} == before, 'planning changed the square'
+    for s, cmd in p.steps:
+        cmd.apply(s)
+    laid = [x for x in sq.ways.values() if x.tags['ele'] == '75' and
+            min(sq.nodes[r].lon for r in x.refs) > 125.34]
+    assert laid and min(min(lats_of(sq, x)) for x in laid) >= LAT + 50 * M_LAT - 1e-6
+    for s, cmd in reversed(p.steps):
+        cmd.undo(s)
+    assert {i: list(x.refs) for i, x in sq.ways.items()} == before
+    assert near.id in sq.ways
+
+
+def test_crowding_beside_a_crossing_above_is_left():
+    """Where the river crosses the 75 m, the 75 m has to come to it."""
+    w, sq = ws()
+    descent(sq)
+    p = burn.plan_near(w, RIVER, lambda s: edits.IdAllocator(s), (125.3305, LAT))
+    assert not p.steps and p.skipped and 'too near where the river crosses' in p.skipped[0][0]
+
+
+def test_crowding_with_no_crossing_either_side_is_said():
+    w, sq = ws()
+    p = burn.plan_near(w, RIVER, lambda s: edits.IdAllocator(s), (125.36, LAT))
+    assert not p.steps and p.skipped and 'either side' in p.skipped[0][0]
+
+
+def test_crowding_with_a_crossing_on_one_side_only_is_left():
+    """Beyond a river's last crossing there is no stretch to set back along."""
+    w, sq = ws()
+    ns(sq, 125.33, 75)
+    way(sq, [(125.345, LAT + 0.002), (125.35, LAT + 15 * M_LAT), (125.37, LAT + 15 * M_LAT),
+             (125.375, LAT + 0.002)], 75)
+    p = burn.plan_near(w, RIVER, lambda s: edits.IdAllocator(s), (125.36, LAT))
+    assert not p.steps and 'one side' in p.skipped[0][0]
