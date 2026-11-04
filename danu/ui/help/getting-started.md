@@ -96,8 +96,9 @@ page back over whatever is open.
   runs up the valley past its rings, the rings go, and the valley's sides are
   held as drawn - only a corridor along the river and round the rings is
   laid again, shown in the proposal. A small ring that is a hill is kept. The
-  river comes from **Import** water; a lasso with none is refused. Proposed
-  first; **Enter** takes it.
+  river comes from **Import** water; a lasso with none is refused, and so is
+  one over a million cells (about 12 km²) - lasso a stretch at a time.
+  Proposed first; **Enter** takes it.
 - **Push back crossings** with **Shift+P**: in the open square, a recovered
   contour stepping back and forth over the line at the next level - a 10 m
   over the coastline - is pushed back off it to its own side, as one line,

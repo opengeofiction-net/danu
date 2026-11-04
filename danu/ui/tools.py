@@ -3128,7 +3128,11 @@ class EditController(QObject):
                 self.message.emit(f'not fitted: {p.refused or "nothing to lay again"}')
                 return
             levels = ', '.join(format_ele(v) for v in p.levels)
-            river = ' and '.join(p.rivers)
+            named = list(dict.fromkeys(r for r in p.rivers if r))
+            unnamed = sum(1 for r in p.rivers if not r)
+            if unnamed:
+                named.append('a stream' if unnamed == 1 else f'{unnamed} streams')
+            river = ' and '.join(named)
             summary = f'{levels} m laid again along {river}: {p.laid} line{"s" * (p.laid != 1)}'
             if p.splinters:
                 summary += f', {p.splinters} splinter{"s" * (p.splinters != 1)} gone'

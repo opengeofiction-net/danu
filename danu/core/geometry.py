@@ -96,7 +96,16 @@ def simplify(points: list[tuple[float, float]], tolerance: float) -> list[tuple[
     if len(points) <= 2:
         return list(points)
     pts = np.asarray(points, dtype=float)
+    return [tuple(p) for p in pts[simplify_mask(pts, tolerance)]]
+
+
+def simplify_mask(pts: np.ndarray, tolerance: float) -> np.ndarray:
+    """Which of the points (n, 2) ``simplify`` keeps, as a mask - so a
+    caller can keep its own copies of them, exactly as they were."""
     keep = np.zeros(len(pts), dtype=bool)
+    if len(pts) <= 2:
+        keep[:] = True
+        return keep
     keep[0] = keep[-1] = True
     stack = [(0, len(pts) - 1)]
     while stack:
@@ -117,7 +126,7 @@ def simplify(points: list[tuple[float, float]], tolerance: float) -> list[tuple[
             keep[i + 1 + k] = True
             stack.append((i, i + 1 + k))
             stack.append((i + 1 + k, j))
-    return [tuple(p) for p in pts[keep]]
+    return keep
 
 
 def nearest_point_on_segments(pt, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

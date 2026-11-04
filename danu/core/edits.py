@@ -974,6 +974,54 @@ class RotateRing(Command):
 
 
 @dataclass
+class RelayWays(Command):
+    """Ways laid again: those ``drop`` names go, and each of ``lay`` (id,
+    refs, tags) is put in, through the nodes of theirs that stay where they
+    were and ``new_nodes`` where the line moves - a valley's levels fitted to
+    its river. A way laid under the id of one dropped is that way still, and
+    keeps its version. Nodes no way uses afterwards go, kept for the undo."""
+    drop: list[int]
+    lay: list[tuple[int, list[int], dict[str, str]]]
+    new_nodes: dict[int, Coord]
+    gone: dict[int, Way] = field(default_factory=dict)
+    orphans: dict[int, Node] = field(default_factory=dict)
+
+    def ways(self, square: Square) -> set[int]:
+        return set(self.drop) | {wid for wid, _, _ in self.lay}
+
+    def touched(self, square: Square) -> tuple[set[int], set[int], set[int]]:
+        return set(self.new_nodes) | set(self.orphans), self.ways(square), set()
+
+    def taken(self, square: Square) -> tuple[dict, dict, dict]:
+        laid = {wid for wid, _, _ in self.lay}
+        return dict(self.orphans), {wid: w for wid, w in self.gone.items() if wid not in laid}, {}
+
+    def apply(self, square: Square) -> None:
+        self.gone = {wid: square.ways.pop(wid) for wid in self.drop}
+        for nid, (lon, lat) in self.new_nodes.items():
+            square.nodes[nid] = Node(id=nid, lat=lat, lon=lon)
+        for wid, refs, tags in self.lay:
+            was = self.gone.get(wid)
+            square.ways[wid] = Way(id=wid, refs=list(refs), tags=dict(tags),
+                                   version=was.version if was is not None else None)
+        used = {r for w in square.ways.values() for r in w.refs}
+        self.orphans = {r: square.nodes.pop(r) for w in self.gone.values() for r in dict.fromkeys(w.refs)
+                        if r not in used and r in square.nodes}
+
+    def undo(self, square: Square) -> None:
+        for wid, _, _ in self.lay:
+            del square.ways[wid]
+        for nid in self.new_nodes:
+            del square.nodes[nid]
+        square.nodes.update(self.orphans)
+        square.ways.update(self.gone)
+        self.orphans = {}
+
+    def describe(self) -> str:
+        return f'lay {len(self.lay)} ways again, {len(self.new_nodes)} nodes new'
+
+
+@dataclass
 class ReplaceSection(Command):
     """The stretch of a way between two of its own nodes, swapped for another
     run - a contour redrawn between two points of itself.
