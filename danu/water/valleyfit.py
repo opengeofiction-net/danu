@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..core import edits
+from ..core.geometry import simplify_mask
 from ..core.square import is_coastline
 from .coastfit import CELL_M, _line, _per_square, _places, _Proj, _vectors, _way_pts
 from .lassofit import (
@@ -73,6 +74,8 @@ MIN_HELD_M = 80.0          # a line held for less than this between stretches la
 EDGE_BAND_CELLS = 30       # either side of the lasso's edge, the ground as it was is solved over
 HELD_BAND_CELLS = 2.5      # either side of a held line, its level is not drawn again
 RIVER_OFF_EDGE_CELLS = 4   # from the lasso's edge, the river is not held
+THIN_M = 5.0               # a line laid is thinned to within this of where the surface put it
+MOST_CELLS = 1_000_000     # a lasso bigger than this is refused: 2.3 M took three and a half minutes
 _LOOK_M = (100.0, 300.0, 1000.0)
 
 
@@ -158,7 +161,7 @@ def small_ring(poly_m) -> bool:
 
 def _rivers(working_set, L):
     """The rivers through the lasso, each a chain of its ways joined end to
-    end, by name: [(name, [(lon, lat)])]."""
+    end, by name: [(name, [(lon, lat)])], an unnamed one's ''."""
     pieces = []
     for sq in working_set.squares.values():
         for w in sq.ways.values():
@@ -166,9 +169,10 @@ def _rivers(working_set, L):
                 continue
             pts = _way_pts(sq, w)
             if len(pts) >= 2:
-                pieces.append((w.tags.get('name') or f'w{w.id}', pts, None))
+                pieces.append((w.tags.get('name') or f'#{w.id}', pts, None))
     chains = _chain(pieces)
-    return [(name, pts) for name, pts, _ in chains if _line(pts).Intersects(L)]
+    # one unnamed is chained on its own, and named as none
+    return [('' if name.startswith('#') else name, pts) for name, pts, _ in chains if _line(pts).Intersects(L)]
 
 
 def profile(pts, contours, proj: _Proj, window, step: float) -> list:
@@ -245,6 +249,11 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
 
     def to_deg(g):
         return _scaled(g, 1 / proj.kx, 1 / proj.ky)
+
+    cells = to_m(L).GetArea() / (cell_m * cell_m)
+    if cells > MOST_CELLS:
+        raise Refused(f'the lasso is {cells / 1e6:.1f} M cells, at most {MOST_CELLS / 1e6:g} M: '
+                      'lasso a shorter stretch of the valley')
 
     # the levels picked
     levels = set()
@@ -647,6 +656,30 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
                 j[1].append(q)
             j[2 + e] = False
 
+    # each line laid thinned, checked against the other levels as they then are
+    def env(g):
+        return g, g.GetEnvelope()
+    lx0, lx1, ly0, ly1 = to_m(L).Buffer(2 * THIN_M).GetEnvelope()
+    fixed = []
+    going = {id(w) for _sq, w, _e, _g in gone}
+    for _sq, w, ele, g in near:
+        if id(w) in going:
+            continue
+        gm = to_m(g)
+        e = gm.GetEnvelope()
+        if not (e[1] < lx0 or e[0] > lx1 or e[3] < ly0 or e[2] > ly1):
+            fixed.append((ele, env(gm)))
+    fixed += [(pc[0], env(_line([tuple(np.array(p) * k) for p in pc[1]])))
+              for _sq, pcs, _ws in by_square.values() for pc in pcs if len(pc[1]) >= 2]
+    laid_m = [None if j is None else env(_line([tuple(np.array(p) * k) for p in j[1]])) for j in joined]
+    for n, j in enumerate(joined):
+        if j is None:
+            continue
+        against = [g for e, g in fixed if e != j[0]] + \
+                  [g for m_, (o, g) in enumerate(zip(joined, laid_m, strict=True)) if g is not None and m_ != n and o[0] != j[0]]
+        j[1] = _thin(j[1], k, THIN_M, against)
+        laid_m[n] = env(_line([tuple(np.array(p) * k) for p in j[1]]))
+
     loose = []
     for j in joined:
         if j is None:
@@ -666,21 +699,87 @@ def _fit(ws, lasso, picked, alloc, cell_m, out: Plan, say) -> None:
 
     for name in sorted(by_square, key=str):
         sq, pieces, ways = by_square[name]
-        ids = alloc(sq)
-        cmds: list = [edits.DeleteWay(w.id) for w in ways]
-        for ele, pts, tags in _chain(pieces):
-            closed = len(pts) > 3 and pts[0] == pts[-1]
-            coords = pts[:-1] if closed else pts
-            if len(coords) < 2:
-                continue
-            wid = ids.take()
-            nodes = [ids.take() for _ in coords]
-            cmds.append(edits.AddWay(wid, nodes, coords, dict(tags) if tags else
-                                     {'contour': 'elevation', 'ele': f'{ele:g}'}))
-            if closed:
-                cmds.append(edits.ExtendWayWithExisting(wid, True, nodes[0]))
-        if cmds:
-            out.steps.append((sq, edits.Compound(cmds, name=f'fit the valley in {name}')))
+        cmd = _relay(sq, pieces, ways, alloc(sq))
+        if cmd.drop or cmd.lay:
+            out.steps.append((sq, edits.Compound([cmd], name=f'fit the valley in {name}')))
+
+
+def _key(p):
+    return round(p[0], 9), round(p[1], 9)
+
+
+def _relay(sq, pieces, ways, ids):
+    """The ways going laid again as the chains of ``pieces``: through their
+    own nodes where a point is where one of theirs was - what is held of
+    them - and new ones where it is not. Each chain takes the id of the way
+    going of its level it keeps most nodes of; the rest are new."""
+    at = {}
+    for w in ways:
+        for r in w.refs:
+            n = sq.nodes.get(r)
+            if n is not None:
+                at.setdefault(_key((n.lon, n.lat)), r)
+    used, new_nodes, chains = set(), {}, []
+    for ele, pts, tags in _chain(pieces):
+        closed = len(pts) > 3 and pts[0] == pts[-1]
+        coords = pts[:-1] if closed else pts
+        if len(coords) < 2:
+            continue
+        refs = []
+        for c in coords:
+            r = at.get(_key(c))
+            if r is None or r in used:
+                r = ids.take()
+                new_nodes[r] = (float(c[0]), float(c[1]))
+            used.add(r)
+            refs.append(r)
+        if closed:
+            refs.append(refs[0])
+        chains.append((ele, refs, dict(tags) if tags else {'contour': 'elevation', 'ele': f'{ele:g}'}))
+    # the ids: the most nodes kept first
+    owner = {r: w.id for w in ways for r in w.refs}
+    level = {w.id: w.ele for w in ways}
+    pairs = []
+    for i, (ele, refs, _) in enumerate(chains):
+        shared: dict = {}
+        for r in refs:
+            if r in owner and level[owner[r]] == ele:
+                shared[owner[r]] = shared.get(owner[r], 0) + 1
+        pairs += [(n, i, wid) for wid, n in shared.items()]
+    wid_of: dict = {}
+    for _, i, wid in sorted(pairs, key=lambda t: (-t[0], t[1], t[2])):
+        if i not in wid_of and wid not in wid_of.values():
+            wid_of[i] = wid
+    lay = [(wid_of[i] if i in wid_of else ids.take(), refs, tags) for i, (_, refs, tags) in enumerate(chains)]
+    return edits.RelayWays([w.id for w in ways], lay, new_nodes)
+
+
+def _thin(pts, k, tol, against):
+    """A line laid, thinned to within ``tol`` metres of where the surface put
+    it: the fewest of its points, each as it was. A stretch whose thinning
+    would meet ``against`` - [(line in metres, envelope)], the lines of the
+    other levels - or cross itself is halved and each half tried again; one
+    too short to halve keeps every point."""
+    xy = np.asarray(pts, dtype=float) * k
+
+    def meets(idx):
+        g = _line([tuple(p) for p in xy[idx]])
+        x0, x1, y0, y1 = g.GetEnvelope()
+        if not g.IsSimple():
+            return True
+        return any(not (e[1] < x0 or e[0] > x1 or e[3] < y0 or e[2] > y1) and g.Intersects(o) for o, e in against)
+
+    def go(i, j, depth):
+        keep = i + np.flatnonzero(simplify_mask(xy[i:j + 1], tol))
+        if len(keep) == j - i + 1 or not meets(keep):
+            return list(keep)
+        if depth == 0 or j - i < 4:
+            return list(range(i, j + 1))
+        m = (i + j) // 2
+        return go(i, m, depth - 1)[:-1] + go(m, j, depth - 1)
+    if len(pts) < 3:
+        return list(pts)
+    return [pts[n] for n in go(0, len(pts) - 1, 6)]
 
 
 def _solve(h0, fixed, usable, start=None):

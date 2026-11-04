@@ -9,6 +9,7 @@ coarse DEM leaves them; 50 m kept above. No Qt."""
 
 import math
 
+import numpy as np
 import pytest
 
 pytest.importorskip('osgeo.ogr')
@@ -208,3 +209,57 @@ def test_a_narrow_ring_however_long_is_small():
     strip = ogr.CreateGeometryFromWkt('POLYGON ((0 0, 600 0, 600 76, 0 76, 0 0))')
     blob = ogr.CreateGeometryFromWkt('POLYGON ((0 0, 220 0, 220 220, 0 220, 0 0))')
     assert valleyfit.small_ring(strip) and not valleyfit.small_ring(blob)
+
+
+def test_the_lines_laid_again_keep_their_ids_and_the_nodes_that_stay():
+    """Only what moves is new: a level's way keeps its id, and the nodes of
+    it outside the corridor are the ones it had."""
+    w, sq = valley()
+    side = {r for r in sq.ways[20].refs if abs(xy(sq.nodes[r])[1]) > 150}
+    was = set(sq.nodes)
+    p = fit(w, sq)
+    assert 20 in sq.ways and sq.ways[20].ele == 20, 'the 20 m laid under a new id'
+    assert side <= set(sq.ways[20].refs), 'the 20 m held through new nodes'
+    (s, step), = p.steps
+    new = set(sq.nodes) - was
+    assert len(new) < 60, len(new)
+    assert step.touched(s)[0] >= new
+
+
+def test_a_line_laid_is_thinned_but_crosses_nothing():
+    w, sq = valley()
+    was = set(sq.nodes)
+    fit(w, sq)
+    new = set(sq.nodes) - was
+    gaps = [math.dist(xy(sq.nodes[a]), xy(sq.nodes[b])) for x in sq.ways.values()
+            for a, b in zip(x.refs, x.refs[1:], strict=False) if a in new and b in new]
+    assert gaps and sorted(gaps)[len(gaps) // 2] > 15, sorted(gaps)
+    assert not crossings.find(w)
+
+
+def test_thinning_halves_a_stretch_that_would_meet_another_level():
+    pts = [(x / KX, 3.0 * math.sin(x / 40) / KY) for x in range(0, 400, 4)]
+    other = ogr.CreateGeometryFromWkt('LINESTRING (160 -1.5, 160 0)')
+    k = np.array([KX, KY])
+    free = valleyfit._thin(pts, k, 5.0, [])
+    held = valleyfit._thin(pts, k, 5.0, [(other, other.GetEnvelope())])
+    assert len(free) == 2 and free[0] == pts[0] and free[-1] == pts[-1]
+    assert len(held) > len(free) and set(held) <= set(pts)
+    line = ogr.Geometry(ogr.wkbLineString)
+    for x, y in held:
+        line.AddPoint_2D(x * KX, y * KY)
+    assert not line.Intersects(other)
+
+
+def test_a_lasso_too_big_is_refused_and_says_its_size():
+    w, sq = valley()
+    big = [deg(-3000, -3000), deg(3000, -3000), deg(3000, 3000), deg(-3000, 3000)]
+    p = valleyfit.plan(w, big, picked(sq, big), edits.SetUndoStack().alloc)
+    assert not p.steps and 'M cells, at most 1 M' in (p.refused or ''), p.refused
+
+
+def test_an_unnamed_river_has_no_name():
+    w, sq = valley()
+    del sq.ways[RIVER].tags['name']
+    p = fit(w, sq)
+    assert p.rivers == [''], p.rivers

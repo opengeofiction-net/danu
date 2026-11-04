@@ -6602,3 +6602,27 @@ On the Xoltzogo's valley in N43E029, four lassos from the mapper's session:
 stretches of 1.5 km lassoed 250 m either side, the lowest three levels each
 crosses picked: all fitted, no crossing made, 4 ends joined to nothing, at
 most 16 s.
+
+The mapper's next session, along the rest of N43E029's rivers, found three
+faults:
+- **Whole lines re-added.** Every way through the corridor was deleted and
+  added again, through new nodes at its old nodes' places: 26,953 of the
+  28,837 new nodes in the saved square stood where one had been deleted, 4,100 km of contour
+  rewritten to change 78 km. The ways are now laid again in place
+  (`edits.RelayWays`): a point where a node of a way going was is that node,
+  and each line laid takes the id of the way of its level it keeps most
+  nodes of.
+- **Too many nodes.** What was new was 32 m apart at the median, against
+  78 m drawn: the surface's lines were thinned to a third of a cell only.
+  Each line laid is now thinned to within 5 m. A stretch whose thinning
+  would meet another level's line, or cross itself, is halved and each half
+  tried again, down to keeping every point.
+- **No limit on the lasso.** A lasso of 10 to 250 m over six streams took
+  3.5 minutes, two of them on the lasso's edge. A lasso over a million cells
+  (12 km2 at 3.5 m) is refused, saying its size. That one is 6 M.
+
+The eight lassos of that session, replayed on the square as it was before it:
+the seven under the limit touch 160 to 250 nodes each, not 7,700 to 18,700.
+What is new is 68 to 116 m apart at the median. There are no crossings and
+no loose ends, and the times are as before. An unnamed river is "a stream"
+in the summary, not its way's id.

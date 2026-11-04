@@ -138,3 +138,22 @@ def test_a_lasso_with_no_river_says_so(valley):
 def test_shift_e_is_the_key(window):
     # on the Edit menu: test_menus, which reaches the menus as PySide 6.8 allows
     assert window.edit_actions['edit.fit_valley'].shortcut().toString() == 'Shift+E'
+
+
+def test_an_unnamed_river_is_a_stream(valley):
+    w, sq = valley
+    del sq.ways[-7000].tags['name']
+    w.contours.set_working_set(w.working_set)
+    lasso(w)
+    w.edit_actions['edit.fit_valley'].trigger()
+    p = w.editor.proposal
+    assert p is not None and 'laid again along a stream:' in p.summary, w.statusBar().currentMessage()
+
+
+def test_a_lasso_too_big_says_so(valley):
+    w, sq = valley
+    w.map.set_zoom(11)
+    drag(w, [(-3000, -3000), (3000, -3000), (3000, 3000), (-3000, 3000), (-3000, -2990)])
+    w.editor.fit_valley()
+    assert w.editor.proposal is None
+    assert 'not fitted: the lasso is' in w.statusBar().currentMessage(), w.statusBar().currentMessage()
