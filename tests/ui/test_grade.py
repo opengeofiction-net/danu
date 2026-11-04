@@ -849,3 +849,40 @@ def test_a_networks_spans_are_listed_and_only_the_clicked_stems_are_on_the_profi
         (climb,) = [i for i in p.issues if i.kind == 'climb']
         assert climb.text.startswith('Bosco: the contours climb')
         assert (climb.span is not None) is on_profile, clicked.tags['name']
+
+
+# ------------------------------------------------------------------ the sea
+
+def coastline(sq, lon):
+    i = next(_ids)
+    sq.ways[i] = Way(id=i, refs=[node(sq, lon, -22.75), node(sq, lon, -22.65)],
+                     tags={'natural': 'coastline'})
+    return i
+
+
+def test_a_river_reaching_the_sea_is_graded_down_to_it(window, sq):
+    """The Genolbazho across roantra's plain: 19 km from its 20 m to the
+    coast, over the 5 km a span may run. Its end within 50 m of the
+    coastline is the sea, 0 m, and the span down to it is graded."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.4003)                  # 30 m past its end
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and 'to 0 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[-1] == '0' and got[2] is not None and 0 < float(got[6]) < 20, got
+
+
+def test_a_river_ending_short_of_the_sea_is_not_graded_to_it(window, sq):
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.41)                    # a kilometre on
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and 'to 0 m' not in p.summary, p.summary
+    window.editor.accept_proposal()
+    assert levels(sq, r)[-1] is None, 'graded past its last contour'

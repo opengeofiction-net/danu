@@ -208,7 +208,7 @@ class Issue:
     river: tuple | None = None  # a climb's: its stem, scene points, for the burn (G7b)
 
 
-ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'far': 4, 'unburned': 5}
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'far': 4, 'unburned': 5, 'narrower': 6}
 # said when a flattened lake's new level is carried to its outline; its
 # contours were clipped against the old one
 _FOLLOW = ' - its outline follows; F flattens it again to redo its contours'
@@ -312,6 +312,55 @@ def steep_issues(label, scene, dist, found, shown) -> list:
         out.append(Issue('steep', text, tuple(run), (c.d0, c.d1) if shown else None,
                          tuple(tuple(p) for p in scene) if c.diff > 0 else None))
     return out
+
+
+MOUTH_M = 50.0             # a river's end this near the coastline reaches the sea there
+
+
+def _coasts(ws) -> list:
+    """Every coastline of the set, as (west, south, east, north, points)."""
+    out = []
+    for q in ws.squares.values():
+        for w in q.ways.values():
+            if not is_coastline(w):
+                continue
+            pts = np.array([(q.nodes[x].lon, q.nodes[x].lat) for x in w.refs if x in q.nodes])
+            if len(pts) >= 2:
+                out.append((*pts.min(0), *pts.max(0), pts))
+    return out
+
+
+def _mouths(coasts, seq, dist) -> list:
+    """Where along a river's vertices (square, node id) it reaches the sea:
+    each end of it within MOUTH_M of a coastline, as its distance along. 0 m
+    there, known - the build holds the coastline at sea level."""
+    if len(seq) < 2:
+        return []
+    out = []
+    for pos in (0, -1):
+        sq, r = seq[pos]
+        n = sq.nodes.get(r)
+        if n is None:
+            continue
+        kx = 111320.0 * math.cos(math.radians(n.lat))
+        pad = MOUTH_M / 110540.0 * 2
+        for w_, s_, e_, n_, pts in coasts:
+            if not (w_ - pad <= n.lon <= e_ + pad and s_ - pad <= n.lat <= n_ + pad):
+                continue
+            xy = (pts - (n.lon, n.lat)) * (kx, 110540.0)
+            _, gap = geometry.nearest_point_on_segments((0.0, 0.0), xy[:-1], xy[1:])
+            if gap.min() <= MOUTH_M:
+                out.append(dist[pos])
+                break
+    return sorted(set(out))
+
+
+def _with_mouths(known, mouths) -> list:
+    """The levels known along a river, with 0 m at each mouth - in place of
+    anything else said at the same place."""
+    at = set(mouths)
+    return sorted({(d, e) for d, e in known if not any(abs(d - m_) < 1e-6 for m_ in at)}
+                  | {(d, 0.0) for d in at})
 
 
 def _burnable(issue) -> bool:
@@ -2481,6 +2530,8 @@ class EditController(QObject):
         crossings carried across each link, one grade along the lot."""
         chain = Network(self.working_set).chain_of(sq, way)
         seq, dist, known = self._along_chain(chain)
+        mouths = _mouths(self._coast_lines(), seq, dist)
+        known = _with_mouths(known, mouths)
         name = way.tags.get('name') or f'way {way.id}'
         pieces = len(chain.links)
         if len(known) < 2:
@@ -2489,7 +2540,7 @@ class EditController(QObject):
                               + (f' along its {pieces} ways' if pieces > 1 else '')
                               + ' - not enough to grade from')
             return
-        levels, rejected, upstream = profile.grade_along(known, dist)
+        levels, rejected, upstream = profile.grade_along(known, dist, mouths)
         # to the decimetre: the build rasterises to the metre, and a level
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
@@ -2666,6 +2717,7 @@ class EditController(QObject):
         issues, all_rejected, joins = [], [], []
         crossings = climbs = far = steep = 0
         contours = contradict.gather(self.working_set)
+        coasts = self._coast_lines()
         for i in sequence:
             seq, dist, known = profiles[i]
             if len(seq) < 2:
@@ -2689,11 +2741,12 @@ class EditController(QObject):
             for j in stems[i].joins:
                 joins.append((*m.lonlat_to_scene(j.lon, j.lat), j.gap_m))
                 issues.append(gap_issue('gap', label, j.gap_m, j.lon, j.lat))
-            pts = sorted(set(known) | set(extra))
+            mouths = _mouths(coasts, seq, dist)
+            pts = _with_mouths(set(known) | set(extra), mouths)
             crossings += len(known)
             if len(pts) < 2:
                 continue
-            lv, rejected, upstream = profile.grade_along(pts, dist)
+            lv, rejected, upstream = profile.grade_along(pts, dist, mouths)
             lv = [round(v, 1) if v is not None else None for v in lv]
             for (s2, r), v in zip(seq, lv, strict=True):
                 if v is not None:
@@ -2856,6 +2909,7 @@ class EditController(QObject):
             total.added += p.added
             total.dropped += p.dropped
             total.skipped += p.skipped
+            total.narrowed += p.narrowed
         parts = []
         if total.burned:
             parts.append(f'burn: {total.burned} climb{"s" * (total.burned != 1)}, '
@@ -2871,10 +2925,16 @@ class EditController(QObject):
                          f'river, {self.setback_m:g} m a step back')
         else:
             parts.append('nothing burned')
+        if total.narrowed:
+            k = len(total.narrowed)
+            parts.append(f'{k} narrower than asked, where the full setback crossed a contour - see the list')
         if total.skipped:
             parts.append(f'{len(total.skipped)} not burned - see the list')
         issues = [Issue('unburned', f'not burned: {why}, at {lat:.5f}, {lon:.5f}',
                         (m.lonlat_to_scene(lon, lat),)) for why, lon, lat in total.skipped]
+        issues += [Issue('narrower', f'burned at {d:g} m a step: at {self.setback_m:g} m a rim crossed a '
+                                     f'contour, at {lat:.5f}, {lon:.5f}', (m.lonlat_to_scene(lon, lat),))
+                   for d, lon, lat in total.narrowed]
         scene = lambda runs: [[m.lonlat_to_scene(lon, lat) for lon, lat in r] for r in runs]  # noqa: E731
         sel = self.selection
         square = sel.square if sel is not None else (steps[0][0] if steps else None)
@@ -2883,6 +2943,13 @@ class EditController(QObject):
             issues=issues, steps=steps or None, removed=scene(total.removed),
             pull_back_m=self.setback_m, kind='burn', strength_label='Setback per contour step',
             added=scene(total.added), dropped=scene(total.dropped)))
+
+    def _coast_lines(self) -> list:
+        """The set's coastlines for finding river mouths, kept until an edit."""
+        was = getattr(self, '_coasts_for', None)
+        if was is None or was[0] is not self.working_set or was[1] != self.history.generation:
+            self._coasts_for, self._coasts = (self.working_set, self.history.generation), _coasts(self.working_set)
+        return self._coasts
 
     def _burnable_here(self) -> Issue | None:
         """B with no climb chosen, but a waterway selected - a row of

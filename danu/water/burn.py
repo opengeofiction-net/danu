@@ -41,6 +41,7 @@ from ..core import edits, profile
 from ..core.geometry import EPS, _orient
 
 SETBACK_M = 50.0
+NARROWER = (0.5, 0.25)         # a run whose setback crosses a contour is tried at these of it
 
 
 @dataclass
@@ -54,6 +55,7 @@ class Plan:
     contours_cut: int = 0                           # the contours cut to burn them
     pushed: int = 0                                 # contours near it pushed back
     skipped: list = field(default_factory=list)     # (why, lon, lat)
+    narrowed: list = field(default_factory=list)    # (setback used, lon, lat): the full one crossed
 
 
 class _Projection:
@@ -344,7 +346,7 @@ def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=Non
         for run in runs:
             # the first run sees the squares as they were found; each after
             # it, as the runs before left them
-            got = _burn_run(working_set, river, run, setback_m, margin, alloc_once, applied,
+            got = _narrowed(out, working_set, river, run, setback_m, margin, alloc_once, applied,
                             None if applied else found)
             if isinstance(got, tuple):
                 out.skipped.append(got)
@@ -361,6 +363,26 @@ def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=Non
             cmd.undo(sq)
     out.steps = _steps(cmds, 'burn', 'cut')
     return out
+
+
+def _narrowed(out, working_set, river, run, setback_m, margin, alloc, applied, found, bare=False):
+    """A run burned at its setback, or where the notch's rims would cross
+    another contour - a steep valley side, the 125 m cut back onto the
+    175 m above the Urqueir - at half of it, then a quarter: a narrower
+    notch rather than none. Each narrowing is said in ``out.narrowed``."""
+    got = _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found, bare=bare)
+    for k in NARROWER:
+        if not (isinstance(got, tuple) and _CROSS in got[0]):
+            break
+        tried = _burn_run(working_set, river, run, setback_m * k, margin, alloc, applied, found, bare=bare)
+        if not isinstance(tried, tuple):
+            out.narrowed.append((setback_m * k, *got[1:]))
+            return tried
+        got = tried if _CROSS in tried[0] else got
+    return got
+
+
+_CROSS = 'would cross'          # what a rim refused for says
 
 
 def _steps(cmds, what, done) -> list:
@@ -402,23 +424,22 @@ def plan_near(working_set, river: list, alloc, at, setback_m: float = SETBACK_M)
         return out
     ends = [below[-1], above[0]]
     base = min(c.ele for c in ends)
-    levels = sorted({w.ele for _, w, _ in contours.values() if w.ele is not None and w.ele > base})
-    if not levels:
+    rungs = _rungs(contours, base)
+    if not rungs:
         return out
-    step = levels[0] - base
     lo, hi = below[-1].r, above[0].r
     if below[-1].ele > base:
-        lo += 2 * setback_m * (below[-1].ele - base) / step
+        lo += 2 * setback_m * (rungs.index(below[-1].ele) + 1)
     if above[0].ele > base:
-        hi -= 2 * setback_m * (above[0].ele - base) / step
+        hi -= 2 * setback_m * (rungs.index(above[0].ele) + 1)
     if not lo < r_at < hi:
         out.skipped.append((f'too near where the river crosses the {max(c.ele for c in ends):g} m '
                             'to set it back', *at))
         return out
     applied: list = []
     try:
-        got = _burn_run(working_set, river, _Run(base, lo, hi, []), setback_m, margin, alloc, applied,
-                        found, step=step)
+        got = _narrowed(out, working_set, river, _Run(base, lo, hi, []), setback_m, margin, alloc, applied,
+                        found, bare=True)
         if isinstance(got, tuple):
             out.skipped.append(got)
         else:
@@ -487,7 +508,16 @@ def _runs(crossings, rejected, upstream):
     return runs, lost
 
 
-def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=None, step=None):
+def _rungs(contours, base) -> list:
+    """The levels above ``base`` the contours about a river hold, in order:
+    a contour's setback is one for each of them up to its own. Counted, not
+    divided by the interval: below 50 m roantra's ladder is 10 m and above
+    it 25 m, so the 125 m over the Urqueir's 40 m run is four contours up,
+    not eight and a half - 200 m back, not 425 m onto the 175 m."""
+    return sorted({w.ele for _, w, _ in contours.values() if w.ele is not None and w.ele > base})
+
+
+def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=None, bare=False):
     """Burn one run on the squares, its commands added to ``applied``: what
     it cut, pushed and drew - or why not, (why, lon, lat), with its own
     commands undone.
@@ -498,18 +528,16 @@ def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=
     joined along the notch's rim on the side the ground is higher. That is
     the cut of a contour crossing the river, each pair of crossings of one
     weaving across it, and the push of one that only comes near, alike.
-    ``step``, the contour interval, is for a run no contour crosses inside -
-    ``plan_near``'s; a climb's run reads it from its crossings."""
+    ``bare`` burns a run no contour crosses inside - ``plan_near``'s; a
+    climb's run without one has nothing to burn."""
     mark = len(applied)
     proj, R, contours, crossings, dist = found or _crossings(working_set, river, margin)
     inside = [c for c in crossings if run.lo + 1e-6 < c.r < run.hi - 1e-6]
     got = {'cut': set(), 'pushed': 0, 'added': [], 'dropped': [], 'removed': []}
-    if not inside and step is None:
+    if not inside and not bare:
         return got
     # all above the run's level: it ends at the first crossing back at or below it
-    if step is None:
-        levels = sorted({run.base, *(c.ele for c in inside)})
-        step = min((b - a for a, b in zip(levels, levels[1:], strict=False)), default=1.0)
+    rungs = _rungs(contours, run.base)
 
     def refuse(why, xy):
         for sq, cmd in reversed(applied[mark:]):
@@ -532,7 +560,7 @@ def _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found=
     for key, (sq, way_, P) in contours.items():
         if way_.ele <= run.base:
             continue
-        d = setback_m * (way_.ele - run.base) / step
+        d = setback_m * (rungs.index(way_.ele) + 1)
         if d > margin or (P.max(0) < lo - d).any() or (P.min(0) > hi + d).any():
             continue
         rim = _Rim(stretch, d)

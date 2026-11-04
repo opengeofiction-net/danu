@@ -107,3 +107,23 @@ def test_crossing_t_is_along_p_q_when_the_two_cross_obliquely():
     import numpy as np
     t = geometry.crossing_t((0, 0), (2, 2), np.array([[0.0, 1.0]]), np.array([[4.0, 1.0]]))
     assert t[0] == pytest.approx(0.5)
+
+
+def test_a_span_down_to_the_sea_is_graded_however_long():
+    """The Genolbazho in roantra's N43E029: 19 km from its 20 m to the coast
+    across a plain. The mouth is known, at 0 m, so the span is graded."""
+    far = profile.MAX_SEGMENT_M * 4
+    known = [(0, 50), (1000, 20), (1000 + far, 0)]
+    levels, rejected, _ = profile.grade_along(known, [500, 1000 + far / 2, 1000 + far], mouths=[1000 + far])
+    assert rejected == [] and levels == [35.0, 10.0, 0.0]
+    # the same span to a contour at 0 m, not the sea: ground nobody drew
+    levels, rejected, _ = profile.grade_along(known, [500, 1000 + far / 2, 1000 + far])
+    assert levels[1] is None and rejected == [(1000, 1000 + far, 20, 0)]
+
+
+def test_a_long_span_upstream_of_a_mouth_is_still_left():
+    far = profile.MAX_SEGMENT_M * 2
+    known = [(0, 50), (far, 20), (far + 1000, 0)]
+    levels, rejected, _ = profile.grade_along(known, [far / 2, far + 500], mouths=[far + 1000])
+    assert levels[0] is None and levels[1] == 10.0
+    assert rejected == [(0, far, 50, 20)]

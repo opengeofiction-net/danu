@@ -130,10 +130,12 @@ def test_a_cut_that_would_cross_another_contour_is_left_and_said():
     descent(sq)
     way(sq, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.355, LAT - 0.01),
              (125.355, LAT + 0.02)], 100)
-    way(sq, [(125.35, LAT + 30 * M_LAT), (125.35, LAT + 0.005)], 90)   # where the north bank line goes
+    # at the run's level, so never set back itself: across where every rim
+    # goes, at the setback and at each narrower one
+    way(sq, [(125.35, LAT + 5 * M_LAT), (125.35, LAT + 0.005)], 70)
     p = run(w, sq)
-    assert p.burned == 0
-    assert any('would cross the 90 m contour' in why for why, _, _ in p.skipped)
+    assert p.burned == 0 and not p.narrowed
+    assert any('would cross the 70 m contour' in why for why, _, _ in p.skipped), p.skipped
 
 
 def test_the_setback_is_the_strength():
@@ -426,9 +428,10 @@ def test_a_rim_may_cross_a_contour_its_own_contour_crossed_before():
     assert p.burned == 1, p.skipped
 
 
-def test_a_rim_that_would_cross_the_river_where_it_comes_back_is_refused():
+def test_a_rim_that_would_cross_the_river_where_it_comes_back_is_burned_narrower():
     """A hairpin: the river comes back west 130 m north of the run. The
-    125 m between, set back 160 m, would be closed across it."""
+    125 m between, set back 160 m, would be closed across it; at half the
+    setback, 80 m, it is not."""
     hairpin = [(125.30 + 0.0025 * k, LAT) for k in range(41)] + \
               [(125.30 + 0.0025 * k, LAT + 130 * M_LAT) for k in range(40, 7, -1)] + [(125.32, LAT + 0.02)]
     w, sq = ws()
@@ -438,8 +441,8 @@ def test_a_rim_that_would_cross_the_river_where_it_comes_back_is_refused():
              (125.355, LAT - 0.02)], 100)
     way(sq, [(125.30, LAT + 60 * M_LAT), (125.395, LAT + 60 * M_LAT)], 125)
     p = burn.plan(w, hairpin, lambda s: edits.IdAllocator(s), setback_m=80)
-    assert p.burned == 0
-    assert any('125 m contour would cross the river' in why for why, _, _ in p.skipped), p.skipped
+    assert p.burned == 1 and not p.skipped, p.skipped
+    assert [n[0] for n in p.narrowed] == [40.0], p.narrowed
 
 
 def test_a_contour_crowding_the_river_where_it_crosses_none_is_set_back():
@@ -488,3 +491,17 @@ def test_crowding_with_a_crossing_on_one_side_only_is_left():
              (125.375, LAT + 0.002)], 75)
     p = burn.plan_near(w, RIVER, lambda s: edits.IdAllocator(s), (125.36, LAT))
     assert not p.steps and 'one side' in p.skipped[0][0]
+
+
+def test_the_setback_counts_the_contours_above_not_the_metres():
+    """The Urqueir's 40 m run in N43E029: 10 m apart below 50 m, 25 m
+    above. The 100 m over a 75 m run with a 90 m between is two contours
+    up - set back twice the setback, not by its 25 m over the 75 m."""
+    w, sq = ws()
+    descent(sq)
+    finger = way(sq, [(125.345, LAT + 0.02), (125.345, LAT - 0.01), (125.355, LAT - 0.01),
+                      (125.355, LAT + 0.02)], 100)
+    way(sq, [(125.36, LAT + 0.004), (125.37, LAT + 0.004)], 90)
+    p = run(w, sq)
+    assert p.burned == 1 and not p.narrowed
+    assert min(lats_of(sq, sq.ways[finger.id])) == pytest.approx(LAT + 100 * M_LAT, abs=1e-6)
