@@ -208,7 +208,7 @@ class Issue:
     river: tuple | None = None  # a climb's: its stem, scene points, for the burn (G7b)
 
 
-ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'unburned': 5, 'narrower': 6}
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'unburned': 4, 'narrower': 5}
 # said when a flattened lake's new level is carried to its outline; its
 # contours were clipped against the old one
 _FOLLOW = ' - its outline follows; F flattens it again to redo its contours'
