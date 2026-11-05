@@ -80,7 +80,7 @@ def linear_fix(elev, intervals):
     return out
 
 
-def grade_along(known, vertex_d):
+def grade_along(known, vertex_d, ends=()):
     """A waterway's level at each vertex, from the contour values where it
     crosses one, graded between and descending only - for the editor (G6b).
     ``OGF::Terrain::RiverProfile::setLinearElev``'s rule, over distance.
@@ -100,6 +100,13 @@ def grade_along(known, vertex_d):
     judged walking from it. The way is never reversed - only its levels are
     written.
 
+    ``ends`` are places along it, among ``known``, where it ends at water
+    whose level is known - the sea at 0 m, a lake at its level, the river it
+    joins: a span with one at either end is graded however long. The limit is for ground
+    between two contours nobody drew; a river's stretch across a plain to
+    the sea, or to a lake and on out of it, is known at both ends - the
+    Genolbazho in roantra's N43E029, 20 m to a lake at 10.9 m to the coast.
+
     Answers (levels, rejected, reversed): a level or None per vertex, the
     rejected spans as (d0, d1, e0, e1) in drawn order, and whether downstream
     runs against the drawn direction.
@@ -115,7 +122,8 @@ def grade_along(known, vertex_d):
     ds = [vertex_d[i] for i in order]
     for (da, ea), (db, eb) in pairwise(walk):
         lo, hi = min(da, db), max(da, db)
-        if eb > ea or hi - lo > MAX_SEGMENT_M:
+        at_water = any(abs(x - d) < 1e-6 for d in ends for x in (da, db))
+        if eb > ea or (hi - lo > MAX_SEGMENT_M and not at_water):
             rejected.append((lo, hi, ea, eb) if not reversed_ else (lo, hi, eb, ea))
             continue
         for k in range(bisect.bisect_left(ds, lo), bisect.bisect_right(ds, hi)):

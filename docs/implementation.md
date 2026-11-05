@@ -6656,3 +6656,44 @@ uses it in two cases:
 
 On w37737 it set the 175 m back 50 m. The rebuilt surface no longer lists
 the stream, and no crossing was made.
+
+## A burn's setback counted in contours, and narrowed where it crosses
+
+The Urqueir in roantra's N43E029 climbs 40 to 50 m three times, and none of
+the three burned. Each refused because "the 125 m contour would cross the
+175 m". A contour's setback was the setback times its height over the run
+divided by the interval the run's crossings showed: 10 m there, so the
+125 m was 8.5 steps up and set back 425 m, onto the 175 m. Above 50 m the
+ladder is 25 m, and the 125 m is four contours above the run: 50, 75, 100,
+125. The setback now counts the levels the contours about the river hold
+between the run's and the contour's own. That is what the burn's rule says:
+the first contour above is set back once, the next twice. On a regular
+ladder the two are the same. All three Urqueir climbs burn, with no
+crossing made.
+
+A run whose rims still cross a contour or the river is tried again at half
+the setback, then a quarter. A narrower notch is better than none, and the
+proposal lists each run burned narrower, and where.
+
+## A river graded down to the sea
+
+A span between two crossings longer than 5 km is left ungraded: it is
+ground nobody contoured. A river across roantra's plain runs 19 km from its
+20 m to the coast, so it was graded down to 20 m and no further, and the
+build had nothing to hold the plain low. A river's end within 50 m of a
+coastline is now its mouth, known at 0 m, and the span down to it is graded
+whatever its length. The Eunadxo network grades 299.4 to 0 m and levels
+2,431 of its 3,795 points, against 1,924 before. A span between two
+contours is still limited, wherever it is.
+
+A lake with a level counts the same way. A river's end within 50 m of the
+shore of a lake with a level, or inside it, is known at that level, and
+a span with a known end at either end is graded however long. The Genolbazho
+runs through lake w19536 on its way to the sea. With the lake levelled by
+hand to 10.9 m, the network grades 646.1 to 0 m. Before, it stopped at the
+20 m either side of the lake, which nothing could level.
+
+So does a confluence. In a network grade, a stem's end on a stem graded
+before it takes that stem's level there. A span down to it is graded
+however long: a tributary's last stretch across a plain to its river is
+known at both ends, like one to the sea.

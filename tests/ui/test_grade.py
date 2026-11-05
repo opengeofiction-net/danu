@@ -849,3 +849,113 @@ def test_a_networks_spans_are_listed_and_only_the_clicked_stems_are_on_the_profi
         (climb,) = [i for i in p.issues if i.kind == 'climb']
         assert climb.text.startswith('Bosco: the contours climb')
         assert (climb.span is not None) is on_profile, clicked.tags['name']
+
+
+# ------------------------------------------------------------------ the sea
+
+def coastline(sq, lon):
+    i = next(_ids)
+    sq.ways[i] = Way(id=i, refs=[node(sq, lon, -22.75), node(sq, lon, -22.65)],
+                     tags={'natural': 'coastline'})
+    return i
+
+
+def test_a_river_reaching_the_sea_is_graded_down_to_it(window, sq):
+    """The Genolbazho across roantra's plain: 19 km from its 20 m to the
+    coast, over the 5 km a span may run. Its end within 50 m of the
+    coastline is the sea, 0 m, and the span down to it is graded."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.4003)                  # 30 m past its end
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and 'to 0 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[-1] == '0' and got[2] is not None and 0 < float(got[6]) < 20, got
+
+
+def test_a_river_ending_short_of_the_sea_is_not_graded_to_it(window, sq):
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.41)                    # a kilometre on
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and 'to 0 m' not in p.summary, p.summary
+    window.editor.accept_proposal()
+    assert levels(sq, r)[-1] is None, 'graded past its last contour'
+
+
+def levelled_lake(sq, lon0, lon1, ele):
+    i = next(_ids)
+    ring = [node(sq, lon0, LAT - 0.005), node(sq, lon1, LAT - 0.005), node(sq, lon1, LAT + 0.005),
+            node(sq, lon0, LAT + 0.005)]
+    sq.ways[i] = Way(id=i, refs=[*ring, ring[0]], tags={'natural': 'water', 'ele': str(ele)})
+    return i
+
+
+def test_a_river_into_a_lake_with_a_level_is_graded_down_to_it(window, sq):
+    """The Genolbazho into lake w19536 in roantra's N43E029, levelled by hand
+    to 10.9 m: 9 km from its 20 m, its end inside the lake, at its level."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    levelled_lake(sq, 125.395, 125.42, 10.9)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and 'to 10.9 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[-1] == '10.9' and 10.9 < float(got[6]) < 20, got
+
+
+def test_a_river_out_of_a_lake_to_the_sea_is_graded_between(window, sq):
+    """And out of it: from the lake's level at one end to the sea at the other,
+    10 km with no contour between."""
+    levelled_lake(sq, 125.28, 125.305, 10.9)
+    coastline(sq, 125.4003)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and '10.9 to 0 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[0] == '10.9' and got[-1] == '0' and 0 < float(got[5]) < 10.9, got
+
+
+def test_a_lake_with_no_level_is_not_an_end(window, sq):
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    i = levelled_lake(sq, 125.395, 125.42, 10.9)
+    del sq.ways[i].tags['ele']
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and '10.9' not in p.summary, p.summary
+    window.editor.accept_proposal()
+    assert levels(sq, r)[-1] is None, 'graded to a lake with no level'
+
+
+def test_a_tributarys_long_last_stretch_to_its_river_is_graded(window, sq):
+    """Roantra's plain: a tributary crosses its last contour, 30 m, and runs
+    12 km on to the river it joins. Its river is graded first, so the level
+    where they meet is known, and the stretch between is graded however long."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.4003)
+    r = river(sq, EAST)
+    i = next(_ids)
+    sq.ways[i] = Way(id=i, refs=[node(sq, 125.29, -22.61), node(sq, 125.31, -22.61)], tags={'ele': '30'})
+    j = next(_ids)
+    sq.ways[j] = Way(id=j, refs=[node(sq, 125.30, -22.60), node(sq, 125.30, -22.62), r.refs[8]],
+                     tags={'waterway': 'stream', 'name': 'Kinser'})
+    t = sq.ways[j]
+    rebuild(window)
+    p = network(window, sq, r)
+    assert p is not None and p.acceptable, p
+    window.editor.accept_proposal()
+    got = levels(sq, t)
+    assert got[-1] == levels(sq, r)[8] and got[1] is not None, got
+    assert float(got[-1]) < float(got[1]) < 30, got
