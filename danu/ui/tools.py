@@ -314,29 +314,46 @@ def steep_issues(label, scene, dist, found, shown) -> list:
     return out
 
 
-MOUTH_M = 50.0             # a river's end this near the coastline reaches the sea there
+MOUTH_M = 50.0             # a river's end this near a coastline or a lake's shore reaches it
 
 
-def _coasts(ws) -> list:
-    """Every coastline of the set, as (west, south, east, north, points)."""
+def _shores(ws) -> list:
+    """The water a river's end may reach, with its level: every coastline of
+    the set at 0 m, and every lake with a level set - a closed water way's,
+    or a water relation's on its member ways - as (west, south, east, north,
+    points, level, closed)."""
     out = []
+
+    def add(q, w, level):
+        pts = np.array([(q.nodes[x].lon, q.nodes[x].lat) for x in w.refs if x in q.nodes])
+        if len(pts) >= 2:
+            out.append((*pts.min(0), *pts.max(0), pts, level, w.refs[0] == w.refs[-1]))
     for q in ws.squares.values():
         for w in q.ways.values():
-            if not is_coastline(w):
+            if is_coastline(w):
+                add(q, w, 0.0)
+            elif w.tags.get('natural') == 'water' and w.refs and w.refs[0] == w.refs[-1]:
+                level = parse_ele(w.tags.get('ele'))
+                if level is not None:
+                    add(q, w, level)
+        for rel in q.relations.values():
+            level = parse_ele(rel.tags.get('ele'))
+            if rel.tags.get('natural') != 'water' or level is None:
                 continue
-            pts = np.array([(q.nodes[x].lon, q.nodes[x].lat) for x in w.refs if x in q.nodes])
-            if len(pts) >= 2:
-                out.append((*pts.min(0), *pts.max(0), pts))
+            for mb in rel.members:
+                if mb.type == 'way' and mb.ref in q.ways:
+                    add(q, q.ways[mb.ref], level)
     return out
 
 
-def _mouths(coasts, seq, dist) -> list:
-    """Where along a river's vertices (square, node id) it reaches the sea:
-    each end of it within MOUTH_M of a coastline, as its distance along. 0 m
-    there, known - the build holds the coastline at sea level."""
+def _water_ends(shores, seq, dist) -> list:
+    """Where a river's vertices (square, node id) end at water with a known
+    level, as (distance along, level): each end within MOUTH_M of a
+    coastline, 0 m - the build holds it at sea level - or of a lake's shore,
+    or inside it, at the lake's level."""
     if len(seq) < 2:
         return []
-    out = []
+    out = {}
     for pos in (0, -1):
         sq, r = seq[pos]
         n = sq.nodes.get(r)
@@ -344,23 +361,31 @@ def _mouths(coasts, seq, dist) -> list:
             continue
         kx = 111320.0 * math.cos(math.radians(n.lat))
         pad = MOUTH_M / 110540.0 * 2
-        for w_, s_, e_, n_, pts in coasts:
+        for w_, s_, e_, n_, pts, level, closed in shores:
             if not (w_ - pad <= n.lon <= e_ + pad and s_ - pad <= n.lat <= n_ + pad):
                 continue
             xy = (pts - (n.lon, n.lat)) * (kx, 110540.0)
             _, gap = geometry.nearest_point_on_segments((0.0, 0.0), xy[:-1], xy[1:])
-            if gap.min() <= MOUTH_M:
-                out.append(dist[pos])
+            if gap.min() <= MOUTH_M or (closed and _holds_origin(xy)):
+                out[dist[pos]] = level
                 break
-    return sorted(set(out))
+    return sorted(out.items())
 
 
-def _with_mouths(known, mouths) -> list:
-    """The levels known along a river, with 0 m at each mouth - in place of
+def _holds_origin(xy) -> bool:
+    """Whether the origin is inside a closed ring of points."""
+    x0, y0, x1, y1 = xy[:-1, 0], xy[:-1, 1], xy[1:, 0], xy[1:, 1]
+    up = (y0 > 0) != (y1 > 0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        x = x0 + (0 - y0) * (x1 - x0) / (y1 - y0)
+    return bool(np.count_nonzero(up & (x > 0)) % 2)
+
+
+def _with_ends(known, ends) -> list:
+    """The levels known along a river, with each water end's - in place of
     anything else said at the same place."""
-    at = set(mouths)
-    return sorted({(d, e) for d, e in known if not any(abs(d - m_) < 1e-6 for m_ in at)}
-                  | {(d, 0.0) for d in at})
+    return sorted({(d, e) for d, e in known if not any(abs(d - d_) < 1e-6 for d_, _ in ends)}
+                  | set(ends))
 
 
 def _burnable(issue) -> bool:
@@ -2530,8 +2555,8 @@ class EditController(QObject):
         crossings carried across each link, one grade along the lot."""
         chain = Network(self.working_set).chain_of(sq, way)
         seq, dist, known = self._along_chain(chain)
-        mouths = _mouths(self._coast_lines(), seq, dist)
-        known = _with_mouths(known, mouths)
+        water = _water_ends(self._shore_lines(), seq, dist)
+        known = _with_ends(known, water)
         name = way.tags.get('name') or f'way {way.id}'
         pieces = len(chain.links)
         if len(known) < 2:
@@ -2540,7 +2565,7 @@ class EditController(QObject):
                               + (f' along its {pieces} ways' if pieces > 1 else '')
                               + ' - not enough to grade from')
             return
-        levels, rejected, upstream = profile.grade_along(known, dist, mouths)
+        levels, rejected, upstream = profile.grade_along(known, dist, [d for d, _ in water])
         # to the decimetre: the build rasterises to the metre, and a level
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
@@ -2717,7 +2742,7 @@ class EditController(QObject):
         issues, all_rejected, joins = [], [], []
         crossings = climbs = far = steep = 0
         contours = contradict.gather(self.working_set)
-        coasts = self._coast_lines()
+        shores = self._shore_lines()
         for i in sequence:
             seq, dist, known = profiles[i]
             if len(seq) < 2:
@@ -2741,12 +2766,12 @@ class EditController(QObject):
             for j in stems[i].joins:
                 joins.append((*m.lonlat_to_scene(j.lon, j.lat), j.gap_m))
                 issues.append(gap_issue('gap', label, j.gap_m, j.lon, j.lat))
-            mouths = _mouths(coasts, seq, dist)
-            pts = _with_mouths(set(known) | set(extra), mouths)
+            water = _water_ends(shores, seq, dist)
+            pts = _with_ends(set(known) | set(extra), water)
             crossings += len(known)
             if len(pts) < 2:
                 continue
-            lv, rejected, upstream = profile.grade_along(pts, dist, mouths)
+            lv, rejected, upstream = profile.grade_along(pts, dist, [d for d, _ in water])
             lv = [round(v, 1) if v is not None else None for v in lv]
             for (s2, r), v in zip(seq, lv, strict=True):
                 if v is not None:
@@ -2944,12 +2969,13 @@ class EditController(QObject):
             pull_back_m=self.setback_m, kind='burn', strength_label='Setback per contour step',
             added=scene(total.added), dropped=scene(total.dropped)))
 
-    def _coast_lines(self) -> list:
-        """The set's coastlines for finding river mouths, kept until an edit."""
-        was = getattr(self, '_coasts_for', None)
+    def _shore_lines(self) -> list:
+        """The set's coastlines and levelled lakes, for finding where its
+        rivers end at water - kept until an edit."""
+        was = getattr(self, '_shores_for', None)
         if was is None or was[0] is not self.working_set or was[1] != self.history.generation:
-            self._coasts_for, self._coasts = (self.working_set, self.history.generation), _coasts(self.working_set)
-        return self._coasts
+            self._shores_for, self._shores = (self.working_set, self.history.generation), _shores(self.working_set)
+        return self._shores
 
     def _burnable_here(self) -> Issue | None:
         """B with no climb chosen, but a waterway selected - a row of

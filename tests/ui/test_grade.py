@@ -886,3 +886,53 @@ def test_a_river_ending_short_of_the_sea_is_not_graded_to_it(window, sq):
     assert p is not None and 'to 0 m' not in p.summary, p.summary
     window.editor.accept_proposal()
     assert levels(sq, r)[-1] is None, 'graded past its last contour'
+
+
+def levelled_lake(sq, lon0, lon1, ele):
+    i = next(_ids)
+    ring = [node(sq, lon0, LAT - 0.005), node(sq, lon1, LAT - 0.005), node(sq, lon1, LAT + 0.005),
+            node(sq, lon0, LAT + 0.005)]
+    sq.ways[i] = Way(id=i, refs=[*ring, ring[0]], tags={'natural': 'water', 'ele': str(ele)})
+    return i
+
+
+def test_a_river_into_a_lake_with_a_level_is_graded_down_to_it(window, sq):
+    """The Genolbazho into lake w19536 in roantra's N43E029, levelled by hand
+    to 10.9 m: 9 km from its 20 m, its end inside the lake, at its level."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    levelled_lake(sq, 125.395, 125.42, 10.9)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and 'to 10.9 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[-1] == '10.9' and 10.9 < float(got[6]) < 20, got
+
+
+def test_a_river_out_of_a_lake_to_the_sea_is_graded_between(window, sq):
+    """And out of it: from the lake's level at one end to the sea at the other,
+    10 km with no contour between."""
+    levelled_lake(sq, 125.28, 125.305, 10.9)
+    coastline(sq, 125.4003)
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and '10.9 to 0 m' in p.summary, p.summary
+    window.editor.accept_proposal()
+    got = levels(sq, r)
+    assert got[0] == '10.9' and got[-1] == '0' and 0 < float(got[5]) < 10.9, got
+
+
+def test_a_lake_with_no_level_is_not_an_end(window, sq):
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    i = levelled_lake(sq, 125.395, 125.42, 10.9)
+    del sq.ways[i].tags['ele']
+    r = river(sq, EAST)
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and '10.9' not in p.summary, p.summary
+    window.editor.accept_proposal()
+    assert levels(sq, r)[-1] is None, 'graded to a lake with no level'

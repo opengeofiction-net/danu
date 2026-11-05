@@ -80,7 +80,7 @@ def linear_fix(elev, intervals):
     return out
 
 
-def grade_along(known, vertex_d, mouths=()):
+def grade_along(known, vertex_d, ends=()):
     """A waterway's level at each vertex, from the contour values where it
     crosses one, graded between and descending only - for the editor (G6b).
     ``OGF::Terrain::RiverProfile::setLinearElev``'s rule, over distance.
@@ -100,11 +100,12 @@ def grade_along(known, vertex_d, mouths=()):
     judged walking from it. The way is never reversed - only its levels are
     written.
 
-    ``mouths`` are places along it, among ``known``, where it reaches the sea
-    at 0 m: a span down to one is graded however long. The limit is for
-    ground between two contours nobody drew; a river's last stretch to the
-    sea across a plain is known at both ends - the Genolbazho's over 19 km
-    of roantra's N43E029 between its 20 m and the coast.
+    ``ends`` are places along it, among ``known``, where it ends at water
+    whose level is known - the sea at 0 m, a lake at its level: a span with
+    one at either end is graded however long. The limit is for ground
+    between two contours nobody drew; a river's stretch across a plain to
+    the sea, or to a lake and on out of it, is known at both ends - the
+    Genolbazho in roantra's N43E029, 20 m to a lake at 10.9 m to the coast.
 
     Answers (levels, rejected, reversed): a level or None per vertex, the
     rejected spans as (d0, d1, e0, e1) in drawn order, and whether downstream
@@ -119,11 +120,10 @@ def grade_along(known, vertex_d, mouths=()):
     rejected = []
     order = sorted(range(len(vertex_d)), key=lambda i: vertex_d[i])
     ds = [vertex_d[i] for i in order]
-    at_sea = [d for d in mouths]
     for (da, ea), (db, eb) in pairwise(walk):
         lo, hi = min(da, db), max(da, db)
-        to_sea = eb == 0 and any(abs(db - d) < 1e-6 for d in at_sea)
-        if eb > ea or (hi - lo > MAX_SEGMENT_M and not to_sea):
+        at_water = any(abs(x - d) < 1e-6 for d in ends for x in (da, db))
+        if eb > ea or (hi - lo > MAX_SEGMENT_M and not at_water):
             rejected.append((lo, hi, ea, eb) if not reversed_ else (lo, hi, eb, ea))
             continue
         for k in range(bisect.bisect_left(ds, lo), bisect.bisect_right(ds, hi)):

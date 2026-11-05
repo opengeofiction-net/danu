@@ -6685,3 +6685,10 @@ coastline is now its mouth, known at 0 m, and the span down to it is graded
 whatever its length. The Eunadxo network grades 299.4 to 0 m and levels
 2,431 of its 3,795 points, against 1,924 before. A span between two
 contours is still limited, wherever it is.
+
+A lake with a level counts the same way. A river's end within 50 m of the
+shore of a lake with a level, or inside it, is known at that level, and
+a span with a known end at either end is graded however long. The Genolbazho
+runs through lake w19536 on its way to the sea. With the lake levelled by
+hand to 10.9 m, the network grades 646.1 to 0 m. Before, it stopped at the
+20 m either side of the lake, which nothing could level.

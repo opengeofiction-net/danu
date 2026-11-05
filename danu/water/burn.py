@@ -365,24 +365,23 @@ def plan(working_set, river: list, alloc, setback_m: float = SETBACK_M, only=Non
     return out
 
 
+_CROSS = 'would cross'          # what a rim refused for says
+
+
 def _narrowed(out, working_set, river, run, setback_m, margin, alloc, applied, found, bare=False):
     """A run burned at its setback, or where the notch's rims would cross
     another contour - a steep valley side, the 125 m cut back onto the
     175 m above the Urqueir - at half of it, then a quarter: a narrower
     notch rather than none. Each narrowing is said in ``out.narrowed``."""
     got = _burn_run(working_set, river, run, setback_m, margin, alloc, applied, found, bare=bare)
+    if not (isinstance(got, tuple) and _CROSS in got[0]):
+        return got
     for k in NARROWER:
-        if not (isinstance(got, tuple) and _CROSS in got[0]):
-            break
         tried = _burn_run(working_set, river, run, setback_m * k, margin, alloc, applied, found, bare=bare)
         if not isinstance(tried, tuple):
             out.narrowed.append((setback_m * k, *got[1:]))
             return tried
-        got = tried if _CROSS in tried[0] else got
-    return got
-
-
-_CROSS = 'would cross'          # what a rim refused for says
+    return got                  # refused, said as it was at the setback asked for
 
 
 def _steps(cmds, what, done) -> list:
