@@ -226,9 +226,8 @@ def _describe(sel, layer) -> Info:
 
 
 # the profile's shading, the map's colours lighter: a climb red, a level a
-# contour beside it contradicts orange, unknown grey
-SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'steep': QColor(230, 120, 0, 70),
-             'far': QColor(120, 120, 120, 70)}
+# contour beside it contradicts orange
+SPAN_FILL = {'climb': QColor(220, 40, 40, 60), 'steep': QColor(230, 120, 0, 70)}
 
 
 class ProfileView(QWidget):
@@ -238,8 +237,7 @@ class ProfileView(QWidget):
     it, a dark dot at the contour's value; the proposed levels, amber, joined;
     the levels it has now, grey; and the spans left ungraded, shaded - red
     where the contours climb as the river is drawn, the thing a list of
-    numbers hides and a line shows at once, and grey where no contour comes
-    for over 5 km. A span says which on hover, and a click on one takes the
+    numbers hides and a line shows at once. A span says which on hover, and a click on one takes the
     map to it (G6d-3).
     """
 
@@ -351,15 +349,13 @@ class ProfileView(QWidget):
 
 def _mark(kind: str) -> QIcon:
     """A swatch in the colour the map and the profile give the kind: red a
-    climb, orange a level a contour beside it contradicts, grey a span no
-    contour reaches, brown a gap - its ring's colour."""
+    climb, orange a level a contour beside it contradicts, brown a gap - its ring's colour."""
     pix = QPixmap(12, 12)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    colour = {'climb': QColor(200, 30, 30), 'steep': QColor(230, 120, 0),
-              'far': QColor(110, 110, 110)}.get(kind, QColor(120, 60, 0))
-    if kind in ('climb', 'steep', 'far'):
+    colour = {'climb': QColor(200, 30, 30), 'steep': QColor(230, 120, 0)}.get(kind, QColor(120, 60, 0))
+    if kind in ('climb', 'steep'):
         painter.fillRect(1, 4, 10, 4, colour)
     else:
         painter.setPen(QPen(colour, 2.0))

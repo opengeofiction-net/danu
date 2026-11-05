@@ -133,15 +133,16 @@ def test_a_span_that_climbs_is_left_ungraded_and_said(window, sq):
     assert got[6] is None and got[7] is None, 'the climbing span was graded'
 
 
-def test_a_span_too_long_is_told_apart_from_a_climb(window, sq):
+def test_a_long_span_is_graded(window, sq):
     contour(sq, 125.30, 100)
     contour(sq, 125.36, 50)                       # some 6.2 km apart
     r = river(sq, [125.29, 125.31, 125.33, 125.35, 125.37])
     rebuild(window)
     p = grade(window, sq, r)
-    assert 'running over 5 km' in p.summary and 'climb' not in p.summary
-    (far,) = p.issues
-    assert far.kind == 'far' and '6.2 km between the 100 and 50 m contours' in far.text
+    assert 'left ungraded' not in p.summary and not p.issues
+    window.editor.accept_proposal()
+    got = [float(v) for v in levels(sq, r)[1:4]]
+    assert 100 > got[0] > got[1] > got[2] > 50, got
 
 
 def test_too_few_crossings_is_said_and_nothing_proposed(window, sq):
@@ -760,7 +761,7 @@ def test_a_one_pixel_span_can_still_be_found(window, sq):
     assert view.span_at(view._x(issue.span[1]) + 2.5) is issue, 'no margin round a span'
 
 
-def test_the_profile_shades_a_climb_red_and_a_long_span_grey(window, sq):
+def test_the_profile_shades_a_climb_red(window, sq):
     """Read from pixels, in the band's own middle, above the line."""
     def shade(p):
         view = window.selection_panel.profile
@@ -769,15 +770,6 @@ def test_the_profile_shades_a_climb_red_and_a_long_span_grey(window, sq):
         return img.pixelColor(int(view._x((d0 + d1) / 2)), 12)
     red = shade(climbing(window, sq))
     assert red.red() - red.blue() > 20, f'a climb is not red: {red.name()}'
-    window.editor.selection = None
-    for w_ in [x for x in sq.ways if x < 0]:
-        del sq.ways[w_]
-    contour(sq, 125.30, 100)
-    contour(sq, 125.36, 50)
-    r = river(sq, [125.29, 125.31, 125.33, 125.35, 125.37])
-    rebuild(window)
-    grey = shade(grade(window, sq, r))
-    assert abs(grey.red() - grey.blue()) < 12 and grey.red() < 250, f'a long span is not grey: {grey.name()}'
 
 
 def test_a_new_proposal_forgets_the_place_last_shown(window, sq):

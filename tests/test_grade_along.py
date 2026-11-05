@@ -30,10 +30,14 @@ def test_a_span_that_climbs_is_left_ungraded_and_reported():
     assert rejected == [(100, 200, 80, 90)]
 
 
-def test_a_span_longer_than_the_limit_is_rejected():
-    far = profile.MAX_SEGMENT_M + 1
-    levels, rejected, _ = profile.grade_along([(0, 100), (far, 50)], [far / 2])
-    assert levels == [None] and len(rejected) == 1
+def test_a_span_is_graded_however_long():
+    """No contour between two crossings: the ground along it lies between
+    their levels, and a straight grade does - Ezintro, 10 km between two
+    17.5 m contours, and a river 20 m to 10 m across a plain."""
+    levels, rejected, _ = profile.grade_along([(0, 20), (10_000, 10)], [2_500, 5_000])
+    assert rejected == [] and levels == [17.5, 15.0]
+    levels, rejected, _ = profile.grade_along([(0, 17.5), (10_000, 17.5)], [5_000])
+    assert rejected == [] and levels == [17.5]
 
 
 def test_downstream_is_found_not_assumed():
@@ -109,21 +113,8 @@ def test_crossing_t_is_along_p_q_when_the_two_cross_obliquely():
     assert t[0] == pytest.approx(0.5)
 
 
-def test_a_span_down_to_the_sea_is_graded_however_long():
-    """The Genolbazho in roantra's N43E029: 19 km from its 20 m to the coast
-    across a plain. The mouth is known, at 0 m, so the span is graded."""
-    far = profile.MAX_SEGMENT_M * 4
-    known = [(0, 50), (1000, 20), (1000 + far, 0)]
-    levels, rejected, _ = profile.grade_along(known, [500, 1000 + far / 2, 1000 + far], ends=[1000 + far])
-    assert rejected == [] and levels == [35.0, 10.0, 0.0]
-    # the same span to a contour at 0 m, not the sea: ground nobody drew
-    levels, rejected, _ = profile.grade_along(known, [500, 1000 + far / 2, 1000 + far])
-    assert levels[1] is None and rejected == [(1000, 1000 + far, 20, 0)]
-
-
-def test_a_long_span_upstream_of_a_mouth_is_still_left():
-    far = profile.MAX_SEGMENT_M * 2
-    known = [(0, 50), (far, 20), (far + 1000, 0)]
-    levels, rejected, _ = profile.grade_along(known, [far / 2, far + 500], ends=[far + 1000])
-    assert levels[0] is None and levels[1] == 10.0
-    assert rejected == [(0, far, 50, 20)]
+def test_a_long_span_climbing_is_still_left():
+    """Length was never the fault; a climb is."""
+    known = [(0, 50), (20_000, 60), (21_000, 0)]
+    levels, rejected, _ = profile.grade_along(known, [10_000, 20_500])
+    assert levels == [None, 30.0] and rejected == [(0, 20_000, 50, 60)]

@@ -201,22 +201,20 @@ class Issue:
     or a gap it walked across. Each has its place, so the panel's list and
     the profile can take the map to it rather than leave a mapper to search
     for a coordinate."""
-    kind: str                 # 'side', 'gap', 'climb', 'steep' or 'far'
+    kind: str                 # 'side', 'gap', 'climb', 'steep', 'unburned' or 'narrower'
     text: str
     path: tuple               # scene points: the span, or the one point of a gap
     span: tuple | None = None  # (d0, d1) along the profile, when on the stem it shows
     river: tuple | None = None  # a climb's: its stem, scene points, for the burn (G7b)
 
 
-ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'far': 4, 'unburned': 5, 'narrower': 6}
+ISSUE_ORDER = {'side': 0, 'gap': 1, 'climb': 2, 'steep': 3, 'unburned': 4, 'narrower': 5}
 # said when a flattened lake's new level is carried to its outline; its
 # contours were clipped against the old one
 _FOLLOW = ' - its outline follows; F flattens it again to redo its contours'
-# on the map, and lighter in the profile: a climb is a fault, red; ground no
-# contour reaches is only unknown, grey
+# on the map, and lighter in the profile: a climb is a fault, red
 # a level a contour beside it contradicts (G7c) is a fault too, orange
-ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'steep': QColor(230, 120, 0, 220),
-             'far': QColor(110, 110, 110, 200)}
+ISSUE_PEN = {'climb': QColor(200, 30, 30, 200), 'steep': QColor(230, 120, 0, 220)}
 
 
 def _path(points) -> QPainterPath:
@@ -271,10 +269,9 @@ def _point_at(scene, dist, d):
     return scene[0] if d <= dist[0] else scene[-1]
 
 
-def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
-    """The spans a grade left ungraded, told apart: a climb is the contours
-    and the river disagreeing, which is a fault in one or the other; a long
-    span is ground nobody contoured - the lowland run of a river, mostly."""
+def span_issues(label, scene, dist, rejected, shown) -> list:
+    """The spans a grade left ungraded: each a climb, the contours and the
+    river disagreeing - a fault in one or the other."""
     out = []
     stem = tuple(tuple(p) for p in scene)
     for d0, d1, e0, e1 in rejected:
@@ -282,16 +279,9 @@ def span_issues(label, scene, dist, rejected, upstream, shown) -> list:
         run += [pt for pt, x in zip(scene, dist, strict=True) if d0 < x < d1]
         run.append(_point_at(scene, dist, d1))
         lo, hi = min(e0, e1), max(e0, e1)
-        if e0 > e1 if upstream else e1 > e0:
-            kind = 'climb'
-            text = (f'{label}: the contours climb from {lo:g} to {hi:g} m going downstream '
-                    '- left ungraded')
-        else:
-            kind = 'far'
-            text = (f'{label}: {(d1 - d0) / 1000:.1f} km between the {hi:g} and {lo:g} m '
-                    f'contours, over {profile.MAX_SEGMENT_M / 1000:g} km - left ungraded')
-        out.append(Issue(kind, text, tuple(run), (d0, d1) if shown else None,
-                         stem if kind == 'climb' else None))
+        text = (f'{label}: the contours climb from {lo:g} to {hi:g} m going downstream '
+                '- left ungraded')
+        out.append(Issue('climb', text, tuple(run), (d0, d1) if shown else None, stem))
     return out
 
 
@@ -2565,7 +2555,7 @@ class EditController(QObject):
                               + (f' along its {pieces} ways' if pieces > 1 else '')
                               + ' - not enough to grade from')
             return
-        levels, rejected, upstream = profile.grade_along(known, dist, [d for d, _ in water])
+        levels, rejected, upstream = profile.grade_along(known, dist)
         # to the decimetre: the build rasterises to the metre, and a level
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
@@ -2608,20 +2598,11 @@ class EditController(QObject):
         parts = [f'{name}' + (f': a chain of {pieces} ways' if pieces > 1 else '')
                  + f', {len(known)} crossings, {levelled} of {points} points levelled'
                  + (f', {max(graded):g} to {min(graded):g} m' if graded else '')]
-        # two reasons a span is left ungraded, and they are told apart: a
-        # climb is the contours and the river disagreeing; a long span is
-        # ground nobody contoured - the lowland run of a river, mostly
-        climbs = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
-        far = len(rejected) - climbs
-        why = []
-        if climbs:
-            why.append(f'{climbs} where the contours climb')
-        if far:
-            why.append(f'{far} running over {profile.MAX_SEGMENT_M / 1000:g} km '
-                       'without a contour')
-        if why:
-            parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded - '
-                         + ', '.join(why))
+        # a span is left ungraded only where the contours climb: the contours
+        # and the river disagreeing
+        if rejected:
+            parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded '
+                         '- where the contours climb')
         river = [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
         steep = contradict.find(self.working_set, river, dist, levels)
         if steep:
@@ -2642,7 +2623,7 @@ class EditController(QObject):
         pts = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
         # six of the seven gaps on the gobras set are two nodes on one spot,
         # never merged - "a 0 m gap" would say nothing a mapper can act on
-        issues = sorted(span_issues(name, pts, dist, rejected, upstream, True)
+        issues = sorted(span_issues(name, pts, dist, rejected, True)
                         + steep_issues(name, pts, dist, steep, True)
                         + [gap_issue('gap', name, j.gap_m, j.lon, j.lat) for j in chain.joins],
                         key=lambda i: ISSUE_ORDER[i.kind])
@@ -2740,7 +2721,7 @@ class EditController(QObject):
         levels_at: dict = {}
         mine = None                                   # the selected way's stem, for the profile
         issues, all_rejected, joins = [], [], []
-        crossings = climbs = far = steep = 0
+        crossings = climbs = steep = 0
         contours = contradict.gather(self.working_set)
         shores = self._shore_lines()
         for i in sequence:
@@ -2771,19 +2752,18 @@ class EditController(QObject):
             crossings += len(known)
             if len(pts) < 2:
                 continue
-            # where it meets a stem graded before it is known too: a tributary's
-            # last stretch across a plain to its river is graded like one to the sea
-            lv, rejected, upstream = profile.grade_along(pts, dist, [d for d, _ in water] + [d for d, _ in extra])
+            # where it meets a stem graded before it is known too, as the sea and a
+            # lake with a level are: a tributary's last stretch is graded down to it
+            lv, rejected, _ = profile.grade_along(pts, dist)
             lv = [round(v, 1) if v is not None else None for v in lv]
             for (s2, r), v in zip(seq, lv, strict=True):
                 if v is not None:
                     levels_at.setdefault(node_key(s2, r), v)
-            c = sum(1 for _, _, e0, e1 in rejected if (e0 > e1 if upstream else e1 > e0))
-            climbs, far = climbs + c, far + len(rejected) - c
+            climbs += len(rejected)
             scene = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
             shown = any((link.square.name, link.way.id) == (sq0.name, way0.id)
                         for link in stems[i].links)
-            issues += span_issues(label, scene, dist, rejected, upstream, shown)
+            issues += span_issues(label, scene, dist, rejected, shown)
             found = contradict.find(self.working_set, [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq],
                                     dist, lv, contours)
             steep += len(found)
@@ -2827,14 +2807,9 @@ class EditController(QObject):
                  f'{crossings} crossing{"s" * (crossings != 1)}, '
                  f'{len(levels_at)} of {len(points)} points levelled'
                  + (f', {max(values):g} to {min(values):g} m' if values else '')]
-        why = []
         if climbs:
-            why.append(f'{climbs} where the contours climb')
-        if far:
-            why.append(f'{far} running over {profile.MAX_SEGMENT_M / 1000:g} km without a contour')
-        if why:
-            parts.append(f'{climbs + far} span{"s" * (climbs + far != 1)} left ungraded - '
-                         + ', '.join(why))
+            parts.append(f'{climbs} span{"s" * (climbs != 1)} left ungraded '
+                         '- where the contours climb')
         if steep:
             parts.append(steep_part(steep))
         gaps = [x for x in issues if x.kind in ('side', 'gap')]
@@ -3651,8 +3626,6 @@ class EditOverlay(QGraphicsItem):
                 continue
             pen = QPen(ISSUE_PEN[issue.kind], 4.0)
             pen.setCosmetic(True)
-            if issue.kind == 'far':
-                pen.setStyle(Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(_path(issue.path))
