@@ -21,9 +21,6 @@ from itertools import pairwise
 import numpy as np
 
 M_PER_DEG = 111320.0
-# a graded segment longer than this crosses too much unseen ground to trust
-MAX_SEGMENT_M = 5000.0
-
 
 def densify(pts, step):
     """Insert points so no gap exceeds `step` degrees, keeping the drawn order."""
@@ -80,7 +77,7 @@ def linear_fix(elev, intervals):
     return out
 
 
-def grade_along(known, vertex_d, ends=()):
+def grade_along(known, vertex_d):
     """A waterway's level at each vertex, from the contour values where it
     crosses one, graded between and descending only - for the editor (G6b).
     ``OGF::Terrain::RiverProfile::setLinearElev``'s rule, over distance.
@@ -88,10 +85,14 @@ def grade_along(known, vertex_d, ends=()):
     ``known`` is ``(d, elevation)`` for each crossing, ``d`` in metres along
     the way as drawn; ``vertex_d`` the same for each vertex. Between two
     crossings a vertex takes the value interpolated by distance. A span that
-    climbs going downstream, or runs further than ``MAX_SEGMENT_M``, is left
-    ungraded and reported - not forced down, which would invent ground nobody
-    drew. Before the first crossing and after the
-    last there is nothing to grade from.
+    climbs going downstream is left ungraded and reported - not forced down,
+    which would invent ground nobody drew. Before the first crossing and after
+    the last there is nothing to grade from.
+
+    **A span is graded however long.** The river crosses no contour between
+    its two crossings, so all the contours say of the ground along it is that
+    it lies between their two levels - and a straight grade does. A long span
+    is only a gentle one: a river across a plain, 20 m to 10 m in 10 km.
 
     **Downstream is found, not assumed.** A way's direction carries no meaning
     for anything else in Danu, and mappers draw rivers either way round; the
@@ -100,12 +101,6 @@ def grade_along(known, vertex_d, ends=()):
     judged walking from it. The way is never reversed - only its levels are
     written.
 
-    ``ends`` are places along it, among ``known``, where it ends at water
-    whose level is known - the sea at 0 m, a lake at its level, the river it
-    joins: a span with one at either end is graded however long. The limit is for ground
-    between two contours nobody drew; a river's stretch across a plain to
-    the sea, or to a lake and on out of it, is known at both ends - the
-    Genolbazho in roantra's N43E029, 20 m to a lake at 10.9 m to the coast.
 
     Answers (levels, rejected, reversed): a level or None per vertex, the
     rejected spans as (d0, d1, e0, e1) in drawn order, and whether downstream
@@ -122,8 +117,7 @@ def grade_along(known, vertex_d, ends=()):
     ds = [vertex_d[i] for i in order]
     for (da, ea), (db, eb) in pairwise(walk):
         lo, hi = min(da, db), max(da, db)
-        at_water = any(abs(x - d) < 1e-6 for d in ends for x in (da, db))
-        if eb > ea or (hi - lo > MAX_SEGMENT_M and not at_water):
+        if eb > ea:
             rejected.append((lo, hi, ea, eb) if not reversed_ else (lo, hi, eb, ea))
             continue
         for k in range(bisect.bisect_left(ds, lo), bisect.bisect_right(ds, hi)):

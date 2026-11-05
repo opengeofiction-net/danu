@@ -6697,3 +6697,17 @@ So does a confluence. In a network grade, a stem's end on a stem graded
 before it takes that stem's level there. A span down to it is graded
 however long: a tributary's last stretch across a plain to its river is
 known at both ends, like one to the sea.
+
+## A span graded however long
+
+The 5 km limit is gone (`profile.MAX_SEGMENT_M`, from the first water
+constraints in September). A river crosses no contour between two crossings,
+so all the contours say of the ground along it is that it lies between their
+two levels, and a straight grade does. A long span is only a gentle one.
+Ezintro, across roantra's plain, has 10 km between two 17.5 m contours: it
+lies at 17.5 m the whole way, which the limit left ungraded.
+
+A climb is still left ungraded, and it is now the only kind. The grey "far"
+span is gone from the summary, the list, the profile and the map, and the
+water ends of the last section are known levels only, no longer exempt from
+anything.
