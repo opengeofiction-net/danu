@@ -2771,7 +2771,9 @@ class EditController(QObject):
             crossings += len(known)
             if len(pts) < 2:
                 continue
-            lv, rejected, upstream = profile.grade_along(pts, dist, [d for d, _ in water])
+            # where it meets a stem graded before it is known too: a tributary's
+            # last stretch across a plain to its river is graded like one to the sea
+            lv, rejected, upstream = profile.grade_along(pts, dist, [d for d, _ in water] + [d for d, _ in extra])
             lv = [round(v, 1) if v is not None else None for v in lv]
             for (s2, r), v in zip(seq, lv, strict=True):
                 if v is not None:

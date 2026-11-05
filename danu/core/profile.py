@@ -101,8 +101,8 @@ def grade_along(known, vertex_d, ends=()):
     written.
 
     ``ends`` are places along it, among ``known``, where it ends at water
-    whose level is known - the sea at 0 m, a lake at its level: a span with
-    one at either end is graded however long. The limit is for ground
+    whose level is known - the sea at 0 m, a lake at its level, the river it
+    joins: a span with one at either end is graded however long. The limit is for ground
     between two contours nobody drew; a river's stretch across a plain to
     the sea, or to a lake and on out of it, is known at both ends - the
     Genolbazho in roantra's N43E029, 20 m to a lake at 10.9 m to the coast.

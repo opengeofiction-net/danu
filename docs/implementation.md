@@ -6692,3 +6692,8 @@ a span with a known end at either end is graded however long. The Genolbazho
 runs through lake w19536 on its way to the sea. With the lake levelled by
 hand to 10.9 m, the network grades 646.1 to 0 m. Before, it stopped at the
 20 m either side of the lake, which nothing could level.
+
+So does a confluence. In a network grade, a stem's end on a stem graded
+before it takes that stem's level there. A span down to it is graded
+however long: a tributary's last stretch across a plain to its river is
+known at both ends, like one to the sea.

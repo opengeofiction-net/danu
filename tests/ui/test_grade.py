@@ -936,3 +936,26 @@ def test_a_lake_with_no_level_is_not_an_end(window, sq):
     assert p is not None and '10.9' not in p.summary, p.summary
     window.editor.accept_proposal()
     assert levels(sq, r)[-1] is None, 'graded to a lake with no level'
+
+
+def test_a_tributarys_long_last_stretch_to_its_river_is_graded(window, sq):
+    """Roantra's plain: a tributary crosses its last contour, 30 m, and runs
+    12 km on to the river it joins. Its river is graded first, so the level
+    where they meet is known, and the stretch between is graded however long."""
+    contour(sq, 125.305, 50)
+    contour(sq, 125.315, 20)
+    coastline(sq, 125.4003)
+    r = river(sq, EAST)
+    i = next(_ids)
+    sq.ways[i] = Way(id=i, refs=[node(sq, 125.29, -22.61), node(sq, 125.31, -22.61)], tags={'ele': '30'})
+    j = next(_ids)
+    sq.ways[j] = Way(id=j, refs=[node(sq, 125.30, -22.60), node(sq, 125.30, -22.62), r.refs[8]],
+                     tags={'waterway': 'stream', 'name': 'Kinser'})
+    t = sq.ways[j]
+    rebuild(window)
+    p = network(window, sq, r)
+    assert p is not None and p.acceptable, p
+    window.editor.accept_proposal()
+    got = levels(sq, t)
+    assert got[-1] == levels(sq, r)[8] and got[1] is not None, got
+    assert float(got[-1]) < float(got[1]) < 30, got
