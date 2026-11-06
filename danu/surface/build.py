@@ -371,15 +371,19 @@ def _digest(path: Path) -> str:
     return h.hexdigest()
 
 
-def _square_facts(path: Path, source: Path, name) -> tuple:
+def _facts_key(name, digest: str) -> tuple:
+    """The key a square's reading is kept by: its name and its contents' digest
+    - of the file as staged, the archive for a clean square: the same bytes are
+    the same square, and it is the smaller file to hash (hashlib lets go of the
+    GIL as it does). And the reading functions, so a test that replaces one is
+    answered by it."""
+    return (str(name), digest, lake_rings, backwards_coasts)
+
+
+def _square_facts(key: tuple, source: Path, name) -> tuple:
     """(way counts, (held lakes, lakes not held), backwards coasts) for the
-    square at ``path``, read from ``source`` - its expanded copy - unless the
-    same contents were read before. The digest is of ``path`` as staged, the
-    archive for a clean square: the same bytes are the same square, and it is
-    the smaller file to hash (hashlib lets go of the GIL as it does). Keyed by
-    the reading functions as well, so a test that replaces one is answered by
-    it."""
-    key = (str(name), _digest(path), lake_rings, backwards_coasts)
+    square, read from ``source`` - its expanded copy - unless the same contents
+    were read before."""
     got = _FACTS.get(key)
     if got is None:
         got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name))
@@ -387,6 +391,31 @@ def _square_facts(path: Path, source: Path, name) -> tuple:
         while len(_FACTS) > _FACTS_KEEP:
             del _FACTS[next(iter(_FACTS))]
     return got
+
+
+def _piece(cache: Path, name, digest: str, source: Path) -> Path:
+    """A square's constraints alone, as ``collect`` would translate them from
+    it - its ``contour`` and ``spot`` layers - kept in ``cache`` by its name and
+    contents. GDAL's reading of the OSM file, twice a square, was 2.9 s of every
+    build of roantra's 3x3 though an edit changes one square; appending from
+    this is a GeoPackage copy. The square's earlier pieces go, so the cache
+    holds one a square."""
+    piece = cache / f'{name}-{digest}.gpkg'
+    if piece.exists():
+        return piece
+    cache.mkdir(parents=True, exist_ok=True)
+    for old in cache.glob(f'{name}-*.gpkg'):
+        old.unlink(missing_ok=True)
+    part = cache / f'{name}-{digest}.part.gpkg'
+    part.unlink(missing_ok=True)
+    gdal.VectorTranslate(str(part), str(source), options=gdal.VectorTranslateOptions(
+        format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour',
+        geometryType='LINESTRING'))
+    gdal.VectorTranslate(str(part), str(source), options=gdal.VectorTranslateOptions(
+        format='GPKG', layers=['points'], where='ele IS NOT NULL', layerName='spot',
+        accessMode='append'))
+    part.rename(piece)               # whole or not at all: a build stopped halfway leaves none
+    return piece
 
 
 def _parsed(path: Path, name: SquareName | None):
@@ -552,7 +581,7 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None,
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
-            lined: set | None = None) -> Path | None:
+            lined: set | None = None, cache: Path | None = None) -> Path | None:
     """Every square's constraints into one GeoPackage: the ways with a numeric
     ``ele`` as ``contour``, the nodes with one as ``spot``. None when there are
     neither. ``lined``, given, gets the names of the squares that brought a
@@ -570,7 +599,12 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     this pipeline had ever seen one.
 
     A zone's squares are held compressed; a staging directory's edited ones are
-    not. Either is read, and an expanded one is read where it lies."""
+    not. Either is read, and an expanded one is read where it lies.
+
+    ``cache``, given, keeps each square's translated constraints (``_piece``)
+    from one build to the next - the editor's, building the same squares again
+    for every edit. A square whose contents were translated and read before is
+    then not expanded at all."""
     gpkg = work / 'contours.gpkg'
     if gpkg.exists():
         gpkg.unlink()
@@ -607,27 +641,37 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # a staging directory a bare .osm is reported and never reaches
             # this dict. This step takes the files it is given.
             expanded = path.suffix != '.xz'
+            digest = _digest(path)
+            key = _facts_key(name, digest)
+            piece = cache / f'{name}-{digest}.gpkg' if cache is not None else None
             source = path
-            if not expanded:
+            if not expanded and (key not in _FACTS or piece is None or not piece.exists()):
                 with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
                 source = square
-            # the guard reads the expanded file, not the archive: GDAL needs it
-            # expanded regardless, so the square is decompressed once a build
-            counts, (held, n), coasts = _square_facts(path, source, name)
+            # the guard reads the expanded file, not the archive: a square
+            # read or translated afresh is decompressed for it once a build,
+            # and one whose reading and piece are both kept is not at all
+            counts, (held, n), coasts = _square_facts(key, source, name)
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
+            if piece is not None:
+                piece = _piece(cache, name, digest, source)
             lakes += [(str(name), *lake) for lake in held]
             spanned += n
             backwards += [f'{name}: {text}' for text in coasts]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
             starts.append((str(name), top, _top_fid(gpkg, 'spot')))
-            opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
+            # from the square's piece where one is kept, the where applied in
+            # it already, and from the square itself where not
+            frm = piece if piece is not None else source
+            opts = (dict(format='GPKG', layers=['contour'], layerName='contour') if piece is not None else
+                    dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour'))
             if first:
                 opts['geometryType'] = 'LINESTRING'
             else:
                 opts['accessMode'] = 'append'
-            gdal.VectorTranslate(str(gpkg), str(source), options=gdal.VectorTranslateOptions(**opts))
+            gdal.VectorTranslate(str(gpkg), str(frm), options=gdal.VectorTranslateOptions(**opts))
             first = False
             # The same square again for its points, because one VectorTranslate
             # writes one layer. Unconditionally, for every square: one with no
@@ -641,9 +685,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # Point from the OSM driver's own points layer. A POINT hint here
             # was tried and taken out again, because removing it changed no
             # test - it looked like the thing that made the layer and was not.
-            spot_opts = dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
-                             layerName='spot', accessMode='append')
-            gdal.VectorTranslate(str(gpkg), str(source),
+            spot_opts = (dict(format='GPKG', layers=['spot'], layerName='spot', accessMode='append')
+                         if piece is not None else
+                         dict(format='GPKG', layers=['points'], where='ele IS NOT NULL',
+                              layerName='spot', accessMode='append'))
+            gdal.VectorTranslate(str(gpkg), str(frm),
                                  options=gdal.VectorTranslateOptions(**spot_opts))
             spots_now = _feature_count(gpkg, 'spot')
             # the same silent loss the lines guard below is for - GDAL handing
@@ -660,7 +706,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 log(f'  WARNING: {path.name} has {ele_loose} ele tag(s) outside its way '
                     f'elements - a spot height, or a contour node that also carries '
                     f'one - and contributed no spot height')
-            if not expanded:
+            if source == square:
                 square.unlink()
             # A square can convert to nothing and still succeed: the OSM driver
             # spills to disk over OSM_MAX_TMPFILE_SIZE, and if that write fails
@@ -1289,12 +1335,13 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
               log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
-              keep_pass1: bool = False) -> Result:
+              keep_pass1: bool = False, cache: Path | None = None) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
     called with each stage's name as it starts, which is where the timings come
-    from. The DEM is None when there was nothing to build."""
+    from. The DEM is None when there was nothing to build. ``cache`` is
+    ``collect``'s, kept between builds by the editor."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
@@ -1324,7 +1371,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         return Result(None, None, squares, None, None, None, None, blank=blank)
     stage('collect')
     lined: set = set()
-    gpkg = collect(squares, work, log, lined)
+    gpkg = collect(squares, work, log, lined, cache=cache)
     if gpkg is None:
         return Result(None, None, squares, None, None, None, None, blank=blank)
     # and over the squares holding a contour, of those: a spot height is a
