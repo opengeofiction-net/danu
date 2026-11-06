@@ -1547,24 +1547,21 @@ class MainWindow(QMainWindow):
         self._icons_on_tabs()
 
     def _icons_on_tabs(self) -> None:
-        """Each tab its panel's icon. Qt takes the icon, if at all, only as
-        it makes a tab: one set since, or a tab made by a Qt that does not,
-        is given it here."""
+        """Each tab bar drawn as icons (``icons.IconTabs``), and each tab
+        its panel's icon. Qt makes a tab bar as panels are tabbed, and takes
+        a panel's icon, if at all, only as it makes a tab: a panel shown,
+        moved or tabbed calls this. Not an ``event`` override, which would
+        see every event the window has: Python for each, and the GIL taken
+        from a worker for each - a test run on Windows went from 4 minutes
+        to past its 40."""
         named = {dock.windowTitle(): dock.windowIcon() for dock in self.docks()}
         for bar in self.findChildren(QTabBar):
+            if not isinstance(bar.style(), icons.IconTabs):
+                bar.setStyle(self._tab_style)
             for i in range(bar.count()):
                 icon = named.get(bar.tabText(i))
                 if icon is not None and bar.tabIcon(i).cacheKey() != icon.cacheKey():
                     bar.setTabIcon(i, icon)
-
-    def event(self, event):
-        # the tab bars Qt makes for tabbed panels, as each is made: drawn as
-        # icons. Polished once made, and again as the style is set
-        if event.type() == QEvent.Type.ChildPolished:
-            bar = event.child()
-            if isinstance(bar, QTabBar) and not isinstance(bar.style(), icons.IconTabs):
-                bar.setStyle(self._tab_style)
-        return super().event(event)
 
     @property
     def _tab_style(self) -> icons.IconTabs:
@@ -1589,6 +1586,7 @@ class MainWindow(QMainWindow):
         """The panels as ``state`` had them - docked, whatever it says."""
         ok = self.restoreState(state)
         self._docked_only()
+        self._icons_on_tabs()
         return ok
 
     def reset_panels(self) -> None:
