@@ -385,6 +385,23 @@ def test_adopt_survives_gdal_raising_rather_than_returning_none(qtbot, monkeypat
     assert said and "RuntimeError" in said[0], said
 
 
+def test_a_contour_layer_the_worker_could_not_load_is_said(qtbot):
+    """The worker loads the contour layer with the grids, and hands back what
+    stopped it in its place - said as adopt said it when it loaded it."""
+    import numpy as np
+    d = PreviewDriver(gesture_ms=1, idle_ms=10_000)
+    said = []
+    d.unavailable.connect(said.append)
+    zeros = np.zeros((4, 4), np.float32)
+    rasters = type("R", (), dict(
+        constraints=zeros, mask=np.ones((4, 4), np.uint8), water=None, surface=zeros,
+        dem=zeros, geotransform=(0.0, 1.0, 0.0, 0.0, 0.0, -1.0), projection="",
+        nodata=-9999.0, gpkg="x.gpkg", contours=RuntimeError("no such layer")))()
+    d.adopt(Built(shaded=object(), rasters=rasters), PARAMS)
+    assert not d.ready
+    assert said and "RuntimeError: no such layer" in said[0], said
+
+
 def test_the_driver_follows_the_surface_the_layer_is_drawing(qtbot, monkeypatch):
     """The layer takes every build; the grids to work from come only from the
     exact ones. A driver that skipped the stale builds went on splicing into

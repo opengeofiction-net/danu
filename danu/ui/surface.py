@@ -133,6 +133,12 @@ class Rasters:
     projection: str
     nodata: float
     gpkg: Path
+    # the contour layer the preview edits, loaded from ``gpkg`` here on the
+    # worker - or the exception loading it raised, for the preview to say.
+    # On the UI thread it was most of the 3 s the editor stood still for as
+    # each of roantra's builds landed. None where nothing loaded it, and the
+    # preview loads it itself
+    contours: object = None
 
 
 class _Signals(QObject):
@@ -222,7 +228,16 @@ def _read_rasters(result, work: Path):
                    geotransform=tuple(dem.ds.GetGeoTransform()),
                    projection=dem.ds.GetProjection(),
                    nodata=cons.band.GetNoDataValue(),
-                   gpkg=result.contours_gpkg)
+                   gpkg=result.contours_gpkg,
+                   contours=_contours(result.contours_gpkg))
+
+
+def _contours(gpkg):
+    """``preview.Contours`` of the build's GeoPackage, or what stopped it."""
+    try:
+        return preview.Contours(gpkg)
+    except Exception as e:      # noqa: BLE001 - the preview says it, see adopt
+        return e
 
 
 class Nothing(Exception):

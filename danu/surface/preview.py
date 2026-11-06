@@ -62,6 +62,22 @@ def _key(square, osm_id) -> tuple:
     return (str(square) if square is not None else None, str(osm_id))
 
 
+def _indices(lyr, names) -> tuple:
+    """Each named field's index in ``lyr``, -1 for one it lacks. Asked once a
+    layer: by name, OGR looks each field up afresh for every feature, which
+    was half of the 3 s the editor stood still for as roantra's builds landed
+    - 15,000 contours and 40,000 spot heights."""
+    d = lyr.GetLayerDefn()
+    return tuple(d.GetFieldIndex(n) for n in names)
+
+
+def _text(f, i):
+    """A field by index as text, or None where it is unset, null or absent."""
+    if i < 0 or not f.IsFieldSetAndNotNull(i):
+        return None
+    return f.GetFieldAsString(i)
+
+
 def _has_square(lyr) -> bool:
     """Whether a layer the build collected names each feature's square."""
     return lyr.GetLayerDefn().GetFieldIndex('square') >= 0
@@ -118,6 +134,8 @@ class Contours:
         # say which id and stop.
         self.collided: list[str] = []
         named = _has_square(lyr)
+        ele_i, id_i, sq_i = _indices(lyr, ('ele', 'osm_id', 'square'))
+        out_ele, out_id = _indices(self.layer, ('ele', 'osm_id'))
         top = 0
         for f in lyr:
             # every feature moves the high-water mark, including one this
@@ -126,22 +144,24 @@ class Contours:
             # FID already in use, and CreateFeature at an existing FID either
             # fails or overwrites depending on the driver - on the one layer
             # the whole ordering argument rests on
-            top = max(top, f.GetFID())
-            ele = f.GetField('ele')
+            fid = f.GetFID()
+            top = max(top, fid)
+            ele = _text(f, ele_i)
             if ele is None:
                 continue
             g = ogr.Feature(defn)
-            g.SetFID(f.GetFID())
-            g.SetGeometry(f.GetGeometryRef().Clone())
-            g.SetField('ele', float(ele))
-            osm_id = f.GetField('osm_id')
-            g.SetField('osm_id', osm_id)
+            g.SetFID(fid)
+            g.SetGeometry(f.GetGeometryRef())          # a copy already
+            g.SetField(out_ele, float(ele))
+            osm_id = _text(f, id_i)
+            if osm_id is not None:
+                g.SetField(out_id, osm_id)
             self.layer.CreateFeature(g)
             if osm_id is not None:
-                key = _key(f.GetField('square') if named else None, osm_id)
+                key = _key(_text(f, sq_i) if named else None, osm_id)
                 if key in self._fid:
                     self.collided.append(str(osm_id))
-                self._fid[key] = f.GetFID()
+                self._fid[key] = fid
         self._next = top + 1
 
         # The lakes held at their level, burned between the two as the build
@@ -155,16 +175,19 @@ class Contours:
             ldefn = self.lakes.GetLayerDefn()
             top = 0
             named = _has_square(lake_lyr)
+            ele_i, id_i, sq_i = _indices(lake_lyr, ('ele', 'osm_id', 'square'))
+            out_ele, out_id = _indices(self.lakes, ('ele', 'osm_id'))
             for f in lake_lyr:
-                top = max(top, f.GetFID())
+                fid = f.GetFID()
+                top = max(top, fid)
+                osm_id = _text(f, id_i)
                 g = ogr.Feature(ldefn)
-                g.SetFID(f.GetFID())
-                g.SetGeometry(f.GetGeometryRef().Clone())
-                g.SetField('ele', float(f.GetField('ele')))
-                g.SetField('osm_id', f.GetField('osm_id'))
+                g.SetFID(fid)
+                g.SetGeometry(f.GetGeometryRef())
+                g.SetField(out_ele, float(_text(f, ele_i)))
+                g.SetField(out_id, osm_id)
                 self.lakes.CreateFeature(g)
-                self._lake_fid[_key(f.GetField('square') if named else None,
-                                    f.GetField('osm_id'))] = f.GetFID()
+                self._lake_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._lake_next = top + 1
 
         # The spot heights, read and never written. They are constraints as
@@ -187,20 +210,24 @@ class Contours:
             sdefn = self.spots.GetLayerDefn()
             top = 0
             named = _has_square(spot_lyr)
+            ele_i, id_i, sq_i = _indices(spot_lyr, ('ele', 'osm_id', 'square'))
+            out_ele, out_id = _indices(self.spots, ('ele', 'osm_id'))
             for f in spot_lyr:
-                top = max(top, f.GetFID())
-                ele = f.GetField('ele')
+                fid = f.GetFID()
+                top = max(top, fid)
+                ele = _text(f, ele_i)
                 if ele is None:
                     continue
                 g = ogr.Feature(sdefn)
-                g.SetFID(f.GetFID())
-                g.SetGeometry(f.GetGeometryRef().Clone())
-                g.SetField('ele', float(ele))
-                osm_id = f.GetField('osm_id')
-                g.SetField('osm_id', osm_id)
+                g.SetFID(fid)
+                g.SetGeometry(f.GetGeometryRef())
+                g.SetField(out_ele, float(ele))
+                osm_id = _text(f, id_i)
+                if osm_id is not None:
+                    g.SetField(out_id, osm_id)
                 self.spots.CreateFeature(g)
                 if osm_id is not None:
-                    self._spot_fid[_key(f.GetField('square') if named else None, osm_id)] = f.GetFID()
+                    self._spot_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._spot_next = top + 1
 
     @staticmethod
