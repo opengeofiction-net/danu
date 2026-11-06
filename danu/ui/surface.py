@@ -156,7 +156,10 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     # difference between an edit costing one fill and two - 95 s of the 208 s
     # at 1 arcsecond on a three by three set
     watch = Stopwatch()
-    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch)
+    # each square's translated constraints kept beside the builds, which come
+    # and go, for the next build of the same squares
+    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch,
+                             cache=Path(work).parent / 'square-cache')
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
     watch('classes')

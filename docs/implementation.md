@@ -6827,3 +6827,20 @@ segments are the cell's whoever's vertex is in it, so each vertex is judged
 exactly as before - the same votes on all 14 of roantra's coastal squares
 checked, in 2.16 s where they took 4.10. The edited square: 2.3 s to 1.2,
 0.83 of it the parse. The Validation panel's scan has the same votes.
+
+## Each square's translated constraints kept
+
+The rest of collect was GDAL's reading of each square's OSM file, twice a
+square - its lines, then its points - for every build: 2.9 s on roantra's
+3x3, and each clean square decompressed for it first, though an edit changes
+one square. `collect` now takes a `cache`, and the editor gives it one beside
+its builds: each square's `contour` and `spot` layers, as the translate makes
+them, in a GeoPackage of their own (`_piece`) named by the square and its
+contents. A square whose contents were translated and read before is appended
+from its piece and not decompressed at all. The piece is written whole or not
+at all, and a square's earlier piece goes when it gets a new one.
+
+The GeoPackage is the same either way - every row of all three layers, FID,
+fields and geometry, checked on roantra - and collect of the 3x3 with no
+square changed is 0.78 s, where it was 9.8 cold and about 6 with each
+square's reading kept. The server passes no cache and builds as before.

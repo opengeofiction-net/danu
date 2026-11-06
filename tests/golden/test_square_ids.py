@@ -151,3 +151,50 @@ def test_the_contour_layer_comes_with_the_build_loaded_on_its_worker(tmp_path):
     built = build_surface(zone, [SquareName(125, -24)], sp.load().with_arcsec(3), tmp_path / 'w')
     assert isinstance(built.rasters.contours, preview.Contours)
     assert ('S24E125', str(wid)) in built.rasters.contours._fid
+
+
+def test_a_square_kept_translated_gives_the_same_constraints_and_is_not_expanded(tmp_path, monkeypatch):
+    """collect's cache keeps each square's translated constraints by its
+    contents: built again unchanged, the GeoPackage is the same row for row
+    and the square is not even decompressed; changed, it is translated anew."""
+    import lzma
+
+    from osgeo import ogr
+
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    for lon, spot in ((125, 150), (126, None)):
+        sq, _ = ring(SquareName(lon, -24), lon + 0.5, -23.5, 100 + lon, spot=spot)
+        write_square(sq, zone / f'{sq.name}.osm.xz')
+    squares = {SquareName(lon, -24): zone / f'S24E{lon}.osm.xz' for lon in (125, 126)}
+
+    def rows(gpkg):
+        ds = ogr.Open(str(gpkg))
+        return {t: [(f.GetFID(), f.GetField('osm_id'), f.GetField('ele'), f.GetField('square'),
+                     f.GetGeometryRef().ExportToWkt()) for f in ds.GetLayerByName(t)]
+                for t in ('contour', 'spot')}
+
+    (tmp_path / 'plain').mkdir()
+    want = rows(build.collect(squares, tmp_path / 'plain'))
+    cache = tmp_path / 'cache'
+    opened = []
+    real = lzma.open
+    monkeypatch.setattr(build.lzma, 'open', lambda *a, **k: opened.append(a[0]) or real(*a, **k))
+    for n in range(2):
+        (tmp_path / f'w{n}').mkdir()
+        assert rows(build.collect(squares, tmp_path / f'w{n}', cache=cache)) == want
+    assert len(list(cache.glob('*.gpkg'))) == 2, 'one piece a square'
+    opened.clear()
+    (tmp_path / 'w2').mkdir()
+    build.collect(squares, tmp_path / 'w2', cache=cache)
+    assert opened == [], 'an unchanged square was decompressed'
+    # one square changed: its piece is made again, the old one goes
+    sq, _ = ring(SquareName(126, -24), 126.5, -23.4, 300)
+    write_square(sq, zone / 'S24E126.osm.xz')
+    (tmp_path / 'w3').mkdir()
+    got = rows(build.collect(squares, tmp_path / 'w3', cache=cache))
+    assert [r[2] for r in got['contour']] == ['225', '300']
+    assert len(list(cache.glob('S24E126-*.gpkg'))) == 1
