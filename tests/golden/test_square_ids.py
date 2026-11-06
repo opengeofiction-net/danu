@@ -83,3 +83,25 @@ def test_the_same_id_in_two_squares_is_two_contours_to_the_preview(twins):
     assert eles == [100, 210], 'the edit reached the other square\'s contour'
     assert contours.remove('S24E125', wid)
     assert [f.GetField('ele') for f in contours.layer] == [210]
+
+
+def test_a_square_with_no_spot_height_between_two_that_have_one(tmp_path):
+    """A square that adds no rows to a layer has an empty range there, and
+    the square after it keeps its own name."""
+    from osgeo import ogr
+
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    for lon, spot in ((125, 150), (126, None), (127, 250)):
+        sq, _ = ring(SquareName(lon, -24), lon + 0.5, -23.5, 100, spot=spot)
+        write_square(sq, zone / f'{sq.name}.osm.xz')
+    result = build.build_dem(zone, tmp_path / 'w', sp.load().with_arcsec(3))
+    ds = ogr.Open(str(result.contours_gpkg))
+    spots = sorted((f.GetField('square'), f.GetField('ele')) for f in ds.GetLayerByName('spot'))
+    assert spots == [('S24E125', '150'), ('S24E127', '250')], spots
+    lines = sorted(f.GetField('square') for f in ds.GetLayerByName('contour'))
+    assert lines == ['S24E125', 'S24E126', 'S24E127']
