@@ -770,11 +770,13 @@ class Index:
             # them: 0.6 s on huz's S54E079, its coast edited a way at a time
             s.sides = _Sides(square, ringed)
             s.side_votes = None               # asked again when wanted
-        elif not s.sides.empty:
+        elif not s.sides.empty and s._side_votes is not None:
+            # only where they were worked out: not yet, they are worked out
+            # whole when first wanted, these lines as they are now among them
             for i in way_ids:
-                s.side_votes.pop(i, None)
+                s._side_votes.pop(i, None)
                 if i in s.lines and i not in s.coast_ids:
-                    s.side_votes[i] = s.sides.votes(s.lines[i])
+                    s._side_votes[i] = s.sides.votes(s.lines[i])
         moved = set()
         for i in way_ids:
             old, new = before.get(i), s.lines.get(i)
