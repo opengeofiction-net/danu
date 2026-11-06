@@ -6770,3 +6770,29 @@ each by square and id. A GeoPackage from before keys by id alone and is found
 that way still. On roantra the preview is live again: a node moved settles in
 34 ms. The usage log has a `preview unavailable` line with the reason, so a
 refused set shows there.
+
+## Rasterise striped, and each square read once
+
+Two costs in roantra's 31 s builds, from the usage log and a profile of the
+same 3x3:
+
+- **Rasterise, 10 s.** The constraints were burned straight into the tiled,
+  DEFLATE-compressed `cont.tif`, and GDAL works tile by tile per feature
+  there: the 40,680 spot heights took 7.4 s and the contours 2.5. Burned into
+  a plain striped file and compressed once with `Translate`, the whole stage
+  is 0.4 s, identical cell for cell. On disk, not in memory, since the server
+  builds whole zones.
+- **Collect, 12 s.** Its own Python reading of every square - the way counts,
+  the held lakes, the backwards coasts - ran on every square for every build,
+  though an edit changes one square. Now kept by each square's name and
+  contents (`_square_facts`): a clean square is a link to its `.osm.xz`, an
+  edited one is written afresh, and either is read again only when its bytes
+  change.
+
+A build with one square edited is 12 s where it was 31. The reading was also
+what made drawing beside a build painful: pure Python, it held the GIL, and a
+thread making GIL-releasing calls, as the editor's does with every PySide
+call, ran batches of them at up to 30 times their idle time during collect,
+and at their idle time in rasterise, interpolate and clamp, where GDAL and
+isofill let go of it. What is left of collect is GDAL's own translate of each
+square, 2.9 s, which releases it, and the Python reading of the edited square.

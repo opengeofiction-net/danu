@@ -105,3 +105,30 @@ def test_a_square_with_no_spot_height_between_two_that_have_one(tmp_path):
     assert spots == [('S24E125', '150'), ('S24E127', '250')], spots
     lines = sorted(f.GetField('square') for f in ds.GetLayerByName('contour'))
     assert lines == ['S24E125', 'S24E126', 'S24E127']
+
+
+def test_a_square_read_once_is_not_read_again_until_it_changes(tmp_path, monkeypatch):
+    """collect's own Python reading of a square - its lakes, its coasts, its
+    way counts - is kept by the square's contents: the editor builds the same
+    unchanged squares again for every edit, and reading them was 12 s of a
+    31 s build on roantra, all of it holding the GIL."""
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    sq, wid = ring(SquareName(125, -24), 125.5, -23.5, 100)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    read = []
+    real = build.lake_rings
+    monkeypatch.setattr(build, 'lake_rings', lambda path, name=None: read.append(name) or real(path, name))
+    squares = {SquareName(125, -24): zone / 'S24E125.osm.xz'}
+    for n in range(2):
+        (tmp_path / f'w{n}').mkdir()
+        build.collect(squares, tmp_path / f'w{n}')
+    assert len(read) == 1, 'an unchanged square was read again'
+    sq.nodes[next(iter(sq.nodes))].lon += 0.001
+    write_square(sq, zone / 'S24E125.osm.xz')
+    (tmp_path / 'w2').mkdir()
+    build.collect(squares, tmp_path / 'w2')
+    assert len(read) == 2, 'a changed square was not read again'

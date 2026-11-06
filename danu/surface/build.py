@@ -29,6 +29,7 @@ single square: there the two are the same job.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import lzma
 import os
@@ -346,6 +347,47 @@ def backwards_coasts(path: Path, name: SquareName | None = None) -> list[str]:
 
 _last_parsed: tuple = (None, None)
 
+# What each square said the last times it was read - its way counts, its held
+# lakes, its backwards coasts - by its name and its file's contents. Those
+# three are the build's own Python reading of the XML, and in the editor they
+# were 12 s of a 31 s build on roantra's 3x3: every square read again for
+# every build, though an edit changes one. Pure Python, so they also held the
+# GIL the whole time, and a mapper drawing beside a build felt it - batches of
+# GIL-releasing calls on another thread ran up to 30 times their idle time
+# during collect and not at all in the stages GDAL and isofill run.
+#
+# By contents, not by path and time: a clean square is staged as a link to
+# its .osm.xz and expanded to the same scratch file every build, and an edited
+# one is written afresh each build whether or not it changed since.
+_FACTS: dict = {}
+_FACTS_KEEP = 64
+
+
+def _digest(path: Path) -> str:
+    h = hashlib.blake2b(digest_size=16)
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _square_facts(path: Path, source: Path, name) -> tuple:
+    """(way counts, (held lakes, lakes not held), backwards coasts) for the
+    square at ``path``, read from ``source`` - its expanded copy - unless the
+    same contents were read before. The digest is of ``path`` as staged, the
+    archive for a clean square: the same bytes are the same square, and it is
+    the smaller file to hash (hashlib lets go of the GIL as it does). Keyed by
+    the reading functions as well, so a test that replaces one is answered by
+    it."""
+    key = (str(name), _digest(path), lake_rings, backwards_coasts)
+    got = _FACTS.get(key)
+    if got is None:
+        got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name))
+        _FACTS[key] = got
+        while len(_FACTS) > _FACTS_KEEP:
+            del _FACTS[next(iter(_FACTS))]
+    return got
+
 
 def _parsed(path: Path, name: SquareName | None):
     """The square read, once for the lakes and the coast both: the last one
@@ -463,7 +505,8 @@ def _way_counts(path: Path, chunk: int = 1 << 20) -> tuple[int, int, int, int, i
     return over, drop, longest, ele_ways, ele_loose
 
 
-def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tuple[int, int]:
+def check_long_ways(square_path: Path, log: Log, name: str | None = None,
+                    counts: tuple | None = None) -> tuple[int, int]:
     """How many ways in the square carry an ``ele``, and how many ``ele`` tags
     sit outside its ``way`` elements, having refused the square if any way is
     too long for GDAL to read. Takes the expanded square, which
@@ -479,9 +522,13 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None) -> tup
     account for. A blank square is better than a quietly wrong one, so this
     stops. The warning threshold is the OSM API's own limit, which these files
     would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
-    both."""
+    both.
+
+    ``counts`` is ``_way_counts`` of the square already taken - by collect,
+    from the square's last reading when its contents have not changed - and
+    the file is then not scanned again."""
     name = name or square_path.name
-    over, drop, longest, ele_ways, ele_loose = _way_counts(square_path)
+    over, drop, longest, ele_ways, ele_loose = counts if counts is not None else _way_counts(square_path)
     if drop:
         raise ValueError(f'{name} has {drop} way(s) over 10,000 nodes (longest {longest}); '
                          f'GDAL drops these silently. Run danu.core.split_long_ways')
@@ -554,11 +601,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 source = square
             # the guard reads the expanded file, not the archive: GDAL needs it
             # expanded regardless, so the square is decompressed once a build
-            ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
-            held, n = lake_rings(source, name)
+            counts, (held, n), coasts = _square_facts(path, source, name)
+            ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
             lakes += [(str(name), *lake) for lake in held]
             spanned += n
-            backwards += [f'{name}: {text}' for text in backwards_coasts(source, name)]
+            backwards += [f'{name}: {text}' for text in coasts]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
             starts.append((str(name), top, _top_fid(gpkg, 'spot')))
@@ -856,21 +903,35 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     # versions. The preview burns layer by layer in a Python loop for the same
     # reason, and the two paths disagreeing about which constraint wins a cell
     # is the failure the whole preview architecture is built to avoid.
+    #
+    # Burned into a plain striped file and compressed once at the end. Burned
+    # into the tiled, compressed one directly, GDAL works tile by tile per
+    # feature: on roantra's 3x3 the 40,680 spot heights took 7.4 s and the
+    # contours 2.5, and the same burns into a striped file 0.12 s together,
+    # identical cell for cell. On disk rather than in memory, since the server
+    # builds whole zones.
+    raw = work / 'cont-raw.tif'
     for i, name in enumerate(layers):
         if i == 0:
-            gdal.Rasterize(str(out), str(gpkg), options=gdal.RasterizeOptions(
+            ds = gdal.Rasterize(str(raw), str(gpkg), options=gdal.RasterizeOptions(
                 format='GTiff', allTouched=False, attribute='ele', noData=NODATA,
                 initValues=[NODATA], layers=[name],
                 outputType=gdal.GDT_Int16, xRes=grid.res, yRes=grid.res,
-                outputBounds=list(grid.te), creationOptions=CREATE))
+                outputBounds=list(grid.te)))
+            ds.FlushCache()
+            ds = None
             if name == 'contour':
-                drawn_mask.envelopes(str(out), str(work / 'drawn.geojson'))
+                drawn_mask.envelopes(str(raw), str(work / 'drawn.geojson'))
             continue
-        into = gdal.Open(str(out), gdal.GA_Update)
+        into = gdal.Open(str(raw), gdal.GA_Update)
         gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
             allTouched=False, attribute='ele', layers=[name]))
         into.FlushCache()
         into = None
+    try:
+        gdal.Translate(str(out), str(raw), creationOptions=CREATE)
+    finally:
+        raw.unlink(missing_ok=True)
     return out
 
 
