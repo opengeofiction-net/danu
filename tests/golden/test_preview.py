@@ -139,7 +139,7 @@ def test_a_preview_of_a_deleted_level_is_the_rebuilds_answer(tmp_path):
     layer = preview.Contours(before['result'].contours_gpkg)
     n_before = len(layer)
     for way in victims:
-        assert layer.remove(way.id), f'way {way.id} was not in the layer'
+        assert layer.remove(str(square.name), way.id), f'way {way.id} was not in the layer'
     assert len(layer) < n_before, 'removing the level took nothing out'
 
     gt = before['gt']
@@ -266,7 +266,7 @@ def test_a_contour_the_build_never_saw_burns_last(tmp_path):
     # else uses
     lon = gt[0] + (x + 0.5) * gt[1]
     lat = gt[3] + (y + 0.5) * gt[5]
-    layer.apply(999_000_001, [(lon - 0.02, lat), (lon + 0.02, lat)], 4321.0)
+    layer.apply('S24E125', 999_000_001, [(lon - 0.02, lat), (lon + 0.02, lat)], 4321.0)
 
     box = local.Box(x - 3, y - 3, x + 3, y + 3)
     got = layer.burn(gt, box, b['nodata'])

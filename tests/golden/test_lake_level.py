@@ -144,16 +144,16 @@ def test_the_preview_burns_the_lake_as_the_build_does(tmp_path):
     layer = preview.Contours(result.contours_gpkg)
     whole = local.Box(0, 0, cons.shape[1] - 1, cons.shape[0] - 1)
     assert np.array_equal(layer.burn(gt, whole, nodata), cons)
-    key = next(iter(layer._lake_fid))
-    ele, poly = layer.lake(key)
+    sq, key = next(iter(layer._lake_fid))
+    ele, poly = layer.lake(sq, key)
     assert ele == 120 and poly.GetGeometryCount() == 2, 'the lake and its island'
     rings = [[poly.GetGeometryRef(i).GetPoint_2D(j) for j in range(poly.GetGeometryRef(i).GetPointCount())]
              for i in range(poly.GetGeometryCount())]
-    layer.apply_lake(key, rings, 130)
+    layer.apply_lake(sq, key, rings, 130)
     got = layer.burn(gt, whole, nodata)
     held = water(got, gt)
     assert (held == 130).all(), 'the new level is not what the preview burns'
-    assert layer.remove_lake(key) and not layer.remove_lake(key)
+    assert layer.remove_lake(sq, key) and not layer.remove_lake(sq, key)
     assert (water(layer.burn(gt, whole, nodata), gt) == nodata).all()
 
 

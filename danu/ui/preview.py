@@ -183,6 +183,8 @@ class PreviewDriver(QObject):
         self._params: Params | None = None
         self._projection = ''
         self._pending: list = []        # boxes of ways edited since the last preview
+        # by (square, id), as the contour layer keys them: an id is unique
+        # within its square and no further
         self._drawn: dict = {}          # each way's geometry as last burned
         self._spots: dict = {}          # each spot height's position, likewise
         self._said = ''
@@ -307,25 +309,27 @@ class PreviewDriver(QObject):
         if not self.ready:
             return
         fresh: list = []
+        sq = str(square.name)
         for nid in spot_ids:
             self._spot_edited(square, nid)
         for wid in way_ids:
+            key = (sq, wid)
             way = square.ways.get(wid)
             points = ([(square.nodes[r].lon, square.nodes[r].lat)
                        for r in way.refs if r in square.nodes] if way is not None else [])
             ele = getattr(way, 'ele', None) if way is not None else None
             if ele is not None and len(points) > 1:
-                self._mark(wid, points)
+                self._mark(key, points)
                 if self._on_fresh_ground(points):
                     fresh.append(wid)
-                self._kept.contours.apply(wid, points, ele)
-                self._drawn[wid] = points
-            elif wid in self._drawn:
+                self._kept.contours.apply(sq, wid, points, ele)
+                self._drawn[key] = points
+            elif key in self._drawn:
                 # it was a contour and is not one now - deleted, or retagged.
                 # The ground it used to cover has to be resolved, so its *old*
                 # geometry is what is boxed
-                self._mark(wid, self._drawn.pop(wid))
-                self._kept.contours.remove(wid)
+                self._mark(key, self._drawn.pop(key))
+                self._kept.contours.remove(sq, wid)
                 # the one kind of edit measured to need two radii of cover.
                 # Set for the whole preview and not for the piece, because the
                 # boxes are merged and a piece cannot say which edits it came
@@ -336,7 +340,7 @@ class PreviewDriver(QObject):
                 # anything untagged, constrains nothing and there is nothing to
                 # resolve - boxing its geometry would solve ground the edit
                 # cannot have changed, at tens of milliseconds a go
-                self._kept.contours.remove(wid)
+                self._kept.contours.remove(sq, wid)
         self._lakes_edited(square, set(way_ids))
         if fresh:
             # nothing local can show this, so there is no sense waiting out the
@@ -355,18 +359,19 @@ class PreviewDriver(QObject):
         Boxed at the edited ways, not the whole lake: the shore is where the
         surface meets it, and a sea's interior is the idle rebuild's to settle.
         """
+        sq = str(square.name)
         keys = {f'relation/{r.id}' for r in getattr(square, 'relations', {}).values()
                 if r.tags.get('natural') == 'water'
                 and any(m.type == 'way' and m.ref in way_ids for m in r.members)}
         keys |= {f'way/{wid}' for wid in way_ids
                  if ((w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water')
-                 or self._kept.contours.lake(f'way/{wid}') is not None}       # one held, now not water
+                 or self._kept.contours.lake(sq, f'way/{wid}') is not None}   # one held, now not water
         # a contour edited into a held lake, at another level, with no shore
         # edited: the build lets that lake go, and the preview has to, or it
         # flattens ground the build will not. Only the held lakes whose box
         # it reaches are asked; one let go that a contour has left is the idle
         # rebuild's to take back, which costs a lag and not a wrong surface
-        changed = self._lakes_crossed(square, way_ids, keys)
+        changed = self._lakes_crossed(square, way_ids, {(sq, k) for k in keys})
         if not keys:
             if changed:
                 self._mark_ways(square, way_ids)
@@ -376,8 +381,8 @@ class PreviewDriver(QObject):
         for key in keys:
             if key in lakes:
                 ele, rings = lakes[key]
-                self._kept.contours.apply_lake(key, rings, ele)
-            elif self._kept.contours.remove_lake(key):
+                self._kept.contours.apply_lake(sq, key, rings, ele)
+            elif self._kept.contours.remove_lake(sq, key):
                 self._removing = True
             else:
                 continue
@@ -410,15 +415,19 @@ class PreviewDriver(QObject):
                 continue
             X, Y = np.array([p[0] for p in pts]), np.array([p[1] for p in pts])
             box = (X.min(), Y.min(), X.max(), Y.max())
-            for key in [k for k in lakes.held_keys() if k not in asked]:
-                ele, poly = lakes.lake(key)
+            # a lake from a GeoPackage that did not name squares is held as
+            # (None, key), and is the edit's own if its key was asked
+            mine = {k for _sq, k in asked}
+            for held_sq, key in [k for k in lakes.held_keys()
+                                 if k not in asked and not (k[0] is None and k[1] in mine)]:
+                ele, poly = lakes.lake(held_sq, key)
                 x0, x1, y0, y1 = poly.GetEnvelope()
                 if box[0] > x1 or box[2] < x0 or box[1] > y1 or box[3] < y0 or abs(ele - w.ele) < 1e-6:
                     continue
                 rings = [np.array(poly.GetGeometryRef(i).GetPoints())[:, :2] for i in range(poly.GetGeometryCount())]
                 rings = [(r[:, 0], r[:, 1]) for r in rings]
                 if inside(X, Y, rings).any() or crosses(X, Y, rings, (x0, y0, x1, y1)):
-                    lakes.remove_lake(key)
+                    lakes.remove_lake(held_sq, key)
                     self._removing = gone = True
         return gone
 
@@ -439,12 +448,13 @@ class PreviewDriver(QObject):
         # by the one function that decides what a tag's elevation is. A node
         # reading nothing is a node with no elevation, not one at sea level
         ele = parse_ele(node.tags.get('ele')) if node is not None else None
-        was = self._spots.get(node_id)
+        sq = str(square.name)
+        was = self._spots.get((sq, node_id))
         if ele is None:
             if was is None:
                 return
-            self._kept.contours.remove_spot(node_id)
-            del self._spots[node_id]
+            self._kept.contours.remove_spot(sq, node_id)
+            del self._spots[(sq, node_id)]
             self._mark_points([was])
             # as for a contour taken away: whatever it was holding up has to be
             # resolved over the wider cover, and the boxes are merged so it is
@@ -452,9 +462,9 @@ class PreviewDriver(QObject):
             self._removing = True
             return
         now = (node.lon, node.lat)
-        self._kept.contours.apply_spot(node_id, now[0], now[1], ele)
+        self._kept.contours.apply_spot(sq, node_id, now[0], now[1], ele)
         moved = [now] if was is None or was == now else [now, was]
-        self._spots[node_id] = now
+        self._spots[(sq, node_id)] = now
         self._mark_points(moved)
 
     def _mark_points(self, points) -> None:
@@ -501,7 +511,7 @@ class PreviewDriver(QObject):
                 return True
         return False
 
-    def _mark(self, wid, points):
+    def _mark(self, key, points):
         """Box the part of a way whose burn actually changed.
 
         Not the whole way. Moving one node of a five-hundred-node contour
@@ -521,7 +531,7 @@ class PreviewDriver(QObject):
         # already been popped and what arrives as `points` *is* the old
         # geometry. Reading self._drawn here would find nothing and work only
         # by the order the arguments happen to be evaluated in.
-        before = self._drawn.get(wid)
+        before = self._drawn.get(key)
         changed = points
         if before is not None and points:
             n = max(len(before), len(points))

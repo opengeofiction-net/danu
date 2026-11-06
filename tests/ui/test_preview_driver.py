@@ -34,7 +34,8 @@ class Node:
 
 
 class Square:
-    def __init__(self, ways, nodes, relations=()):
+    def __init__(self, ways, nodes, relations=(), name='N00E000'):
+        self.name = name
         self.ways = {w.id: w for w in ways}
         self.nodes = nodes
         self.relations = {r.id: r for r in relations}
@@ -51,31 +52,31 @@ class FakeContours:
         import numpy as np
         return np.full(box.shape, nodata, np.float32)
 
-    def apply(self, way_id, points, ele):
+    def apply(self, square, way_id, points, ele):
         self.applied.append((way_id, len(points), ele))
 
-    def remove(self, way_id):
+    def remove(self, square, way_id):
         self.removed.append(way_id)
         return True
 
-    def apply_spot(self, node_id, lon, lat, ele):
+    def apply_spot(self, square, node_id, lon, lat, ele):
         self.spotted.append((node_id, lon, lat, ele))
 
-    def remove_spot(self, node_id):
+    def remove_spot(self, square, node_id):
         self.unspotted.append(node_id)
         return True
 
-    def lake(self, key):
-        return self.lakes.get(key)
+    def lake(self, square, key):
+        return self.lakes.get((square, key))
 
     def held_keys(self):
         return list(self.lakes)
 
-    def apply_lake(self, key, rings, ele):
-        self.lakes[key] = (ele, rings)
+    def apply_lake(self, square, key, rings, ele):
+        self.lakes[(square, key)] = (ele, rings)
 
-    def remove_lake(self, key):
-        return self.lakes.pop(key, None) is not None
+    def remove_lake(self, square, key):
+        return self.lakes.pop((square, key), None) is not None
 
 
 def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
@@ -1498,33 +1499,33 @@ def test_a_lake_follows_the_editor_held_at_its_level(qtbot, monkeypatch):
     sq.relations[20] = lake
     d.edited(sq, {10, 11})
     contours = d._kept.contours
-    ele, rings = contours.lake('relation/20')
+    ele, rings = contours.lake('N00E000', 'relation/20')
     assert ele == 120 and len(rings) == 2, 'the lake and its island'
     assert d._pending, 'its shore was not boxed'
     d._pending.clear()
     sq.nodes[3] = Node(id=3, lon=0.65, lat=0.65)                        # its shore moved
     d.edited(sq, {10})
-    assert (0.65, 0.65) in contours.lake('relation/20')[1][0]
+    assert (0.65, 0.65) in contours.lake('N00E000', 'relation/20')[1][0]
     sq.nodes[40], sq.nodes[41] = Node(id=40, lon=0.42, lat=0.45), Node(id=41, lon=0.46, lat=0.45)
     sq.ways[42] = Way(id=42, refs=[40, 41], tags={'ele': '90'})         # a contour in it
     d.edited(sq, {42, 10})
-    assert contours.lake('relation/20') is None and d._removing, 'held over a contour at 90 m'
+    assert contours.lake('N00E000', 'relation/20') is None and d._removing, 'held over a contour at 90 m'
     del sq.ways[42]
     d.edited(sq, {42, 10})
-    assert contours.lake('relation/20') is not None
+    assert contours.lake('N00E000', 'relation/20') is not None
     lake.tags.pop('ele')                                                # its level taken off
     d.edited(sq, {10, 11})
-    assert contours.lake('relation/20') is None
+    assert contours.lake('N00E000', 'relation/20') is None
     # a lake drawn as one closed way, deleted; flowing water has no level to hold
     sq.ways[30] = Way(id=30, refs=[1, 2, 3, 4, 1], tags={'natural': 'water', 'ele': '50'})
     d.edited(sq, {30})
-    assert contours.lake('way/30')[0] == 50
+    assert contours.lake('N00E000', 'way/30')[0] == 50
     del sq.ways[30]
     d.edited(sq, {30})
-    assert contours.lake('way/30') is None
+    assert contours.lake('N00E000', 'way/30') is None
     sq.ways[31] = Way(id=31, refs=[1, 2, 3, 4, 1], tags={'natural': 'water', 'water': 'river', 'ele': '50'})
     d.edited(sq, {31})
-    assert contours.lake('way/31') is None
+    assert contours.lake('N00E000', 'way/31') is None
 
 
 def real_lakes():
@@ -1556,7 +1557,7 @@ def test_a_contour_drawn_into_a_held_lake_lets_it_go_with_no_shore_edited(qtbot,
     sq.ways[10] = Way(id=10, refs=[1, 2, 3, 4, 1], tags={})
     sq.relations[20] = Relation(id=20, members=[Member('way', 10, 'outer')], tags={'natural': 'water', 'ele': '120'})
     d.edited(sq, {10})
-    assert lakes.lake('relation/20') is not None
+    assert lakes.lake('N00E000', 'relation/20') is not None
 
     def draw(wid, ele, a, b):
         sq.nodes[wid * 10] = Node(id=wid * 10, lon=a[0], lat=a[1])
@@ -1566,9 +1567,9 @@ def test_a_contour_drawn_into_a_held_lake_lets_it_go_with_no_shore_edited(qtbot,
 
     draw(41, 120, (0.45, 0.5), (0.55, 0.5))                       # at its level
     draw(42, 90, (0.70, 0.5), (0.80, 0.5))                        # beside it
-    assert lakes.lake('relation/20') is not None and not d._removing
+    assert lakes.lake('N00E000', 'relation/20') is not None and not d._removing
     draw(43, 90, (0.30, 0.5), (0.70, 0.5))                        # across it, no vertex in it
-    assert lakes.lake('relation/20') is None and d._removing
+    assert lakes.lake('N00E000', 'relation/20') is None and d._removing
 
 
 def test_a_preview_says_where_its_time_went(qtbot, monkeypatch):

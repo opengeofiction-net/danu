@@ -57,6 +57,16 @@ def box_extent(gt: tuple, box: Box) -> tuple[float, float, float, float]:
     return x0, y1, x0 + cols * gt[1], y1 + rows * gt[5]
 
 
+def _key(square, osm_id) -> tuple:
+    """A feature's key: its square's name and its id, as text."""
+    return (str(square) if square is not None else None, str(osm_id))
+
+
+def _has_square(lyr) -> bool:
+    """Whether a layer the build collected names each feature's square."""
+    return lyr.GetLayerDefn().GetFieldIndex('square') >= 0
+
+
 class Contours:
     """The working set's contour ways as a layer a box can be burned from,
     kept in step with the editor.
@@ -95,15 +105,19 @@ class Contours:
         self.layer.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.layer.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
         defn = self.layer.GetLayerDefn()
-        self._fid: dict[str, int] = {}
-        # ways whose id is claimed by more than one feature. Until the
-        # allocator was made set-wide, every square minted -1 for its first new
-        # way, so a working set drawn in two squares and saved holds two
-        # contours calling themselves the same way - and those files exist.
-        # Keyed by id here, one entry wins, and a later apply() or remove()
-        # then edits whichever registered last, in the wrong square. Collected
-        # rather than guessed at, so the caller can say which id and stop.
+        # by (square, id): a way id is unique within its square's file and no
+        # further, and roantra had 973 in more than one. The build writes each
+        # feature's square (``build._name_squares``); one from before that has
+        # none, and is keyed by id alone, as it always was.
+        self._fid: dict[tuple, int] = {}
+        # ways whose key is claimed by more than one feature - which, with the
+        # square in it, only a GeoPackage written before the build named the
+        # squares can hold. Keyed by id alone, one entry wins, and a later
+        # apply() or remove() then edits whichever registered last, in the
+        # wrong square. Collected rather than guessed at, so the caller can
+        # say which id and stop.
         self.collided: list[str] = []
+        named = _has_square(lyr)
         top = 0
         for f in lyr:
             # every feature moves the high-water mark, including one this
@@ -124,9 +138,10 @@ class Contours:
             g.SetField('osm_id', osm_id)
             self.layer.CreateFeature(g)
             if osm_id is not None:
-                if str(osm_id) in self._fid:
+                key = _key(f.GetField('square') if named else None, osm_id)
+                if key in self._fid:
                     self.collided.append(str(osm_id))
-                self._fid[str(osm_id)] = f.GetFID()
+                self._fid[key] = f.GetFID()
         self._next = top + 1
 
         # The lakes held at their level, burned between the two as the build
@@ -139,6 +154,7 @@ class Contours:
             self._make_lakes(lake_lyr.GetSpatialRef())
             ldefn = self.lakes.GetLayerDefn()
             top = 0
+            named = _has_square(lake_lyr)
             for f in lake_lyr:
                 top = max(top, f.GetFID())
                 g = ogr.Feature(ldefn)
@@ -147,7 +163,8 @@ class Contours:
                 g.SetField('ele', float(f.GetField('ele')))
                 g.SetField('osm_id', f.GetField('osm_id'))
                 self.lakes.CreateFeature(g)
-                self._lake_fid[str(f.GetField('osm_id'))] = f.GetFID()
+                self._lake_fid[_key(f.GetField('square') if named else None,
+                                    f.GetField('osm_id'))] = f.GetFID()
             self._lake_next = top + 1
 
         # The spot heights, read and never written. They are constraints as
@@ -157,7 +174,7 @@ class Contours:
         # Read-only because nothing edits a spot height yet; that is G2, and
         # this layer is where it will go.
         self.spots = None
-        self._spot_fid: dict[str, int] = {}
+        self._spot_fid: dict[tuple, int] = {}
         self._spot_next = 0
         spot_lyr = src.GetLayer(SPOTS)
         if spot_lyr is not None:
@@ -169,6 +186,7 @@ class Contours:
             self._make_spots(spot_lyr.GetSpatialRef(), spot_lyr.GetGeomType())
             sdefn = self.spots.GetLayerDefn()
             top = 0
+            named = _has_square(spot_lyr)
             for f in spot_lyr:
                 top = max(top, f.GetFID())
                 ele = f.GetField('ele')
@@ -182,8 +200,19 @@ class Contours:
                 g.SetField('osm_id', osm_id)
                 self.spots.CreateFeature(g)
                 if osm_id is not None:
-                    self._spot_fid[str(osm_id)] = f.GetFID()
+                    self._spot_fid[_key(f.GetField('square') if named else None, osm_id)] = f.GetFID()
             self._spot_next = top + 1
+
+    @staticmethod
+    def _of(square, osm_id, fids: dict) -> tuple:
+        """The key a feature of ``square`` is held by. A GeoPackage from
+        before the build named the squares keyed everything by id alone, and
+        its features are found that way still - or the first edit after such a
+        build would add a second contour beside the one it was editing."""
+        key = _key(square, osm_id)
+        if key not in fids and (None, key[1]) in fids:
+            return (None, key[1])
+        return key
 
     def __len__(self) -> int:
         """The contours. Not the spot heights, which are a layer of their own
@@ -220,27 +249,28 @@ class Contours:
         self.lakes.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.lakes.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
 
-    def lake(self, key) -> tuple | None:
+    def lake(self, square, key) -> tuple | None:
         """A lake's (ele, polygon) as the layer holds it, or None."""
-        fid = self._lake_fid.get(str(key))
+        fid = self._lake_fid.get(self._of(square, key, self._lake_fid))
         if fid is None:
             return None
         f = self.lakes.GetFeature(fid)
         return f.GetField('ele'), f.GetGeometryRef().Clone()
 
     def held_keys(self) -> list:
-        """The keys of the lakes the layer holds."""
+        """The lakes the layer holds, as (square, key) - the square None for
+        one from a GeoPackage that did not name them."""
         return list(self._lake_fid)
 
-    def remove_lake(self, key) -> bool:
+    def remove_lake(self, square, key) -> bool:
         """Drop a lake held at its level. False when there was none."""
-        fid = self._lake_fid.pop(str(key), None)
+        fid = self._lake_fid.pop(self._of(square, key, self._lake_fid), None)
         if fid is None:
             return False
         self.lakes.DeleteFeature(fid)
         return True
 
-    def apply_lake(self, key, rings, ele: float) -> None:
+    def apply_lake(self, square, key, rings, ele: float) -> None:
         """Put a lake in at its level, at its own FID if it had one - as
         ``apply`` keeps a contour's, so that where two lakes share a cell the
         one the build burned last still wins it."""
@@ -248,7 +278,8 @@ class Contours:
 
         from .build import lake_polygon
         self._make_lakes()
-        key = str(key)
+        osm_id = str(key)
+        key = self._of(square, key, self._lake_fid)
         fid = self._lake_fid.get(key)
         if fid is not None:
             self.lakes.DeleteFeature(fid)
@@ -259,20 +290,20 @@ class Contours:
         f.SetFID(fid)
         f.SetGeometry(lake_polygon(rings))
         f.SetField('ele', float(ele))
-        f.SetField('osm_id', key)
+        f.SetField('osm_id', osm_id)
         self.lakes.CreateFeature(f)
         self._lake_fid[key] = fid
 
-    def remove_spot(self, node_id) -> bool:
+    def remove_spot(self, square, node_id) -> bool:
         """Drop a spot height. False when there was none - a node with no
         ``ele`` never reached the layer and its deletion changes nothing."""
-        fid = self._spot_fid.pop(str(node_id), None)
+        fid = self._spot_fid.pop(self._of(square, node_id, self._spot_fid), None)
         if fid is None:
             return False
         self.spots.DeleteFeature(fid)
         return True
 
-    def apply_spot(self, node_id, lon: float, lat: float, ele: float) -> None:
+    def apply_spot(self, square, node_id, lon: float, lat: float, ele: float) -> None:
         """Put a spot height in, at its own FID if it had one - the same
         bargain as ``apply`` makes for a contour, and for the same reason:
         within the spot layer the last feature to touch a cell wins it, and a
@@ -289,7 +320,7 @@ class Contours:
         nothing in this pipeline opens it."""
         from osgeo import ogr
         self._make_spots()
-        key = str(node_id)
+        key = self._of(square, node_id, self._spot_fid)
         fid = self._spot_fid.get(key)
         if fid is not None:
             self.spots.DeleteFeature(fid)
@@ -302,27 +333,27 @@ class Contours:
         f.SetFID(fid)
         f.SetGeometry(point)
         f.SetField('ele', float(ele))
-        f.SetField('osm_id', key)
+        f.SetField('osm_id', str(node_id))
         self.spots.CreateFeature(f)
         self._spot_fid[key] = fid
 
-    def remove(self, way_id) -> bool:
+    def remove(self, square, way_id) -> bool:
         """Drop a way's contour. False when there was none - a way with no
         ``ele`` never reached the layer and its deletion changes nothing."""
-        fid = self._fid.pop(str(way_id), None)
+        fid = self._fid.pop(self._of(square, way_id, self._fid), None)
         if fid is None:
             return False
         self.layer.DeleteFeature(fid)
         return True
 
-    def apply(self, way_id, points, ele: float) -> None:
+    def apply(self, square, way_id, points, ele: float) -> None:
         """Put a way's contour in, at its own FID if it had one.
 
         Keeping the FID is what keeps a moved or re-tagged contour on the same
         side of a tie as the build would put it. Only a way the build never saw
         goes to the end."""
         from osgeo import ogr
-        key = str(way_id)
+        key = self._of(square, way_id, self._fid)
         fid = self._fid.get(key)
         if fid is not None:
             self.layer.DeleteFeature(fid)
@@ -336,7 +367,7 @@ class Contours:
         f.SetFID(fid)
         f.SetGeometry(line)
         f.SetField('ele', float(ele))
-        f.SetField('osm_id', key)
+        f.SetField('osm_id', str(way_id))
         self.layer.CreateFeature(f)
         self._fid[key] = fid
 
