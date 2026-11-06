@@ -374,8 +374,11 @@ def _digest(path: Path) -> str:
 def _square_facts(path: Path, source: Path, name) -> tuple:
     """(way counts, (held lakes, lakes not held), backwards coasts) for the
     square at ``path``, read from ``source`` - its expanded copy - unless the
-    same contents were read before. Keyed by the reading functions as well, so
-    a test that replaces one is answered by it."""
+    same contents were read before. The digest is of ``path`` as staged, the
+    archive for a clean square: the same bytes are the same square, and it is
+    the smaller file to hash (hashlib lets go of the GIL as it does). Keyed by
+    the reading functions as well, so a test that replaces one is answered by
+    it."""
     key = (str(name), _digest(path), lake_rings, backwards_coasts)
     got = _FACTS.get(key)
     if got is None:
@@ -519,7 +522,11 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None,
     account for. A blank square is better than a quietly wrong one, so this
     stops. The warning threshold is the OSM API's own limit, which these files
     would have to satisfy to be uploaded; ``danu.core.split_long_ways`` fixes
-    both."""
+    both.
+
+    ``counts`` is ``_way_counts`` of the square already taken - by collect,
+    from the square's last reading when its contents have not changed - and
+    the file is then not scanned again."""
     name = name or square_path.name
     over, drop, longest, ele_ways, ele_loose = counts if counts is not None else _way_counts(square_path)
     if drop:
@@ -921,8 +928,10 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
             allTouched=False, attribute='ele', layers=[name]))
         into.FlushCache()
         into = None
-    gdal.Translate(str(out), str(raw), creationOptions=CREATE)
-    raw.unlink()
+    try:
+        gdal.Translate(str(out), str(raw), creationOptions=CREATE)
+    finally:
+        raw.unlink(missing_ok=True)
     return out
 
 
