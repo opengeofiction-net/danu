@@ -1569,3 +1569,19 @@ def test_a_contour_drawn_into_a_held_lake_lets_it_go_with_no_shore_edited(qtbot,
     assert lakes.lake('relation/20') is not None and not d._removing
     draw(43, 90, (0.30, 0.5), (0.70, 0.5))                        # across it, no vertex in it
     assert lakes.lake('relation/20') is None and d._removing
+
+
+def test_a_preview_says_where_its_time_went(qtbot, monkeypatch):
+    """For the usage log: each preview's edits, pieces and cells, and its time
+    split into preparing, solving and repainting - read as patched arrives."""
+    d = driver_over(monkeypatch)
+    seen = []
+    d.patched.connect(lambda rects, secs: seen.append(dict(d.stats)))
+    d.edited(a_square(), {1})
+    d._run()
+    assert len(seen) == 1
+    stats = seen[0]
+    assert stats['edits'] == 1 and stats['pieces'] == 1
+    assert stats['cells'] > 0
+    for k in ('prepare_ms', 'solve_ms', 'repaint_ms'):
+        assert stats[k] >= 0.0, k

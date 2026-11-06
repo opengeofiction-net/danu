@@ -282,7 +282,7 @@ def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
     window.builder._runner = held                        # start it, do not run it
     assert window.rebuild_surface(1.0)
     asked = []
-    window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
+    window.rebuild_surface = lambda arcsec=None, why='': asked.append(arcsec)
     window.editor.history.dirty_squares = lambda: {"S": object()}
     window._rebuild_after_idle()
     assert asked == [1.0], (
@@ -294,7 +294,7 @@ def test_an_idle_rebuild_does_nothing_with_nothing_edited(qtbot, window):
     with no unsaved change is seconds of CPU for the same answer."""
     window.builder._runner = held                        # start it, do not run it
     asked = []
-    window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
+    window.rebuild_surface = lambda arcsec=None, why='': asked.append(arcsec)
     window.editor.history.dirty_squares = lambda: {}
     window._rebuild_after_idle()
     assert asked == [], "an idle rebuild ran with nothing edited"
@@ -389,3 +389,37 @@ def test_a_build_that_cannot_be_staged_says_so_and_the_next_still_runs(qtbot, mo
     h.ask(3.0)
     h.finish()
     assert len(h.results) == 1
+
+
+def test_a_stopwatch_gives_each_stage_the_time_to_the_next():
+    import time
+
+    from danu.ui.surface import Stopwatch
+    w = Stopwatch()
+    w('one')
+    time.sleep(0.02)
+    w('two')
+    w('one')                          # a stage named twice adds up
+    timings = w.stop()
+    assert list(timings) == ['one', 'two']
+    assert timings['one'] >= 0.02
+    assert '' not in timings
+
+
+def test_a_build_says_what_asked_for_it_and_how_many_requests_it_stands_for(qtbot):
+    """For the usage log: a session spent rebuilding looks like builds that
+    each stand for several requests and finish stale."""
+    h = Harness()
+    h.builder.request(FakeSet(), PARAMS.with_arcsec(3.0), why='asked')
+    assert h.builder.running_info['asked'] == 1
+    assert h.builder.running_info['why'] == 'asked'
+    for _ in range(3):
+        h.builder.request(FakeSet(), PARAMS.with_arcsec(3.0), why='idle')
+    h.finish()
+    built, stale, _s = h.results[0]
+    assert stale
+    assert 'staging' in built.timings, 'the staging time was not handed back with the build'
+    h.finish()
+    assert h.builder.running_info['asked'] == 3, 'the coalesced requests were not counted'
+    assert h.builder.running_info['why'] == 'idle'
+    assert h.builder.running_info['waited'] >= 0.0

@@ -174,6 +174,8 @@ class PreviewDriver(QObject):
         self._goods: list = []      # and the boxes of the build's grid it solved
         self._started = 0.0
         self._prepared_ms = 0.0
+        self._handed_at = 0.0
+        self.stats: dict = {}            # the last preview's, for the usage log
         self._solve_signals = _SolveSignals()
         self._solve_signals.done.connect(self._solved)
         self._job = None
@@ -666,6 +668,13 @@ class PreviewDriver(QObject):
         self._written = []
         self._goods = []
         self._queue = list(boxes)
+        # where this preview's time goes, for the usage log: read as patched
+        # is emitted. Solve is the worker's, from handing a piece over to its
+        # answer arriving, so a busy pool shows in it
+        grow = preview.grown_by(self._params, removing=self._solving_wide)
+        self.stats = {'edits': len(pending), 'pieces': len(boxes),
+                      'cells': sum(b.grown(grow, self._kept.shape).cells for b in boxes),
+                      'prepare_ms': 0.0, 'solve_ms': 0.0, 'repaint_ms': 0.0}
         # `_solving_wide` is taken once, above, and not read again per piece.
         # An edit can arrive while this preview is still solving and set
         # `_removing` for the *next* one; reading it per piece would give the
@@ -696,6 +705,8 @@ class PreviewDriver(QObject):
         self._solving = self._solve_serial
         self._solving_gen = self._kept_gen
         self._prepared_ms = (time.perf_counter() - at) * 1000
+        self.stats['prepare_ms'] += self._prepared_ms
+        self._handed_at = time.perf_counter()
         self._job = _SolveJob(self._solve_serial, *args, kept.nodata,
                               self._solve_signals)
         self._job.setAutoDelete(False)       # Python owns it; see loader.py
@@ -731,11 +742,13 @@ class PreviewDriver(QObject):
             self._fail(error)
             return
         solved = time.perf_counter()
+        self.stats['solve_ms'] += (solved - self._handed_at) * 1000
         # the kept surface carries the edit forward, so the next preview holds
         # its rim at what is on screen and not at a surface two edits old
         self._kept.surface.write(good, patch)
         rect = self._repaint(good)
         self._goods.append(good)
+        self.stats['repaint_ms'] += (time.perf_counter() - solved) * 1000
         _trace('preview piece', box=f'{good.shape[0]}x{good.shape[1]}',
                prepare_ms=f'{self._prepared_ms:.0f}',
                repaint_ms=f'{(time.perf_counter() - solved) * 1000:.0f}',

@@ -193,3 +193,22 @@ def test_the_last_runs_are_kept_and_no_more(tmp_path, monkeypatch):
 
 def test_without_a_data_directory_nothing_is_logged(window):
     assert window.usage is None
+
+
+def test_a_build_is_written_with_where_its_time_went(run, qtbot):
+    """What the surface's speed is measured from after the fact: each build's
+    stages, what asked for it and the editor's own share as it arrives."""
+    with qtbot.waitSignal(run.builder.finished, timeout=120000):
+        assert run.rebuild_surface(why='asked')
+    qtbot.wait(10)
+    lines = logged(run)
+    assert any(r['kind'] == 'auto_rebuild' for r in lines), 'the rebuild mode was not written'
+    builds = [r for r in lines if r['kind'] == 'build']
+    assert len(builds) == 1
+    b = builds[0]
+    assert b['why'] == 'asked' and b['stale'] is False and b['asked'] == 1
+    assert b['cells'] and b['arcsec']
+    for stage in ('staging', 'extent', 'collect', 'clamp', 'classes', 'shade', 'rasters'):
+        assert stage in b['stages'], stage
+    assert sum(b['stages'].values()) <= b['seconds'] + 0.05
+    assert any(r['kind'] == 'build shown' for r in lines)

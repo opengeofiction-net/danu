@@ -143,7 +143,7 @@ def restore(win, data: dict) -> bool:
         if data.get('elevation') is not None:
             win.elevation.set(float(data['elevation']))
         if s.get('built') and win.settings.auto_rebuild:
-            win.rebuild_surface(ARCSEC)
+            win.rebuild_surface(ARCSEC, why='session')
         elif s.get('built'):
             win.surface_wanted = True
             win.statusBar().showMessage(

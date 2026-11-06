@@ -16,6 +16,10 @@ contour within the pick radius, the spot height - so the log says what the
 click meant without the squares. Each action by name, whether from a key, a
 menu or a button. And what came of them: each step done, undone or redone,
 with what it touched, and each message the tools put in the status line.
+And how the surface kept up: the rebuild mode, each build with its stages'
+times, what asked for it and whether it was already out of date, the
+editor's own time showing it, and each preview with its pieces, cells and
+time - so a session that felt slow can be measured after it, not re-run.
 
 Written a line at a time and flushed, so a crash leaves the log whole up to
 its last event. ``danu.ui.replay`` plays one back into a window.

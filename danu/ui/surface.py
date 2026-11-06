@@ -70,6 +70,34 @@ class Built:
     # worker - None when nobody asked, a failure's text when asking failed
     checks: list | None = None
     checks_failed: str | None = None
+    # where the time went, stage by stage in the order they ran, in seconds:
+    # the build's own stages here, and the builder adds what happened around
+    # it - the wait in the queue, the staging, the checks. For the usage log,
+    # which is where a slow session can be measured after the fact
+    timings: dict = field(default_factory=dict)
+
+
+class Stopwatch:
+    """Each stage's time, from the moment it is named to the next one.
+
+    Called with a stage's name as the stage starts - the shape build_dem's
+    ``stage`` argument already has - and ``stop()`` closes the last."""
+
+    def __init__(self):
+        self.timings: dict = {}
+        self._name: str | None = None
+        self._at = 0.0
+
+    def __call__(self, name: str) -> None:
+        now = time.perf_counter()
+        if self._name is not None:
+            self.timings[self._name] = self.timings.get(self._name, 0.0) + now - self._at
+        self._name, self._at = name, now
+
+    def stop(self) -> dict:
+        self('')
+        self._name = None
+        return self.timings
 
 
 @dataclass
@@ -109,15 +137,20 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     # the first pass is nearly all of the fill. Asking for it here is the
     # difference between an edit costing one fill and two - 95 s of the 208 s
     # at 1 arcsecond on a three by three set
-    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True)
+    watch = Stopwatch()
+    result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch)
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
+    watch('classes')
     classes = build.first_pass_classes(result.constraints, result.drawn_mask, params, work)
+    watch('shade')
     shaded = shade.shade_dem(result.dem, params, work, classes=classes)
+    watch('rasters')
     from .overlays import envelope_rings
     # the outline is a courtesy; its file missing is not a failed surface
     rings = envelope_rings(result.envelopes) if result.envelopes and result.envelopes.exists() else []
-    return Built(shaded, rings, rasters=_rasters(result, work, params), params=params)
+    rasters = _rasters(result, work, params)
+    return Built(shaded, rings, rasters=rasters, params=params, timings=watch.stop())
 
 
 def _rasters(result, work: Path, params: Params):
@@ -218,10 +251,12 @@ class _Job(QRunnable):
         if self.after is not None and isinstance(built, Built):
             # here, before the next build can start writing into the same
             # directory; a check that fails costs its list, not the surface
+            at = time.perf_counter()
             try:
                 built.checks = self.after(self.work)
             except Exception as e:  # noqa: BLE001
                 built.checks_failed = f'{type(e).__name__}: {e}'
+            built.timings['checks'] = time.perf_counter() - at
         try:
             self.signals.finished.emit(built)
         except RuntimeError:
@@ -278,6 +313,13 @@ class SurfaceBuilder(QObject):
         self._started = 0         # the serial the running build was started for
         self._started_at = 0.0    # and when, so its own elapsed time goes back with it
         self._wanted = None       # the newest request not yet started
+        # for the usage log: when the oldest request not yet started was made,
+        # how many requests it stands for and why the newest was made - and
+        # the same for the build that is running, taken as it starts
+        self._asked_at = 0.0
+        self._asked = 0
+        self._why = ''
+        self.running_info: dict = {}
         self._running = False
         self._signals = None
         self._job = None
@@ -298,14 +340,19 @@ class SurfaceBuilder(QObject):
     def busy(self) -> bool:
         return self._running
 
-    def request(self, ws: WorkingSet, params: Params, dirty=()) -> int:
+    def request(self, ws: WorkingSet, params: Params, dirty=(), why: str = '') -> int:
         """Ask for a surface, and get the serial the request was given.
 
         Always accepted. If a build is running this displaces any request
         already waiting behind it; the working set is read when the build
-        starts, so what gets built is the newest state either way.
+        starts, so what gets built is the newest state either way. ``why`` is
+        only told to the usage log.
         """
         self._serial += 1
+        if self._wanted is None:
+            self._asked_at, self._asked = time.monotonic(), 0
+        self._asked += 1
+        self._why = why
         self._wanted = (ws, params, tuple(dirty))
         if not self._running:
             self._start()
@@ -316,6 +363,8 @@ class SurfaceBuilder(QObject):
         self._wanted = None
         self._started = self._serial
         self._started_at = time.monotonic()
+        self.running_info = {'why': self._why, 'asked': self._asked,
+                             'waited': self._started_at - self._asked_at}
         # staged from memory on this thread: the worker must not read squares
         # the tools are editing
         from ..core.save import stage_zone
@@ -323,6 +372,7 @@ class SurfaceBuilder(QObject):
         try:
             here.mkdir(parents=True)
             zone_dir = stage_zone(ws.squares.values(), dirty, here / 'zone')
+            self.running_info['staging'] = time.monotonic() - self._started_at
         except OSError as e:
             # said, and not raised out of request: raised, it left every later
             # request failing the same way and the panel saying nothing (#196)
@@ -330,6 +380,7 @@ class SurfaceBuilder(QObject):
             self.failed.emit(f'the squares could not be put where the build reads them: {e}')
             return
         names = [sq.name for sq in ws.squares.values() if sq.present or sq.ways]
+        self.running_info['squares'] = len(names)
         self._building = here
         self._running = True
         sig = _Signals()
@@ -351,6 +402,8 @@ class SurfaceBuilder(QObject):
         self._running = False
         self._delivered = self._building
         stale = self._wanted is not None
+        if isinstance(getattr(built, 'timings', None), dict):
+            built.timings = {'staging': self.running_info.get('staging', 0.0), **built.timings}
         self.finished.emit(built, stale, time.monotonic() - self._started_at)
         self._forget_builds()
         self._next()
