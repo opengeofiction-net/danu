@@ -21,7 +21,7 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, Signal
-from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtGui import QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 from ..surface import fine, shade
@@ -357,8 +357,9 @@ class FineLayer(QGraphicsItem):
         return f.tiles(box) if box is not None else []
 
     def picture(self, rect: QRectF):
-        """The tiles over ``rect`` as one pixmap and the scene rect it covers,
-        or None when none of them is solved."""
+        """The tiles over ``rect`` as one pixmap, the scene rect it covers and
+        the solved tiles' area within it, or None when none of them is
+        solved."""
         f = self.driver.fine
         style_key = self._style_key()
         got = [(k, f.piece(k)) for k in self.tiles_in(rect)]
@@ -381,17 +382,37 @@ class FineLayer(QGraphicsItem):
         rows, cols = rgba.shape[:2]
         img = QImage(rgba.data, cols, rows, cols * 4, QImage.Format.Format_RGBA8888)
         left, top, right, bottom = whole.scene_rect
-        self._picture = (made_of, QPixmap.fromImage(img), QRectF(left, top, right - left, bottom - top))
+        area = QPainterPath()
+        for _, piece in got:
+            pl, pt, pr, pb = piece.scene_rect
+            area.addRect(QRectF(pl, pt, pr - pl, pb - pt))
+        self._picture = (made_of, QPixmap.fromImage(img), QRectF(left, top, right - left, bottom - top),
+                         area.simplified())
         return self._picture[1:]
 
+    def _draws(self) -> bool:
+        return not (self.driver.fine is None or self.surface.style.mode == 'difference' or
+                    self.surface.stretch is None and self.surface.style.mode not in ('hillshade', 'slope'))
+
+    def drawn_over(self, rect: QRectF) -> QPainterPath | None:
+        """Where this layer will draw over ``rect``: the solved tiles, in
+        scene coordinates - or None, drawing nothing. The surface leaves this
+        out of its own painting. Both take the surface's opacity, and painted
+        one over the other at 85% each the map beneath showed 2% through the
+        tiles and 15% round them: z15 looked a different, heavier surface from
+        z14."""
+        if not self.isVisible() or not self._draws():
+            return None
+        got = self.picture(rect)
+        return got[2] if got is not None else None
+
     def paint(self, painter: QPainter, option, widget=None):
-        if self.driver.fine is None or self.surface.style.mode == 'difference' or \
-                self.surface.stretch is None and self.surface.style.mode not in ('hillshade', 'slope'):
+        if not self._draws():
             return
         from .mapview import visible_rect
         got = self.picture(visible_rect(painter, option, self.boundingRect()))
         if got is None:
             return
-        pix, at = got
+        pix, at, _area = got
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.surface.smooth)
         painter.drawPixmap(at, pix, QRectF(pix.rect()))

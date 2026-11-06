@@ -198,7 +198,7 @@ def layer(qapp):
 def test_the_tiles_in_view_are_one_picture_with_each_on_its_own_cells(layer):
     from PySide6.QtCore import QRectF
 
-    pix, at = layer.picture(QRectF(0, 0, 1, 1))
+    pix, at, _area = layer.picture(QRectF(0, 0, 1, 1))
     assert (pix.width(), pix.height()) == (7, 5)
     img = pix.toImage()
     left, right = img.pixelColor(1, 2), img.pixelColor(5, 2)
@@ -462,3 +462,35 @@ def test_a_solve_in_flight_across_a_rebuild_is_dropped(monkeypatch):
     assert taken == [], 'an answer held on the build before was taken'
     held.pop(0).run()
     assert len(taken) == 1
+
+
+def test_the_surface_is_not_drawn_under_the_tiles_so_the_opacity_does_not_stack(layer):
+    """The tiles are the surface's child and take its opacity. Drawn over the
+    surface as well, the two stacked - at the panel's 85%, the map showed 2%
+    through the tiles against 15% round them, and z15 looked heavier than
+    z14. A black surface under the tiles, at 50% on white: under a tile only
+    the tile shows, at 50%."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+    from PySide6.QtWidgets import QGraphicsScene
+
+    surface = layer.surface
+    pix, at, _area = layer.picture(QRectF(0, 0, 1, 1))
+    tile = pix.toImage().pixelColor(1, 2)
+    black = QPixmap(4, 4)
+    black.fill(QColor(0, 0, 0))
+    surface._pixmap = black
+    surface._rect = at.adjusted(-at.width(), -at.height(), at.width(), at.height())
+    surface.prepareGeometryChange()
+    layer.setVisible(True)
+    surface.setOpacity(0.5)
+    scene = QGraphicsScene()
+    scene.addItem(surface)
+    img = QImage(70, 50, QImage.Format.Format_ARGB32)
+    img.fill(QColor(255, 255, 255))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 70, 50), at)
+    p.end()
+    got = img.pixelColor(15, 25)                 # inside the first tile
+    want = [(c + 255) / 2 for c in (tile.red(), tile.green(), tile.blue())]
+    assert all(abs(g - w) <= 2 for g, w in zip((got.red(), got.green(), got.blue()), want, strict=True)), (got.getRgb(), want)

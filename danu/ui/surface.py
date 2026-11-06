@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QRectF, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -1017,7 +1017,23 @@ class SurfaceLayer(QGraphicsItem):
         if self._pixmap is None:
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.smooth)
-        painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+        # not under the 1 arcsecond tiles: they are this layer's child and
+        # take its opacity, and drawn over this as well the two stacked -
+        # 98% opaque under the tiles at the panel's 85%
+        fine = getattr(self, 'fine', None)
+        over = None
+        if fine is not None:
+            from .mapview import visible_rect
+            over = fine.drawn_over(visible_rect(painter, option, self.boundingRect()))
+        if over is not None and not over.isEmpty():
+            whole = QPainterPath()
+            whole.addRect(self._rect)
+            painter.save()
+            painter.setClipPath(whole.subtracted(over), Qt.ClipOperation.IntersectClip)
+            painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
+            painter.restore()
+        else:
+            painter.drawPixmap(self._rect, self._pixmap, QRectF(self._pixmap.rect()))
         if self._preview:
             # A dashed edge around the surface. Cosmetic, so the width is in
             # device pixels and stays the same on screen at any zoom - a pen
