@@ -75,6 +75,9 @@ class Built:
     # it - the wait in the queue, the staging, the checks. For the usage log,
     # which is where a slow session can be measured after the fact
     timings: dict = field(default_factory=dict)
+    # and the request it answered, as the builder saw it start: why it was
+    # asked, how many requests it stands for, how long the oldest waited
+    request: dict = field(default_factory=dict)
 
 
 class Stopwatch:
@@ -402,8 +405,9 @@ class SurfaceBuilder(QObject):
         self._running = False
         self._delivered = self._building
         stale = self._wanted is not None
-        if isinstance(getattr(built, 'timings', None), dict):
+        if isinstance(built, Built):
             built.timings = {'staging': self.running_info.get('staging', 0.0), **built.timings}
+            built.request = dict(self.running_info)
         self.finished.emit(built, stale, time.monotonic() - self._started_at)
         self._forget_builds()
         self._next()

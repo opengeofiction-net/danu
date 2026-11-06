@@ -420,6 +420,6 @@ def test_a_build_says_what_asked_for_it_and_how_many_requests_it_stands_for(qtbo
     assert stale
     assert 'staging' in built.timings, 'the staging time was not handed back with the build'
     h.finish()
-    assert h.builder.running_info['asked'] == 3, 'the coalesced requests were not counted'
+    assert h.results[1][0].request['asked'] == 3, 'the coalesced requests were not counted'
     assert h.builder.running_info['why'] == 'idle'
     assert h.builder.running_info['waited'] >= 0.0

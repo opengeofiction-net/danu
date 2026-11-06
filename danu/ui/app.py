@@ -2894,21 +2894,21 @@ class MainWindow(QMainWindow):
     def _log_build(self, built, stale: bool, seconds: float) -> None:
         """Each build in the usage log: where its time went, what asked for it
         and whether it was already out of date - which is what tells a slow
-        build from a session spent rebuilding. The builder's ``running_info``
-        is still this build's: finished is emitted before the next starts."""
+        build from a session spent rebuilding."""
         if self.usage is None:
             return
         shaded = getattr(built, 'shaded', None)
         shape = getattr(getattr(shaded, 'dem', None), 'shape', None)
         params = getattr(built, 'params', None)
-        info = getattr(self.builder, 'running_info', {})
+        info = getattr(built, 'request', None) or {}
         self.usage.write('build', seconds=round(seconds, 3), stale=stale,
                          why=info.get('why', ''), asked=info.get('asked', 0),
                          waited=round(info.get('waited', 0.0), 3), squares=info.get('squares'),
                          arcsec=getattr(params, 'arcsec', None),
                          cells=int(shape[0]) * int(shape[1]) if shape else None,
                          stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},
-                         checks=getattr(built, 'checks', None) is not None)
+                         checks=getattr(built, 'checks', None) is not None,
+                         checks_failed=getattr(built, 'checks_failed', None))
 
     def _surface_failed(self, text: str):
         if self.usage is not None:
