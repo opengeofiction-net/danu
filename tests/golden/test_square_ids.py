@@ -138,6 +138,7 @@ def test_the_contour_layer_comes_with_the_build_loaded_on_its_worker(tmp_path):
     """Loading it as the build landed was most of the 3 s the editor stood
     still for with each of roantra's builds; build_surface runs on the
     worker, and hands it over loaded."""
+    pytest.importorskip('PySide6')
     from danu.core.square import SquareName, write_square
     from danu.surface import params as sp
     from danu.surface import preview
