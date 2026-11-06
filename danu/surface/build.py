@@ -327,10 +327,10 @@ def lake_rings(path: Path, name: SquareName | None = None) -> tuple[list, int]:
     multipolygon, and an imported one keeps none). And how many with a level
     were not held. The key, ``way/<id>`` or ``relation/<id>``, is what the
     preview keeps each by."""
-    from ..checks.inside import held
+    from ..checks.inside import held_of
     if not _holds_water(path):
         return [], 0
-    lakes, spanned = held(_parsed(path, name))
+    lakes, spanned = held_of(_read(path, name))
     return [(key, ele, rings) for key, (ele, rings) in lakes.items()], spanned
 
 
@@ -339,13 +339,13 @@ def backwards_coasts(path: Path, name: SquareName | None = None) -> list[str]:
     ``checks.inside.backwards_coasts`` - said, since the water from the
     coastline's direction reads what each holds as sea. Sangria's island
     built that way with everything below about 200 m at 0 m."""
-    from ..checks.inside import backwards_coasts as find
+    from ..checks.inside import backwards_of
     if not _holds(path, (b"'coastline'", b'"coastline"')):
         return []
-    return [f.text for f in find(_parsed(path, name))]
+    return [f.text for f in backwards_of(_read(path, name))]
 
 
-_last_parsed: tuple = (None, None)
+_last_parsed: tuple = (None, None, None)
 
 # What each square said the last times it was read - its way counts, its held
 # lakes, its backwards coasts - by its name and its file's contents. Those
@@ -397,8 +397,21 @@ def _parsed(path: Path, name: SquareName | None):
     st = path.stat()
     key = (str(path), st.st_size, st.st_mtime_ns, name)
     if _last_parsed[0] != key:
-        _last_parsed = (key, read_square(path, name))
+        _last_parsed = (key, read_square(path, name), None)
     return _last_parsed[1]
+
+
+def _read(path: Path, name: SquareName | None):
+    """``checks.inside``'s reading of the square - its contours by their
+    boxes, its bodies, its coasts - made once for the lakes and the coast
+    both, as the square is parsed once. Made twice, it was the side votes
+    twice: half of what an edited coastal square cost every build."""
+    global _last_parsed
+    from ..checks.inside import _Square
+    square = _parsed(path, name)
+    if _last_parsed[2] is None:
+        _last_parsed = (_last_parsed[0], square, _Square(square))
+    return _last_parsed[2]
 
 
 def _holds_water(path: Path) -> bool:
@@ -570,7 +583,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     # fids past each are that square's, written as ``square`` at the end
     starts: list[tuple[str, int, int]] = []
     global _last_parsed
-    _last_parsed = (None, None)              # nor one held from a build that stopped partway
+    _last_parsed = (None, None, None)            # nor one held from a build that stopped partway
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
                               # A square whose in-memory database exceeds
                               # OSM_MAX_TMPFILE_SIZE (100 MB) spills to disk.
@@ -702,7 +715,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         out.CreateFeature(f)
     out = None
     _name_squares(ds, starts)
-    _last_parsed = (None, None)              # not a square held past the read
+    _last_parsed = (None, None, None)            # not a square held past the read
     if lakes or spanned:
         log(f'  {len(lakes)} lakes held at their level'
             + (f'; {spanned} not, with contours at other levels inside them' if spanned else ''))

@@ -6810,3 +6810,20 @@ The fields are now looked up once a layer (`_indices`), which takes the load
 from 2.45 s to 0.8, and the load runs on the build's worker with the grids it
 already opens there: `Rasters.contours` carries the layer, or what stopped it.
 `build shown` is 0.27 s under the profiler, from 6.6.
+
+## The edited square read once, its coast votes in one pass
+
+What #332 left of collect's own reading is the square that was edited, read
+again every build: on roantra's N43E029 0.83 s to parse, then `held` 0.64 s
+and `backwards_coasts` 0.63 s - each building its own `inside._Square`, and
+each `_Square` working out every contour's votes on the open coast, which
+only the backwards coasts want. All of it Python, holding the GIL.
+
+The build now makes one `_Square` a square (`build._read`) and asks it both
+(`held_of`, `backwards_of`); a `_Square` works out the votes when they are
+first wanted; and `_Sides.votes_many` works every contour's vertices in one
+pass, grouped by cell, instead of a contour at a time. A cell's candidate
+segments are the cell's whoever's vertex is in it, so each vertex is judged
+exactly as before - the same votes on all 14 of roantra's coastal squares
+checked, in 2.16 s where they took 4.10. The edited square: 2.3 s to 1.2,
+0.83 of it the parse. The Validation panel's scan has the same votes.
