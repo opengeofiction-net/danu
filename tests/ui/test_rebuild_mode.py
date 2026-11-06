@@ -9,17 +9,17 @@ pytest.importorskip('PySide6')
 
 from danu.ui.settings import Settings
 
+from .conftest import menu
+
 
 def held(job) -> None:
     """A build started and never run."""
 
 
 def modes_menu(window):
-    bar = window.menuBar().actions()
-    surface = bar[[m.text() for m in bar].index('&Surface')].menu()
-    sub = [a for a in surface.actions() if a.menu() is not None and a.text() == 'Rebuil&d']
-    assert sub, 'no Surface › Rebuild menu'
-    return sub[0].menu()
+    # by the conftest helper, not QAction.menu(): PySide6 6.8 loses the menu
+    # with the action's wrapper
+    return menu(menu(window.menuBar(), 'Surface'), 'Rebuild')
 
 
 def test_it_is_auto_until_changed_and_the_choice_is_kept(window):
