@@ -53,6 +53,12 @@ from .trace import trace as _trace
 # view and held on this. The command line's --surface still builds at
 # another, for comparing, and the rebuilds after it keep to that
 ARCSEC = 3.0
+# what each rebuild mode does, for the menu and the panel alike
+REBUILD_TIPS = {
+    'auto': 'each edit previewed as it is made, and the surface rebuilt once the drawing stops',
+    'local': 'each edit previewed as it is made, the close view with it; the surface is rebuilt only when asked',
+    'manual': 'edits leave the surface as it is until it is rebuilt',
+}
 MODES = ('shaded relief', 'hillshade', 'relief', 'slope', 'difference')
 RAMPS = {'spectral': spectral, 'traditional': traditional}
 
@@ -1048,17 +1054,23 @@ class SurfacePanel(QDockWidget):
 
         self.button = QPushButton('Rebuild surface')
         self.button.clicked.connect(self.rebuild.emit)
-        # Surface › Rebuild automatically, beside the button (#239): the
-        # window keeps the two in step
-        self.auto = QCheckBox('auto')
-        self.auto.setChecked(True)
-        self.auto.setToolTip('each edit rebuilt as it is made; off, the surface waits for Rebuild surface')
-        rebuild = QWidget()
-        row = QHBoxLayout(rebuild)
+        form.addRow(self.button)
+        # Surface › Rebuild, under the button (#239): the window keeps the
+        # two in step
+        modes = QWidget()
+        row = QHBoxLayout(modes)
         row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.button, 1)
-        row.addWidget(self.auto)
-        form.addRow(rebuild)
+        self.rebuild_modes: dict[str, QRadioButton] = {}
+        self._rebuild_group = QButtonGroup(self)
+        for mode, tip in REBUILD_TIPS.items():
+            b = QRadioButton(mode)
+            b.setToolTip(tip)
+            self._rebuild_group.addButton(b)
+            self.rebuild_modes[mode] = b
+            row.addWidget(b)
+        self.rebuild_modes['auto'].setChecked(True)
+        row.addStretch(1)
+        form.addRow(modes)
 
         self.mode = QComboBox()
         self.mode.addItems(MODES)
@@ -1212,10 +1224,11 @@ class SurfacePanel(QDockWidget):
         if self.unreached is not None:
             self.reading.setText(self.unreached.summary())
 
-    def previewed(self, seconds: float):
+    def previewed(self, seconds: float, settles: str = 'exact on idle'):
         """A patch went in without a rebuild. Says so, and says it is not the
-        exact answer - which the dashed edge on the canvas also says."""
-        self.status.setText(f'preview, {seconds * 1000:.0f} ms - exact on idle')
+        exact answer - which the dashed edge on the canvas also says - and
+        how the exact one comes: on idle, or by asking."""
+        self.status.setText(f'preview, {seconds * 1000:.0f} ms - {settles}')
 
     def failed(self, text: str):
         self.button.setEnabled(True)

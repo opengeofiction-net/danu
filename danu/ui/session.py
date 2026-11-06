@@ -142,12 +142,14 @@ def restore(win, data: dict) -> bool:
             win.map.center_on_lonlat(float(v['lon']), float(v['lat']))
         if data.get('elevation') is not None:
             win.elevation.set(float(data['elevation']))
-        if s.get('built') and win.settings.auto_rebuild:
+        # local and manual alike wait: a whole build is what both leave to
+        # be asked for
+        if s.get('built') and win.settings.rebuild_mode == 'auto':
             win.rebuild_surface(ARCSEC, why='session')
         elif s.get('built'):
             win.surface_wanted = True
             win.statusBar().showMessage(
-                'automatic rebuilds are off: '
+                f'rebuilds are set to {win.settings.rebuild_mode}: '
                 f'{win.rebuild_action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)} '
                 'builds the surface')
     # after the window's own handler, which fits the view to the centre square
