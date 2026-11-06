@@ -6760,7 +6760,8 @@ until Ctrl+R. The reason went to the status line only.
 The ids are the editor's own. `IdAllocator` mints below the lowest id in the
 squares a working set has open, which keeps a set's new ids apart; two sets
 that share some squares and not others mint the same ids in the squares they
-do not share. Across roantra, 973 ids were in more than one square. Unique
+do not share. Across roantra, 973 ids were in more than one square; the
+604 were the contours among them inside that one working set. Unique
 within a square's file is all OSM asks of them, and nothing should ask more.
 
 So `collect` writes each contour's, spot height's and held lake's square, as
