@@ -6720,7 +6720,7 @@ time went to the status line and nowhere else. The log now has it. Each build
 is a `build` line: its total and each stage - the staging, the server's own
 stages from `build_dem`, the classes, the shading, the rasters and the
 surface checks - with what asked for it (`asked`, `idle`, `auto on`,
-`session`, `command line`), how many requests it stands for, how long the
+`session`, `command line`; empty from any caller that does not say), how many requests it stands for, how long the
 oldest of them waited, and whether it was already out of date when it
 finished. A `build shown` line follows with the editor's own time taking it
 in, on the UI thread. Each preview is a `preview` line: the edits and pieces,

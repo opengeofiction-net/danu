@@ -92,15 +92,18 @@ class Stopwatch:
         self._at = 0.0
 
     def __call__(self, name: str) -> None:
-        now = time.perf_counter()
-        if self._name is not None:
-            self.timings[self._name] = self.timings.get(self._name, 0.0) + now - self._at
-        self._name, self._at = name, now
+        self._close()
+        self._name, self._at = name, time.perf_counter()
 
     def stop(self) -> dict:
-        self('')
+        self._close()
         self._name = None
         return self.timings
+
+    def _close(self) -> None:
+        if self._name is not None:
+            spent = time.perf_counter() - self._at
+            self.timings[self._name] = self.timings.get(self._name, 0.0) + spent
 
 
 @dataclass
