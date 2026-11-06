@@ -6747,3 +6747,25 @@ The setting is `surface/rebuild_mode`. Where only the old
 `surface/auto_rebuild` is set, on reads as auto and off as manual. The usage
 log's `auto_rebuild` line, added in the section before, is `rebuild_mode` with
 the mode's name.
+
+## A contour's square and id together
+
+The first session measured with the build times in the usage log (#329) was
+roantra's 3x3 at N43E029, and it had no preview line in forty minutes. The
+preview had refused the set as each build landed: 604 contours there shared a
+way id with a contour in another square, and the contour layer kept them by id
+alone. In auto every edit waited for a 31 s rebuild; in local nothing moved
+until Ctrl+R. The reason went to the status line only.
+
+The ids are the editor's own. `IdAllocator` mints below the lowest id in the
+squares a working set has open, which keeps a set's new ids apart; two sets
+that share some squares and not others mint the same ids in the squares they
+do not share. Across roantra, 973 ids were in more than one square. Unique
+within a square's file is all OSM asks of them, and nothing should ask more.
+
+So `collect` writes each contour's, spot height's and held lake's square, as
+`square`, by the fid its square's append began after, and the preview keys
+each by square and id. A GeoPackage from before keys by id alone and is found
+that way still. On roantra the preview is live again: a node moved settles in
+34 ms. The usage log has a `preview unavailable` line with the reason, so a
+refused set shows there.

@@ -507,7 +507,7 @@ def test_placing_a_spot_height_previews_what_a_rebuild_would_burn(tmp_path):
 
     contours = preview.Contours(plain.contours_gpkg)
     assert contours.spots is not None and contours.spots.GetFeatureCount() == 0
-    contours.apply_spot(-1, LON, LAT, 240.0)
+    contours.apply_spot('N00E000', -1, LON, LAT, 240.0)
     box = box_round(cgt, LON, LAT)
     burned = contours.burn(cgt, box, NODATA)
     assert (burned == want[box.slice]).all(), (
@@ -532,8 +532,8 @@ def test_moving_a_spot_height_previews_where_it_went_and_where_it_was(tmp_path):
 
     contours = preview.Contours(here.contours_gpkg)
     assert contours.spots is not None and contours.spots.GetFeatureCount() == 1
-    nid = next(iter(contours._spot_fid))
-    contours.apply_spot(nid, *moved_to, 240.0)
+    sq, nid = next(iter(contours._spot_fid))
+    contours.apply_spot(sq, nid, *moved_to, 240.0)
     box = box_round(cgt, LON, LAT, half=60)
     burned = contours.burn(cgt, box, NODATA)
     assert (burned == want[box.slice]).all(), (
@@ -555,9 +555,9 @@ def test_removing_a_spot_height_previews_the_hill_without_it(tmp_path):
     del rebuilt
 
     contours = preview.Contours(spotted.contours_gpkg)
-    nid = next(iter(contours._spot_fid))
-    assert contours.remove_spot(nid) is True
-    assert contours.remove_spot(nid) is False, 'removing it twice should say it was already gone'
+    sq, nid = next(iter(contours._spot_fid))
+    assert contours.remove_spot(sq, nid) is True
+    assert contours.remove_spot(sq, nid) is False, 'removing it twice should say it was already gone'
     box = box_round(cgt, LON, LAT)
     burned = contours.burn(cgt, box, NODATA)
     assert (burned == want[box.slice]).all(), 'the spot height is still in the preview'

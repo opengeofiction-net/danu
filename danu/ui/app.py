@@ -2738,7 +2738,13 @@ class MainWindow(QMainWindow):
 
         adopt() runs after the panel has reported the build, and the panel's
         status label is its only build feedback - so writing there replaced
-        "surface built in N s" with the preview note on every 1″ build."""
+        "surface built in N s" with the preview note on every 1″ build.
+
+        And to the usage log: a whole session in roantra ran without a
+        preview, every edit waiting for a rebuild, and the only trace of why
+        was this line, gone at the next message."""
+        if self.usage is not None:
+            self.usage.write('preview unavailable', why=why)
         self.statusBar().showMessage(why)
 
     def _preview_on_fresh_ground(self, ways):

@@ -353,7 +353,7 @@ def test_an_edit_drops_the_tiles_it_reaches_and_keeps_the_rest(both, tmp_path):
     before = collections.OrderedDict(f._kept)
 
     # the edit, as the editor makes it
-    assert layer.remove(victim.id)
+    assert layer.remove(str(square.name), victim.id)
     patch, good = preview.patch(kept, box, coarse_params, removing=True)
     kept.surface.write(good, patch)
     win = good.grown(coarse_params.smooth_cells + 4, kept.shape)

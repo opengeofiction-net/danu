@@ -519,6 +519,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     first = True
     before = 0
     lakes, spanned, backwards = [], 0, []
+    # where each square's rows begin in the contour and spot layers: the
+    # fids past each are that square's, written as ``square`` at the end
+    starts: list[tuple[str, int, int]] = []
     global _last_parsed
     _last_parsed = (None, None)              # nor one held from a build that stopped partway
     with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
@@ -553,11 +556,12 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # expanded regardless, so the square is decompressed once a build
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name)
             held, n = lake_rings(source, name)
-            lakes += held
+            lakes += [(str(name), *lake) for lake in held]
             spanned += n
             backwards += [f'{name}: {text}' for text in backwards_coasts(source, name)]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
+            starts.append((str(name), top, _top_fid(gpkg, 'spot')))
             opts = dict(format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour')
             if first:
                 opts['geometryType'] = 'LINESTRING'
@@ -641,13 +645,16 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     out = ds.CreateLayer('lake', ds.GetLayer('contour').GetSpatialRef(), ogr.wkbPolygon)
     out.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
     out.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
-    for key, ele, rings in lakes:
+    out.CreateField(ogr.FieldDefn('square', ogr.OFTString))
+    for name, key, ele, rings in lakes:
         f = ogr.Feature(out.GetLayerDefn())
         f.SetGeometry(lake_polygon(rings))
         f.SetField('ele', float(ele))
         f.SetField('osm_id', key)
+        f.SetField('square', name)
         out.CreateFeature(f)
     out = None
+    _name_squares(ds, starts)
     _last_parsed = (None, None)              # not a square held past the read
     if lakes or spanned:
         log(f'  {len(lakes)} lakes held at their level'
@@ -696,6 +703,46 @@ def _last_line(gpkg: Path) -> int:
     """The highest fid in the contour layer, 0 where there is none yet: an
     append numbers on from it, so what one square brought is the rows past."""
     return _contour_sql(gpkg, 'SELECT COALESCE(MAX(fid), 0) FROM contour')
+
+
+def _top_fid(gpkg: Path, table: str) -> int:
+    """The highest fid in ``table``, 0 where the file or the layer is not
+    there yet."""
+    if not gpkg.exists():
+        return 0
+    ds = ogr.Open(str(gpkg))
+    if ds is None or ds.GetLayerByName(table) is None:
+        return 0
+    found = ds.ExecuteSQL(f'SELECT COALESCE(MAX(fid), 0) FROM {table}', dialect='SQLite')
+    n = found.GetNextFeature().GetField(0)
+    ds.ReleaseResultSet(found)
+    return int(n or 0)
+
+
+def _name_squares(ds, starts: list[tuple[str, int, int]]) -> None:
+    """Each contour and spot height's square, as ``square``.
+
+    A way id is unique within its square's file and no further: the editor
+    mints new ids below the lowest in the squares it has open, and two working
+    sets that share some squares and not others mint the same ones elsewhere.
+    roantra had 973 ids in more than one square, and the preview, keying each
+    contour by id alone, refused the whole set. The square and the id together
+    are unique. Each square's rows follow the fid its append began after, so
+    the column is written by range rather than carried through the translate.
+    """
+    for table, at in (('contour', 1), ('spot', 2)):
+        lyr = ds.GetLayerByName(table)
+        if lyr is None:
+            continue
+        if lyr.GetLayerDefn().GetFieldIndex('square') < 0:
+            lyr.CreateField(ogr.FieldDefn('square', ogr.OFTString))
+        lyr = None
+        for i, entry in enumerate(starts):
+            lo = entry[at]
+            hi = starts[i + 1][at] if i + 1 < len(starts) else None
+            name = entry[0].replace("'", "''")
+            where = f'fid > {int(lo)}' + (f' AND fid <= {int(hi)}' if hi is not None else '')
+            ds.ExecuteSQL(f"UPDATE {table} SET square = '{name}' WHERE {where}")
 
 
 def _numeric_lines(gpkg: Path, since: int) -> int:
