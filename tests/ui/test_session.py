@@ -95,7 +95,7 @@ def test_a_surface_built_is_built_again_at_3_arcseconds(make, zone, qtbot, monke
         data['surface']['built'] = built
         asked = []
         w2 = make()
-        monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None, asked=asked: asked.append(arcsec))
+        monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None, why='', asked=asked: asked.append(arcsec))
         with qtbot.waitSignal(w2.loader.finished, timeout=15000):
             assert session.restore(w2, data)
         assert asked == [3.0], (built, asked)
@@ -114,7 +114,7 @@ def test_with_automatic_rebuilds_off_a_surface_waits_for_ctrl_r(make, zone, qtbo
     w2 = make()
     w2.settings.auto_rebuild = False
     asked = []
-    monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None: asked.append(arcsec))
+    monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None, why='': asked.append(arcsec))
     with qtbot.waitSignal(w2.loader.finished, timeout=15000):
         assert session.restore(w2, data)
     assert asked == [], 'rebuilt with automatic rebuilds off'

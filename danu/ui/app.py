@@ -513,6 +513,9 @@ class MainWindow(QMainWindow):
         if self.usage is not None:
             self.editor.toolChanged.connect(lambda name: self.usage.write('tool', name=name))
             self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
+            # how the surface keeps up, as the run starts: each build and
+            # preview logged after this is read against it
+            self.usage.write('auto_rebuild', on=self.settings.auto_rebuild)
         # the status bar's three parts, a line between each: what was said,
         # whose ground and whether it is yours to upload, and the cursor's
         # reading. What was said keeps its last three for its tooltip
@@ -1359,7 +1362,7 @@ class MainWindow(QMainWindow):
         surface = self.menuBar().addMenu('&Surface')
         self.rebuild_action = QAction('&Rebuild surface', self)
         self.rebuild_action.setShortcut(QKeySequence(REBUILD_KEY))
-        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface())
+        self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(why='asked'))
         surface.addAction(self.rebuild_action)
         self.auto_rebuild_action = QAction('Rebuild &automatically', self)
         self.auto_rebuild_action.setCheckable(True)
@@ -1927,14 +1930,15 @@ class MainWindow(QMainWindow):
                 + ' - no longer drawn; saving keeps it')
 
     # ----------------------------------------------------------- surface
-    def rebuild_surface(self, arcsec: float | None = None) -> bool:
+    def rebuild_surface(self, arcsec: float | None = None, why: str = '') -> bool:
         """Build the working set's DEM on a worker - the same stages the
         server runs - and shade it. Slow and exact; the panel says how long.
 
         At 3 arcseconds, or at whatever the surface on screen was built at -
         which is 3 unless the command line's --surface asked for another, and
         then the rebuilds after it keep to that. ``arcsec`` overrides both:
-        the command line passes its own, and nothing else passes one."""
+        the command line passes its own, and nothing else passes one.
+        ``why`` is for the usage log: what asked for this build."""
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
@@ -1954,7 +1958,7 @@ class MainWindow(QMainWindow):
         # the edits so far are in this build; one made after it is asked for
         # puts the surface out of date again
         self._surface_out_of_date = self.surface_wanted = False
-        self.builder.request(self.working_set, p, self.editor.history.dirty_squares())
+        self.builder.request(self.working_set, p, self.editor.history.dirty_squares(), why=why)
         if queued:
             # the running build is already superseded; it finishes and is shown
             # as stale while this one runs
@@ -2743,6 +2747,8 @@ class MainWindow(QMainWindow):
         0 cells" and drawing the rim anyway would have the at-a-glance
         distinction R19 asks for saying the opposite of the truth.
         """
+        if self.usage is not None:
+            self.usage.write('preview skipped', edits=edits)
         self.statusBar().showMessage(
             f'{edits} separate edits - too many to preview together; '
             f'rebuilding exactly on idle')
@@ -2758,9 +2764,15 @@ class MainWindow(QMainWindow):
         preview worth 62 ms was spending a second and a half being shown.
         """
         painted = 0
+        at = time.perf_counter()
         for y0, x0, rows, cols in rects:
             if self.surface.recolour_box(y0, x0, rows, cols):
                 painted += rows * cols
+        if self.usage is not None:
+            stats = {k: round(v, 1) if isinstance(v, float) else v
+                     for k, v in getattr(self.preview, 'stats', {}).items()}
+            self.usage.write('preview', seconds=round(seconds, 3), painted=painted,
+                             recolour_ms=round((time.perf_counter() - at) * 1000, 1), **stats)
         # not unreached: its classes are the build's and a preview does not
         # bring them back, so recomposing it would only redraw the same stale
         # overlay. It is told it is stale instead - see classesStale
@@ -2786,12 +2798,14 @@ class MainWindow(QMainWindow):
         close view not solved again - until Ctrl+R. On again, what was edited
         meanwhile is rebuilt then."""
         self.settings.auto_rebuild = on
+        if self.usage is not None:
+            self.usage.write('auto_rebuild', on=on)
         if self.auto_rebuild_action.isChecked() != on:
             self.auto_rebuild_action.setChecked(on)
         if not on:
             self.preview.stop_waiting()
         elif self._surface_out_of_date and self._arcsec:
-            self.rebuild_surface(self._arcsec)
+            self.rebuild_surface(self._arcsec, why='auto on')
 
     def _rebuild_after_idle(self):
         """The drawing stopped, so settle the preview's approximations."""
@@ -2808,9 +2822,10 @@ class MainWindow(QMainWindow):
         # default: it is 3 arcseconds unless the command line asked for
         # another, and settling a --surface 1 surface at 3 would change its
         # resolution under the mapper
-        self.rebuild_surface(self._arcsec)
+        self.rebuild_surface(self._arcsec, why='idle')
 
     def _surface_built(self, built, stale=False, seconds=0.0):
+        self._log_build(built, stale, seconds)
         if self._surface_pending:
             self._surface_pending = False
             self._checks_due.start()
@@ -2821,7 +2836,12 @@ class MainWindow(QMainWindow):
             if built.checks_failed:
                 self.statusBar().showMessage(f"the surface's checks failed: {built.checks_failed}")
             self._checks_due.start()
+        at = time.perf_counter()
         self._surface_built_shown(built, stale, seconds)
+        if self.usage is not None:
+            # the editor's own share of a build: what it does on this thread
+            # as the surface arrives, while nothing else can happen
+            self.usage.write('build shown', ms=round((time.perf_counter() - at) * 1000, 1))
 
     def _surface_built_shown(self, built, stale=False, seconds=0.0):
         # seconds comes from the builder: once builds overlap, how long one
@@ -2871,7 +2891,28 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f'surface built in {seconds:.0f} s')
 
+    def _log_build(self, built, stale: bool, seconds: float) -> None:
+        """Each build in the usage log: where its time went, what asked for it
+        and whether it was already out of date - which is what tells a slow
+        build from a session spent rebuilding."""
+        if self.usage is None:
+            return
+        shaded = getattr(built, 'shaded', None)
+        shape = getattr(getattr(shaded, 'dem', None), 'shape', None)
+        params = getattr(built, 'params', None)
+        info = getattr(built, 'request', None) or {}
+        self.usage.write('build', seconds=round(seconds, 3), stale=stale,
+                         why=info.get('why', ''), asked=info.get('asked', 0),
+                         waited=round(info.get('waited', 0.0), 3), squares=info.get('squares'),
+                         arcsec=getattr(params, 'arcsec', None),
+                         cells=int(shape[0]) * int(shape[1]) if shape else None,
+                         stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},
+                         checks=getattr(built, 'checks', None) is not None,
+                         checks_failed=getattr(built, 'checks_failed', None))
+
     def _surface_failed(self, text: str):
+        if self.usage is not None:
+            self.usage.write('build failed', text=text.splitlines()[0] if text else '')
         # what it was asked for is still to build: off, turning automatic
         # rebuilds on again rebuilds it
         self._surface_out_of_date = bool(self._arcsec and self.editor.history.dirty_squares())
@@ -2947,7 +2988,7 @@ def main(argv: list[str] | None = None) -> int:
     # connected before the open is asked for; the signal is queued to the
     # event loop either way, but the order reads as it runs
     if args.surface is not None:
-        win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a))
+        win.loader.finished.connect(lambda _ws, a=args.surface: win.rebuild_surface(a, why='command line'))
     if args.zone_dir:
         win.open_working_set(args.zone_dir, SquareName.parse(args.square), args.size)
     elif last is not None and session.restore(win, last):

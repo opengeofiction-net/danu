@@ -56,7 +56,7 @@ def test_ctrl_r_brings_it_up_to_date_and_turning_it_on_rebuilds_what_was_edited(
     assert not window._surface_out_of_date
     window._edited_ways(sq, {1}, ())
     asked = []
-    window.rebuild_surface = lambda arcsec=None: asked.append(arcsec)
+    window.rebuild_surface = lambda arcsec=None, why='': asked.append(arcsec)
     window.auto_rebuild_action.setChecked(True)
     assert asked == [window._arcsec], 'on again, out of date: rebuilt'
     asked.clear()
