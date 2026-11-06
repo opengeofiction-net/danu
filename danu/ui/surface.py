@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSlider,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -1160,14 +1161,16 @@ class SurfacePanel(QDockWidget):
         form.addRow('Ramp', self.ramp)
         form.addRow('Scaling', self.scaling)
         form.addRow('Min / max', self._pair(self.lo, self.hi))
-        form.addRow('Pinch centre / width', self._pair(self.centre, self.width))
+        self.centre.setToolTip('Pinch centre: the height the ramp is pinched about')
+        self.width.setToolTip('Pinch width: how far either side of it the ramp runs')
+        form.addRow('Pinch', self._pair(self.centre, self.width))
         form.addRow('Opacity', self.opacity)
+        # one over the other: side by side they were the widest control
         styles = QWidget()
-        row = QHBoxLayout(styles)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.contours_dark)
-        row.addWidget(self.contours_height)
-        row.addStretch(1)
+        column = QVBoxLayout(styles)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(self.contours_dark)
+        column.addWidget(self.contours_height)
         form.addRow('Contours', styles)
         form.addRow(self.show_unreached)
         indented = QWidget()

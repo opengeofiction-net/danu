@@ -573,6 +573,7 @@ class MainWindow(QMainWindow):
         self.map.horizontalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.map.verticalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.resize(1100, 750)
+        self._narrow_docks()
         self.map.set_zoom(HOME[2])
         self.map.center_on_lonlat(HOME[0], HOME[1])
         self._cursor(HOME[0], HOME[1])
@@ -1509,6 +1510,7 @@ class MainWindow(QMainWindow):
         for name, a in self.keyed_actions().items():
             a.setShortcut(QKeySequence(s.key(name)))
         self.controls.retip()
+        self.selection_panel.retip(s.key)
         self.elevation_panel.show_keys(s)
         # both read first: setting the panel's small step writes its big one
         # back, as the panel had it
@@ -1546,6 +1548,15 @@ class MainWindow(QMainWindow):
     def reset_panels(self) -> None:
         """The panels back where a new window has them."""
         self.restore_layout(self._default_layout)
+        self._narrow_docks()
+
+    def _narrow_docks(self) -> None:
+        """Each side's panels as narrow as they go, the rest the map's: a
+        column was as wide as what its panels would like - the zones'
+        status line, a long message, asked for about 500 px. One panel a
+        side does it: Selected is under Elevation in the left column, and
+        Zones, Validation and Gone from upstream are tabs beside Surface."""
+        self.resizeDocks([self.elevation_panel, self.surface_panel], [1, 1], Qt.Orientation.Horizontal)
 
     def _fill_recent(self):
         self.recent_menu.clear()

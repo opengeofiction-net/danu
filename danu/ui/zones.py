@@ -49,7 +49,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -58,9 +57,11 @@ from ..core import dropclient, mirror
 from ..core import zones as Z
 from ..core.square import SquareName, label_of, list_squares
 from ..core.topo_style import SQUARE, SQUARE_BLANK, SQUARE_COASTLINE, ZONE, ZONE_INACTIVE
+from . import icons
 from . import mercator as m
 from . import topo_style as style
 from .background import Job
+from .icons import PaintedButton
 from .mapview import visible_rect
 from .squares import MARK_MIN_PX, NAME_MIN_PX, draw_mark, draw_name, redraw_names
 
@@ -363,22 +364,27 @@ class ZonesDock(QDockWidget):
         self.status = QLabel('')
         self.status.setWordWrap(True)
         box.addWidget(self.status)
-        self.reload = QPushButton('Reload')
-        self.import_ = QPushButton('Import')
-        self.import_.setToolTip('the zone chosen, its squares copied to this machine - as File › Import')
-        self.new = QPushButton('New zone…')
-        self.edit = QPushButton('Edit squares')
-        self.save = QPushButton('Save')
-        self.cancel = QPushButton('Cancel')
-        self.split = QPushButton('Split…')
-        self.split.setToolTip('some of the chosen zone\'s squares a new zone, their files moved with them')
-        self.inactive = QPushButton('Inactive…')
-        self.active = QPushButton('Active')
+        # drawn, what each does in its tooltip: named, in rows of four and
+        # five, they made the right column as wide as the five
+        self.reload = PaintedButton(icons.reload, 'Reload the zones from the server')
+        self.import_ = PaintedButton(icons.download, "Import - the zone chosen, its squares copied to "
+                                     'this machine - as File › Import')
+        self.new = PaintedButton(icons.new_zone, 'New zone…')
+        self.edit = PaintedButton(icons.edit_squares, "Edit squares - a click or a drag adds squares to "
+                                  'the zone, ctrl and a drag takes them away')
+        self.save = PaintedButton(icons.save, 'Save the zone')
+        self.cancel = PaintedButton(icons.cross, 'Cancel the edit')
+        self.split = PaintedButton(icons.split, "Split… - some of the chosen zone's squares a new zone, "
+                                   'their files moved with them')
+        self.inactive = PaintedButton(icons.pause, 'Inactive… - the zone kept off the tile servers')
+        self.active = PaintedButton(icons.play, 'Active - the zone on the tile servers again')
         row1, row2 = QHBoxLayout(), QHBoxLayout()
-        for b in (self.reload, self.import_, self.new, self.edit):
+        for b in (self.reload, self.import_, self.new, self.edit, self.split):
             row1.addWidget(b)
-        for b in (self.split, self.save, self.cancel, self.inactive, self.active):
+        row1.addStretch(1)
+        for b in (self.save, self.cancel, self.inactive, self.active):
             row2.addWidget(b)
+        row2.addStretch(1)
         box.addLayout(row1)
         box.addLayout(row2)
         self.setWidget(body)
