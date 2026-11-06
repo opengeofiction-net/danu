@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -50,7 +49,9 @@ from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
 from ..core.square import is_coastline, parse_ele
 from ..water.overpass import flows
+from . import icons
 from .contours import water_tags
+from .icons import PaintedButton
 from .widgets import copy, unit
 
 
@@ -407,9 +408,10 @@ class SelectionPanel(QDockWidget):
         # what a lasso picks (#201): everything, or nodes on contours at the
         # active elevation, or in a range - remembered
         self.pick = QComboBox()
-        for label, kind in (('All', 'all'), ('At the active elevation', 'active'), ('From - to', 'range')):
+        for label, kind in (('All', 'all'), ('Active', 'active'), ('From - to', 'range')):
             self.pick.addItem(label, kind)
-        self.pick.setToolTip('What dragging round nodes picks: everything, or only nodes on contours at a level')
+        self.pick.setToolTip('What dragging round nodes picks: everything, only nodes on contours at the '
+                                'active elevation, or at the levels from - to')
         self.pick_from, self.pick_to = QDoubleSpinBox(), QDoubleSpinBox()
         for box in (self.pick_from, self.pick_to):
             box.setRange(-500.0, 9000.0)
@@ -423,37 +425,36 @@ class SelectionPanel(QDockWidget):
         self.pick.setCurrentIndex(self.pick.findData(kind))
         self.pick_from.setValue(lo); self.pick_to.setValue(hi)
         form.addRow('Pick', self.pick)
-        form.addRow('', self.pick_range)
+        form.addRow(self.pick_range)
         self.pick.currentIndexChanged.connect(self._pick_changed)
         self.pick_from.valueChanged.connect(self._pick_changed)
         self.pick_to.valueChanged.connect(self._pick_changed)
         self._pick_changed()
-        # grading, for water - G6b: the action, findable without its key, and
-        # the proposal it makes, shown before it lands
-        self.grade_btn = QPushButton('Grade from the contours (G)')
-        self.grade_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # the actions on what is selected, findable without their keys - G6b:
+        # drawn, the key in the tooltip, in a row across the panel: as named
+        # buttons they set the left column's width
+        keys = self.settings.key if self.settings is not None else None
+        self.grade_btn = PaintedButton(icons.grade, 'Grade from the contours', 'edit.grade', keys)
         self.grade_btn.clicked.connect(editor.grade)
-        form.addRow('', self.grade_btn)
-        self.network_btn = QPushButton('Grade the river network (Shift+G)')
-        self.network_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.network_btn = PaintedButton(icons.network, 'Grade the river network', 'edit.grade_network', keys)
         self.network_btn.clicked.connect(editor.grade_network)
-        form.addRow('', self.network_btn)
         # a 0 m line made the coastline, or not, and a coastline turned round
-        self.coast_btn = QPushButton('Coastline (K)')
-        self.coast_btn.setCheckable(True)
-        self.coast_btn.setToolTip('A 0 m line that is the coast: land on the left of the way it runs, '
-                                  'sea on the right')
-        self.coast_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.coast_btn = PaintedButton(icons.coastline, 'Coastline - a 0 m line that is the coast: land on '
+                                       'the left of the way it runs, sea on the right',
+                                       'edit.mark_coastline', keys, checkable=True)
         self.coast_btn.clicked.connect(editor.mark_coastline)
-        form.addRow('', self.coast_btn)
-        self.reverse_btn = QPushButton('Reverse the coastline (R)')
-        self.reverse_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.reverse_btn = PaintedButton(icons.reverse, 'Reverse the coastline', 'edit.reverse_coastline', keys)
         self.reverse_btn.clicked.connect(lambda: editor.reverse_coastline())
-        form.addRow('', self.reverse_btn)
-        self.flatten_btn = QPushButton('Flatten the lake (F)')
-        self.flatten_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.flatten_btn = PaintedButton(icons.flatten, 'Flatten the lake', 'edit.flatten', keys)
         self.flatten_btn.clicked.connect(lambda: editor.flatten())
-        form.addRow('', self.flatten_btn)
+        self.action_btns = (self.grade_btn, self.network_btn, self.coast_btn, self.reverse_btn,
+                            self.flatten_btn)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        for b in self.action_btns:
+            actions.addWidget(b)
+        actions.addStretch(1)
+        form.addRow(actions)
         self.proposal_box = QWidget()
         box = QVBoxLayout(self.proposal_box)
         box.setContentsMargins(0, 6, 0, 0)
@@ -461,11 +462,11 @@ class SelectionPanel(QDockWidget):
         self.summary.setWordWrap(True)
         self.profile = ProfileView()
         buttons = QHBoxLayout()
-        self.accept_btn = QPushButton('Accept (Enter)')
-        self.drop_btn = QPushButton('Drop (Esc)')
+        self.accept_btn = PaintedButton(icons.tick, 'Accept (Enter)')
+        self.drop_btn = PaintedButton(icons.cross, 'Drop (Esc)')
         for b in (self.accept_btn, self.drop_btn):
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             buttons.addWidget(b)
+        buttons.addStretch(1)
         self.accept_btn.clicked.connect(editor.accept_proposal)
         self.drop_btn.clicked.connect(editor.cancel_proposal)
         # what the grade found, each a click from the map
@@ -487,6 +488,7 @@ class SelectionPanel(QDockWidget):
         row = QHBoxLayout(self.pull_back_row)
         row.setContentsMargins(0, 0, 0, 0)
         self.pull_back_label = QLabel('Draw back from the shore')
+        self.pull_back_label.setWordWrap(True)          # the longest is 'Push back from the line crossed'
         row.addWidget(self.pull_back_label)
         row.addWidget(unit(self.pull_back))
         box.addWidget(self.summary)
@@ -515,6 +517,11 @@ class SelectionPanel(QDockWidget):
         editor.selectionChanged.connect(self.refresh)
         editor.edited.connect(self.refresh)
         self.refresh()
+
+    def retip(self, keys) -> None:
+        """The actions' tooltips again, a key rebound in the preferences."""
+        for b in self.action_btns:
+            b.retip(keys)
 
     @property
     def server(self) -> str:

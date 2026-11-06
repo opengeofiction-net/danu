@@ -85,7 +85,7 @@ def test_the_opacity_slider_sets_the_surfaces_opacity(window):
 def test_the_contours_choice_is_under_the_opacity_slider(window):
     from PySide6.QtWidgets import QFormLayout
     p = window.surface_panel
-    form = p.widget().layout()
+    form = p.widget().widget().layout()            # the body, in its scroll area
     assert isinstance(form, QFormLayout)
     rows = [form.itemAt(r, QFormLayout.ItemRole.LabelRole) for r in range(form.rowCount())]
     labels = [it.widget().text() if it is not None and it.widget() is not None else '' for it in rows]

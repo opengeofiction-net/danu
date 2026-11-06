@@ -142,12 +142,12 @@ def test_a_height_the_main_map_gives_otherwise_is_listed_and_taken_with_a_button
     assert [r.text(0) for r in rows] == ['peak "Colonie Hill" - 698 m here, 286 m on the main map',
                                          'saddle 502 - 300 m here, 310 m on the main map',
                                          'peak 505 - 200 m here, 210 m on the main map']
-    assert not dock.take_btn.isEnabled() and dock.take_all_btn.text() == "Take the main map's for all 3"
+    assert not dock.take_btn.isEnabled() and dock.take_all_btn.text() == 'Take all 3'
     dock.tree.setCurrentItem(rows[0])
     assert w.editor.selection.node == 501 and "the button takes the main map's" in w.statusBar().currentMessage()
     dock.take_btn.click()
     assert sq.nodes[501].tags['ele'] == '286' and sq.nodes[502].tags['ele'] == '300'
-    assert rows[0].font(0).strikeOut() and dock.take_all_btn.text() == "Take the main map's for all 2"
+    assert rows[0].font(0).strikeOut() and dock.take_all_btn.text() == 'Take all 2'
     w.editor.undo()
     assert sq.nodes[501].tags['ele'] == '698' and not rows[0].font(0).strikeOut()
     dock.take_all_btn.click()

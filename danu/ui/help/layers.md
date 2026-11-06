@@ -37,7 +37,8 @@ go with the set. With the draw tool, Ctrl and a double-click stay the line's:
 Ctrl snaps it, a double-click ends it. Each zone's
 squares are drawn as the wiki's map draws them: **green** with contours,
 **orange** a coastline only, **grey** blank. An
-administrator edits them there: **New zone…**, and **Edit squares**, which
+administrator edits them there, with the buttons under the list - each
+named in its tooltip: **New zone…**, and **Edit squares**, which
 makes a click or a drag add squares to the zone and ctrl and a drag take
 them away, until **Save** - squares another zone holds show red, and are
 not taken; **Inactive…** and **Active** set whether it is

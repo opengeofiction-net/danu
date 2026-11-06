@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QByteArray, QEvent, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QTabBar,
 )
 
 from ..checks import crossings, files, inside, loops, spots, touches
@@ -40,7 +41,7 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, crash, desktop, josm, oauth, pending, session, theme, update, wms
+from . import about, config, crash, desktop, icons, josm, oauth, pending, session, theme, update, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -500,6 +501,12 @@ class MainWindow(QMainWindow):
         self.start.closed.connect(self.close_start)
         self.start.menuAnswered.connect(self._menu_answered)
         self._docked_only()
+        self._tab_icons()
+        # a tab made later - a panel shown, moved or tabbed - given its icon
+        # too: Qt 6.8, Debian's, makes it without, newer ones with
+        for dock in self.docks():
+            for sig in (dock.visibilityChanged, dock.dockLocationChanged, dock.topLevelChanged):
+                sig.connect(lambda *_: QTimer.singleShot(0, self._icons_on_tabs))
         self._default_layout = self.saveState()       # what Reset panels goes back to
         # the outlines and the map's clicks follow the panel's action, which
         # says so only as it changes: told how it starts
@@ -573,6 +580,7 @@ class MainWindow(QMainWindow):
         self.map.horizontalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.map.verticalScrollBar().valueChanged.connect(lambda _: self._view_settle.start())
         self.resize(1100, 750)
+        self._narrow_docks()
         self.map.set_zoom(HOME[2])
         self.map.center_on_lonlat(HOME[0], HOME[1])
         self._cursor(HOME[0], HOME[1])
@@ -1077,6 +1085,7 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
         if event.type() == QEvent.Type.PaletteChange and hasattr(self, 'controls'):
             self.controls.recolour()                     # see MapControls.recolour
+            self._tab_icons()
 
     def closeEvent(self, event):
         self.wait_for_writes()
@@ -1509,6 +1518,7 @@ class MainWindow(QMainWindow):
         for name, a in self.keyed_actions().items():
             a.setShortcut(QKeySequence(s.key(name)))
         self.controls.retip()
+        self.selection_panel.retip(s.key)
         self.elevation_panel.show_keys(s)
         # both read first: setting the panel's small step writes its big one
         # back, as the panel had it
@@ -1524,6 +1534,41 @@ class MainWindow(QMainWindow):
         self.published.url = s.url('published/dem')
 
     # ------------------------------------------------------------ panels
+    TAB_ICONS = {'surface': icons.surface, 'gone': icons.gone, 'checks': icons.validation,
+                 'elevation': icons.elevation, 'profile': icons.profile, 'selected': icons.selected,
+                 'zones': icons.zones}
+
+    def _tab_icons(self) -> None:
+        """Each panel's icon, which its tab shows in place of its name -
+        see ``icons.IconTabs`` - drawn in the palette's text colour."""
+        colour = self.palette().color(QPalette.ColorRole.WindowText)
+        for dock in self.docks():
+            dock.setWindowIcon(icons.icon(self.TAB_ICONS[dock.objectName()], colour))
+        self._icons_on_tabs()
+
+    def _icons_on_tabs(self) -> None:
+        """Each tab bar drawn as icons (``icons.IconTabs``), and each tab
+        its panel's icon. Qt makes a tab bar as panels are tabbed, and takes
+        a panel's icon, if at all, only as it makes a tab: a panel shown,
+        moved or tabbed calls this. Not an ``event`` override, which would
+        see every event the window has: Python for each, and the GIL taken
+        from a worker for each - a test run on Windows went from 4 minutes
+        to past its 40."""
+        named = {dock.windowTitle(): dock.windowIcon() for dock in self.docks()}
+        for bar in self.findChildren(QTabBar):
+            if not isinstance(bar.style(), icons.IconTabs):
+                bar.setStyle(self._tab_style)
+            for i in range(bar.count()):
+                icon = named.get(bar.tabText(i))
+                if icon is not None and bar.tabIcon(i).cacheKey() != icon.cacheKey():
+                    bar.setTabIcon(i, icon)
+
+    @property
+    def _tab_style(self) -> icons.IconTabs:
+        if getattr(self, '_tab_style_', None) is None:
+            self._tab_style_ = icons.IconTabs()
+        return self._tab_style_
+
     def docks(self) -> list[QDockWidget]:
         """The panels, in the order the View menu lists them."""
         return [self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,
@@ -1541,11 +1586,21 @@ class MainWindow(QMainWindow):
         """The panels as ``state`` had them - docked, whatever it says."""
         ok = self.restoreState(state)
         self._docked_only()
+        self._icons_on_tabs()
         return ok
 
     def reset_panels(self) -> None:
         """The panels back where a new window has them."""
         self.restore_layout(self._default_layout)
+        self._narrow_docks()
+
+    def _narrow_docks(self) -> None:
+        """Each side's panels as narrow as they go, the rest the map's: a
+        column was as wide as what its panels would like - the zones'
+        status line, a long message, asked for about 500 px. One panel a
+        side does it: Selected is under Elevation in the left column, and
+        Zones, Validation and Gone from upstream are tabs beside Surface."""
+        self.resizeDocks([self.elevation_panel, self.surface_panel], [1, 1], Qt.Orientation.Horizontal)
 
     def _fill_recent(self):
         self.recent_menu.clear()
