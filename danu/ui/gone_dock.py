@@ -67,16 +67,23 @@ class GoneDock(QDockWidget):
         self.empty = QLabel()
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setWordWrap(True)
-        self.take_btn = QPushButton("Take the main map's height")
-        self.take_btn.setToolTip("the row chosen: the square's height replaced by the main map's")
+        # short names, two rows: "Take the main map's height" and "... for
+        # all 3" beside JOSM made the panel 450 px wide, and opening it
+        # pushed the window past the screen's edge
+        self.take_btn = QPushButton('Take height')
+        self.take_btn.setToolTip("Take the main map's height: the row chosen, the square's height "
+                                 "replaced by the main map's")
         self.take_all_btn = QPushButton()
-        self.take_all_btn.setToolTip("every row listed: the squares' heights replaced by the main map's")
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.take_btn)
-        buttons.addWidget(self.take_all_btn)
+        self.take_all_btn.setToolTip("Take the main map's height for every row listed: the squares' "
+                                     "heights replaced by the main map's")
+        takes = QHBoxLayout()
+        takes.addWidget(self.take_btn)
+        takes.addWidget(self.take_all_btn)
         self.josm_btn = QPushButton('Show in JOSM')
         self.josm_btn.setToolTip('the row chosen, shown and selected in JOSM by its remote control,\n'
                                  'to fix on the main map - J')
+        buttons = QVBoxLayout()
+        buttons.addLayout(takes)
         buttons.addWidget(self.josm_btn)
         self.listed = QWidget()
         box = QVBoxLayout(self.listed)
@@ -164,7 +171,7 @@ class GoneDock(QDockWidget):
         self.take_btn.setVisible(bool(self.differs))
         self.take_all_btn.setVisible(bool(self.differs))
         self.take_btn.setEnabled(self.current_differs() is not None)
-        self.take_all_btn.setText(f"Take the main map's for all {left}")
+        self.take_all_btn.setText(f'Take all {left}')
         self.take_all_btn.setEnabled(left > 0)
 
     def _item(self, g: Gone, under: QTreeWidgetItem | None = None) -> QTreeWidgetItem:

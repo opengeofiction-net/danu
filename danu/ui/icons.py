@@ -17,12 +17,17 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
-from PySide6.QtWidgets import QToolButton
+from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleOptionTab, QTabBar, QToolButton
 
-from .mapcontrols import ICON, _icon, _split
+from .mapcontrols import ICON, _icon, _pointer, _split
 from .settings import DEFAULT_KEYS
 
 Paint = Callable[[QPainter, QColor], None]
+
+
+def icon(paint: Paint, colour: QColor):
+    """``paint`` as an icon, in ``colour``."""
+    return _icon(paint, colour)
 
 
 class PaintedButton(QToolButton):
@@ -206,3 +211,107 @@ def play(p: QPainter, colour: QColor):
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(colour)
     p.drawPolygon([QPointF(5.0, 3.0), QPointF(15.0, 9.0), QPointF(5.0, 15.0)])
+
+
+# ------------------------------------------------------------ the panels' tabs
+def elevation(p: QPainter, colour: QColor):
+    """The ladder: a rule and its rungs, the active one long."""
+    _pen(p, colour, 1.4)
+    p.drawLine(QPointF(5.0, 1.5), QPointF(5.0, 16.5))
+    for y in (3.0, 6.5, 13.5):
+        p.drawLine(QPointF(5.0, y), QPointF(9.0, y))
+    _pen(p, colour, 2.2)
+    p.drawLine(QPointF(5.0, 10.0), QPointF(15.5, 10.0))
+
+
+def selected(p: QPainter, colour: QColor):
+    """What is picked: the map's select arrow."""
+    _pointer(p, colour)
+
+
+def surface(p: QPainter, colour: QColor):
+    """A hill, shaded on one side."""
+    hill = QPainterPath(QPointF(1.0, 15.5))
+    hill.lineTo(QPointF(7.0, 4.0))
+    hill.lineTo(QPointF(10.5, 9.5))
+    hill.lineTo(QPointF(12.5, 7.0))
+    hill.lineTo(QPointF(17.0, 15.5))
+    hill.closeSubpath()
+    shade = QPainterPath(QPointF(7.0, 4.0))
+    shade.lineTo(QPointF(10.5, 9.5))
+    shade.lineTo(QPointF(12.5, 7.0))
+    shade.lineTo(QPointF(17.0, 15.5))
+    shade.lineTo(QPointF(8.5, 15.5))
+    shade.closeSubpath()
+    fill = QColor(colour)
+    fill.setAlphaF(0.45)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(fill)
+    p.drawPath(shade)
+    _pen(p, colour, 1.4)
+    p.drawPath(hill)
+
+
+def gone(p: QPainter, colour: QColor):
+    """Gone from upstream: a lake's outline left dotted, struck through."""
+    pen = QPen(colour, 1.5, Qt.PenStyle.DotLine)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(QRectF(1.5, 4.0, 15.0, 10.0))
+    _pen(p, colour, 1.8)
+    p.drawLine(QPointF(3.0, 16.0), QPointF(15.0, 2.0))
+
+
+def validation(p: QPainter, colour: QColor):
+    """A list checked off."""
+    _pen(p, colour, 1.6)
+    for y in (4.0, 9.0, 14.0):
+        p.drawLine(QPointF(8.5, y), QPointF(16.5, y))
+    _pen(p, colour, 1.5)
+    for y in (4.0, 9.0):
+        p.drawPolyline([QPointF(1.5, y), QPointF(3.2, y + 1.7), QPointF(6.0, y - 2.0)])
+    p.drawEllipse(QPointF(3.6, 14.0), 1.6, 1.6)
+
+
+def zones(p: QPainter, colour: QColor):
+    """A zone: squares inside a dashed outline."""
+    pen = QPen(colour, 1.2, Qt.PenStyle.DashLine)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRect(QRectF(1.5, 1.5, 15.0, 15.0))
+    _pen(p, colour, 1.0)
+    for x, y in ((4.5, 4.5), (9.0, 4.5), (4.5, 9.0)):
+        p.drawRect(QRectF(x, y, 4.5, 4.5))
+
+
+def profile(p: QPainter, colour: QColor):
+    """The ground along a line, over its axis."""
+    _pen(p, colour, 1.0)
+    p.drawPolyline([QPointF(1.5, 1.5), QPointF(1.5, 16.5), QPointF(16.5, 16.5)])
+    _pen(p, colour, 1.6)
+    p.drawPolyline([QPointF(3.5, 13.0), QPointF(7.0, 6.0), QPointF(10.0, 10.0), QPointF(13.0, 4.0),
+                    QPointF(16.0, 9.0)])
+
+
+class IconTabs(QProxyStyle):
+    """The panels' tabs drawn as their icons: named, four of them ran out of
+    room, each an "Su..." or a "Va...". The name is still the tab's text -
+    the tooltip Qt gives it, and what it is found by - only not drawn, nor
+    made room for."""
+
+    def drawControl(self, element, option, painter, widget=None):
+        if element == QStyle.ControlElement.CE_TabBarTabLabel and isinstance(option, QStyleOptionTab) \
+                and not option.icon.isNull():
+            option = QStyleOptionTab(option)
+            option.text = ''
+        super().drawControl(element, option, painter, widget)
+
+    def sizeFromContents(self, kind, option, size, widget=None):
+        if kind == QStyle.ContentsType.CT_TabBarTab and isinstance(option, QStyleOptionTab) \
+                and not option.icon.isNull() and option.text and isinstance(widget, QTabBar):
+            # QTabBar measured the text into the size, and 4 px between it
+            # and the icon
+            text = widget.fontMetrics().size(Qt.TextFlag.TextShowMnemonic, option.text).width()
+            size = QSize(max(size.width() - text - 4, option.iconSize.width()), size.height())
+        return super().sizeFromContents(kind, option, size, widget)

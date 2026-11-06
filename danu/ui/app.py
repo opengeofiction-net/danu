@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QByteArray, QEvent, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QTabBar,
 )
 
 from ..checks import crossings, files, inside, loops, spots, touches
@@ -40,7 +41,7 @@ from ..surface import along, shade
 from ..surface import difference as surface_difference
 from ..water import coast, flatten, overpass, peaks
 from ..water.gone import gone
-from . import about, config, crash, desktop, josm, oauth, pending, session, theme, update, wms
+from . import about, config, crash, desktop, icons, josm, oauth, pending, session, theme, update, wms
 from . import autosave as autosave_ui
 from . import help as help_ui
 from . import mercator as m
@@ -500,6 +501,7 @@ class MainWindow(QMainWindow):
         self.start.closed.connect(self.close_start)
         self.start.menuAnswered.connect(self._menu_answered)
         self._docked_only()
+        self._tab_icons()
         self._default_layout = self.saveState()       # what Reset panels goes back to
         # the outlines and the map's clicks follow the panel's action, which
         # says so only as it changes: told how it starts
@@ -1078,6 +1080,7 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
         if event.type() == QEvent.Type.PaletteChange and hasattr(self, 'controls'):
             self.controls.recolour()                     # see MapControls.recolour
+            self._tab_icons()
 
     def closeEvent(self, event):
         self.wait_for_writes()
@@ -1526,6 +1529,40 @@ class MainWindow(QMainWindow):
         self.published.url = s.url('published/dem')
 
     # ------------------------------------------------------------ panels
+    TAB_ICONS = {'surface': icons.surface, 'gone': icons.gone, 'checks': icons.validation,
+                 'elevation': icons.elevation, 'profile': icons.profile, 'selected': icons.selected,
+                 'zones': icons.zones}
+
+    def _tab_icons(self) -> None:
+        """Each panel's icon, which its tab shows in place of its name -
+        see ``icons.IconTabs`` - drawn in the palette's text colour."""
+        colour = self.palette().color(QPalette.ColorRole.WindowText)
+        named = {}
+        for dock in self.docks():
+            dock.setWindowIcon(icons.icon(self.TAB_ICONS[dock.objectName()], colour))
+            named[dock.windowTitle()] = dock.windowIcon()
+        # Qt takes a panel's icon as it makes its tab, not after: the tabs
+        # there already are given theirs
+        for bar in self.findChildren(QTabBar):
+            for i in range(bar.count()):
+                if bar.tabText(i) in named:
+                    bar.setTabIcon(i, named[bar.tabText(i)])
+
+    def event(self, event):
+        # the tab bars Qt makes for tabbed panels, as each is made: drawn as
+        # icons. Polished once made, and again as the style is set
+        if event.type() == QEvent.Type.ChildPolished:
+            bar = event.child()
+            if isinstance(bar, QTabBar) and not isinstance(bar.style(), icons.IconTabs):
+                bar.setStyle(self._tab_style)
+        return super().event(event)
+
+    @property
+    def _tab_style(self) -> icons.IconTabs:
+        if getattr(self, '_tab_style_', None) is None:
+            self._tab_style_ = icons.IconTabs()
+        return self._tab_style_
+
     def docks(self) -> list[QDockWidget]:
         """The panels, in the order the View menu lists them."""
         return [self.surface_panel, self.gone_dock, self.checks_dock, self.elevation_panel,

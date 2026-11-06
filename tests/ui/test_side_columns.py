@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip('PySide6')
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QPushButton, QWidget
+from PySide6.QtWidgets import QPushButton, QTabBar, QWidget
 
 from danu.ui.icons import PaintedButton
 
@@ -56,3 +56,36 @@ def test_reset_panels_narrows_the_columns_again(window, qtbot):
     qtbot.waitUntil(lambda: w.map.viewport().width() < narrow - 100, timeout=2000)
     w.reset_panels()
     qtbot.waitUntil(lambda: w.map.viewport().width() >= narrow - 2, timeout=2000)
+
+
+def test_the_tabs_are_the_panels_icons_their_names_the_tooltips(window, qtbot):
+    w = window
+    w.gone_dock.show()
+    w.checks_dock.show()
+    qtbot.wait(50)
+    bars = [b for b in w.findChildren(QTabBar) if b.isVisible()]
+    assert bars
+    for bar in bars:
+        for i in range(bar.count()):
+            assert not bar.tabIcon(i).isNull() and bar.tabToolTip(i) == bar.tabText(i)
+        # no room made for a name: "Gone from upstream" as wide as "Zones"
+        assert len({bar.tabRect(i).width() for i in range(bar.count())}) == 1
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason="offscreen text there lays out about twice as wide")
+def test_gone_from_upstream_with_its_buttons_is_as_narrow_as_the_rest(window):
+    g = window.gone_dock
+    g.stack.setCurrentWidget(g.listed)
+    for b in (g.take_btn, g.take_all_btn):
+        b.setVisible(True)
+    g.take_all_btn.setText('Take all 128')
+    assert g.minimumSizeHint().width() <= 220
+
+
+def test_a_short_column_scrolls_the_surface_panel_its_status_line_whole(window, qtbot):
+    w = window
+    st = w.surface_panel.status
+    st.setText('no surface built for this set yet, and a second line of it to wrap onto')
+    w.resize(QWidget.width(w), 520)
+    qtbot.waitUntil(lambda: QWidget.height(w) <= 540, timeout=2000)
+    qtbot.waitUntil(lambda: st.height() >= st.heightForWidth(st.width()), timeout=2000)

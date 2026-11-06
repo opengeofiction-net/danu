@@ -32,11 +32,13 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGraphicsItem,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -1187,7 +1189,16 @@ class SurfacePanel(QDockWidget):
         self.josm_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.josm_btn.setToolTip('The surface served to JOSM, and added there as a layer')
         form.addRow(self.josm_btn)
-        self.setWidget(body)
+        # a column too short for the panel scrolls it, as the Selected
+        # panel's does: squeezed, the rows gave up their height, and the
+        # status line wrapped to two lines had room for one
+        scroll = QScrollArea()
+        scroll.setWidget(body)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumWidth(body.minimumSizeHint().width() + scroll.verticalScrollBar().sizeHint().width())
+        self.setWidget(scroll)
         if self.unreached is not None:
             self.show_unreached.toggled.connect(self.unreached.setVisible)
             self.show_one_level.toggled.connect(self.unreached.set_one_level)
