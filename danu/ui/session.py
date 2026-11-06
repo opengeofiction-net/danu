@@ -149,7 +149,7 @@ def restore(win, data: dict) -> bool:
         elif s.get('built'):
             win.surface_wanted = True
             win.statusBar().showMessage(
-                f'{win.settings.rebuild_mode} rebuilds: '
+                f'rebuilds are set to {win.settings.rebuild_mode}: '
                 f'{win.rebuild_action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)} '
                 'builds the surface')
     # after the window's own handler, which fits the view to the centre square

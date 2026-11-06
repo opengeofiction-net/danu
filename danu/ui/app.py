@@ -2847,7 +2847,8 @@ class MainWindow(QMainWindow):
 
     def _rebuild_after_idle(self):
         """The drawing stopped, so settle the preview's approximations - in
-        auto. Local leaves that to Ctrl+R."""
+        auto. Local leaves that to Ctrl+R: the preview still waits for the
+        drawing to stop, as it is the same driver, and its asking ends here."""
         if self.settings.rebuild_mode != 'auto':
             return
         if self.working_set is None or not self.editor.history.dirty_squares():
