@@ -198,6 +198,9 @@ def test_without_a_data_directory_nothing_is_logged(window):
 def test_a_build_is_written_with_where_its_time_went(run, qtbot):
     """What the surface's speed is measured from after the fact: each build's
     stages, what asked for it and the editor's own share as it arrives."""
+    # a real build: without GDAL it fails, and the failure's message box
+    # waits for a click the ui job never gives
+    pytest.importorskip('osgeo.ogr', reason='building is GDAL\'s')
     with qtbot.waitSignal(run.builder.finished, timeout=120000):
         assert run.rebuild_surface(why='asked')
     qtbot.wait(10)
