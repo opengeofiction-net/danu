@@ -1,3 +1,31 @@
+danu (1.5.0-1) unstable; urgency=medium
+
+  * Fit contours to the coast (Shift+K): an island's low contours are laid
+    inside its coastline, and the mainland's in a lasso (#321, #323).
+  * Fit contours to a valley (Shift+E): the lines in a lasso are laid again
+    off a floor the river's profile sets, thinned, with a level limit
+    (#324, #325).
+  * Rivers: B burns Validation's climbing rivers; the burn sets contours
+    back by a count of contours and narrows where they cross; rivers are
+    graded down to the sea, lakes and confluences, however long the span
+    (#326, #327, #328).
+  * Surface › Rebuild is three ways: auto as before, local - each edit
+    previewed, the whole rebuild left to Ctrl+R - and manual (#330).
+  * The live preview works on sets whose squares share way ids, which
+    turned it off on whole sets and left every edit waiting for a rebuild
+    (#331).
+  * Faster surfaces: a build with one square edited is about 11 s on a
+    3x3 that took 31 (#332, #335, #336, #338); drawing beside a build no
+    longer stalls on the squares being read again; the editor no longer
+    stands still for seconds as each build lands (#334).
+  * At z15 and closer the surface is drawn at the panel's opacity, not
+    darker under the 1" tiles (#333).
+  * The map redraws only what an edit changed, once (#318, #319).
+  * The usage log has each build's and preview's times, and why a preview
+    was unavailable (#329).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Fri, 06 Nov 2026 17:57:07 +0000
+
 danu (1.4.2-1) unstable; urgency=medium
 
   * Opening a set tidies its contours: nodes at one place merged, spikes
