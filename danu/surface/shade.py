@@ -43,6 +43,11 @@ MERC = '+proj=merc +ellps=sphere +R=6378137 +a=6378137 +units=m'
 R = 6378137.0
 HALF = math.pi * R
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
+# the editor's: tiled as the shell's, not compressed. Its shading is read back
+# as arrays and its files then go, and writing them compressed was half of
+# shading roantra's 3x3 - 2.3 s, 1.1 without. Tiled still: striped, the warp
+# comes out different in the last place.
+SCRATCH = ['TILED=YES']
 # gdaldem writes 0 for nodata and never for a lit or shadowed cell: full shadow
 # comes out as 1. Measured on a 3 km west-facing wall under the default light,
 # 199 cells in complete shadow, every one of them 1. So transparent-where-zero
@@ -50,7 +55,7 @@ CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
 HILLSHADE_NODATA = 0
 
 
-def smooth(dem: Path, params: Params, work: Path) -> Path:
+def smooth(dem: Path, params: Params, work: Path, create: list = CREATE) -> Path:
     """A box filter over the DEM, for the hillshade only: a hillshade is a
     derivative, and the cell-scale steps the fill leaves would render as
     terracing. Done as the shell does it, through a VRT with a normalised
@@ -68,7 +73,7 @@ def smooth(dem: Path, params: Params, work: Path) -> Path:
                 .replace('</SimpleSource>', kernel + '</KernelFilteredSource>'))
     vrt.write_text(text)
     gdal.Translate(str(out), str(vrt), options=gdal.TranslateOptions(
-        outputType=gdal.GDT_Float32, creationOptions=CREATE))
+        outputType=gdal.GDT_Float32, creationOptions=create))
     return out
 
 
@@ -78,23 +83,24 @@ def fine_metres(params: Params) -> int:
     return round(params.arcsec * 30.87)
 
 
-def warp_mercator(src: Path, metres: float, out: Path, resample: str = 'bilinear') -> Path:
+def warp_mercator(src: Path, metres: float, out: Path, resample: str = 'bilinear',
+                  create: list = CREATE) -> Path:
     """The raster in spherical Mercator at a cell size in metres, bilinear -
     or nearest, for a raster of classes, which must not be averaged.
     shell: gdalwarp -q -overwrite -t_srs "${MERC}" -r bilinear -tr ${m} ${m} -co TILED=YES -co COMPRESS=DEFLATE -co BIGTIFF=IF_SAFER src out"""
     gdal = _gdal()
     gdal.Warp(str(out), str(src), options=gdal.WarpOptions(
         dstSRS=MERC, resampleAlg=resample, xRes=metres, yRes=metres,
-        creationOptions=CREATE + ['BIGTIFF=IF_SAFER']))
+        creationOptions=create + ['BIGTIFF=IF_SAFER']))
     return out
 
 
-def hillshade(src: Path, zfactor: float, out: Path) -> Path:
+def hillshade(src: Path, zfactor: float, out: Path, create: list = CREATE) -> Path:
     """gdaldem's hillshade of a Mercator raster, edges computed.
     shell: gdaldem hillshade -q -z ${zfactor} -compute_edges -co TILED=YES -co COMPRESS=DEFLATE src out"""
     gdal = _gdal()
     gdal.DEMProcessing(str(out), str(src), 'hillshade', options=gdal.DEMProcessingOptions(
-        zFactor=zfactor, computeEdges=True, creationOptions=CREATE))
+        zFactor=zfactor, computeEdges=True, creationOptions=create))
     return out
 
 
@@ -137,12 +143,12 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
     gdal = _gdal()
     work = Path(work)
     metres = fine_metres(params)
-    sm = smooth(Path(dem), params, work)
-    merc_fine = warp_mercator(sm, metres, work / 'merc-fine.tif')
-    hs = hillshade(merc_fine, zfactor, work / f'hillshade-z{zfactor:g}.tif')
+    sm = smooth(Path(dem), params, work, SCRATCH)
+    merc_fine = warp_mercator(sm, metres, work / 'merc-fine.tif', create=SCRATCH)
+    hs = hillshade(merc_fine, zfactor, work / f'hillshade-z{zfactor:g}.tif', SCRATCH)
     # the relief colours the unsmoothed DEM on the same grid - the smoothing
     # is for the derivative, and a coloured plateau should not bleed
-    merc_dem = warp_mercator(Path(dem), metres, work / 'merc-dem.tif')
+    merc_dem = warp_mercator(Path(dem), metres, work / 'merc-dem.tif', create=SCRATCH)
     d_ds, h_ds = gdal.Open(str(merc_dem)), gdal.Open(str(hs))
     # two warps of two rasters on one grid at one cell size land on one grid;
     # said here rather than assumed, since the arrays are paired cell by cell
@@ -167,12 +173,20 @@ def shade_dem(dem: Path, params: Params, work: Path, zfactor: float = 2.0,
             # the two must be the same thing: told only the destination, GDAL
             # rewrites a valid source 255 to 254 to keep it clear of nodata,
             # and the outside of the drawn area would count as inside it
-            srcNodata=255, dstNodata=255, creationOptions=CREATE))
+            srcNodata=255, dstNodata=255, creationOptions=SCRATCH))
         c_ds = gdal.Open(str(c_out))     # held, for the same reason as every dataset here
         cls = c_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8)
-    return Shaded(dem=d_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
-                  shade=h_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8),
-                  geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls, reading=reading)
+        c_ds = None
+    got = Shaded(dem=d_ds.GetRasterBand(1).ReadAsArray().astype(np.float32),
+                 shade=h_ds.GetRasterBand(1).ReadAsArray().astype(np.uint8),
+                 geotransform=tuple(h_ds.GetGeoTransform()), metres=metres, classes=cls, reading=reading)
+    # read, the files go: uncompressed they are 115 MB a build at 3", in a
+    # temporary directory that is memory on many a machine. Closed first, or
+    # Windows will not let them go
+    d_ds = h_ds = None
+    for f in (sm, work / 'smooth.vrt', merc_fine, hs, merc_dem, work / 'merc-first-pass.tif'):
+        Path(f).unlink(missing_ok=True)
+    return got
 
 
 def _snapped(gdal, src, align_to: tuple) -> dict:

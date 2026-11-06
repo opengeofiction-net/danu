@@ -6844,3 +6844,15 @@ The GeoPackage is the same either way - every row of all three layers, FID,
 fields and geometry, checked on roantra - and collect of the 3x3 with no
 square changed is 0.78 s, where it was 9.8 cold and about 6 with each
 square's reading kept. The server passes no cache and builds as before.
+
+## The editor's shading written uncompressed
+
+Shading roantra's 3x3 was 2.3 s, all of it GDAL - a smoothing, two warps
+and a hillshade - and half of it writing each intermediate DEFLATE-compressed,
+as the shell's pipeline does. The editor reads them back as arrays and has no
+other use for them, so `shade_dem` writes them tiled and uncompressed
+(`SCRATCH`) and removes them once read: 1.1 s, the same arrays. Tiled still -
+striped, the warp comes out different in the last place. Uncompressed they
+are 115 MB a build at 3", in a temporary directory that is memory on many a
+machine, which is why they go. A multithreaded warp saved 0.17 s more and was
+left out: the 1" view is solving beside the build.

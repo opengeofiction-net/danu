@@ -198,3 +198,27 @@ def test_a_square_kept_translated_gives_the_same_constraints_and_is_not_expanded
     got = rows(build.collect(squares, tmp_path / 'w3', cache=cache))
     assert [r[2] for r in got['contour']] == ['225', '300']
     assert len(list(cache.glob('S24E126-*.gpkg'))) == 1
+
+
+def test_shading_leaves_no_intermediate_behind_and_matches_the_compressed_shading(tmp_path, monkeypatch):
+    """The editor's shading writes its intermediates uncompressed and removes
+    them once read - the same arrays as written compressed."""
+    import numpy as np
+
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build, shade
+    from danu.surface import params as sp
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    sq, _ = ring(SquareName(125, -24), 125.5, -23.5, 100, spot=150)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    p = sp.load().with_arcsec(3)
+    result = build.build_dem(zone, tmp_path / 'w', p)
+    got = shade.shade_dem(result.dem, p, tmp_path / 'w')
+    left = [f.name for f in (tmp_path / 'w').iterdir()
+            if f.name.startswith(('merc-', 'hillshade-', 'smooth'))]
+    assert left == [], left
+    monkeypatch.setattr(shade, 'SCRATCH', shade.CREATE)
+    want = shade.shade_dem(result.dem, p, tmp_path / 'w')
+    assert np.array_equal(got.dem, want.dem) and np.array_equal(got.shade, want.shade)
