@@ -101,10 +101,11 @@ def test_a_surface_built_is_built_again_at_3_arcseconds(make, zone, qtbot, monke
         assert asked == [3.0], (built, asked)
 
 
-def test_with_automatic_rebuilds_off_a_surface_waits_for_ctrl_r(make, zone, qtbot, monkeypatch):
-    """#239: off, a restart is no rebuild either - and the session written
-    before Ctrl+R still says a surface is wanted, so turning it on and
-    starting again builds one."""
+@pytest.mark.parametrize('mode', ['local', 'manual'])
+def test_in_local_or_manual_a_surface_waits_for_ctrl_r(make, zone, qtbot, monkeypatch, mode):
+    """#239: in local or manual, a restart is no rebuild either - and the
+    session written before Ctrl+R still says a surface is wanted, so starting
+    again in auto builds one."""
     w = make()
     w.show()
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
@@ -112,12 +113,12 @@ def test_with_automatic_rebuilds_off_a_surface_waits_for_ctrl_r(make, zone, qtbo
     data = session.capture(w)
     data['surface']['built'] = True
     w2 = make()
-    w2.settings.auto_rebuild = False
+    w2.settings.rebuild_mode = mode
     asked = []
     monkeypatch.setattr(w2, 'rebuild_surface', lambda arcsec=None, why='': asked.append(arcsec))
     with qtbot.waitSignal(w2.loader.finished, timeout=15000):
         assert session.restore(w2, data)
-    assert asked == [], 'rebuilt with automatic rebuilds off'
+    assert asked == [], f'rebuilt in {mode}'
     assert 'builds the surface' in w2.statusBar().currentMessage()
     assert session.capture(w2)['surface']['built'] is True, 'and still wanted next time'
 

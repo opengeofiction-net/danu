@@ -205,7 +205,7 @@ def test_a_build_is_written_with_where_its_time_went(run, qtbot):
         assert run.rebuild_surface(why='asked')
     qtbot.wait(10)
     lines = logged(run)
-    assert any(r['kind'] == 'auto_rebuild' for r in lines), 'the rebuild mode was not written'
+    assert any(r['kind'] == 'rebuild_mode' for r in lines), 'the rebuild mode was not written'
     builds = [r for r in lines if r['kind'] == 'build']
     assert len(builds) == 1
     b = builds[0]

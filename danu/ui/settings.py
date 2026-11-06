@@ -15,6 +15,10 @@ RECENT_MAX = 8
 # Rebuild's key, which is not rebound - the menu and the preferences' clash
 # check both read it here
 REBUILD_KEY = 'Ctrl+R'
+# how the surface keeps up with edits: auto previews each edit and rebuilds
+# the set once the drawing stops; local previews and leaves the rebuild to
+# Ctrl+R; manual does neither until Ctrl+R
+REBUILD_MODES = ('auto', 'local', 'manual')
 
 # the keys the spec gives, a column on a QWERTY keyboard: the left hand rests
 # on w and s and reaches 2 up and x down. All rebindable, under [keys] in the
@@ -289,15 +293,20 @@ class Settings:
         self.q.setValue('start/always', bool(v))
 
     @property
-    def auto_rebuild(self) -> bool:
-        """Each edit rebuilt around itself as it is made, and the whole
-        set once the drawing stops (#239). Off, the surface is left as it is
-        until Surface › Rebuild surface."""
-        return self._flag('surface/auto_rebuild', True)
+    def rebuild_mode(self) -> str:
+        """How the surface keeps up with edits, one of ``REBUILD_MODES``.
+        Before the three, Rebuild automatically was on or off (#239): on is
+        auto and off manual, so a setting from then is read as one of them."""
+        v = self.q.value('surface/rebuild_mode')
+        if v in REBUILD_MODES:
+            return v
+        return 'auto' if self._flag('surface/auto_rebuild', True) else 'manual'
 
-    @auto_rebuild.setter
-    def auto_rebuild(self, v: bool):
-        self.q.setValue('surface/auto_rebuild', bool(v))
+    @rebuild_mode.setter
+    def rebuild_mode(self, v: str):
+        if v not in REBUILD_MODES:
+            raise ValueError(f'rebuild mode {v!r} is not one of {REBUILD_MODES}')
+        self.q.setValue('surface/rebuild_mode', v)
 
     @property
     def checks_centre_only(self) -> bool:

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QByteArray, QEvent, QRectF, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -69,10 +69,10 @@ from .published import PublishedDem
 from .reference import ReferenceItem
 from .selection_panel import SelectionPanel
 from .send import Sender
-from .settings import REBUILD_KEY, Settings
+from .settings import REBUILD_KEY, REBUILD_MODES, Settings
 from .squares import SquaresItem
 from .start import StartCard
-from .surface import ARCSEC, SurfaceBuilder, SurfaceLayer, SurfacePanel
+from .surface import ARCSEC, REBUILD_TIPS, SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
 from .tools import EditController, Selection
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
             self.edit_actions['view.magnify'].toggled.connect(lambda on: self.usage.write('magnify', on=on))
             # how the surface keeps up, as the run starts: each build and
             # preview logged after this is read against it
-            self.usage.write('auto_rebuild', on=self.settings.auto_rebuild)
+            self.usage.write('rebuild_mode', mode=self.settings.rebuild_mode)
         # the status bar's three parts, a line between each: what was said,
         # whose ground and whether it is yours to upload, and the cursor's
         # reading. What was said keeps its last three for its tooltip
@@ -1364,18 +1364,28 @@ class MainWindow(QMainWindow):
         self.rebuild_action.setShortcut(QKeySequence(REBUILD_KEY))
         self.rebuild_action.triggered.connect(lambda: self.rebuild_surface(why='asked'))
         surface.addAction(self.rebuild_action)
-        self.auto_rebuild_action = QAction('Rebuild &automatically', self)
-        self.auto_rebuild_action.setCheckable(True)
-        self.auto_rebuild_action.setChecked(self.settings.auto_rebuild)
-        self.auto_rebuild_action.setToolTip('each edit rebuilt as it is made; off, the surface waits for '
-                                            f'{QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)}')
-        self._logged(self.auto_rebuild_action, 'surface.auto_rebuild')
-        self.auto_rebuild_action.toggled.connect(self.set_auto_rebuild)
-        box = self.surface_panel.auto
-        box.setChecked(self.auto_rebuild_action.isChecked())
-        self.auto_rebuild_action.toggled.connect(box.setChecked)
-        box.toggled.connect(self.auto_rebuild_action.setChecked)
-        surface.addAction(self.auto_rebuild_action)
+        # how the surface keeps up (#239, then three ways): the menu's and
+        # the panel's in step, each told by the other as it changes
+        modes = surface.addMenu('Rebuil&d')
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self.rebuild_mode_actions: dict[str, QAction] = {}
+        labels = {'auto': '&Auto', 'local': '&Local', 'manual': '&Manual'}
+        current = self.settings.rebuild_mode
+        for mode in REBUILD_MODES:
+            a = QAction(labels[mode], self)
+            a.setCheckable(True)
+            a.setChecked(mode == current)
+            a.setToolTip(REBUILD_TIPS[mode])
+            a.setStatusTip(REBUILD_TIPS[mode])
+            group.addAction(a)
+            modes.addAction(a)
+            self._logged(a, f'surface.rebuild_{mode}')
+            a.toggled.connect(lambda on, m=mode: on and self.set_rebuild_mode(m))
+            b = self.surface_panel.rebuild_modes[mode]
+            b.setChecked(mode == current)
+            b.toggled.connect(lambda on, m=mode: on and self.set_rebuild_mode(m))
+            self.rebuild_mode_actions[mode] = a
         self.pinch_action = QAction('&Pinch ramp on active elevation', self)
         self.pinch_action.setShortcut(QKeySequence(self.settings.key('surface.pinch')))
         self._logged(self.pinch_action, 'surface.pinch')
@@ -2737,7 +2747,9 @@ class MainWindow(QMainWindow):
         declined to move."""
         self.statusBar().showMessage(
             f'{len(ways)} contour{"" if len(ways) == 1 else "s"} on ground the '
-            f'surface does not cover yet - rebuilding to reach it')
+            f'surface does not cover yet - '
+            + ('rebuilding to reach it' if self.settings.rebuild_mode == 'auto'
+               else f'{self._rebuild_key()} reaches it'))
 
     def _preview_skipped(self, edits: int):
         """A gesture too broken up to preview between keystrokes.
@@ -2751,7 +2763,8 @@ class MainWindow(QMainWindow):
             self.usage.write('preview skipped', edits=edits)
         self.statusBar().showMessage(
             f'{edits} separate edits - too many to preview together; '
-            f'rebuilding exactly on idle')
+            + ('rebuilding exactly on idle' if self.settings.rebuild_mode == 'auto'
+               else f'{self._rebuild_key()} rebuilds them'))
 
     def _surface_previewed(self, rects, seconds):
         """A patch went into the arrays the layer draws; recolour what moved.
@@ -2778,37 +2791,65 @@ class MainWindow(QMainWindow):
         # overlay. It is told it is stale instead - see classesStale
         self.surface.set_preview(True)
         self.measure.surface_changed()             # which refuses, until the exact one
-        self.surface_panel.previewed(seconds)
+        self.surface_panel.previewed(seconds, self._settles())
         self.statusBar().showMessage(
-            f'preview: {painted:,} cells in {seconds * 1000:.0f} ms - exact on idle')
+            f'preview: {painted:,} cells in {seconds * 1000:.0f} ms - {self._settles()}')
+
+    @staticmethod
+    def _rebuild_key() -> str:
+        return QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)
+
+    def _settles(self) -> str:
+        """How a preview's approximation becomes the exact surface, in the
+        mode the window is in - said after each preview."""
+        if self.settings.rebuild_mode == 'auto':
+            return 'exact on idle'
+        return f'{self._rebuild_key()} for exact'
 
     def _edited_ways(self, square, ways, spots) -> None:
-        if self.settings.auto_rebuild:
-            self.preview.edited(square, ways, spots)
-            return
-        if not self._surface_out_of_date and self._arcsec:
+        mode = self.settings.rebuild_mode
+        if mode != 'auto' and self._arcsec:
+            # out of date until Ctrl+R, previewed or not: a preview is an
+            # approximation, and only a rebuild brings back the checks and the
+            # unknown ground. Auto again rebuilds it.
+            first = not self._surface_out_of_date
             self._surface_out_of_date = True
-            self.statusBar().showMessage(
-                'the surface is out of date: automatic rebuilds are off - '
-                f'{QKeySequence(REBUILD_KEY).toString(QKeySequence.SequenceFormat.NativeText)} rebuilds it')
+            if mode == 'manual' and first:
+                self.statusBar().showMessage(
+                    f'the surface is out of date: rebuilds are manual - {self._rebuild_key()} rebuilds it')
+        if mode != 'manual':
+            self.preview.edited(square, ways, spots)
 
-    def set_auto_rebuild(self, on: bool) -> None:
-        """Surface › Rebuild automatically (#239). Off, edits leave the
-        surface as it is - no preview, no rebuild once the drawing stops, the
-        close view not solved again - until Ctrl+R. On again, what was edited
-        meanwhile is rebuilt then."""
-        self.settings.auto_rebuild = on
+    def set_rebuild_mode(self, mode: str) -> None:
+        """Surface › Rebuild (#239, then three ways). Auto previews each edit
+        and rebuilds once the drawing stops. Local previews each edit - the
+        close view solved again with it - and rebuilds only on Ctrl+R. Manual
+        leaves the surface as it is - no preview, the close view not solved
+        again - until Ctrl+R. Back to auto, what was edited meanwhile is
+        rebuilt then."""
+        if mode not in REBUILD_MODES:
+            raise ValueError(f'rebuild mode {mode!r} is not one of {REBUILD_MODES}')
+        for name, a in self.rebuild_mode_actions.items():
+            if a.isChecked() != (name == mode):
+                a.setChecked(name == mode)
+        for name, b in self.surface_panel.rebuild_modes.items():
+            if b.isChecked() != (name == mode):
+                b.setChecked(name == mode)
+        if self.settings.rebuild_mode == mode:
+            return
+        self.settings.rebuild_mode = mode
         if self.usage is not None:
-            self.usage.write('auto_rebuild', on=on)
-        if self.auto_rebuild_action.isChecked() != on:
-            self.auto_rebuild_action.setChecked(on)
-        if not on:
+            self.usage.write('rebuild_mode', mode=mode)
+        if mode != 'auto':
             self.preview.stop_waiting()
         elif self._surface_out_of_date and self._arcsec:
             self.rebuild_surface(self._arcsec, why='auto on')
 
     def _rebuild_after_idle(self):
-        """The drawing stopped, so settle the preview's approximations."""
+        """The drawing stopped, so settle the preview's approximations - in
+        auto. Local leaves that to Ctrl+R."""
+        if self.settings.rebuild_mode != 'auto':
+            return
         if self.working_set is None or not self.editor.history.dirty_squares():
             return
         if not self._arcsec:

@@ -6726,3 +6726,24 @@ finished. A `build shown` line follows with the editor's own time taking it
 in, on the UI thread. Each preview is a `preview` line: the edits and pieces,
 the cells solved and the time preparing, solving, repainting and recolouring.
 And the rebuild mode as the run starts and each time it changes.
+
+## Auto, local and manual
+
+Rebuild automatically (#239) was on or off, and it was two things at once:
+the preview of each edit, and the whole rebuild once the drawing stopped.
+Off lost both. Now it is three ways, as Surface › Rebuild and as radio
+buttons under the panel's Rebuild surface. Auto is on as it was. Manual is
+off as it was. Local keeps the preview, with the close view solved again
+behind it, and leaves the whole rebuild to Ctrl+R: drawing stays responsive on
+a large set, and the ground under the edits still moves.
+
+In local, every edit leaves the surface out of date, previewed or not, since
+only a rebuild brings back the checks and the unknown ground. So going back to
+auto rebuilds, as turning it on did. The preview's line ends "Ctrl+R for
+exact" in place of "exact on idle". A session restored in local, like one in
+manual, waits for Ctrl+R: the whole build is what both leave to be asked for.
+
+The setting is `surface/rebuild_mode`. Where only the old
+`surface/auto_rebuild` is set, on reads as auto and off as manual. The usage
+log's `auto_rebuild` line, added in the section before, is `rebuild_mode` with
+the mode's name.

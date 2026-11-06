@@ -136,10 +136,19 @@ them as they are set now.
 ## 5. See the ground
 
 **Ctrl+R** (Surface › Rebuild surface) builds the surface the contours make,
-by the same code as the nightly build. After that, each edit is rebuilt around
-itself as you draw. On a large square that can make drawing stutter: turn
-**Surface › Rebuild automatically** off - or **auto** beside the Surface
-panel's Rebuild surface - and the surface waits for **Ctrl+R**.
+by the same code as the nightly build. After that, **Surface › Rebuild** - or
+the three choices under the Surface panel's Rebuild surface - says how it
+keeps up as you draw:
+
+- **auto**: each edit is previewed around itself, and the whole surface is
+  rebuilt once you stop drawing.
+- **local**: each edit is previewed, and the whole surface waits for
+  **Ctrl+R**. The previews are close, not exact, and the Validation panel's
+  surface findings and the unknown ground are as they were at the last build.
+- **manual**: the surface stays as it is until **Ctrl+R**.
+
+On a large square, auto's rebuilds can make drawing stutter: local keeps the
+previews without them.
 The Surface panel
 chooses how it is shown; **Help › Layers** says what each part of the map is.
 
