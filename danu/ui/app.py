@@ -502,6 +502,11 @@ class MainWindow(QMainWindow):
         self.start.menuAnswered.connect(self._menu_answered)
         self._docked_only()
         self._tab_icons()
+        # a tab made later - a panel shown, moved or tabbed - given its icon
+        # too: Qt 6.8, Debian's, makes it without, newer ones with
+        for dock in self.docks():
+            for sig in (dock.visibilityChanged, dock.dockLocationChanged, dock.topLevelChanged):
+                sig.connect(lambda *_: QTimer.singleShot(0, self._icons_on_tabs))
         self._default_layout = self.saveState()       # what Reset panels goes back to
         # the outlines and the map's clicks follow the panel's action, which
         # says so only as it changes: told how it starts
@@ -1537,16 +1542,20 @@ class MainWindow(QMainWindow):
         """Each panel's icon, which its tab shows in place of its name -
         see ``icons.IconTabs`` - drawn in the palette's text colour."""
         colour = self.palette().color(QPalette.ColorRole.WindowText)
-        named = {}
         for dock in self.docks():
             dock.setWindowIcon(icons.icon(self.TAB_ICONS[dock.objectName()], colour))
-            named[dock.windowTitle()] = dock.windowIcon()
-        # Qt takes a panel's icon as it makes its tab, not after: the tabs
-        # there already are given theirs
+        self._icons_on_tabs()
+
+    def _icons_on_tabs(self) -> None:
+        """Each tab its panel's icon. Qt takes the icon, if at all, only as
+        it makes a tab: one set since, or a tab made by a Qt that does not,
+        is given it here."""
+        named = {dock.windowTitle(): dock.windowIcon() for dock in self.docks()}
         for bar in self.findChildren(QTabBar):
             for i in range(bar.count()):
-                if bar.tabText(i) in named:
-                    bar.setTabIcon(i, named[bar.tabText(i)])
+                icon = named.get(bar.tabText(i))
+                if icon is not None and bar.tabIcon(i).cacheKey() != icon.cacheKey():
+                    bar.setTabIcon(i, icon)
 
     def event(self, event):
         # the tab bars Qt makes for tabbed panels, as each is made: drawn as
