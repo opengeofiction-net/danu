@@ -251,8 +251,13 @@ class PreviewDriver(QObject):
                       f'from are gigabytes here; edits rebuild instead')
             return
         r = built.rasters
+        # loaded on the build's worker, as the grids are opened there
+        contours = getattr(r, 'contours', None)
         try:
-            contours = preview.Contours(r.gpkg)
+            if isinstance(contours, Exception):
+                raise contours
+            if contours is None:
+                contours = preview.Contours(r.gpkg)
         except Exception as e:      # noqa: BLE001 - see _run
             # not OSError alone: by now build_surface has put GDAL in
             # exception mode, so a file it cannot open is a RuntimeError

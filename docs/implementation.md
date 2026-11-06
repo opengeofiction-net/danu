@@ -6796,3 +6796,17 @@ call, ran batches of them at up to 30 times their idle time during collect,
 and at their idle time in rasterise, interpolate and clamp, where GDAL and
 isofill let go of it. What is left of collect is GDAL's own translate of each
 square, 2.9 s, which releases it, and the Python reading of the edited square.
+
+## The contour layer loaded on the worker
+
+With the preview back and builds shorter, the usage log's next cost was the
+editor standing still as each build landed: `build shown` at 3.2 s median on
+roantra's 3x3, 22 times in 21 minutes. Nearly all of it was `preview.adopt`
+loading the build's contour layer - 15,000 contours and 40,000 spot heights,
+a feature at a time through OGR's Python bindings, half of that OGR looking
+each field up by name for every feature.
+
+The fields are now looked up once a layer (`_indices`), which takes the load
+from 2.45 s to 0.8, and the load runs on the build's worker with the grids it
+already opens there: `Rasters.contours` carries the layer, or what stopped it.
+`build shown` is 0.27 s under the profiler, from 6.6.

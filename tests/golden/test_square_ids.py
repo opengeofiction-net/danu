@@ -132,3 +132,21 @@ def test_a_square_read_once_is_not_read_again_until_it_changes(tmp_path, monkeyp
     (tmp_path / 'w2').mkdir()
     build.collect(squares, tmp_path / 'w2')
     assert len(read) == 2, 'a changed square was not read again'
+
+
+def test_the_contour_layer_comes_with_the_build_loaded_on_its_worker(tmp_path):
+    """Loading it as the build landed was most of the 3 s the editor stood
+    still for with each of roantra's builds; build_surface runs on the
+    worker, and hands it over loaded."""
+    from danu.core.square import SquareName, write_square
+    from danu.surface import params as sp
+    from danu.surface import preview
+    from danu.ui.surface import build_surface
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    sq, wid = ring(SquareName(125, -24), 125.5, -23.5, 100)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    built = build_surface(zone, [SquareName(125, -24)], sp.load().with_arcsec(3), tmp_path / 'w')
+    assert isinstance(built.rasters.contours, preview.Contours)
+    assert ('S24E125', str(wid)) in built.rasters.contours._fid
