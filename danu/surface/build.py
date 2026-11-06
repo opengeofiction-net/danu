@@ -649,8 +649,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
                 source = square
-            # the guard reads the expanded file, not the archive: GDAL needs it
-            # expanded regardless, so the square is decompressed once a build
+            # the guard reads the expanded file, not the archive: a square
+            # read or translated afresh is decompressed for it once a build,
+            # and one whose reading and piece are both kept is not at all
             counts, (held, n), coasts = _square_facts(key, source, name)
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
             if piece is not None:
