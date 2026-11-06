@@ -1,6 +1,7 @@
 """What lies inside a ring - H1b: water spanning contours (R33), and rings
 with nothing inside them (R39). No Qt."""
 
+import math
 import random
 
 from danu.checks import inside
@@ -388,3 +389,26 @@ def test_one_way_of_a_coast_reversed_the_other_stays_listed():
     cmd.apply(sq)
     index.update(sq, cmd.ways(sq))
     assert index.findings('coast') == []
+
+
+def test_the_votes_of_all_contours_at_once_are_each_contours_own():
+    """votes_many works every vertex of every contour in one pass, grouped by
+    cell; asked a contour at a time it must say the same of each - the
+    candidate segments are the cell's, whoever's vertex is in it."""
+    rnd = random.Random(7)
+    w, sq = ws()
+    coastline = [(125.2 + 0.004 * k, -22.5 + 0.002 * math.sin(k / 3)) for k in range(150)]
+    refs = nodes(sq, coastline)
+    c = next(_ids)
+    sq.ways[c] = Way(id=c, refs=refs, tags={'natural': 'coastline', 'ele': '0'})
+    for _ in range(40):
+        y = -22.5 + rnd.uniform(-0.004, 0.004)
+        x0 = rnd.uniform(125.2, 125.6)
+        line(sq, [(x0 + 0.003 * k, y + rnd.uniform(-0.0005, 0.0005)) for k in range(30)],
+             rnd.choice([-5, 5, 10, 20]))
+    s = inside._Square(sq)
+    lines = {i: ln for i, ln in s.lines.items() if i not in s.coast_ids}
+    together = s.sides.votes_many(lines)
+    apart = {i: v for i in lines if (v := s.sides.votes(lines[i]))}
+    assert together == apart
+    assert len(together) > 10, 'too few contours near the coast to test anything'

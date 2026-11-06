@@ -363,21 +363,47 @@ class _Sides:
         or right as they should be, the other way]}: a vertex above 0 m is
         land and below it sea, judged by the side of the segment nearest it,
         within ``SIDE_M``."""
+        return self.votes_many({ln.id: ln}).get(ln.id, {})
+
+    def votes_many(self, lines: dict) -> dict:
+        """``votes`` of each of ``lines``, {id: votes} - only those with any.
+
+        All their vertices at once, grouped by cell: a cell's candidate
+        segments depend on the cell alone, so each vertex is judged exactly as
+        it was a line at a time - but a cell many contours pass through is
+        worked once, not once a contour. Asked a line at a time, the votes were
+        most of what reading a coastal square cost the build: 0.5 s of
+        roantra's N43E029, every build it was edited in."""
         out: dict = {}
-        if self.empty or ln.ele == 0:
+        if self.empty:
             return out
-        P = np.column_stack([ln.X * self.kx, ln.Y * self.ky])
-        m = (P[:, 0] >= self.lo[0]) & (P[:, 0] <= self.hi[0]) & (P[:, 1] >= self.lo[1]) & (P[:, 1] <= self.hi[1])
-        P = P[m]
-        if not len(P):
+        ids, parts, owner, land = [], [], [], []
+        for lid, ln in lines.items():
+            if ln.ele == 0:
+                continue
+            P = np.column_stack([ln.X * self.kx, ln.Y * self.ky])
+            m = (P[:, 0] >= self.lo[0]) & (P[:, 0] <= self.hi[0]) & (P[:, 1] >= self.lo[1]) & (P[:, 1] <= self.hi[1])
+            if not m.any():
+                continue
+            parts.append(P[m])
+            owner.append(np.full(int(m.sum()), len(ids)))
+            land.append(ln.ele > 0)
+            ids.append(lid)
+        if not parts:
             return out
+        P, own = np.concatenate(parts), np.concatenate(owner)
+        land = np.array(land)[own]
         cell = np.floor(P / SIDE_M).astype(np.int64)
         keys, back = np.unique(cell, axis=0, return_inverse=True)
-        for g, (cx, cy) in enumerate(keys.tolist()):
+        back = back.ravel()
+        order = np.argsort(back, kind='stable')
+        bounds = np.flatnonzero(np.diff(back[order])) + 1
+        got_own, got_chain, got_rw = [], [], []
+        for (cx, cy), members in zip(keys.tolist(), np.split(order, bounds), strict=True):
             segs = sorted({i for dx in (-1, 0, 1) for dy in (-1, 0, 1) for i in self.cells.get((cx + dx, cy + dy), ())})
             if not segs:
                 continue
-            pts = P[back.ravel() == g]
+            pts = P[members]
             s = np.array(segs)
             a, b = self.A[s][None], self.B[s][None]
             d = b - a
@@ -399,10 +425,19 @@ class _Sides:
                                         np.where((s_in > 0) | (s_out > 0), 1.0, -1.0))
             cross[((tk <= 0) & self.FIRST[i]) | ((tk >= 1) & self.LAST[i])] = 0
             ok = near & (cross != 0)
-            right_way = (cross > 0) == (ln.ele > 0)
-            for chain, rw in zip(self.C[i][ok].tolist(), right_way[ok].tolist(), strict=True):
-                v = out.setdefault(chain, [0, 0])
-                v[0 if rw else 1] += 1
+            got_own.append(own[members][ok])
+            got_chain.append(self.C[i][ok])
+            got_rw.append(((cross > 0) == land[members])[ok])
+        if not got_own:
+            return out
+        rows = np.column_stack([np.concatenate(got_own), np.concatenate(got_chain),
+                                np.concatenate(got_rw).astype(np.int64)])
+        if not len(rows):
+            return out
+        triples, counts = np.unique(rows, axis=0, return_counts=True)
+        for (o, chain, rw), n in zip(triples.tolist(), counts.tolist(), strict=True):
+            v = out.setdefault(ids[o], {}).setdefault(chain, [0, 0])
+            v[0 if rw else 1] += n
         return out
 
 
@@ -420,14 +455,27 @@ class _Square:
         self.coasts, ringed = _coasts(square)
         self.coast_ids = coast_ways(square)
         self.sides = _Sides(square, ringed)
-        self.side_votes = ({i: self.sides.votes(ln) for i, ln in self.lines.items() if i not in self.coast_ids}
-                           if not self.sides.empty else {})
+        self._side_votes = None
         self._arrays = None
         # body key -> line id -> whether that line lies in or across it: what
         # spanned() found, kept so that an edit asks again only the lines it
         # changed - a line not edited cannot have moved into or out of a lake
         # that was not. Roantra's estuary, asked whole, is seconds
         self.held: dict = {}
+
+    @property
+    def side_votes(self) -> dict:
+        """Each contour's votes on the open coast chains near it, asked when
+        first wanted: only the backwards coasts want them, and the build asks
+        a square's lakes too, which do not."""
+        if self._side_votes is None:
+            self._side_votes = self.sides.votes_many(
+                {i: ln for i, ln in self.lines.items() if i not in self.coast_ids})
+        return self._side_votes
+
+    @side_votes.setter
+    def side_votes(self, votes: dict) -> None:
+        self._side_votes = votes
 
     def arrays(self):
         if self._arrays is None:
@@ -625,7 +673,13 @@ def _each_way(square, ways, reason, why, lon, lat, box, at=None) -> dict:
 def backwards_coasts(square) -> list[Finding]:
     """The coastlines drawn backwards round land - for the build to say,
     which reads what they hold as sea whatever this says."""
-    return list(_coast_findings(_Square(square)).values())
+    return backwards_of(_Square(square))
+
+
+def backwards_of(s: _Square) -> list[Finding]:
+    """``backwards_coasts`` of a square already read - the build asks it and
+    ``held_of`` of the one reading."""
+    return list(_coast_findings(s).values())
 
 
 def held(square) -> tuple[dict, int]:
@@ -636,7 +690,11 @@ def held(square) -> tuple[dict, int]:
     the lake's level whatever the contours say - roantra's N44E030 has 34
     ways of water at 0 m over hills up to 100 m - so it is left to its shore
     and the contours, as before, until flattening moves them out."""
-    s = _Square(square)
+    return held_of(_Square(square))
+
+
+def held_of(s: _Square) -> tuple[dict, int]:
+    """``held`` of a square already read."""
     out, spanned = {}, 0
     for key, body in s.bodies.items():
         if body.level is None:
@@ -711,13 +769,14 @@ class Index:
             # every contour's votes again, a coastline having moved under
             # them: 0.6 s on huz's S54E079, its coast edited a way at a time
             s.sides = _Sides(square, ringed)
-            s.side_votes = ({i: s.sides.votes(ln) for i, ln in s.lines.items() if i not in s.coast_ids}
-                            if not s.sides.empty else {})
-        elif not s.sides.empty:
+            s.side_votes = None               # asked again when wanted
+        elif not s.sides.empty and s._side_votes is not None:
+            # only where they were worked out: not yet, they are worked out
+            # whole when first wanted, these lines as they are now among them
             for i in way_ids:
-                s.side_votes.pop(i, None)
+                s._side_votes.pop(i, None)
                 if i in s.lines and i not in s.coast_ids:
-                    s.side_votes[i] = s.sides.votes(s.lines[i])
+                    s._side_votes[i] = s.sides.votes(s.lines[i])
         moved = set()
         for i in way_ids:
             old, new = before.get(i), s.lines.get(i)
