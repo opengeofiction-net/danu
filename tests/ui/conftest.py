@@ -121,6 +121,9 @@ def not_an_appimage(monkeypatch, tmp_path):
     monkeypatch.setenv('XDG_DATA_HOME', str(tmp_path / 'xdg-data'))
 
 
+MAP_ROOM = 480          # px: the map's width at least, as on Linux's 1,100 px window
+
+
 @pytest.fixture
 def window(qtbot, zone, tmp_path, territory_files):
     settings = Settings(tmp_path / 'danu.ini')
@@ -141,6 +144,13 @@ def window(qtbot, zone, tmp_path, territory_files):
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         assert w.open_working_set(zone, SquareName(125, -24))
     qtbot.waitUntil(lambda: w.working_set is not None, timeout=5000)
+    # the map given room beside the docks: on the Windows runner offscreen
+    # text lays out about twice as wide, the docks took 1,082 of the
+    # window's 1,164 px and left the map 68
+    short = MAP_ROOM - w.map.viewport().width()
+    if short > 0:
+        w.resize(w.width() + short, w.height())
+        qtbot.waitUntil(lambda: w.map.viewport().width() >= MAP_ROOM, timeout=5000)
     w.map.set_zoom(12)
     w.activateWindow()
     return w
