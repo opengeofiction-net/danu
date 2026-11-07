@@ -413,7 +413,7 @@ class SurfaceBuilder(QObject):
     started = Signal()
     finished = Signal(object, bool, float)   # Built, stale, seconds
     failed = Signal(str)
-    abandoned = Signal(float, str)           # seconds, the stage it got to
+    abandoned = Signal(float, str, str)      # seconds, the stage it got to, why it was started
 
     def __init__(self, parent=None, build_fn=build_surface, runner=None):
         super().__init__(parent)
@@ -535,7 +535,7 @@ class SurfaceBuilder(QObject):
         self._running = False
         if self._building is not None and self._building != self._delivered:
             shutil.rmtree(self._building, ignore_errors=True)
-        self.abandoned.emit(time.monotonic() - self._started_at, where)
+        self.abandoned.emit(time.monotonic() - self._started_at, where, self.running_info.get('why', ''))
         self._next()
 
     def _fail(self, text):

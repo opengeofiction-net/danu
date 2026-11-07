@@ -439,7 +439,7 @@ def test_an_abandoned_build_is_given_up_and_delivers_nothing(qtbot):
     and the queue goes on to whatever was asked for since."""
     h = Harness(build_fn=staged_build)
     gave_up = []
-    h.builder.abandoned.connect(lambda secs, where: gave_up.append(where))
+    h.builder.abandoned.connect(lambda secs, where, why: gave_up.append(where))
     h.ask(3.0)
     work = h.builder._building
     assert h.builder.abandon()

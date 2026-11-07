@@ -3046,10 +3046,9 @@ class MainWindow(QMainWindow):
                          checks=getattr(built, 'checks', None) is not None,
                          checks_failed=getattr(built, 'checks_failed', None))
 
-    def _surface_abandoned(self, seconds: float, where: str) -> None:
+    def _surface_abandoned(self, seconds: float, where: str, why: str) -> None:
         if self.usage is not None:
-            self.usage.write('build abandoned', seconds=round(seconds, 3), at=where,
-                             why=self.builder.running_info.get('why', ''))
+            self.usage.write('build abandoned', seconds=round(seconds, 3), at=where, why=why)
         self.surface_panel.building('rebuild put off: edited while it ran - '
                                     'it rebuilds once the drawing stops')
         if self._surface_pending:
