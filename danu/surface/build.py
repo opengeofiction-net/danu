@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, replace
 from importlib import resources
@@ -421,9 +422,9 @@ def _piece(cache: Path, name, digest: str, source: Path) -> Path:
             # Windows: another window's build has it open. It goes the
             # next time this square's piece is made
             pass
-    # this process's own: the cache outlives a session and two windows may
-    # translate the same square at once
-    part = cache / f'{name}-{digest}.{os.getpid()}.part.gpkg'
+    # this process's and thread's own: the cache outlives a session and two
+    # windows may translate the same square at once
+    part = cache / f'{name}-{digest}.{os.getpid()}-{threading.get_ident()}.part.gpkg'
     part.unlink(missing_ok=True)
     gdal.VectorTranslate(str(part), str(source), options=gdal.VectorTranslateOptions(
         format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour',
