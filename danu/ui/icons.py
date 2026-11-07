@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
-from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleOptionTab, QTabBar, QToolButton
+from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleOptionTab, QTabBar, QToolButton, QToolTip
 
 from .mapcontrols import ICON, _icon, _pointer, _split
 from .settings import DEFAULT_KEYS
@@ -328,3 +328,22 @@ class IconTabs(QProxyStyle):
             text = widget.fontMetrics().size(Qt.TextFlag.TextShowMnemonic, option.text).width()
             size = QSize(max(size.width() - text - 4, option.iconSize.width()), size.height())
         return super().sizeFromContents(kind, option, size, widget)
+
+
+class TabTips(QObject):
+    """A tab's tooltip shown over it. The window's own tab bar shows one only
+    when the bar is too narrow for the tabs' names - a hint at the name it
+    elided - and swallows the request otherwise, which for tabs drawn as
+    icons is always. Filters the tab bars only, which see few events."""
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.ToolTip and isinstance(obj, QTabBar):
+            i = obj.tabAt(event.pos())
+            tip = obj.tabToolTip(i) if i >= 0 else ''
+            if tip:
+                QToolTip.showText(event.globalPos(), tip, obj, obj.tabRect(i))
+            else:
+                QToolTip.hideText()
+            event.accept()
+            return True
+        return False

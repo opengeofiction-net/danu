@@ -125,3 +125,19 @@ def test_the_tab_shown_is_filled_with_the_highlight(window, qtbot):
     shown = bar.currentIndex()
     assert lit(shown) > 0.3 * bar.tabRect(shown).width() * bar.tabRect(shown).height()
     assert all(lit(i) == 0 for i in range(bar.count()) if i != shown)
+
+
+def test_hovering_a_tab_shows_its_tooltip(window, qtbot):
+    # the window's tab bar shows one only when it is too narrow for the
+    # names, and swallowed the request for tabs drawn as icons
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtWidgets import QApplication, QToolTip
+    w = window
+    w.checks_dock.show()
+    qtbot.wait(50)
+    bar = next(b for b in w.findChildren(QTabBar) if b.isVisible() and b.count() > 1)
+    p = bar.tabRect(1).center()
+    QApplication.sendEvent(bar, QHelpEvent(QEvent.Type.ToolTip, p, bar.mapToGlobal(p)))
+    qtbot.waitUntil(lambda: QToolTip.text() == bar.tabToolTip(1), timeout=2000)
+    QToolTip.hideText()

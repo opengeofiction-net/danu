@@ -1567,6 +1567,7 @@ class MainWindow(QMainWindow):
         for bar in self.findChildren(QTabBar):
             if not isinstance(bar.style(), icons.IconTabs):
                 bar.setStyle(self._tab_style)
+                bar.installEventFilter(self._tab_tips)
             for i in range(bar.count()):
                 dock = named.get(bar.tabText(i))
                 if dock is None:
@@ -1577,6 +1578,12 @@ class MainWindow(QMainWindow):
                 tip = self.TAB_TIPS.get(dock.objectName(), dock.windowTitle())
                 if bar.tabToolTip(i) != tip:
                     bar.setTabToolTip(i, tip)
+
+    @property
+    def _tab_tips(self) -> icons.TabTips:
+        if getattr(self, '_tab_tips_', None) is None:
+            self._tab_tips_ = icons.TabTips(self)
+        return self._tab_tips_
 
     @property
     def _tab_style(self) -> icons.IconTabs:
