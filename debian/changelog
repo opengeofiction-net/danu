@@ -1,3 +1,18 @@
+danu (1.5.2-1) unstable; urgency=medium
+
+  * Panel tabs: the one shown is highlighted, and each says what it is for;
+    the Zones and Selected panels' tooltips are plainer (#345).
+  * The squares' translated constraints are kept between sessions, in the
+    user's cache, one directory per version, so a session's first build
+    does not translate every square again (#346).
+  * Auto rebuilds start after a minute's pause, not 10 s, and an automatic
+    build an edit has made stale is given up rather than finished (#347).
+  * Validation on opening a zone is about three times faster - crossings
+    and loops found in one pass, touches on a 200 m grid; 23.5 s to 7 s on
+    a 3x3 (#348, #349).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sat, 07 Nov 2026 22:19:59 +0000
+
 danu (1.5.1-1) unstable; urgency=medium
 
   * Surfaces: no 0 m line along a degree square's edge where its contours
