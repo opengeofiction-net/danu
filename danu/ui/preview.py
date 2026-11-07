@@ -49,6 +49,11 @@ GESTURE_MS = 30
 
 # How long the drawing has to stop before the exact rebuild is asked for.
 #
+# A minute. Ten seconds was a build in every pause to think: on roantra's 3x3
+# a build every minute or so, running 30 to 50% of the time, half of them stale
+# as they landed (2026-11-07), and all of it a CPU taken from the drawing and
+# the 1" view. The preview shows each edit meanwhile.
+#
 # Ten seconds, not the second and a half it was. The two costs are wildly
 # asymmetric and the timer was set as though they were not. Waiting is nearly
 # free: over twenty-one successive edits measured against a rebuild at each,
@@ -68,7 +73,7 @@ GESTURE_MS = 30
 # envelope, which a preview cannot show at all, and the occasional edit where
 # the preview is metres out. Those are F5c's, and when they exist this becomes
 # the backstop it is now only approximating.
-IDLE_MS = 10_000
+IDLE_MS = 60_000
 
 # Pieces one gesture may be solved as. Each costs a whole solve on the UI
 # thread, so past a handful the preview is worse than not previewing: the

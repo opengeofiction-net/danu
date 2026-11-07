@@ -423,3 +423,48 @@ def test_a_build_says_what_asked_for_it_and_how_many_requests_it_stands_for(qtbo
     assert h.results[1][0].request['asked'] == 3, 'the coalesced requests were not counted'
     assert h.builder.running_info['why'] == 'idle'
     assert h.builder.running_info['waited'] >= 0.0
+
+
+def staged_build(zone_dir, names, params, work):
+    """A build that names its stages, as build_surface's Stopwatch does."""
+    from danu.ui.surface import Stopwatch
+    watch = Stopwatch()
+    for stage in ('collect', 'interpolate', 'shade'):
+        watch(stage)
+    return Built(shaded=object())
+
+
+def test_an_abandoned_build_is_given_up_and_delivers_nothing(qtbot):
+    """An edit made it stale: given up at its next stage, it lands nothing,
+    and the queue goes on to whatever was asked for since."""
+    h = Harness(build_fn=staged_build)
+    gave_up = []
+    h.builder.abandoned.connect(lambda secs, where: gave_up.append(where))
+    h.ask(3.0)
+    work = h.builder._building
+    assert h.builder.abandon()
+    h.finish()
+    assert gave_up == ['the build'] and h.results == [] and h.failures == []
+    assert not h.builder.busy and not work.exists(), 'its directory was left'
+    h.ask(3.0)
+    h.finish()
+    assert len(h.results) == 1 and h.results[0][1] is False
+
+
+def test_abandon_with_nothing_running_does_nothing(qtbot):
+    h = Harness(build_fn=staged_build)
+    assert not h.builder.abandon()
+    h.ask(3.0)
+    h.finish()
+    assert not h.builder.abandon() and len(h.results) == 1
+
+
+def test_a_build_abandoned_waits_for_the_one_asked_for_behind_it(qtbot):
+    h = Harness(build_fn=staged_build)
+    h.ask(3.0)
+    h.ask(1.0)                       # asked for while it ran
+    h.builder.abandon()
+    h.finish()                       # given up
+    assert h.results == [] and len(h.jobs) == 1, 'what was asked for behind it did not start'
+    h.finish()
+    assert len(h.results) == 1

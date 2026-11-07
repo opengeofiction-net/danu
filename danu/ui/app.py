@@ -108,6 +108,10 @@ APP_NAME = 'danu'
 HOME = (87.0, 20.5, 5)
 
 
+# the builds auto starts, which an edit made stale gives up; one asked for
+# (Ctrl+R, the panel's button) runs to the end
+AUTOMATIC_BUILDS = ('idle', 'auto on')
+
 # the nearest the map goes to show something a grade found - G6d-3
 SHOW_ZOOM = 16
 
@@ -328,6 +332,7 @@ class MainWindow(QMainWindow):
         self.builder.checks_snapshot = (
             lambda ws: surface_checks.snapshot(ws) if self.checks_dock.isVisible() else None)
         self.builder.failed.connect(self._surface_failed)
+        self.builder.abandoned.connect(self._surface_abandoned)
         # the zone's folder with the set's holdings: a feature's home may be a
         # square of the zone outside the set, the sea's two squares away - and
         # never one of the set's outside the zone, where the extent is kept
@@ -2902,6 +2907,12 @@ class MainWindow(QMainWindow):
                     f'the surface is out of date: rebuilds are manual - {self._rebuild_key()} rebuilds it')
         if mode != 'manual':
             self.preview.edited(square, ways, spots)
+        # a rebuild auto started, made stale by this edit, given up: it would
+        # land out of date and take the CPU from the drawing until it did.
+        # The next pause rebuilds. One asked for runs on
+        if mode == 'auto' and self.builder.busy and \
+                self.builder.running_info.get('why') in AUTOMATIC_BUILDS:
+            self.builder.abandon()
 
     def set_rebuild_mode(self, mode: str) -> None:
         """Surface › Rebuild (#239, then three ways). Auto previews each edit
@@ -3034,6 +3045,17 @@ class MainWindow(QMainWindow):
                          stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},
                          checks=getattr(built, 'checks', None) is not None,
                          checks_failed=getattr(built, 'checks_failed', None))
+
+    def _surface_abandoned(self, seconds: float, where: str) -> None:
+        if self.usage is not None:
+            self.usage.write('build abandoned', seconds=round(seconds, 3), at=where,
+                             why=self.builder.running_info.get('why', ''))
+        self.surface_panel.building('rebuild put off: edited while it ran - '
+                                    'it rebuilds once the drawing stops')
+        if self._surface_pending:
+            # the checks it was to say: as they were, until the next build
+            self._surface_pending = False
+            self._checks_due.start()
 
     def _surface_failed(self, text: str):
         if self.usage is not None:

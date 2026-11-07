@@ -141,7 +141,8 @@ the three choices under the Surface panel's Rebuild surface - says how it
 keeps up as you draw:
 
 - **auto**: each edit is previewed around itself, and the whole surface is
-  rebuilt once you stop drawing.
+  rebuilt once you have stopped drawing for a minute. An edit while it
+  rebuilds gives that rebuild up, until the next pause.
 - **local**: each edit is previewed, and the whole surface waits for
   **Ctrl+R**. The previews are close, not exact, and the Validation panel's
   surface findings and the unknown ground are as they were at the last build.
