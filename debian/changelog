@@ -1,3 +1,15 @@
+danu (1.5.1-1) unstable; urgency=medium
+
+  * Surfaces: no 0 m line along a degree square's edge where its contours
+    stop just short of it - a dark band on the map and in the editor's 1"
+    tiles, seen across castellan's new squares (#343).
+  * Narrower side panels: the Selected and Zones panels' actions are icons,
+    their names and keys in the tooltips; the panels' tabs are icons; the
+    Surface panel scrolls in a short column; Gone from upstream no longer
+    pushes the window wider than the screen (#342).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sat, 07 Nov 2026 16:14:20 +0000
+
 danu (1.5.0-1) unstable; urgency=medium
 
   * Fit contours to the coast (Shift+K): an island's low contours are laid
