@@ -348,7 +348,8 @@ class _Job(QRunnable):
             self._say(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
             return
         if self.abandon.is_set():
-            self._abandoned('the checks')
+            # given up after its last stage, before the checks
+            self._abandoned('the end of the build')
             return
         if self.after is not None and isinstance(built, Built):
             # here, before the next build can start writing into the same
