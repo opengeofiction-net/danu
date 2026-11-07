@@ -34,7 +34,7 @@ import numpy as np
 
 from ..core import edits
 from ..core.geometry import EPS, _orient
-from .crossings import CELL_M, _cells_of
+from .crossings import _segment_cells
 
 
 @dataclass(frozen=True)
@@ -106,17 +106,10 @@ def _self_crossings(lines, closed) -> list:
     b = np.concatenate([m[1:] for m in lines])
     owner = np.concatenate([np.full(len(m) - 1, k) for k, m in enumerate(lines)])
     first = np.concatenate([[0], np.cumsum([len(m) - 1 for m in lines])[:-1]])
-    lo = np.floor(np.minimum(a, b) / CELL_M).astype(np.int64)
-    hi = np.floor(np.maximum(a, b) / CELL_M).astype(np.int64)
-    one = (lo == hi).all(axis=1)
-    seg = list(np.flatnonzero(one))
-    cx, cy = list(lo[one, 0]), list(lo[one, 1])
-    for i in np.flatnonzero(~one):
-        for c in _cells_of(a[i], b[i]):
-            seg.append(i)
-            cx.append(c[0])
-            cy.append(c[1])
-    seg, cx, cy = np.asarray(seg), np.asarray(cx), np.asarray(cy)
+    # each segment in each cell it can meet another in, boxed at once: a
+    # segment at a time was 252,000 calls on roantra's 3x3 opening
+    seg, cell = _segment_cells(a, b)
+    cx, cy = cell[:, 0], cell[:, 1]
     order = np.lexsort((seg, cy, cx, owner[seg]))
     seg, cx, cy = seg[order], cx[order], cy[order]
     new = np.ones(len(seg), dtype=bool)
@@ -256,11 +249,12 @@ class Index:
         self.working_set = working_set
         self._listed = None                    # sorted, until an edit
         self._by_way: dict = defaultdict(list)
-        for sq in working_set.squares.values():
-            for w in sq.contours():
-                found = find_in(sq, w)
-                if found:
-                    self._by_way[(sq.name, w.id)] = found
+        # every contour at once, as find has them, and then by contour: a
+        # contour at a time was 14,270 calls and 4.6 s of roantra's 3x3
+        # opening. find's order - by contour, then along it - is each
+        # contour's own order too
+        for lp in find(working_set):
+            self._by_way[lp.contour[:2]].append(lp)
 
     def loops(self) -> list[Loop]:
         if self._listed is None:

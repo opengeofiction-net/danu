@@ -49,6 +49,40 @@ def _cells_of(a, b) -> set:
     return out
 
 
+def _cells_by_owner(a, b, owner, owners: int) -> list[set]:
+    """For each of ``owners`` ways, the union of ``_cells_of`` over its
+    segments - ``owner`` saying whose each is - with the short segments,
+    nearly all, boxed at once as ``_by_cell`` boxes them. A call a segment
+    was 4.9 s of roantra's 3x3 opening, 807,000 of them."""
+    out: list[set] = [set() for _ in range(owners)]
+    if not len(a):
+        return out
+    lo = np.floor(np.minimum(a, b) / CELL_M).astype(np.int64)
+    hi = np.floor(np.maximum(a, b) / CELL_M).astype(np.int64)
+    span = hi - lo + 1
+    small = span[:, 0] * span[:, 1] <= 16
+    k = np.flatnonzero(small)
+    got = []
+    for dx in range(16):
+        for dy in range(16 // (dx + 1)):
+            m = k[(span[k, 0] > dx) & (span[k, 1] > dy)]
+            if len(m):
+                got.append(np.column_stack((owner[m], lo[m] + (dx, dy))))
+    if got:
+        rows = np.unique(np.concatenate(got), axis=0)
+        starts = np.flatnonzero(np.r_[True, rows[1:, 0] != rows[:-1, 0]])
+        for s0, e0 in zip(starts, np.r_[starts[1:], len(rows)], strict=True):
+            out[int(rows[s0, 0])] = set(map(tuple, rows[s0:e0, 1:].tolist()))
+    for i in np.flatnonzero(~small):
+        out[int(owner[i])] |= _cells_of(a[i], b[i])
+    return out
+
+
+def _cells_many(a, b) -> set:
+    """``_cells_by_owner`` of one way's segments."""
+    return _cells_by_owner(a, b, np.zeros(len(a), dtype=np.int64), 1)[0]
+
+
 @dataclass(frozen=True)
 class Crossing:
     """Where two contours cross: each as (square name, way id, elevation)."""
@@ -71,9 +105,10 @@ def _segments(working_set):
     return keys, pts
 
 
-def find(working_set) -> list[Crossing]:
-    """Every crossing between two contours of the working set."""
-    keys, pts = _segments(working_set)
+def find(working_set, segments=None) -> list[Crossing]:
+    """Every crossing between two contours of the working set; from its
+    ``_segments`` if the caller has read them already."""
+    keys, pts = segments if segments is not None else _segments(working_set)
     if not keys:
         return []
     lat0 = float(np.mean([p[:, 1].mean() for p in pts]))
@@ -81,54 +116,62 @@ def find(working_set) -> list[Crossing]:
     a = np.concatenate([p[:-1] for p in pts]) * (kx, ky)
     b = np.concatenate([p[1:] for p in pts]) * (kx, ky)
     owner = np.concatenate([np.full(len(p) - 1, k) for k, p in enumerate(pts)])
-    lo = np.floor(np.minimum(a, b) / CELL_M).astype(np.int64)
-    hi = np.floor(np.maximum(a, b) / CELL_M).astype(np.int64)
-    cells: dict = defaultdict(list)
-    # most segments are far shorter than a cell and lie in one; the rest
-    # go in every cell they can meet another in
-    one = (lo == hi).all(axis=1)
-    for i in np.flatnonzero(one):
-        cells[(int(lo[i, 0]), int(lo[i, 1]))].append(i)
-    for i in np.flatnonzero(~one):
-        for c in _cells_of(a[i], b[i]):
-            cells[c].append(i)
-    out, seen = [], set()
-    for idx in cells.values():
+    # segments by the cells they can meet another in - _cells_of's cells -
+    # and the cells holding two contours or more tested a size at a time:
+    # every cell of n segments stacked and its pairs tested together, not a
+    # cell at a time - 70,000 cells and 6.9 s on roantra's 3x3
+    by_size: dict = defaultdict(list)
+    for idx in _by_cell(a, b).values():
         if len(idx) < 2:
             continue
-        idx = np.asarray(idx)
-        if len(np.unique(owner[idx])) < 2:
+        own = owner[idx]
+        if own.min() == own.max():
             continue
-        sa, sb = a[idx], b[idx]
-        # every pair in the cell at once: segment i against segment j
-        d1 = _orient(sa[:, None], sb[:, None], sa[None, :])
-        d2 = _orient(sa[:, None], sb[:, None], sb[None, :])
-        d3 = _orient(sa[None, :], sb[None, :], sa[:, None])
-        d4 = _orient(sa[None, :], sb[None, :], sb[:, None])
-        hit = (((d1 > EPS) & (d2 < -EPS)) | ((d1 < -EPS) & (d2 > EPS))) & \
-              (((d3 > EPS) & (d4 < -EPS)) | ((d3 < -EPS) & (d4 > EPS)))
-        hit &= owner[idx][:, None] != owner[idx][None, :]
-        hit = np.triu(hit, 1)
-        ii, jj = np.nonzero(hit)
-        if not len(ii):
-            continue
-        p, r = sa[ii], sb[ii] - sa[ii]
-        q, s = sa[jj], sb[jj] - sa[jj]
+        by_size[len(idx)].append(idx)
+    ii_all, jj_all = [], []
+    for n, groups in by_size.items():
+        # a few thousand pairs' worth at a time, to keep the arrays small
+        step = max(1, 2_000_000 // (n * n))
+        for g0 in range(0, len(groups), step):
+            idx = np.asarray(groups[g0:g0 + step])            # (m, n)
+            sa, sb = a[idx], b[idx]                            # (m, n, 2)
+            d1 = _orient(sa[:, :, None], sb[:, :, None], sa[:, None, :])
+            d2 = _orient(sa[:, :, None], sb[:, :, None], sb[:, None, :])
+            d3 = _orient(sa[:, None, :], sb[:, None, :], sa[:, :, None])
+            d4 = _orient(sa[:, None, :], sb[:, None, :], sb[:, :, None])
+            hit = (((d1 > EPS) & (d2 < -EPS)) | ((d1 < -EPS) & (d2 > EPS))) & \
+                  (((d3 > EPS) & (d4 < -EPS)) | ((d3 < -EPS) & (d4 > EPS)))
+            own = owner[idx]
+            hit &= own[:, :, None] != own[:, None, :]
+            hit &= np.triu(np.ones((n, n), bool), 1)[None]
+            gg, ii, jj = np.nonzero(hit)
+            ii_all.append(idx[gg, ii])
+            jj_all.append(idx[gg, jj])
+    out, seen = [], set()
+    if ii_all:
+        ii = np.concatenate(ii_all)
+        jj = np.concatenate(jj_all)
+        # met a cell size at a time; one met twice keeps whichever came
+        # first, the same crossing to the 0.1 m it is known by
+        p, r = a[ii], b[ii] - a[ii]
+        q, s = a[jj], b[jj] - a[jj]
         den = r[:, 0] * s[:, 1] - r[:, 1] * s[:, 0]
         t = ((q[:, 0] - p[:, 0]) * s[:, 1] - (q[:, 1] - p[:, 1]) * s[:, 0]) / den
         x = p + r * t[:, None]
-        for i, j, (px, py) in zip(idx[ii], idx[jj], x, strict=True):
-            # one crossing, however it was met: the same two segments in
-            # another cell, or a crossing on a vertex, where both segments
-            # meeting at it cross - 25 of them on gobras
-            ka, kb = sorted((owner[i], owner[j]))
-            point = (ka, kb, round(px, 1), round(py, 1))
-            if point in seen:
-                continue
-            seen.add(point)
-            # the two named in one order, the order an update names them in
-            first, second = sorted((keys[ka], keys[kb]), key=lambda t: (str(t[0]), t[1]))
-            out.append(Crossing(first, second, px / kx, py / ky))
+    else:
+        ii = jj = x = ()
+    for i, j, (px, py) in zip(ii, jj, x, strict=True):
+        # one crossing, however it was met: the same two segments in
+        # another cell, or a crossing on a vertex, where both segments
+        # meeting at it cross - 25 of them on gobras
+        ka, kb = sorted((owner[i], owner[j]))
+        point = (ka, kb, round(px, 1), round(py, 1))
+        if point in seen:
+            continue
+        seen.add(point)
+        # the two named in one order, the order an update names them in
+        first, second = sorted((keys[ka], keys[kb]), key=lambda t: (str(t[0]), t[1]))
+        out.append(Crossing(first, second, px / kx, py / ky))
     out.sort(key=lambda c: (c.lat, c.lon))
     return out
 
@@ -179,12 +222,10 @@ def _pair_hits(a1, b1, a2, b2):
     return ii, jj, a1[ii] + r * t[:, None]
 
 
-def _by_cell(a, b) -> dict:
-    """Segments by the cells they can meet another in: cell -> indices.
-    Those with a box of 16 cells or fewer - as ``_cells_of`` has them - are
-    grouped by sorting, not one at a time: 0.3 s an edit of N20E066's 1991 m
-    contour, the 120,000 segments near it put in their cells singly."""
-    out: dict = defaultdict(list)
+def _segment_cells(a, b):
+    """Each segment against each cell it can meet another in - ``_cells_of``'s
+    cells - as two arrays, (segment, cell), the segments with a box of 16
+    cells or fewer boxed at once and only the long rest one at a time."""
     lo = np.floor(np.minimum(a, b) / CELL_M).astype(np.int64)
     hi = np.floor(np.maximum(a, b) / CELL_M).astype(np.int64)
     span = hi - lo + 1
@@ -195,16 +236,28 @@ def _by_cell(a, b) -> dict:
             k = small[(span[small, 0] > dx) & (span[small, 1] > dy)]
             seg.append(k)
             cell.append(lo[k] + (dx, dy))
-    seg, cell = np.concatenate(seg), np.concatenate(cell).reshape(-1, 2)
+    for i in np.flatnonzero(span[:, 0] * span[:, 1] > 16):
+        cs = _cells_of(a[i], b[i])
+        seg.append(np.full(len(cs), i))
+        cell.append(np.array(sorted(cs), dtype=np.int64).reshape(-1, 2))
+    if not seg:
+        return np.zeros(0, dtype=np.int64), np.zeros((0, 2), dtype=np.int64)
+    return np.concatenate(seg), np.concatenate(cell).reshape(-1, 2)
+
+
+def _by_cell(a, b) -> dict:
+    """Segments by the cells they can meet another in: cell -> indices, each
+    cell's in order. Grouped by sorting, not one segment at a time: 0.3 s
+    an edit of N20E066's 1991 m contour, the 120,000 segments near it put
+    in their cells singly."""
+    out: dict = {}
+    seg, cell = _segment_cells(a, b)
     if len(seg):
         order = np.lexsort((seg, cell[:, 1], cell[:, 0]))
         seg, cell = seg[order], cell[order]
         starts = np.flatnonzero(np.r_[True, (cell[1:] != cell[:-1]).any(1)])
         for s0, e0 in zip(starts, np.r_[starts[1:], len(seg)], strict=True):
             out[(int(cell[s0, 0]), int(cell[s0, 1]))] = seg[s0:e0].tolist()
-    for i in np.flatnonzero(span[:, 0] * span[:, 1] > 16):
-        for c in _cells_of(a[i], b[i]):
-            out[c].append(i)
     return out
 
 
@@ -221,15 +274,25 @@ class Index:
     def __init__(self, working_set):
         self.working_set = working_set
         self._listed = None                    # sorted, until an edit
-        keys, pts = _segments(working_set)
+        keys, pts = segments = _segments(working_set)
         lat0 = float(np.mean([p[:, 1].mean() for p in pts])) if pts else 0.0
         self.k = np.array([111320.0 * math.cos(math.radians(lat0)), 110540.0])
         self._ways: dict = {}                    # (square, way) -> (ele, a, b, cells)
         self._cells: dict = defaultdict(set)     # cell -> {(square, way)}
-        for (sq, wid, ele), p in zip(keys, pts, strict=True):
-            self._add(sq, wid, ele, p)
+        # every way's cells in one pass, not a way at a time: 14,270 ways
+        # each paying the boxing's fixed cost was 3.9 s on roantra's 3x3
+        metres = [p * self.k for p in pts]
+        a = np.concatenate([m[:-1] for m in metres]) if metres else np.zeros((0, 2))
+        b = np.concatenate([m[1:] for m in metres]) if metres else np.zeros((0, 2))
+        owner = np.concatenate([np.full(len(m) - 1, n) for n, m in enumerate(metres)]) if metres \
+            else np.zeros(0, dtype=np.int64)
+        cells = _cells_by_owner(a, b, owner, len(metres))
+        for (sq, wid, ele), m, cs in zip(keys, metres, cells, strict=True):
+            self._ways[(sq, wid)] = (ele, m[:-1], m[1:], cs)
+            for c in cs:
+                self._cells[c].add((sq, wid))
         self._by_way: dict = defaultdict(set)
-        for c in find(working_set):
+        for c in find(working_set, segments):
             self._by_way[c.a[:2]].add(c)
             self._by_way[c.b[:2]].add(c)
 
@@ -244,7 +307,7 @@ class Index:
     def _add(self, sq, wid, ele, lonlat):
         metres = lonlat * self.k
         a, b = metres[:-1], metres[1:]
-        cells = set().union(*(_cells_of(s, e) for s, e in zip(a, b, strict=True)))
+        cells = _cells_many(a, b)
         self._ways[(sq, wid)] = (ele, a, b, cells)
         for c in cells:
             self._cells[c].add((sq, wid))
