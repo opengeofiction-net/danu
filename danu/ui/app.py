@@ -3103,6 +3103,10 @@ def main(argv: list[str] | None = None) -> int:
     except OSError:
         pass                                     # left as it was; the preferences say where it is
     layers = config.load_layers(user_config_dir() / config.USER_FILE)
+    # the squares' translated constraints kept between sessions, not beside
+    # each session's builds: a session's first build translated every square
+    from . import surface as surface_ui
+    surface_ui.SQUARE_CACHE = surface_ui.square_cache(user_cache_dir())
     win = MainWindow(layers, cache_dir=user_cache_dir() / 'tiles', data_dir=user_data_dir(),
                      settings=settings)
     reporter.attach(win)

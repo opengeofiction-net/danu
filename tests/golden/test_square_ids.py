@@ -200,6 +200,76 @@ def test_a_square_kept_translated_gives_the_same_constraints_and_is_not_expanded
     assert len(list(cache.glob('S24E126-*.gpkg'))) == 1
 
 
+def test_another_windows_unfinished_piece_is_left_alone(tmp_path):
+    """The cache outlives a session, so two windows may share it: a piece
+    being written by another process is named by its pid, and neither taken
+    for an old piece nor overwritten."""
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    sq, _ = ring(SquareName(125, -24), 125.5, -23.5, 200)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    cache = tmp_path / 'cache'
+    cache.mkdir()
+    theirs = cache / 'S24E125-0123.999999.part.gpkg'
+    theirs.write_bytes(b'being written')
+    (tmp_path / 'w').mkdir()
+    build.collect({SquareName(125, -24): zone / 'S24E125.osm.xz'}, tmp_path / 'w', cache=cache)
+    assert theirs.read_bytes() == b'being written'
+    assert len([p for p in cache.glob('S24E125-*.gpkg') if not p.name.endswith('.part.gpkg')]) == 1
+    assert not [p for p in cache.glob('*.part.gpkg') if p != theirs], 'its own part left behind'
+
+
+def test_a_new_session_builds_from_the_pieces_the_last_one_kept(tmp_path, monkeypatch):
+    """The editor's builds keep each square's pieces in SQUARE_CACHE, which
+    the window sets to the user's cache: a session's first build no longer
+    translates every square again."""
+
+    from danu.core.square import SquareName, write_square
+    from danu.surface import build
+    from danu.surface import params as sp
+    from danu.ui import surface
+
+    zone = tmp_path / 'zone'
+    zone.mkdir()
+    sq, _ = ring(SquareName(125, -24), 125.5, -23.5, 200)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    monkeypatch.setattr(surface, 'SQUARE_CACHE', surface.square_cache(tmp_path / 'user-cache'))
+    p = sp.load().with_arcsec(3)
+    surface.build_surface(zone, [SquareName(125, -24)], p, tmp_path / 'session1' / 'build-1')
+    [piece] = surface.SQUARE_CACHE.glob('S24E125-*.gpkg')
+    made = piece.stat().st_mtime_ns
+    translated = []
+    real = build.gdal.VectorTranslate
+    monkeypatch.setattr(build.gdal, 'VectorTranslate', lambda *a, **k: translated.append(a[0]) or real(*a, **k))
+    # a new session: a new work directory, the same user cache
+    surface.build_surface(zone, [SquareName(125, -24)], p, tmp_path / 'session2' / 'build-1')
+    assert [x for x in translated if 'S24E125-' in str(x)] == [], 'the square was translated again'
+    assert piece.stat().st_mtime_ns == made
+
+
+def test_the_square_cache_is_this_versions_and_others_go(tmp_path):
+    import os
+    import time
+
+    from danu import __version__
+    from danu.ui import surface
+
+    root = tmp_path / 'user-cache'
+    for v in ('0.0.1', '0.0.2'):
+        (root / 'square-cache' / v).mkdir(parents=True)
+        (root / 'square-cache' / v / 'S24E125-ab.gpkg').write_bytes(b'old')
+    # 0.0.1 unused for a week and more; 0.0.2 open now in another window
+    week = time.time() - surface.OTHER_VERSIONS_KEPT_S - 60
+    os.utime(root / 'square-cache' / '0.0.1', (week, week))
+    got = surface.square_cache(root)
+    assert got == root / 'square-cache' / __version__
+    assert not (root / 'square-cache' / '0.0.1').exists()
+    assert (root / 'square-cache' / '0.0.2' / 'S24E125-ab.gpkg').exists()
+
+
 def test_shading_leaves_no_intermediate_behind_and_matches_the_compressed_shading(tmp_path, monkeypatch):
     """The editor's shading writes its intermediates uncompressed and removes
     them once read - the same arrays as written compressed."""

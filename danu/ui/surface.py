@@ -149,6 +149,37 @@ class _Signals(QObject):
     failed = Signal(str)
 
 
+# Where each square's translated constraints are kept between builds - and,
+# set by the window to the user's cache, between sessions. A session's first
+# build translated every square again from the OSM files, its collect 18 to
+# 36 s of a 34 to 62 s build on roantra's 3x3, where the next took 2. None,
+# beside each session's builds, as the tests have it
+SQUARE_CACHE: Path | None = None
+
+
+# another version's pieces go once nothing has written them for this long: two
+# versions can be open at once - the AppImage beside the .deb - and the newer
+# one starting took the older one's from under it
+OTHER_VERSIONS_KEPT_S = 7 * 24 * 3600
+
+
+def square_cache(root: Path) -> Path:
+    """``root``/square-cache/<version>: a piece is what this version's
+    ``collect`` makes of a square, and another's may differ. Other versions'
+    are removed once unused for a week."""
+    from .. import __version__
+    base = root / 'square-cache'
+    if base.is_dir():
+        for d in base.iterdir():
+            try:
+                if d.is_dir() and d.name != __version__ and \
+                        time.time() - d.stat().st_mtime > OTHER_VERSIONS_KEPT_S:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
+    return base / __version__
+
+
 def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Built:
     """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
     touches no Qt object, so it is also the seam the queue's tests replace."""
@@ -159,10 +190,10 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     # difference between an edit costing one fill and two - 95 s of the 208 s
     # at 1 arcsecond on a three by three set
     watch = Stopwatch()
-    # each square's translated constraints kept beside the builds, which come
-    # and go, for the next build of the same squares
+    # each square's translated constraints kept for the next build of the
+    # same squares - see SQUARE_CACHE
     result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch,
-                             cache=Path(work).parent / 'square-cache')
+                             cache=SQUARE_CACHE or Path(work).parent / 'square-cache')
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
     watch('classes')
