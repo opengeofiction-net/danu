@@ -101,6 +101,78 @@ def find_in(square, only: set | None = None) -> list[Touch]:
     return _scan(square, [(w, P) for w, P in held if P is not None], only)
 
 
+FINE_M = 200.0                # the whole scan's grid for a vertex near a segment; 20 made 22 million cell entries
+
+
+def _fine_cells(a, b):
+    """Each segment against the FINE_M cells within NEAR_M of it, as (segment,
+    key) arrays: its box grown by NEAR_M where that is a few cells, and
+    otherwise the cells along its line and their neighbours, as
+    ``crossings._cells_of`` has a long one."""
+    lo = np.floor((np.minimum(a, b) - NEAR_M) / FINE_M).astype(np.int64)
+    hi = np.floor((np.maximum(a, b) + NEAR_M) / FINE_M).astype(np.int64)
+    span = hi - lo + 1
+    small = np.flatnonzero(span[:, 0] * span[:, 1] <= 16)
+    seg, cx, cy = [], [], []
+    for dx in range(16):
+        for dy in range(16 // (dx + 1)):
+            k = small[(span[small, 0] > dx) & (span[small, 1] > dy)]
+            seg.append(k)
+            cx.append(lo[k, 0] + dx)
+            cy.append(lo[k, 1] + dy)
+    long_ = np.flatnonzero(span[:, 0] * span[:, 1] > 16)
+    if len(long_):
+        # all the long ones at once: points every half cell along each, their
+        # cells and the cells round them, each (segment, cell) once
+        n = (np.hypot(*(b[long_] - a[long_]).T) / (FINE_M / 2)).astype(np.int64) + 2
+        own = np.repeat(long_, n)
+        f = (np.arange(n.sum()) - np.repeat(np.r_[0, np.cumsum(n)[:-1]], n)) / np.repeat(n - 1, n)
+        pts = a[own] + (b[own] - a[own]) * f[:, None]
+        c = np.floor(pts / FINE_M).astype(np.int64)
+        ring = np.array([(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)])
+        c = (c[:, None, :] + ring[None]).reshape(-1, 2)
+        own = np.repeat(own, len(ring))
+        u = np.unique(np.column_stack((own, c)), axis=0)
+        seg.append(u[:, 0])
+        cx.append(u[:, 1])
+        cy.append(u[:, 2])
+    seg, cx, cy = np.concatenate(seg), np.concatenate(cx), np.concatenate(cy)
+    # one key a cell: a cell's y is under 100,000 anywhere on the planet
+    return seg, cx * 4_000_037 + cy
+
+
+def _near_fine(P, owner, pos, a, b, seg_owner, hits) -> None:
+    """Every vertex within NEAR_M of another way's segment, put in ``hits`` -
+    the whole scan's. Pairs only a vertex and the segments in its FINE_M
+    cell, not every segment of its 500 m cell: on roantra's 3x3 that was
+    most of the 4.2 s the check took to open, a distance worked out for
+    pairs hundreds of metres apart."""
+    vk = np.floor(P / FINE_M).astype(np.int64)
+    vk = vk[:, 0] * 4_000_037 + vk[:, 1]
+    order = np.argsort(vk, kind='stable')
+    vks = vk[order]
+    seg, sk = _fine_cells(a, b)
+    first = np.searchsorted(vks, sk, side='left')
+    last = np.searchsorted(vks, sk, side='right')
+    n = last - first
+    has = n > 0
+    seg, first, n = seg[has], first[has], n[has]
+    if not len(seg):
+        return
+    si = np.repeat(seg, n)
+    start = np.repeat(first - np.r_[0, np.cumsum(n)[:-1]], n)
+    vi = order[start + np.arange(len(si))]
+    other = owner[vi] != seg_owner[si]
+    vi, si = vi[other], si[other]
+    A, ab = a[si], b[si] - a[si]
+    t = np.clip(((P[vi] - A) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-12), 0.0, 1.0)
+    d = np.hypot(*(A + ab * t[:, None] - P[vi]).T)
+    near = d < NEAR_M
+    for x, y, q in zip(owner[vi[near]].tolist(), seg_owner[si[near]].tolist(), pos[vi[near]].tolist(),
+                       strict=True):
+        hits[(x, y)].add(q)
+
+
 def _scan(square, held, only) -> list[Touch]:
     """The touches among ``held`` - (way, points in metres) - that a way of
     ``only`` is in, or all of them."""
@@ -187,7 +259,12 @@ def _scan(square, held, only) -> list[Touch]:
         P, owner, pos = P[keep_p], owner[keep_p], pos[keep_p]
         a, b, seg_owner = a[keep_s], b[keep_s], seg_owner[keep_s]
     hits: dict = defaultdict(set)              # (way, other) -> positions of way's vertices on other
-    if len(P) and len(a):
+    if len(P) and len(a) and only is None:
+        # the whole scan's, on the fine grid; an edit's, below, still on the
+        # 500 m one - it asks of a few ways, and the test holds the two to
+        # the same answer
+        _near_fine(P, owner, pos, a, b, seg_owner, hits)
+    elif len(P) and len(a):
         # the vertices by cell, grouped at once rather than one by one
         cells = np.floor(P / CELL_M).astype(np.int64)
         order = np.lexsort((cells[:, 1], cells[:, 0]))
