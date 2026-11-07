@@ -50,6 +50,19 @@ from osgeo import gdal
 
 gdal.UseExceptions()
 
+# A side within SNAP cells of its square's edge is taken to the edge. Squares
+# whose contours stop a fraction short of it - castellan's new ones end every
+# contour just inside - gave two neighbours' envelopes a gap between them: the
+# one cell centred on the shared degree line, which neither square's contours
+# reach. Outside the drawn area, it was 0 m on the published DEM, a cliff down
+# and back along every such edge that the rendered contours and the hillshade
+# drew as a dark band, and the ground beside it pulled down too. Three cells
+# is a contour stopping short, not ground left undescribed - at a zone's outer
+# edge too, where it now reaches the square's edge as well. A square's cells
+# are its own slice of the raster (``squares``), so a side taken to its edge
+# meets its neighbour's and never crosses into it.
+SNAP = 3
+
 
 def squares(gt, W, H):
     """The degree squares a raster on ``gt`` of W by H covers, as
@@ -72,13 +85,18 @@ def squares(gt, W, H):
 def envelope(a, nodata):
     """The envelope of the constraints in one square's cells, as the first and
     one-past-last row and column holding one; None when there are none. Outer
-    edges of the extreme cells, so every contour cell is inside."""
+    edges of the extreme cells, so every contour cell is inside; a side within
+    ``SNAP`` cells of the square's edge taken to it."""
     m = a != nodata
     if not m.any():
         return None
     rows = np.flatnonzero(m.any(axis=1))
     cols = np.flatnonzero(m.any(axis=0))
-    return int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
+    h, w = m.shape
+    r0, r1 = int(rows[0]), int(rows[-1]) + 1
+    c0, c1 = int(cols[0]), int(cols[-1]) + 1
+    return (0 if r0 <= SNAP else r0, h if h - r1 <= SNAP else r1,
+            0 if c0 <= SNAP else c0, w if w - c1 <= SNAP else c1)
 
 
 def envelopes(src_path, out_path):
