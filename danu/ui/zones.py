@@ -366,18 +366,15 @@ class ZonesDock(QDockWidget):
         box.addWidget(self.status)
         # drawn, what each does in its tooltip: named, in rows of four and
         # five, they made the right column as wide as the five
-        self.reload = PaintedButton(icons.reload, 'Reload the zones from the server')
-        self.import_ = PaintedButton(icons.download, "Import - the zone chosen, its squares copied to "
-                                     'this machine - as File › Import')
-        self.new = PaintedButton(icons.new_zone, 'New zone…')
-        self.edit = PaintedButton(icons.edit_squares, "Edit squares - a click or a drag adds squares to "
-                                  'the zone, ctrl and a drag takes them away')
-        self.save = PaintedButton(icons.save, 'Save the zone')
-        self.cancel = PaintedButton(icons.cross, 'Cancel the edit')
-        self.split = PaintedButton(icons.split, "Split… - some of the chosen zone's squares a new zone, "
-                                   'their files moved with them')
-        self.inactive = PaintedButton(icons.pause, 'Inactive… - the zone kept off the tile servers')
-        self.active = PaintedButton(icons.play, 'Active - the zone on the tile servers again')
+        self.reload = PaintedButton(icons.reload, 'Reload zones from server')
+        self.import_ = PaintedButton(icons.download, 'Import zone from server, save squares to this machine')
+        self.new = PaintedButton(icons.new_zone, 'Create new zone…')
+        self.edit = PaintedButton(icons.edit_squares, 'Edit squares assigned to zone')
+        self.save = PaintedButton(icons.save, 'Save changes to zone')
+        self.cancel = PaintedButton(icons.cross, 'Discard changes to zone')
+        self.split = PaintedButton(icons.split, 'Split squares into a new zone…')
+        self.inactive = PaintedButton(icons.pause, 'Mark zone inactive, hidden from tile servers…')
+        self.active = PaintedButton(icons.play, 'Mark zone active, shown on tile servers')
         row1, row2 = QHBoxLayout(), QHBoxLayout()
         for b in (self.reload, self.import_, self.new, self.edit, self.split):
             row1.addWidget(b)

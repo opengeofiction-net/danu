@@ -434,18 +434,17 @@ class SelectionPanel(QDockWidget):
         # drawn, the key in the tooltip, in a row across the panel: as named
         # buttons they set the left column's width
         keys = self.settings.key if self.settings is not None else None
-        self.grade_btn = PaintedButton(icons.grade, 'Grade from the contours', 'edit.grade', keys)
+        self.grade_btn = PaintedButton(icons.grade, 'Grade river from contours', 'edit.grade', keys)
         self.grade_btn.clicked.connect(editor.grade)
-        self.network_btn = PaintedButton(icons.network, 'Grade the river network', 'edit.grade_network', keys)
+        self.network_btn = PaintedButton(icons.network, 'Grade river network', 'edit.grade_network', keys)
         self.network_btn.clicked.connect(editor.grade_network)
         # a 0 m line made the coastline, or not, and a coastline turned round
-        self.coast_btn = PaintedButton(icons.coastline, 'Coastline - a 0 m line that is the coast: land on '
-                                       'the left of the way it runs, sea on the right',
-                                       'edit.mark_coastline', keys, checkable=True)
+        self.coast_btn = PaintedButton(icons.coastline, 'Mark as coastline', 'edit.mark_coastline', keys,
+                                       checkable=True)
         self.coast_btn.clicked.connect(editor.mark_coastline)
-        self.reverse_btn = PaintedButton(icons.reverse, 'Reverse the coastline', 'edit.reverse_coastline', keys)
+        self.reverse_btn = PaintedButton(icons.reverse, 'Reverse coastline direction', 'edit.reverse_coastline', keys)
         self.reverse_btn.clicked.connect(lambda: editor.reverse_coastline())
-        self.flatten_btn = PaintedButton(icons.flatten, 'Flatten the lake', 'edit.flatten', keys)
+        self.flatten_btn = PaintedButton(icons.flatten, 'Flatten lake', 'edit.flatten', keys)
         self.flatten_btn.clicked.connect(lambda: editor.flatten())
         self.action_btns = (self.grade_btn, self.network_btn, self.coast_btn, self.reverse_btn,
                             self.flatten_btn)
@@ -462,8 +461,8 @@ class SelectionPanel(QDockWidget):
         self.summary.setWordWrap(True)
         self.profile = ProfileView()
         buttons = QHBoxLayout()
-        self.accept_btn = PaintedButton(icons.tick, 'Accept (Enter)')
-        self.drop_btn = PaintedButton(icons.cross, 'Drop (Esc)')
+        self.accept_btn = PaintedButton(icons.tick, 'Accept change (Enter)')
+        self.drop_btn = PaintedButton(icons.cross, 'Discard change (Esc)')
         for b in (self.accept_btn, self.drop_btn):
             buttons.addWidget(b)
         buttons.addStretch(1)

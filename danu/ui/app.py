@@ -1541,10 +1541,19 @@ class MainWindow(QMainWindow):
     def _tab_icons(self) -> None:
         """Each panel's icon, which its tab shows in place of its name -
         see ``icons.IconTabs`` - drawn in the palette's text colour."""
-        colour = self.palette().color(QPalette.ColorRole.WindowText)
+        pal = self.palette()
+        colour, on = pal.color(QPalette.ColorRole.WindowText), pal.color(QPalette.ColorRole.HighlightedText)
         for dock in self.docks():
-            dock.setWindowIcon(icons.icon(self.TAB_ICONS[dock.objectName()], colour))
+            dock.setWindowIcon(icons.icon(self.TAB_ICONS[dock.objectName()], colour, on))
         self._icons_on_tabs()
+
+    TAB_TIPS = {'elevation': 'Elevation: active level and step sizes',
+                'selected': 'Selected: details and actions for the selection',
+                'surface': 'Surface: build and display the surface',
+                'gone': 'Gone from upstream: features removed from the main map',
+                'checks': 'Validation: problems found in the contours',
+                'zones': 'Zones: zones and their squares on the server',
+                'profile': 'Profile: the ground along a measured line'}
 
     def _icons_on_tabs(self) -> None:
         """Each tab bar drawn as icons (``icons.IconTabs``), and each tab
@@ -1554,14 +1563,27 @@ class MainWindow(QMainWindow):
         see every event the window has: Python for each, and the GIL taken
         from a worker for each - a test run on Windows went from 4 minutes
         to past its 40."""
-        named = {dock.windowTitle(): dock.windowIcon() for dock in self.docks()}
+        named = {dock.windowTitle(): dock for dock in self.docks()}
         for bar in self.findChildren(QTabBar):
             if not isinstance(bar.style(), icons.IconTabs):
                 bar.setStyle(self._tab_style)
+                bar.installEventFilter(self._tab_tips)
             for i in range(bar.count()):
-                icon = named.get(bar.tabText(i))
-                if icon is not None and bar.tabIcon(i).cacheKey() != icon.cacheKey():
-                    bar.setTabIcon(i, icon)
+                dock = named.get(bar.tabText(i))
+                if dock is None:
+                    continue
+                if bar.tabIcon(i).cacheKey() != dock.windowIcon().cacheKey():
+                    bar.setTabIcon(i, dock.windowIcon())
+                # what the panel is for, not just its name, which Qt gives
+                tip = self.TAB_TIPS.get(dock.objectName(), dock.windowTitle())
+                if bar.tabToolTip(i) != tip:
+                    bar.setTabToolTip(i, tip)
+
+    @property
+    def _tab_tips(self) -> icons.TabTips:
+        if getattr(self, '_tab_tips_', None) is None:
+            self._tab_tips_ = icons.TabTips(self)
+        return self._tab_tips_
 
     @property
     def _tab_style(self) -> icons.IconTabs:
