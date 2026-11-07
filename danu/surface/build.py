@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
@@ -406,6 +407,13 @@ def _piece(cache: Path, name, digest: str, source: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     for old in cache.glob(f'{name}-*.gpkg'):
         if old.name.endswith('.part.gpkg'):
+            # another process's, being written - unless it is an hour old,
+            # left by a build that died halfway
+            try:
+                if time.time() - old.stat().st_mtime > 3600:
+                    old.unlink(missing_ok=True)
+            except OSError:
+                pass
             continue
         try:
             old.unlink(missing_ok=True)
@@ -426,8 +434,8 @@ def _piece(cache: Path, name, digest: str, source: Path) -> Path:
     try:
         part.replace(piece)          # whole or not at all: a build stopped halfway leaves none
     except OSError:
-        # Windows: another window made the same piece and has it open -
-        # theirs is this one, byte for byte
+        # Windows: another window made the same piece and has it open. It
+        # was whole as it was put there, and of the same digest
         part.unlink(missing_ok=True)
     return piece
 

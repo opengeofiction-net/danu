@@ -220,12 +220,25 @@ def test_another_windows_unfinished_piece_is_left_alone(tmp_path):
     assert theirs.read_bytes() == b'being written'
     assert len([p for p in cache.glob('S24E125-*.gpkg') if not p.name.endswith('.part.gpkg')]) == 1
     assert not [p for p in cache.glob('*.part.gpkg') if p != theirs], 'its own part left behind'
+    # one left an hour and more by a build that died goes
+    import os
+    import time
+    dead = cache / 'S24E125-0456.999998.part.gpkg'
+    dead.write_bytes(b'died here')
+    old = time.time() - 7200
+    os.utime(dead, (old, old))
+    sq, _ = ring(SquareName(125, -24), 125.5, -23.5, 300)
+    write_square(sq, zone / 'S24E125.osm.xz')
+    (tmp_path / 'w2').mkdir()
+    build.collect({SquareName(125, -24): zone / 'S24E125.osm.xz'}, tmp_path / 'w2', cache=cache)
+    assert not dead.exists() and theirs.exists()
 
 
 def test_a_new_session_builds_from_the_pieces_the_last_one_kept(tmp_path, monkeypatch):
     """The editor's builds keep each square's pieces in SQUARE_CACHE, which
     the window sets to the user's cache: a session's first build no longer
     translates every square again."""
+    pytest.importorskip('PySide6')            # the editor's; the golden job has none
 
     from danu.core.square import SquareName, write_square
     from danu.surface import build
@@ -251,6 +264,7 @@ def test_a_new_session_builds_from_the_pieces_the_last_one_kept(tmp_path, monkey
 
 
 def test_the_square_cache_is_this_versions_and_others_go(tmp_path):
+    pytest.importorskip('PySide6')            # the editor's; the golden job has none
     import os
     import time
 
