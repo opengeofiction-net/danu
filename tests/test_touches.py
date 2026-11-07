@@ -290,3 +290,28 @@ def test_an_edits_scan_finds_what_the_whole_scan_does_of_its_way():
             sorted((t for t in whole if t.kind != 'fork' and wid in (t.a[1], t.b[1])), key=order), wid
         assert {t.node for t in asked if t.kind == 'fork'} == \
             {t.node for t in whole if t.kind == 'fork' and t.node in w_.refs}, wid
+
+
+def test_the_whole_scan_finds_what_asking_of_every_way_finds():
+    """The whole scan pairs a vertex with the segments in its FINE_M cell;
+    an edit's, with those in its 500 m cell. Both must find the same: many
+    pairs running together a few tens of centimetres apart, at every angle,
+    across both grids' cell boundaries, some with long segments."""
+    import math
+    import random
+    w, sq = ws()
+    rnd = random.Random(7)
+    for k in range(40):
+        lon0 = 125.30 + rnd.random() * 0.2
+        lat0 = LAT + rnd.random() * 0.2
+        ang = rnd.random() * math.pi
+        step = rnd.choice((0.0002, 0.0007, 0.004))          # 20 m to 400 m segments
+        dx, dy = math.cos(ang) * step, math.sin(ang) * step
+        off = (0.2 + rnd.random() * 0.6) * M_LAT
+        n = rnd.randint(3, 8)
+        way(sq, nodes(sq, [(lon0 + j * dx, lat0 + j * dy) for j in range(n)]), 100 + k)
+        way(sq, nodes(sq, [(lon0 + j * dx, lat0 + j * dy + off) for j in range(n)]), 200 + k)
+    whole = touches.find_in(sq)
+    asked = touches.find_in(sq, only={x.id for x in sq.contours()})
+    assert len(whole) >= 30
+    assert sorted(whole, key=repr) == sorted(asked, key=repr)
