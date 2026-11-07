@@ -37,6 +37,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass, replace
 from importlib import resources
 from pathlib import Path
@@ -405,8 +407,24 @@ def _piece(cache: Path, name, digest: str, source: Path) -> Path:
         return piece
     cache.mkdir(parents=True, exist_ok=True)
     for old in cache.glob(f'{name}-*.gpkg'):
-        old.unlink(missing_ok=True)
-    part = cache / f'{name}-{digest}.part.gpkg'
+        if old.name.endswith('.part.gpkg'):
+            # another process's, being written - unless it is an hour old,
+            # left by a build that died halfway
+            try:
+                if time.time() - old.stat().st_mtime > 3600:
+                    old.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+        try:
+            old.unlink(missing_ok=True)
+        except OSError:
+            # Windows: another window's build has it open. It goes the
+            # next time this square's piece is made
+            pass
+    # this process's and thread's own: the cache outlives a session and two
+    # windows may translate the same square at once
+    part = cache / f'{name}-{digest}.{os.getpid()}-{threading.get_ident()}.part.gpkg'
     part.unlink(missing_ok=True)
     gdal.VectorTranslate(str(part), str(source), options=gdal.VectorTranslateOptions(
         format='GPKG', layers=['lines'], where='ele IS NOT NULL', layerName='contour',
@@ -414,7 +432,12 @@ def _piece(cache: Path, name, digest: str, source: Path) -> Path:
     gdal.VectorTranslate(str(part), str(source), options=gdal.VectorTranslateOptions(
         format='GPKG', layers=['points'], where='ele IS NOT NULL', layerName='spot',
         accessMode='append'))
-    part.rename(piece)               # whole or not at all: a build stopped halfway leaves none
+    try:
+        part.replace(piece)          # whole or not at all: a build stopped halfway leaves none
+    except OSError:
+        # Windows: another window made the same piece and has it open. It
+        # was whole as it was put there, and of the same digest
+        part.unlink(missing_ok=True)
     return piece
 
 
