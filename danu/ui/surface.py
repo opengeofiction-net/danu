@@ -59,7 +59,7 @@ from .trace import trace as _trace
 ARCSEC = 3.0
 # what each rebuild mode does, for the menu and the panel alike
 REBUILD_TIPS = {
-    'auto': 'each edit previewed as it is made, and the surface rebuilt once the drawing stops',
+    'auto': 'each edit previewed as it is made, and the surface rebuilt a minute after the drawing stops',
     'local': 'each edit previewed as it is made, the close view with it; the surface is rebuilt only when asked',
     'manual': 'edits leave the surface as it is until it is rebuilt',
 }
@@ -90,6 +90,22 @@ class Built:
     request: dict = field(default_factory=dict)
 
 
+class Abandoned(Exception):
+    """A build given up between two stages: an edit made it stale before it
+    landed. See SurfaceBuilder.abandon."""
+
+
+# the running build's abandon flag, on the worker running it: build_surface's
+# signature is the queue's tests' to replace, so it is not an argument
+_running = threading.local()
+
+
+def _check_abandoned() -> None:
+    ev = getattr(_running, 'abandon', None)
+    if ev is not None and ev.is_set():
+        raise Abandoned
+
+
 class Stopwatch:
     """Each stage's time, from the moment it is named to the next one.
 
@@ -102,6 +118,8 @@ class Stopwatch:
         self._at = 0.0
 
     def __call__(self, name: str) -> None:
+        # between two stages: where a build an edit made stale is given up
+        _check_abandoned()
         self._close()
         self._name, self._at = name, time.perf_counter()
 
@@ -148,6 +166,7 @@ class Rasters:
 class _Signals(QObject):
     finished = Signal(object)        # Built
     failed = Signal(str)
+    abandoned = Signal(str)          # the stage it got to
 
 
 # Where each square's translated constraints are kept between builds - and,
@@ -302,16 +321,23 @@ class _Job(QRunnable):
         # which is this - not the delivery of a signal, which is queued to
         # another thread and arrives later.
         self.done = threading.Event()
+        self.abandon = threading.Event()
+        self.reached = ''             # the stage it was abandoned at
 
     def run(self):
+        _running.abandon = self.abandon
         try:
             self._run()
         finally:
+            _running.abandon = None
             self.done.set()
 
     def _run(self):
         try:
             built = self.fn(self.zone_dir, self.names, self.params, self.work)
+        except Abandoned:
+            self._abandoned('the build')
+            return
         except Nothing as e:
             self._say(str(e))
             return
@@ -320,6 +346,10 @@ class _Job(QRunnable):
             return
         except Exception as e:      # noqa: BLE001 - reported as text, on the UI thread
             self._say(f'{type(e).__name__}: {e}\n{traceback.format_exc(limit=4)}')
+            return
+        if self.abandon.is_set():
+            # given up after its last stage, before the checks
+            self._abandoned('the end of the build')
             return
         if self.after is not None and isinstance(built, Built):
             # here, before the next build can start writing into the same
@@ -332,6 +362,12 @@ class _Job(QRunnable):
             built.timings['checks'] = time.perf_counter() - at
         try:
             self.signals.finished.emit(built)
+        except RuntimeError:
+            pass                    # see _say
+
+    def _abandoned(self, where: str):
+        try:
+            self.signals.abandoned.emit(where)
         except RuntimeError:
             pass                    # see _say
 
@@ -377,6 +413,7 @@ class SurfaceBuilder(QObject):
     started = Signal()
     finished = Signal(object, bool, float)   # Built, stale, seconds
     failed = Signal(str)
+    abandoned = Signal(float, str, str)      # seconds, the stage it got to, why it was started
 
     def __init__(self, parent=None, build_fn=build_surface, runner=None):
         super().__init__(parent)
@@ -412,6 +449,17 @@ class SurfaceBuilder(QObject):
     @property
     def busy(self) -> bool:
         return self._running
+
+    def abandon(self) -> bool:
+        """Give the running build up at its next stage: an edit has made it
+        stale, and spent to the end it was half of the CPU through the drawing
+        that made it so - 43 of 83 builds in one session landed stale. The
+        stage it is in finishes, isofill being a C call with nothing to stop
+        it. True if there was a build to give up."""
+        if not self._running or self._job is None or self._job.abandon.is_set():
+            return False
+        self._job.abandon.set()
+        return True
 
     def request(self, ws: WorkingSet, params: Params, dirty=(), why: str = '') -> int:
         """Ask for a surface, and get the serial the request was given.
@@ -459,6 +507,7 @@ class SurfaceBuilder(QObject):
         sig = _Signals()
         sig.finished.connect(self._done)
         sig.failed.connect(self._fail)
+        sig.abandoned.connect(self._gave_up)
         snap = self.checks_snapshot(ws) if self.checks_snapshot is not None else None
         self.checking = snap is not None          # whether this build will say the surface's checks
         after = None
@@ -480,6 +529,13 @@ class SurfaceBuilder(QObject):
             built.request = dict(self.running_info)
         self.finished.emit(built, stale, time.monotonic() - self._started_at)
         self._forget_builds()
+        self._next()
+
+    def _gave_up(self, where: str):
+        self._running = False
+        if self._building is not None and self._building != self._delivered:
+            shutil.rmtree(self._building, ignore_errors=True)
+        self.abandoned.emit(time.monotonic() - self._started_at, where, self.running_info.get('why', ''))
         self._next()
 
     def _fail(self, text):

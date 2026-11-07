@@ -137,3 +137,21 @@ def test_with_nothing_built_says_nothing(window, mode):
     window.statusBar().showMessage('quiet')
     window._edited_ways(sq, {1}, ())
     assert not window._surface_out_of_date and window.statusBar().currentMessage() == 'quiet'
+
+
+def test_auto_waits_a_minute_of_no_editing_before_it_rebuilds():
+    from danu.ui import preview
+    assert preview.IDLE_MS == 60_000
+
+
+@pytest.mark.parametrize('why, abandoned', [('idle', True), ('auto on', True), ('asked', False)])
+def test_an_edit_gives_up_the_rebuild_auto_started_but_not_one_asked_for(window, monkeypatch, why, abandoned):
+    w = window
+    w.set_rebuild_mode('auto')
+    gave_up = []
+    monkeypatch.setattr(type(w.builder), 'busy', property(lambda self: True))
+    monkeypatch.setattr(w.builder, 'running_info', {'why': why})
+    monkeypatch.setattr(w.builder, 'abandon', lambda: gave_up.append(True) or True)
+    sq = next(s for s in w.working_set.squares.values() if s.ways)
+    w._edited_ways(sq, set(), set())
+    assert bool(gave_up) is abandoned

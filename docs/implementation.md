@@ -6856,3 +6856,24 @@ striped, the warp comes out different in the last place. Uncompressed they
 are 115 MB a build at 3", in a temporary directory that is memory on many a
 machine, which is why they go. A multithreaded warp saved 0.17 s more and was
 left out: the 1" view is solving beside the build.
+
+## A minute's pause, and a stale rebuild given up
+
+Today's sessions on roantra's 3x3 (2026-11-07), auto all day: a build every
+minute or so, a build running 30 to 50% of the time, and in one session 43 of
+83 builds already out of date when they landed - 1,005 s of building the
+drawing had overtaken. Every one of them took cores from the drawing and the
+1" view, and that contention, not any one stage, was what the mapper felt.
+
+Two changes. The pause before auto rebuilds is a minute, not ten seconds
+(`preview.IDLE_MS`): ten was a build in every pause to read the ground, and the
+preview shows each edit meanwhile. And an edit gives up a rebuild auto started
+(`idle`, `auto on`) at its next stage: `SurfaceBuilder.abandon` sets the
+running job's flag, the `Stopwatch` the build names its stages to raises
+`Abandoned` when it is set, and the builder removes the build's directory and
+goes on to anything asked for behind it. Nothing is delivered - the surface
+shown stays as it was, the preview carrying the edits. A stage under way
+finishes first, isofill being a C call with nothing to stop it. A build asked
+for - Ctrl+R, the panel's button - runs to the end. The usage log has a
+`build abandoned` line: how long it ran, the stage it was given up at, and why
+it had been started.
