@@ -28,14 +28,14 @@ def test_the_actions_are_drawn_their_keys_in_the_tooltip(window):
     assert not p.findChildren(QPushButton) and not z.findChildren(QPushButton)
     for b in (*p.action_btns, p.accept_btn, p.drop_btn, z.reload, z.new, z.edit, z.split, z.active):
         assert isinstance(b, PaintedButton) and not b.icon().isNull() and not b.text() and b.toolTip()
-    assert p.grade_btn.toolTip() == 'Grade from the contours (G)'
-    assert p.network_btn.toolTip() == 'Grade the river network (Shift+G)'
+    assert p.grade_btn.toolTip() == 'Grade river from contours (G)'
+    assert p.network_btn.toolTip() == 'Grade river network (Shift+G)'
 
 
 def test_a_key_rebound_is_said_in_the_tooltip(window):
     window.settings.set_key('edit.flatten', 'Ctrl+L')
     window.apply_settings()
-    assert window.selection_panel.flatten_btn.toolTip() == 'Flatten the lake (Ctrl+L)'
+    assert window.selection_panel.flatten_btn.toolTip() == 'Flatten lake (Ctrl+L)'
 
 
 def test_an_icon_is_drawn_again_in_a_palette_changed(window):
@@ -67,7 +67,9 @@ def test_the_tabs_are_the_panels_icons_their_names_the_tooltips(window, qtbot):
     assert bars and sum(b.count() for b in bars) >= 4
     for bar in bars:
         for i in range(bar.count()):
-            assert not bar.tabIcon(i).isNull() and bar.tabToolTip(i) == bar.tabText(i)
+            assert not bar.tabIcon(i).isNull()
+            # what the panel is for, beginning with its name
+            assert bar.tabToolTip(i).startswith(bar.tabText(i) + ': ')
         # no room made for a name: "Gone from upstream" as wide as "Zones"
         assert len({bar.tabRect(i).width() for i in range(bar.count())}) == 1
 
@@ -102,3 +104,24 @@ def test_a_tab_made_without_its_icon_is_given_it(window, qtbot):
             bar.setTabIcon(i, QIcon())
     w.checks_dock.show()
     qtbot.waitUntil(lambda: all(not b.tabIcon(i).isNull() for b in bars for i in range(b.count())), timeout=2000)
+
+
+def test_the_tab_shown_is_filled_with_the_highlight(window, qtbot):
+    # as the map's tool in use is: the style's own selected tab was a shade
+    # off the rest, hard to tell among icons
+    w = window
+    w.checks_dock.show()
+    w.checks_dock.raise_()
+    qtbot.wait(50)
+    bar = next(b for b in w.findChildren(QTabBar) if b.isVisible() and b.count() > 1)
+    hl = bar.palette().color(QPalette.ColorRole.Highlight).rgb()
+    img = bar.grab().toImage()
+
+    def lit(i):
+        r = bar.tabRect(i)
+        return sum(img.pixelColor(x, y).rgb() == hl for x in range(r.left(), r.right())
+                   for y in range(r.top(), r.bottom()))
+
+    shown = bar.currentIndex()
+    assert lit(shown) > 0.3 * bar.tabRect(shown).width() * bar.tabRect(shown).height()
+    assert all(lit(i) == 0 for i in range(bar.count()) if i != shown)
