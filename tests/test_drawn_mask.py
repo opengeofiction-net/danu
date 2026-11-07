@@ -34,9 +34,12 @@ def test_two_squares_short_of_their_shared_line_leave_no_gap_on_it():
     a = np.full((h, w), ND)
     a[100:3500, 50:n - 1] = 500.0          # west square's contours end a cell short
     a[100:3500, n + 1:2 * n - 50] = 500.0  # the east's begin a cell past it
-    covered = np.zeros(w, bool)
+    covered = np.zeros(w, int)
     for _, _, x0, x1, y0, y1 in drawn_mask.squares(gt, w, h):
         env = drawn_mask.envelope(a[y0:y1, x0:x1], ND)
         if env is not None:
-            covered[x0 + env[2]:x0 + env[3]] = True
-    assert covered[n - 5:n + 6].all(), 'a gap on the shared line'
+            covered[x0 + env[2]:x0 + env[3]] += 1
+    assert (covered[n - 5:n + 6] >= 1).all(), 'a gap on the shared line'
+    # each cell is one square's: taken to its edge, an envelope meets its
+    # neighbour's and does not overlap it
+    assert covered.max() == 1

@@ -57,7 +57,10 @@ gdal.UseExceptions()
 # reach. Outside the drawn area, it was 0 m on the published DEM, a cliff down
 # and back along every such edge that the rendered contours and the hillshade
 # drew as a dark band, and the ground beside it pulled down too. Three cells
-# is a contour stopping short, not ground left undescribed.
+# is a contour stopping short, not ground left undescribed - at a zone's outer
+# edge too, where it now reaches the square's edge as well. A square's cells
+# are its own slice of the raster (``squares``), so a side taken to its edge
+# meets its neighbour's and never crosses into it.
 SNAP = 3
 
 
