@@ -14,6 +14,7 @@ not, and asks the worker.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 import threading
@@ -177,7 +178,15 @@ def square_cache(root: Path) -> Path:
                     shutil.rmtree(d, ignore_errors=True)
             except OSError:
                 pass
-    return base / __version__
+    mine = base / __version__
+    try:
+        # used now: a session that only reuses its pieces writes nothing,
+        # and another version starting would take it for unused
+        mine.mkdir(parents=True, exist_ok=True)
+        os.utime(mine)
+    except OSError:
+        pass
+    return mine
 
 
 def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Built:

@@ -268,6 +268,8 @@ def test_the_square_cache_is_this_versions_and_others_go(tmp_path):
     assert got == root / 'square-cache' / __version__
     assert not (root / 'square-cache' / '0.0.1').exists()
     assert (root / 'square-cache' / '0.0.2' / 'S24E125-ab.gpkg').exists()
+    # this version's marked used as a session starts, whatever it writes
+    assert time.time() - got.stat().st_mtime < 60
 
 
 def test_shading_leaves_no_intermediate_behind_and_matches_the_compressed_shading(tmp_path, monkeypatch):
