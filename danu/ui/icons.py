@@ -25,9 +25,10 @@ from .settings import DEFAULT_KEYS
 Paint = Callable[[QPainter, QColor], None]
 
 
-def icon(paint: Paint, colour: QColor):
-    """``paint`` as an icon, in ``colour``."""
-    return _icon(paint, colour)
+def icon(paint: Paint, colour: QColor, on: QColor | None = None):
+    """``paint`` as an icon, in ``colour``; in ``on`` as well, if given, for
+    when its button or tab is checked or selected."""
+    return _icon(paint, colour, on=on)
 
 
 class PaintedButton(QToolButton):
@@ -306,6 +307,18 @@ class IconTabs(QProxyStyle):
             option = QStyleOptionTab(option)
             option.text = ''
         super().drawControl(element, option, painter, widget)
+        # the tab shown filled with the highlight, as the map's tool in use
+        # is - its icon drawn in the highlight's text colour (the icon's On
+        # state, which Qt draws a selected tab's in). The style's own
+        # selected tab was a shade off the rest, hard to tell among icons
+        if element == QStyle.ControlElement.CE_TabBarTabShape and isinstance(option, QStyleOptionTab) \
+                and option.state & QStyle.StateFlag.State_Selected and not option.icon.isNull():
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(option.palette.color(QPalette.ColorRole.Highlight))
+            painter.drawRoundedRect(QRectF(option.rect).adjusted(2.0, 2.0, -2.0, -2.0), 3.0, 3.0)
+            painter.restore()
 
     def sizeFromContents(self, kind, option, size, widget=None):
         if kind == QStyle.ContentsType.CT_TabBarTab and isinstance(option, QStyleOptionTab) \
