@@ -150,3 +150,31 @@ def test_the_dock_layout_comes_back(left, make):
     w = make()
     session.restore_window(w, data)
     assert w.dockWidgetArea(w.surface_panel) == Qt.DockWidgetArea.LeftDockWidgetArea
+
+
+def test_a_restored_session_is_built_once_not_again_as_a_set_opened(make, zone, qtbot, monkeypatch):
+    """Auto builds a set opened once a surface has been (#358). The session's
+    own first set is the restore's to build: the window has handled the load
+    before the restore asks, so its build is the only one."""
+    w = make()
+    w.show()
+    with qtbot.waitSignal(w.loader.finished, timeout=15000):
+        assert w.open_working_set(zone, SquareName(125, -24))
+    data = session.capture(w)
+    data['surface']['built'] = True
+    w2 = make()
+    whys = []
+
+    def rebuild(arcsec=None, why=''):
+        w2._arcsec = arcsec or 3.0          # as the real one sets it
+        whys.append(why)
+        return True
+    monkeypatch.setattr(w2, 'rebuild_surface', rebuild)
+    with qtbot.waitSignal(w2.loader.finished, timeout=15000):
+        assert session.restore(w2, data)
+    qtbot.wait(50)
+    assert whys == ['session']
+    # and the next set opened, with a surface built, is
+    with qtbot.waitSignal(w2.loader.finished, timeout=15000):
+        w2.move_set(1, 0)
+    assert whys == ['session', 'opened']
