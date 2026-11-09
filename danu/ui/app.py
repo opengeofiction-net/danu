@@ -450,6 +450,12 @@ class MainWindow(QMainWindow):
         # where each zone square's water reaches, worked out once and kept
         self._zone_water_cache = cache_dir.parent / 'zone-water.json' if cache_dir else None
         self._alongside_job: Job | None = None
+        # the set whose squares alongside are being read, and a build asked
+        # for meanwhile - which waits for them, or it is built without the
+        # water they hold and built again when they land
+        self._alongside_reading: WorkingSet | None = None
+        self._deferred_build: tuple | None = None
+        self._deferred_checks = False
         self.published = PublishedDem(cache_dir.parent / 'published' if cache_dir else None,
                                       url=self.settings.url('published/dem'), parent=self)
         self.published.ready.connect(self._published_ready)
@@ -1941,6 +1947,38 @@ class MainWindow(QMainWindow):
         if self.checks_dock.isVisible():
             QTimer.singleShot(0, self, lambda: self._checks_shown(self.checks_dock.isVisible()))
 
+    def _alongside_read(self, ws: WorkingSet) -> bool:
+        """The read of ``ws``'s squares alongside is over: the build asked
+        for while it ran starts now, with their water. Whether there was one."""
+        if self._alongside_reading is not ws:
+            return False
+        self._alongside_reading = None
+        deferred, self._deferred_build = self._deferred_build, None
+        checks, self._deferred_checks = self._deferred_checks, False
+        if self.working_set is not ws:
+            return False
+        if checks:
+            self._checks_shown(self.checks_dock.isVisible())
+        if deferred is None:
+            return False
+        arcsec, why = deferred
+        self.rebuild_surface(arcsec, why=why)
+        return True
+
+    def _water_alongside_read(self) -> None:
+        """Water read alongside after a surface was asked for: the surface
+        was built without it - the sea's level missing, and the ground round
+        it guessed from where the contours stop - so it is built again, in
+        auto; otherwise the surface is out of date until it is."""
+        if not (self.builder.busy or self.surface.shaded is not None):
+            return
+        if self.settings.rebuild_mode == 'auto':
+            self.rebuild_surface(self._arcsec or None, why='water alongside')
+        else:
+            self._surface_out_of_date = True
+            self.surface_panel.status.setText('built without the water held alongside - '
+                                              'rebuild to include it')
+
     def _read_alongside(self, ws: WorkingSet) -> None:
         """The zone's squares outside the set holding water that reaches into
         it - the sea, whose home is two squares from N46E030 - read on a
@@ -1975,12 +2013,16 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(
                     f'water held in {", ".join(str(sq.name) for sq in new)}, outside the set, '
                     'shown where it reaches in')
+            if not self._alongside_read(ws) and new:
+                self._water_alongside_read()
 
         def failed(why):
             self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
+            self._alongside_read(ws)
         # the last set's let go of: one still out would answer into a set gone
         if self._alongside_job is not None:
             self._alongside_job.release()
+        self._alongside_reading, self._deferred_build, self._deferred_checks = ws, None, False
         self._alongside_job = Job(work, done, failed)
         self._checks_runner(self._alongside_job)
 
@@ -2121,6 +2163,12 @@ class MainWindow(QMainWindow):
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
+        if self._alongside_reading is self.working_set:
+            # the water held alongside is still being read: built now, the
+            # surface has none of it, and is built again when it lands
+            self._deferred_build = (arcsec, why)
+            self.surface_panel.building('reading the water held alongside the set…')
+            return True
         try:
             p = self._loaded_params()
         except (KeyError, OSError) as e:
@@ -2540,10 +2588,16 @@ class MainWindow(QMainWindow):
         worker - after that an edit keeps them."""
         if visible and self.working_set is not None and self._checks_job is None and (
                 self.crossing_index is None or self.crossing_index.working_set is not self.working_set):
+            if self._alongside_reading is self.working_set:
+                # after the water held alongside is read, as the build is:
+                # the two on the worker side by side, and the checks of a set
+                # the read is about to add to
+                self._deferred_checks = True
+                self.statusBar().showMessage('validation waits for the water held alongside the set…')
+                return
             ws = self.working_set
             self._checks_missed = []
             self.checks_dock.finding(len(CHECKS))
-            self.checks_dock.raise_()
             self.statusBar().showMessage(f'validating {ws.centre} and its neighbours…')
             started = time.monotonic()
             job = None
@@ -2583,6 +2637,10 @@ class MainWindow(QMainWindow):
             job = Job(lambda: find_checks(ws, report=job.report), done, failed,
                       on_progress=lambda step: self.checks_dock.finding_step(*step))
             self._checks_job = job
+            # raised once the job is held: a panel behind another tab is
+            # shown by it, and its visibility asks this again - before, that
+            # started a second scan beside the first
+            self.checks_dock.raise_()
             self._checks_runner(job)
             return
         self._refresh_marks()
@@ -3127,6 +3185,7 @@ class MainWindow(QMainWindow):
         self.usage.write('build', seconds=round(seconds, 3), stale=stale,
                          why=info.get('why', ''), asked=info.get('asked', 0),
                          waited=round(info.get('waited', 0.0), 3), squares=info.get('squares'),
+                         alongside_squares=info.get('alongside', 0),
                          arcsec=getattr(params, 'arcsec', None),
                          cells=int(shape[0]) * int(shape[1]) if shape else None,
                          stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},

@@ -6250,6 +6250,23 @@ lake's old ones, and opening a set takes out every square's, one step
 (`edits.drop_fill_lines`). A flatten that finds a lake already flat says so
 to the gone dock, so a reshaped lake's row is struck through.
 
+**Water held alongside the set.** A lake is held in one square of its zone
+(#278), and a set it reaches into reads that square alongside (#279) - but
+only to draw and edit its water. The build was staged with the set's squares
+alone, so roantra's inland sea, held in N46E030, never reached N44E027's
+build: nothing held it at 0 m, and land and sea were guessed from where the
+contours stop and the fill reaches - surface over the sea, and land past the
+fill taken for it. `SurfaceBuilder` now stages the squares alongside with the
+set's and names them apart; `build_dem`'s `water_names` reads them in
+`collect` for their held lakes alone, by the same `held`, their contours and
+spot heights not, and the grid still the set's. The preview loads the lake
+layer, so it has them too. The squares alongside are read after the set is on
+screen; a surface built or building before they land is built again in auto,
+and said to be out of date otherwise. On N44E027's set, 11 lakes come from
+N46E030, and three points along the sea's shore come out as a build of the
+set with N46E030 in it does: 0 m, 4.5 and 2.9 m against 0, 4.4 and 2.8, where
+they were 13, 0 and 0.
+
 ## Turning and scaling a contour carried
 
 A shift-drag of a contour turns and scales it as a drag of what is picked

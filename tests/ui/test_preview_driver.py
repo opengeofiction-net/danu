@@ -230,14 +230,18 @@ def test_silence_asks_for_the_exact_rebuild(qtbot, monkeypatch):
 def test_an_edit_restarts_the_idle_wait(qtbot, monkeypatch):
     """A rebuild during a pause between strokes would be thrown away by the
     next one, and at 3 arcseconds it costs five seconds of CPU."""
-    d = driver_over(monkeypatch, idle_ms=300)
+    # edits a fifth of the wait apart, for longer than the wait: 120 ms apart
+    # against 300 failed on a macOS runner (2026-11-09) whose waits overran by
+    # the difference. Eight edits 100 ms apart outlast a 500 ms wait, so it
+    # has not fired only if each edit restarted it
+    d = driver_over(monkeypatch, idle_ms=500)
     asked = []
     d.exact_wanted.connect(lambda: asked.append(True))
-    for _ in range(4):
+    for _ in range(8):
         d.edited(a_square(), {1})
-        qtbot.wait(120)
+        qtbot.wait(100)
     assert not asked, 'the rebuild fired while edits were still arriving'
-    qtbot.waitUntil(lambda: bool(asked), timeout=3000)
+    qtbot.waitUntil(lambda: bool(asked), timeout=5000)
 
 
 def test_the_driver_says_when_there_is_no_preview(qtbot, monkeypatch):

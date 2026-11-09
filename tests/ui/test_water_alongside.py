@@ -65,3 +65,54 @@ def test_it_is_chosen_and_flattened_in_its_home_and_saved_with_the_set(zoned):
     assert far.ways[470433].tags.get('ele') == '0', 'the level is not on its ring, in its home'
     w.save_all()
     assert read_square(zone / 'S24E128.osm.xz').ways[470433].tags.get('ele') == '0', 'not saved with the set'
+
+
+def test_a_surface_built_before_the_water_alongside_is_read_is_built_again(zoned, monkeypatch):
+    """The read lands after the set is on screen, so a build asked for as it
+    opened had none of it: in auto it is built again, otherwise said."""
+    w, _ = zoned
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append(why) or True)
+    monkeypatch.setattr(type(w.builder), 'busy', property(lambda self: True))
+    w.set_rebuild_mode('auto')
+    w._read_alongside(w.working_set)
+    assert asked == ['water alongside']
+    w.working_set.extra.clear()
+    w.set_rebuild_mode('manual')
+    w._read_alongside(w.working_set)
+    assert asked == ['water alongside'], 'manual: not built'
+    assert 'rebuild to include it' in w.surface_panel.status.text()
+
+
+def test_nothing_built_nothing_rebuilt_when_the_water_alongside_is_read(zoned, monkeypatch):
+    w, _ = zoned
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append(why) or True)
+    w._read_alongside(w.working_set)
+    assert asked == [] and w.surface.shaded is None
+
+
+def test_a_build_and_the_checks_asked_for_while_the_water_alongside_is_read_wait_for_it(zoned, monkeypatch):
+    """On opening, the session's build was asked for before the squares
+    alongside were read: it was built without the sea, and again once the
+    read landed. Now it, and the checks, wait for the read."""
+    w, _ = zoned
+    ws = w.working_set
+    jobs = []
+    monkeypatch.setattr(w, '_checks_runner', jobs.append)
+    asked = []
+    monkeypatch.setattr(w.builder, 'request', lambda ws, p, dirty=(), why='': asked.append((why, sorted(ws.extra))) or 1)
+    w._read_alongside(ws)
+    assert w.rebuild_surface(why='session') and asked == [], 'not built before the read lands'
+    assert 'reading the water held alongside' in w.surface_panel.status.text()
+    w.checks_dock.show()
+    w.crossing_index = None
+    w._checks_shown(True)
+    assert len(jobs) == 1 and 'waits for the water' in w.statusBar().currentMessage()
+    jobs.pop(0).run()
+    assert asked == [('session', [FAR])], 'built once, with the water alongside'
+    assert len(jobs) == 1, 'and the checks started, once'
+    w._read_alongside(ws)                   # nothing new: nothing waits, nothing more built
+    jobs.pop(0)
+    jobs.pop(0).run()
+    assert asked == [('session', [FAR])]

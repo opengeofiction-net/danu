@@ -29,7 +29,7 @@ def h_path():
 class FakeSet:
     """Just enough WorkingSet for stage_zone to be given nothing to do."""
     def __init__(self):
-        self.squares = {}
+        self.squares, self.extra = {}, {}
 
 
 class Harness:
@@ -45,7 +45,7 @@ class Harness:
             lambda b, stale, secs: self.results.append((b, stale, secs)))
         self.builder.failed.connect(self.failures.append)
 
-    def _build(self, zone_dir, names, params, work):
+    def _build(self, zone_dir, names, params, work, water=()):
         self.built_for.append(params.arcsec)
         return Built(shaded=object())
 
@@ -106,7 +106,7 @@ def test_a_lone_build_is_never_stale(qtbot):
 def test_a_failed_build_still_lets_the_queue_run_on(qtbot):
     """A build that raises must not wedge the queue - the next request has to
     start, or one bad edit stops the editor rebuilding for the session."""
-    def explode(zone_dir, names, params, work):
+    def explode(zone_dir, names, params, work, water=()):
         if params.arcsec == 3.0:
             raise ValueError('contrived')
         return Built(shaded=object())
@@ -122,7 +122,7 @@ def test_a_failed_build_still_lets_the_queue_run_on(qtbot):
 
 def test_nothing_to_build_is_reported_as_itself(qtbot):
     """A set with no contour in it is a sentence, not a traceback."""
-    def nothing(zone_dir, names, params, work):
+    def nothing(zone_dir, names, params, work, water=()):
         raise Nothing('nothing to build: no square in the set holds a contour')
 
     h = Harness(build_fn=nothing)
@@ -224,10 +224,10 @@ def test_a_job_whose_window_has_gone_does_not_raise_out_of_run(qtbot):
                 raise RuntimeError('Signal source has been deleted')
         finished = failed = _S()
 
-    def explode(zone_dir, names, params, work):
+    def explode(zone_dir, names, params, work, water=()):
         raise ValueError('while the window was closing')
 
-    for fn in (explode, lambda *a: Built(shaded=object())):
+    for fn in (explode, lambda *a, **k: Built(shaded=object())):
         job = _Job(fn, h_path(), [], PARAMS, h_path(), Dead())
         job.run()               # must not raise
 
@@ -318,7 +318,7 @@ def test_each_build_has_a_directory_of_its_own(qtbot):
     every rebuild after the first (#197, #198)."""
     held = []
 
-    def build(zone_dir, names, params, work):
+    def build(zone_dir, names, params, work, water=()):
         out = work / 'water-mask.tif'       # as build.water_mask does it
         if out.exists():
             out.unlink()
@@ -351,7 +351,7 @@ def test_each_build_has_a_directory_of_its_own(qtbot):
 def test_a_failed_build_takes_its_directory_and_leaves_the_last_good_one(qtbot):
     calls = []
 
-    def build(zone_dir, names, params, work):
+    def build(zone_dir, names, params, work, water=()):
         calls.append(work)
         if len(calls) == 2:
             raise RuntimeError('the fill gave up')
@@ -425,7 +425,7 @@ def test_a_build_says_what_asked_for_it_and_how_many_requests_it_stands_for(qtbo
     assert h.builder.running_info['waited'] >= 0.0
 
 
-def staged_build(zone_dir, names, params, work):
+def staged_build(zone_dir, names, params, work, water=()):
     """A build that names its stages, as build_surface's Stopwatch does."""
     from danu.ui.surface import Stopwatch
     watch = Stopwatch()
@@ -468,3 +468,23 @@ def test_a_build_abandoned_waits_for_the_one_asked_for_behind_it(qtbot):
     assert h.results == [] and len(h.jobs) == 1, 'what was asked for behind it did not start'
     h.finish()
     assert len(h.results) == 1
+
+
+def test_the_squares_read_alongside_are_staged_and_named_for_their_water(qtbot):
+    """#279's squares alongside go to the build for their water: staged with
+    the set's, and named apart from them."""
+    from danu.core.square import Square, SquareName
+    got = []
+
+    def build(zone_dir, names, params, work, water=()):
+        got.append((sorted(p.name for p in zone_dir.iterdir() if p.suffix in ('.osm', '.xz')), names, water))
+        return Built(shaded=object())
+    h = Harness(build_fn=build)
+    ws = FakeSet()
+    here, far = SquareName(125, -24), SquareName(128, -24)
+    ws.squares = {here: Square(name=here, present=True, attrs={'version': '0.6'})}
+    ws.extra = {far: Square(name=far, present=True, attrs={'version': '0.6'})}
+    h.builder.request(ws, PARAMS.with_arcsec(3.0))
+    h.finish()
+    assert got == [(['S24E125.osm', 'S24E128.osm'], [here], [far])]
+    assert h.builder.running_info['alongside'] == 1
