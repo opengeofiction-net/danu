@@ -88,7 +88,7 @@ are asked to keep to your own ground, reaching 10 km into theirs at most.
 Your own ground and the sea are left clear. An administrator sees their
 own ground this way too. **Whose ground** in the Surface panel, or in View, turns it off.
 
-An administrator can see all of this as another user does with **View › View
+An administrator can see all of this as another user does with **File › View
 as…**: the territory line, the shading and the upload mark are theirs until
 the name is cleared. What you may upload stays your own, and the mark
 doesn't know whether they are blocked on OpenGeofiction.

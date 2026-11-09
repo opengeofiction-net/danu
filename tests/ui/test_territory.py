@@ -66,7 +66,7 @@ def test_a_new_address_is_not_served_the_old_ones_copy(qtbot, tmp_path, territor
 def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window, qtbot):
     w = window
     qtbot.waitUntil(lambda: 'Pizarrales' in w._territory.text(), timeout=5000)
-    assert w._territory.text() == 'Pizarrales (AR031), owned by Luciano'      # no user set: told, not warned
+    assert w._territory.text() == 'Pizarrales (AR031, owned, Luciano)'      # no user set: told, not warned
     assert w._territory.styleSheet() == ''
     w.settings.user = 'wangi'
     w.show_territory()
@@ -85,7 +85,7 @@ def test_the_window_names_the_ground_and_warns_when_it_is_somebody_elses(window,
         w.open_working_set(w.zone_dir, SquareName(126, -24))
     qtbot.waitUntil(lambda: 'Tenmetre' in w._territory.text(), timeout=5000)
     # the centre, 126.5, is exactly on the fixture's border and falls east; both are named
-    assert w._territory.text() == 'Tenmetre (AR032), collaborative; Pizarrales (AR031), owned by Luciano'
+    assert w._territory.text() == 'Tenmetre (AR032, collaborative); Pizarrales (AR031, owned, Luciano)'
     # north: a polygon with no record - a timezone, say - is no territory
     with qtbot.waitSignal(w.loader.finished, timeout=15000):
         w.open_working_set(w.zone_dir, SquareName(125, -22))

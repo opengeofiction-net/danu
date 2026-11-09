@@ -179,7 +179,7 @@ def test_an_administrator_views_ownership_as_another_mapper(window, qtbot, api):
     w = window
     w.drop.base_url = api
     qtbot.waitUntil(lambda: w.territory.complete, timeout=5000)
-    a = w.view_actions['view.view_as']
+    a = w.view_as_action
     w.settings.user, w.settings.token, w.settings.roles = 'wangi', 'tok', []
     w._account_changed()
     assert not a.isVisible() and not w.viewing_as
@@ -190,16 +190,16 @@ def test_an_administrator_views_ownership_as_another_mapper(window, qtbot, api):
     w._account_changed()
     assert a.isVisible()
     w.set_view_as('Luciano')
-    assert w.viewing_as == 'Luciano' and a.text() == 'View &as Luciano…'
+    assert w.viewing_as == 'Luciano' and a.text() == 'Vie&w as Luciano…'
     assert w.statusBar().currentMessage() == 'viewing as Luciano: 1 territory theirs to draw'
-    assert w._territory.text() == 'Pizarrales (AR031), owned by Luciano (viewing as Luciano)'
+    assert w._territory.text() == 'Pizarrales (AR031, owned, Luciano) (viewing as Luciano)'
     assert w._territory.styleSheet() == ''
     # the server answers for the administrator; the line is Luciano's, from here
     qtbot.waitUntil(lambda: 'yours to upload' in w.drop_line, timeout=5000)
     assert w.drop_line == 'zone pizarrales - yours to upload: Pizarrales' and w._drop.text() == '^'
     w.set_view_as('Nobody')
     assert w.statusBar().currentMessage().startswith('viewing as Nobody: no territory theirs to draw')
-    assert w._territory.text() == 'not yours to draw: Pizarrales (AR031), owned by Luciano (viewing as Nobody)'
+    assert w._territory.text() == 'not yours to draw: Pizarrales (AR031, owned, Luciano) (viewing as Nobody)'
     qtbot.waitUntil(lambda: 'not yours to upload' in w.drop_line, timeout=5000)
     assert w._drop.text() == 'X'
     # the territories not read yet: the drop not asked, or its mark would be

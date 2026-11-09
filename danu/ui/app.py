@@ -821,7 +821,7 @@ class MainWindow(QMainWindow):
         return who, index.permission(square.bounds, who)
 
     def ask_view_as(self) -> None:
-        """View › View as…: a mapper's name, exact as OGF's are; blank to be
+        """File › View as…: a mapper's name, exact as OGF's are; blank to be
         yourself again."""
         name, ok = QInputDialog.getText(self, 'View as', 'See ownership as this OGF user sees it - '
                                         'blank for yourself:', text=self.view_as)
@@ -842,10 +842,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f'viewing as {name}: {what}')
 
     def _view_as_changed(self) -> None:
-        a = self.view_actions.get('view.view_as') if hasattr(self, 'view_actions') else None
+        a = getattr(self, 'view_as_action', None)       # None while the menus are being built
         if a is not None:
             a.setVisible(bool(self.settings.token and self.settings.admin))
-            a.setText(f'View &as {self.view_as}…' if self.viewing_as else 'View &as…')
+            a.setText(f'Vie&w as {self.view_as}…' if self.viewing_as else 'Vie&w as…')
         self.show_territory()
         self.show_ground()
 
@@ -1330,6 +1330,12 @@ class MainWindow(QMainWindow):
         self.account_action = QAction(self)
         self.account_action.triggered.connect(self.account)
         file.addAction(self.account_action)
+        # under signing in: whose eyes the ownership is seen through
+        self.view_as_action = QAction('Vie&w as…', self)
+        self.view_as_action.setToolTip('see the ownership another OGF user sees - an administrator\'s')
+        self.view_as_action.triggered.connect(self.ask_view_as)
+        self.view_as_action.setVisible(bool(self.settings.token and self.settings.admin))
+        file.addAction(self.view_as_action)
         self.preferences_action = QAction('&Preferences…', self)
         self.preferences_action.setShortcut(QKeySequence.StandardKey.Preferences)
         # in the application's menu on macOS, where it is looked for (#194)
@@ -1391,12 +1397,6 @@ class MainWindow(QMainWindow):
         refused.toggled.connect(self.reference.setVisible)
         view.addAction(refused)
         self.view_actions['view.refused'] = refused
-        view_as = QAction('View &as…', self)
-        view_as.setToolTip('see the ownership another OGF user sees - an administrator\'s')
-        view_as.triggered.connect(self.ask_view_as)
-        view_as.setVisible(bool(self.settings.token and self.settings.admin))
-        view.addAction(view_as)
-        self.view_actions['view.view_as'] = view_as
         self.update_reference_actions()
         view.addSeparator()
         for dock in self.docks():

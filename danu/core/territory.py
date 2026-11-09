@@ -91,16 +91,14 @@ class Territory:
     def known(self) -> bool:
         return bool(self.name)
 
-    def describe(self) -> str:
+    def describe(self, note: str = '') -> str:
+        """``Name (ogf:id, status, owner)``, as the wiki's table has them;
+        the owner left out where it is the project's own - admin, which
+        holds everything nobody does. ``note`` goes last in the brackets."""
         if not self.known:
             return f'unknown territory (relation {self.rel})'
-        if self.status in CLAIMED and self.owner:
-            return f'{self.name} ({self.ogf_id}), {self.status} by {self.owner}'
-        # a collaborative territory has an owner who runs it, unless it is
-        # the project's own - admin, which holds everything nobody does
-        if self.status == 'collaborative' and self.owner and self.owners != {ADMIN}:
-            return f'{self.name} ({self.ogf_id}), {self.status}, owned by {self.owner}'
-        return f'{self.name} ({self.ogf_id}), {self.status}'
+        owner = self.owner if self.owner and self.owners != {ADMIN} else ''
+        return f'{self.name} ({", ".join(p for p in (self.ogf_id, self.status, owner, note) if p)})'
 
 
 def parse_attributes(text: str) -> dict[int, Territory]:
@@ -311,7 +309,7 @@ def describe(found: list[Territory], user: str = '', admin: bool = False) -> tup
         return 'no territory here', False
 
     def one(t: Territory) -> str:
-        return t.describe() + (' - delegated to you' if user and user in t.editors - t.owners else '')
+        return t.describe('delegated to you' if user and user in t.editors - t.owners else '')
 
     # not somebody else's to the owners, 'Alessa;Leowezy', nor to a dem:
     # delegate (#190) - Territory.editors. The CLAIMED gate stays, unlike in

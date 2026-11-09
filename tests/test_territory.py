@@ -63,26 +63,26 @@ def test_describe_warns_only_for_ground_claimed_by_somebody_else():
     idx = index()
     one, two, three = idx.territory(1), idx.territory(2), idx.territory(3)
     assert T.describe([], 'wangi') == ('no territory here', False)
-    assert T.describe([one], '') == ('One (AR001), owned by Luciano', False)          # no user: told, not warned
-    assert T.describe([one], 'Luciano') == ('One (AR001), owned by Luciano', False)
+    assert T.describe([one], '') == ('One (AR001, owned, Luciano)', False)          # no user: told, not warned
+    assert T.describe([one], 'Luciano') == ('One (AR001, owned, Luciano)', False)
     assert T.describe([one], 'luciano')[1] is True                                    # OGF's names are exact (H6f)
-    assert T.describe([one], 'wangi') == ('not yours to draw: One (AR001), owned by Luciano', True)
-    assert T.describe([two], 'wangi') == ('Two (AR002), collaborative', False)         # collaborative is not a claim
+    assert T.describe([one], 'wangi') == ('not yours to draw: One (AR001, owned, Luciano)', True)
+    assert T.describe([two], 'wangi') == ('Two (AR002, collaborative)', False)         # collaborative is not a claim
     assert T.describe([three], 'Leowezy')[1] is False                                  # one of several owners
     assert T.describe([three], 'wangi')[1] is True
-    assert T.describe([one], 'wangi', admin=True) == ('not yours to draw: One (AR001), owned by Luciano (administrator)', True)
-    assert T.describe([one], 'Luciano', admin=True) == ('One (AR001), owned by Luciano', False), 'their own: no admin'
-    assert T.describe([one], '', admin=True)[0] == 'One (AR001), owned by Luciano', 'no user, no admin'
+    assert T.describe([one], 'wangi', admin=True) == ('not yours to draw: One (AR001, owned, Luciano) (administrator)', True)
+    assert T.describe([one], 'Luciano', admin=True) == ('One (AR001, owned, Luciano)', False), 'their own: no admin'
+    assert T.describe([one], '', admin=True)[0] == 'One (AR001, owned, Luciano)', 'no user, no admin'
     # a collaborative territory's owner named, but not admin's; a delegate told (#245's Gobrassanya)
     gob = T.Territory(5, 'UL05a', 'Gobrassanya', 'collaborative', 'wangi')
-    assert T.describe([gob], 'wangi', admin=True) == ('Gobrassanya (UL05a), collaborative, owned by wangi', False)
-    assert T.describe([gob], 'Luciano', admin=True)[0] == 'Gobrassanya (UL05a), collaborative, owned by wangi (administrator)'
-    assert T.describe([two], 'wangi')[0] == 'Two (AR002), collaborative'
+    assert T.describe([gob], 'wangi', admin=True) == ('Gobrassanya (UL05a, collaborative, wangi)', False)
+    assert T.describe([gob], 'Luciano', admin=True)[0] == 'Gobrassanya (UL05a, collaborative, wangi) (administrator)'
+    assert T.describe([two], 'wangi')[0] == 'Two (AR002, collaborative)'
     led = T.Territory(6, 'X2', 'Led', 'owned', 'Luciano', ('dem:wangi',))
-    assert T.describe([led], 'wangi') == ('Led (X2), owned by Luciano - delegated to you', False)
-    assert T.describe([led], 'Luciano')[0] == 'Led (X2), owned by Luciano'
+    assert T.describe([led], 'wangi') == ('Led (X2, owned, Luciano, delegated to you)', False)
+    assert T.describe([led], 'Luciano')[0] == 'Led (X2, owned, Luciano)'
     line, warn = T.describe([T.Territory(9), one], 'wangi')
-    assert line == 'not yours to draw: One (AR001), owned by Luciano - also here: unknown territory (relation 9)' and warn
+    assert line == 'not yours to draw: One (AR001, owned, Luciano) - also here: unknown territory (relation 9)' and warn
 
 
 def test_a_square_partly_yours_names_the_others_ground_then_yours():
@@ -92,18 +92,19 @@ def test_a_square_partly_yours_names_the_others_ground_then_yours():
     a = T.Territory(1, 'UL07a', 'Ichkeria', 'owned', 'Rustem Pasha')
     b = T.Territory(2, 'UL07f', 'Bashlam', 'marked for withdrawal', 'xoxasochka')
     c = T.Territory(3, 'UL17g', 'Ante', 'collaborative', 'ante44')
+    assert T.Territory(4, 'UL07g', 'Free', 'available', 'admin').describe() == 'Free (UL07g, available)', 'admin is nobody'
     assert T.describe([a, b], 'xoxasochka') == (
-        "partly another's to draw: Ichkeria (UL07a), owned by Rustem Pasha"
-        ' - yours: Bashlam (UL07f), marked for withdrawal by xoxasochka', True)
+        "partly another's to draw: Ichkeria (UL07a, owned, Rustem Pasha)"
+        ' - yours: Bashlam (UL07f, marked for withdrawal, xoxasochka)', True)
     assert T.describe([b, a, c], 'xoxasochka')[0] == (
-        "partly another's to draw: Ichkeria (UL07a), owned by Rustem Pasha"
-        ' - yours: Bashlam (UL07f), marked for withdrawal by xoxasochka'
-        ' - also here: Ante (UL17g), collaborative, owned by ante44')
+        "partly another's to draw: Ichkeria (UL07a, owned, Rustem Pasha)"
+        ' - yours: Bashlam (UL07f, marked for withdrawal, xoxasochka)'
+        ' - also here: Ante (UL17g, collaborative, ante44)')
     assert T.describe([b, c], 'xoxasochka') == (
-        'Bashlam (UL07f), marked for withdrawal by xoxasochka; Ante (UL17g), collaborative, owned by ante44', False)
+        'Bashlam (UL07f, marked for withdrawal, xoxasochka); Ante (UL17g, collaborative, ante44)', False)
     assert T.describe([a, b], 'wangi', admin=True)[0] == (
-        'not yours to draw: Ichkeria (UL07a), owned by Rustem Pasha; '
-        'Bashlam (UL07f), marked for withdrawal by xoxasochka (administrator)')
+        'not yours to draw: Ichkeria (UL07a, owned, Rustem Pasha); '
+        'Bashlam (UL07f, marked for withdrawal, xoxasochka) (administrator)')
 
 
 def test_a_relation_with_no_record_and_an_outline_are_not_under_a_square():
@@ -119,7 +120,7 @@ def test_a_relation_with_no_record_and_an_outline_are_not_under_a_square():
     idx = T.TerritoryIndex(geometry, attrs)
     assert [t.rel for t in idx.under((2, 2, 3, 3))] == [10]
     assert idx.under((12, 12, 13, 13)) == [], 'the timezone alone: no territory'
-    assert T.describe(idx.under((2, 2, 3, 3)), 'wangi') == ('Gobrassanya (UL05a), owned by wangi', False)
+    assert T.describe(idx.under((2, 2, 3, 3)), 'wangi') == ('Gobrassanya (UL05a, owned, wangi)', False)
 
 
 def test_before_the_records_are_read_every_polygon_is_unknown():
