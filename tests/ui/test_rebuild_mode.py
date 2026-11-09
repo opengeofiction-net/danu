@@ -144,7 +144,7 @@ def test_auto_waits_a_minute_of_no_editing_before_it_rebuilds():
     assert preview.IDLE_MS == 60_000
 
 
-@pytest.mark.parametrize('why, abandoned', [('idle', True), ('auto on', True), ('asked', False)])
+@pytest.mark.parametrize('why, abandoned', [('idle', True), ('auto on', True), ('opened', True), ('asked', False)])
 def test_an_edit_gives_up_the_rebuild_auto_started_but_not_one_asked_for(window, monkeypatch, why, abandoned):
     w = window
     w.set_rebuild_mode('auto')
@@ -155,3 +155,20 @@ def test_an_edit_gives_up_the_rebuild_auto_started_but_not_one_asked_for(window,
     sq = next(s for s in w.working_set.squares.values() if s.ways)
     w._edited_ways(sq, set(), set())
     assert bool(gave_up) is abandoned
+
+
+@pytest.mark.parametrize('mode, built_before, built', [('auto', 3.0, True), ('auto', 0, False),
+                                                       ('local', 3.0, False), ('manual', 3.0, False)])
+def test_a_set_moved_to_is_built_in_auto_once_a_surface_has_been(window, qtbot, monkeypatch, mode, built_before, built):
+    """The mapper pressed Rebuild after every move (the usage log, 2026-11-09).
+    In auto, a set opened is built at the surface's resolution - once one has
+    been built: a set opened from nothing starts no build nobody asked for."""
+    w = window
+    w.set_rebuild_mode(mode)
+    w._arcsec = built_before
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append((arcsec, why)) or True)
+    before = w.working_set.centre
+    w.move_set(-1, 0)
+    qtbot.waitUntil(lambda: w.working_set.centre != before, timeout=5000)
+    assert asked == ([(3.0, 'opened')] if built else [])

@@ -59,7 +59,8 @@ from .trace import trace as _trace
 ARCSEC = 3.0
 # what each rebuild mode does, for the menu and the panel alike
 REBUILD_TIPS = {
-    'auto': 'each edit previewed as it is made, and the surface rebuilt a minute after the drawing stops',
+    'auto': 'each edit previewed as it is made, the surface rebuilt a minute after the drawing stops, '
+            'and built for each set opened once one has been',
     'local': 'each edit previewed as it is made, the close view with it; the surface is rebuilt only when asked',
     'manual': 'edits leave the surface as it is until it is rebuilt',
 }
