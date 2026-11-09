@@ -3142,7 +3142,7 @@ class MainWindow(QMainWindow):
         self.usage.write('build', seconds=round(seconds, 3), stale=stale,
                          why=info.get('why', ''), asked=info.get('asked', 0),
                          waited=round(info.get('waited', 0.0), 3), squares=info.get('squares'),
-                         alongside=info.get('alongside', 0),
+                         alongside_squares=info.get('alongside', 0),
                          arcsec=getattr(params, 'arcsec', None),
                          cells=int(shape[0]) * int(shape[1]) if shape else None,
                          stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},
