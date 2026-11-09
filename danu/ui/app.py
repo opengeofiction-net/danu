@@ -736,7 +736,7 @@ class MainWindow(QMainWindow):
         """Each square's ground shaded for the mapper signed in (#190), and
         the drop asked about the open one."""
         ws, index = self.working_set, self.territory.index
-        user = self.view_as if self.viewing_as else self.settings.user if self.settings.token else ''
+        user = self.viewing_as or (self.settings.user if self.settings.token else '')
         on = self.surface_panel.show_ground.isChecked()
         if ws is None or index is None or not user or not on:
             self.ground.set_ground([])
@@ -753,7 +753,11 @@ class MainWindow(QMainWindow):
                 except RuntimeError as e:       # OGR's, on a territory it can't make whole
                     self.statusBar().showMessage(f'{sq}: whose ground not shaded - {e}')
             self.ground.set_ground(grounds)
-        if ws is not None and self._drop_asked != (ws.centre, self.settings.token, self.viewing_as):
+        # viewing as a mapper, the drop's answer is made theirs from the
+        # territories here: not asked until they are, or the mark would be
+        # the administrator's beside the mapper's line
+        waiting = bool(self.viewing_as) and index is None
+        if ws is not None and not waiting and self._drop_asked != (ws.centre, self.settings.token, self.viewing_as):
             self._drop_asked = (ws.centre, self.settings.token, self.viewing_as)
             self._drop.setText('…')
             self._drop.setStyleSheet('font-weight: bold')      # a mark, as the answer's will be
@@ -832,7 +836,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f'viewing as yourself, {self.settings.user}')
             return
         index = self.territory.index
-        held = [t for t in index.attributes.values() if name in t.editors] if index is not None else []
+        held = [t for t in index.attributes.values() if t.known and name in t.editors] if index is not None else []
         what = (f'{len(held)} territor{"y" if len(held) == 1 else "ies"} theirs to draw' if held
                 else 'no territory theirs to draw - names are exact, as OGF\'s are')
         self.statusBar().showMessage(f'viewing as {name}: {what}')

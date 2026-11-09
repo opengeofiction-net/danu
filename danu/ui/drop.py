@@ -106,7 +106,8 @@ def as_seen_by(body: dict, user: str, permission) -> dict:
 
 class DropClient(QObject):
     """Asks the API about a square. ``answered(square, line, warn, mark)``.
-    ``viewed``, set, is asked for each signed-in answer: ``(user,
+    ``viewed``, set, is asked for each answer with a permission - the
+    server gives one only to a signed-in mapper: ``(user,
     permission)`` to answer as that user would be answered, or None."""
 
     answered = Signal(str, str, bool, str)

@@ -202,6 +202,16 @@ def test_an_administrator_views_ownership_as_another_mapper(window, qtbot, api):
     assert w._territory.text() == 'not yours to draw: Pizarrales (AR031), owned by Luciano (viewing as Nobody)'
     qtbot.waitUntil(lambda: 'not yours to upload' in w.drop_line, timeout=5000)
     assert w._drop.text() == 'X'
+    # the territories not read yet: the drop not asked, or its mark would be
+    # the administrator's beside the mapper's line
+    index, w.territory.index, w._drop_asked = w.territory.index, None, None
+    asked = len(_Api.seen)
+    w.show_ground()
+    qtbot.wait(300)
+    assert len(_Api.seen) == asked
+    w.territory.index = index
+    w.show_territory()
+    qtbot.waitUntil(lambda: len(_Api.seen) > asked, timeout=5000)
     w.set_view_as(' wangi ')
     assert not w.viewing_as and w.statusBar().currentMessage() == 'viewing as yourself, wangi'
     assert w._territory.text().endswith('(administrator)')

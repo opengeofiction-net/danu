@@ -85,12 +85,13 @@ View has the same switches, and a toggle for each panel.
 Signed in, a square you share with a neighbour shows their ground: **amber**
 within 10 km of yours, **red** beyond it. You may upload the whole square, and
 are asked to keep to your own ground, reaching 10 km into theirs at most.
-Your own ground and the sea are left clear. An administrator sees it as
-anyone does. **Whose ground** in the Surface panel, or in View, turns it off.
+Your own ground and the sea are left clear. An administrator sees their
+own ground this way too. **Whose ground** in the Surface panel, or in View, turns it off.
 
 An administrator can see all of this as another user does with **View › View
 as…**: the territory line, the shading and the upload mark are theirs until
-the name is cleared. What you may upload stays your own.
+the name is cleared. What you may upload stays your own, and the mark
+doesn't know whether they are blocked on OpenGeofiction.
 
 The status bar's middle part says whose territory the open square is on -
 with a square partly yours, the neighbour's ground first, then yours - then whether it is yours to upload, as a mark: **^** yours, **~** shared with
