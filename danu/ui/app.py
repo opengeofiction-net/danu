@@ -1941,6 +1941,20 @@ class MainWindow(QMainWindow):
         if self.checks_dock.isVisible():
             QTimer.singleShot(0, self, lambda: self._checks_shown(self.checks_dock.isVisible()))
 
+    def _water_alongside_read(self) -> None:
+        """Water read alongside after a surface was asked for: the surface
+        was built without it - the sea's level missing, and the ground round
+        it guessed from where the contours stop - so it is built again, in
+        auto; otherwise the surface is out of date until it is."""
+        if not (self.builder.busy or self.surface.shaded is not None):
+            return
+        if self.settings.rebuild_mode == 'auto':
+            self.rebuild_surface(self._arcsec or None, why='water alongside')
+        else:
+            self._surface_out_of_date = True
+            self.surface_panel.status.setText('built without the water held alongside - '
+                                              'rebuild to include it')
+
     def _read_alongside(self, ws: WorkingSet) -> None:
         """The zone's squares outside the set holding water that reaches into
         it - the sea, whose home is two squares from N46E030 - read on a
@@ -1975,6 +1989,7 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(
                     f'water held in {", ".join(str(sq.name) for sq in new)}, outside the set, '
                     'shown where it reaches in')
+                self._water_alongside_read()
 
         def failed(why):
             self.statusBar().showMessage(f'water outside the set not read: {why.splitlines()[0]}')
@@ -3127,6 +3142,7 @@ class MainWindow(QMainWindow):
         self.usage.write('build', seconds=round(seconds, 3), stale=stale,
                          why=info.get('why', ''), asked=info.get('asked', 0),
                          waited=round(info.get('waited', 0.0), 3), squares=info.get('squares'),
+                         alongside=info.get('alongside', 0),
                          arcsec=getattr(params, 'arcsec', None),
                          cells=int(shape[0]) * int(shape[1]) if shape else None,
                          stages={k: round(v, 3) for k, v in getattr(built, 'timings', {}).items()},

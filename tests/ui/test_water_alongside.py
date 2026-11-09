@@ -65,3 +65,28 @@ def test_it_is_chosen_and_flattened_in_its_home_and_saved_with_the_set(zoned):
     assert far.ways[470433].tags.get('ele') == '0', 'the level is not on its ring, in its home'
     w.save_all()
     assert read_square(zone / 'S24E128.osm.xz').ways[470433].tags.get('ele') == '0', 'not saved with the set'
+
+
+def test_a_surface_built_before_the_water_alongside_is_read_is_built_again(zoned, monkeypatch):
+    """The read lands after the set is on screen, so a build asked for as it
+    opened had none of it: in auto it is built again, otherwise said."""
+    w, _ = zoned
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append(why) or True)
+    monkeypatch.setattr(type(w.builder), 'busy', property(lambda self: True))
+    w.set_rebuild_mode('auto')
+    w._read_alongside(w.working_set)
+    assert asked == ['water alongside']
+    w.working_set.extra.clear()
+    w.set_rebuild_mode('manual')
+    w._read_alongside(w.working_set)
+    assert asked == ['water alongside'], 'manual: not built'
+    assert 'rebuild to include it' in w.surface_panel.status.text()
+
+
+def test_nothing_built_nothing_rebuilt_when_the_water_alongside_is_read(zoned, monkeypatch):
+    w, _ = zoned
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append(why) or True)
+    w._read_alongside(w.working_set)
+    assert asked == [] and w.surface.shaded is None

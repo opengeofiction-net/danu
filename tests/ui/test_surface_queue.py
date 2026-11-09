@@ -29,7 +29,7 @@ def h_path():
 class FakeSet:
     """Just enough WorkingSet for stage_zone to be given nothing to do."""
     def __init__(self):
-        self.squares = {}
+        self.squares, self.extra = {}, {}
 
 
 class Harness:
@@ -468,3 +468,23 @@ def test_a_build_abandoned_waits_for_the_one_asked_for_behind_it(qtbot):
     assert h.results == [] and len(h.jobs) == 1, 'what was asked for behind it did not start'
     h.finish()
     assert len(h.results) == 1
+
+
+def test_the_squares_read_alongside_are_staged_and_named_for_their_water(qtbot):
+    """#279's squares alongside go to the build for their water: staged with
+    the set's, and named apart from them."""
+    from danu.core.square import Square, SquareName
+    got = []
+
+    def build(zone_dir, names, params, work, water=()):
+        got.append((sorted(p.name for p in zone_dir.iterdir() if p.suffix in ('.osm', '.xz')), names, water))
+        return Built(shaded=object())
+    h = Harness(build_fn=build)
+    ws = FakeSet()
+    here, far = SquareName(125, -24), SquareName(128, -24)
+    ws.squares = {here: Square(name=here, present=True, attrs={'version': '0.6'})}
+    ws.extra = {far: Square(name=far, present=True, attrs={'version': '0.6'})}
+    h.builder.request(ws, PARAMS.with_arcsec(3.0))
+    h.finish()
+    assert got == [(['S24E125.osm', 'S24E128.osm'], [here], [far])]
+    assert h.builder.running_info['alongside'] == 1

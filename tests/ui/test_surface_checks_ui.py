@@ -21,7 +21,7 @@ SEA = Finding(NORTH, 'sea', 'sea level 1.5 km from a drawn shore, for 3.4 km', '
 
 
 class FakeSet:
-    squares = {}
+    squares, extra = {}, {}
 
 
 def test_a_build_asks_the_checks_of_its_own_grids_before_it_is_handed_back(monkeypatch):

@@ -604,7 +604,8 @@ def check_long_ways(square_path: Path, log: Log, name: str | None = None,
 
 
 def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
-            lined: set | None = None, cache: Path | None = None) -> Path | None:
+            lined: set | None = None, cache: Path | None = None,
+            water: dict[SquareName, Path] | None = None) -> Path | None:
     """Every square's constraints into one GeoPackage: the ways with a numeric
     ``ele`` as ``contour``, the nodes with one as ``spot``. None when there are
     neither. ``lined``, given, gets the names of the squares that brought a
@@ -627,7 +628,13 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     ``cache``, given, keeps each square's translated constraints (``_piece``)
     from one build to the next - the editor's, building the same squares again
     for every edit. A square whose contents were translated and read before is
-    then not expanded at all."""
+    then not expanded at all.
+
+    ``water``, given, is squares read for their held lakes alone - the
+    editor's squares read alongside a working set, holding water that
+    reaches into it (#279): roantra's inland sea is held in N46E030 and
+    reaches N44E027's set. Their contours and spot heights are not the
+    set's, and do not widen its grid."""
     gpkg = work / 'contours.gpkg'
     if gpkg.exists():
         gpkg.unlink()
@@ -750,6 +757,20 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             if lined is not None and _numeric_lines(gpkg, top):
                 lined.add(name)
             before = now
+        alongside = 0
+        for name, path in sorted((water or {}).items()):
+            digest = _digest(path)
+            key = _facts_key(name, digest)
+            source = path
+            if path.suffix == '.xz' and key not in _FACTS:
+                with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+                source = square
+            _counts, (held, _n), _coasts = _square_facts(key, source, name)
+            lakes += [(str(name), *lake) for lake in held]
+            alongside += len(held)
+            if source == square:
+                square.unlink()
     if not gpkg.exists():
         return None
     ds = ogr.Open(str(gpkg), update=1)
@@ -787,6 +808,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     _last_parsed = (None, None, None)            # not a square held past the read
     if lakes or spanned:
         log(f'  {len(lakes)} lakes held at their level'
+            + (f', {alongside} of them from squares alongside' if alongside else '')
             + (f'; {spanned} not, with contours at other levels inside them' if spanned else ''))
     for text in backwards:
         log(f'  WARNING: {text} - land is on a coastline\'s left, so what it holds will read as sea')
@@ -1358,13 +1380,16 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
               log: Log = _quiet, isofill: str = 'isofill',
               library: bool | None = None, water_file: Path | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
-              keep_pass1: bool = False, cache: Path | None = None) -> Result:
+              keep_pass1: bool = False, cache: Path | None = None,
+              water_names: Iterable[SquareName] | None = None) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
     called with each stage's name as it starts, which is where the timings come
     from. The DEM is None when there was nothing to build. ``cache`` is
-    ``collect``'s, kept between builds by the editor."""
+    ``collect``'s, kept between builds by the editor. ``water_names`` are
+    squares of ``zone_dir`` read for their held lakes alone - ``collect``'s
+    ``water``."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
@@ -1394,7 +1419,8 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
         return Result(None, None, squares, None, None, None, None, blank=blank)
     stage('collect')
     lined: set = set()
-    gpkg = collect(squares, work, log, lined, cache=cache)
+    water = {n: listing[n] for n in (water_names or ()) if n in listing and n not in squares}
+    gpkg = collect(squares, work, log, lined, cache=cache, water=water)
     if gpkg is None:
         return Result(None, None, squares, None, None, None, None, blank=blank)
     # and over the squares holding a contour, of those: a spot height is a

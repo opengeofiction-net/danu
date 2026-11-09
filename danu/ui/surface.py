@@ -208,9 +208,10 @@ def square_cache(root: Path) -> Path:
     return mine
 
 
-def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Built:
+def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water: list = ()) -> Built:
     """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
-    touches no Qt object, so it is also the seam the queue's tests replace."""
+    touches no Qt object, so it is also the seam the queue's tests replace.
+    ``water``: squares there read alongside the set, for their held lakes."""
     # here and not at import: building needs GDAL, looking does not
     from ..surface import build
     # keep_pass1: the overlay wants what the first pass could not answer, and
@@ -221,7 +222,8 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path) -> Bu
     # each square's translated constraints kept for the next build of the
     # same squares - see SQUARE_CACHE
     result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch,
-                             cache=SQUARE_CACHE or Path(work).parent / 'square-cache')
+                             cache=SQUARE_CACHE or Path(work).parent / 'square-cache',
+                             water_names=water)
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
     watch('classes')
@@ -311,9 +313,9 @@ class Nothing(Exception):
 
 class _Job(QRunnable):
     def __init__(self, fn, zone_dir: Path, names: list, params: Params, work: Path,
-                 signals: _Signals, after=None):
+                 signals: _Signals, after=None, water: list = ()):
         super().__init__()
-        self.fn, self.zone_dir, self.names = fn, zone_dir, names
+        self.fn, self.zone_dir, self.names, self.water = fn, zone_dir, names, list(water)
         self.params, self.work, self.signals = params, work, signals
         self.after = after            # asked of the build's grids before it is handed back
         # set when run() returns, however it returns. What makes it safe to
@@ -334,7 +336,10 @@ class _Job(QRunnable):
 
     def _run(self):
         try:
-            built = self.fn(self.zone_dir, self.names, self.params, self.work)
+            # water only when there is some: the queue's tests stand in for
+            # the build with four arguments
+            more = {'water': self.water} if self.water else {}
+            built = self.fn(self.zone_dir, self.names, self.params, self.work, **more)
         except Abandoned:
             self._abandoned('the build')
             return
@@ -492,7 +497,9 @@ class SurfaceBuilder(QObject):
         here = self.work / f'build-{self._started}'
         try:
             here.mkdir(parents=True)
-            zone_dir = stage_zone(ws.squares.values(), dirty, here / 'zone')
+            # the squares read alongside too (#279): the water they hold that
+            # reaches into the set is held at its level in the build
+            zone_dir = stage_zone([*ws.squares.values(), *ws.extra.values()], dirty, here / 'zone')
             self.running_info['staging'] = time.monotonic() - self._started_at
         except OSError as e:
             # said, and not raised out of request: raised, it left every later
@@ -501,7 +508,10 @@ class SurfaceBuilder(QObject):
             self.failed.emit(f'the squares could not be put where the build reads them: {e}')
             return
         names = [sq.name for sq in ws.squares.values() if sq.present or sq.ways]
+        water = [sq.name for sq in ws.extra.values() if sq.present or sq.ways]
         self.running_info['squares'] = len(names)
+        if water:
+            self.running_info['alongside'] = len(water)
         self._building = here
         self._running = True
         sig = _Signals()
@@ -514,7 +524,7 @@ class SurfaceBuilder(QObject):
         if snap is not None:
             from ..checks import surface as surface_checks
             after = lambda work: surface_checks.find(snap, work)      # noqa: E731
-        job = _Job(self._build_fn, zone_dir, names, params, here, sig, after)
+        job = _Job(self._build_fn, zone_dir, names, params, here, sig, after, water=water)
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit()
