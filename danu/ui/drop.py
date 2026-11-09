@@ -92,8 +92,21 @@ def mark(status: int, body: dict, server: str) -> str:
     return 'A' if body.get('admin') else 'X'
 
 
+def as_seen_by(body: dict, user: str, permission) -> dict:
+    """An administrator's answer as ``user`` would have it (View as…): their
+    name, no administrator's say, and the permission the editor's own
+    territories give them - ``TerritoryIndex.permission``, which the server
+    calls too. The zone and what is held stay the server's."""
+    who = lambda ts: [{'ogfId': t.ogf_id, 'name': t.name, 'rel': t.rel} for t in ts]  # noqa: E731
+    return {**body, 'user': user, 'admin': False, 'blocked': False,
+            'permission': {'level': permission.level, 'mine': who(permission.mine),
+                           'others': who(permission.others)}}
+
+
 class DropClient(QObject):
-    """Asks the API about a square. ``answered(square, line, warn, mark)``."""
+    """Asks the API about a square. ``answered(square, line, warn, mark)``.
+    ``viewed``, set, is asked for each signed-in answer: ``(user,
+    permission)`` to answer as that user would be answered, or None."""
 
     answered = Signal(str, str, bool, str)
 
@@ -102,6 +115,7 @@ class DropClient(QObject):
         self.base_url, self.server = base_url.rstrip('/'), server
         self.nam = QNetworkAccessManager(self)
         self._inflight: QNetworkReply | None = None
+        self.viewed = None
 
     def ask(self, square: SquareName, token: str = '') -> None:
         """The last asked is the one answered: an earlier question still out
@@ -135,6 +149,9 @@ class DropClient(QObject):
             if not status or not isinstance(body, dict):
                 self.answered.emit(square.name, 'upload service not reached', False, '?')
                 return
+            seen = self.viewed(square) if self.viewed and status == 200 and 'permission' in body else None
+            if seen is not None:
+                body = as_seen_by(body, *seen)
             line, warn = describe(int(status), body, self.server)
             self.answered.emit(square.name, line, warn, mark(int(status), body, self.server))
         finally:

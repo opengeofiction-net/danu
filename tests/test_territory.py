@@ -82,7 +82,28 @@ def test_describe_warns_only_for_ground_claimed_by_somebody_else():
     assert T.describe([led], 'wangi') == ('Led (X2), owned by Luciano - delegated to you', False)
     assert T.describe([led], 'Luciano')[0] == 'Led (X2), owned by Luciano'
     line, warn = T.describe([T.Territory(9), one], 'wangi')
-    assert line.startswith('not yours to draw: unknown territory (relation 9); One') and warn
+    assert line == 'not yours to draw: One (AR001), owned by Luciano - also here: unknown territory (relation 9)' and warn
+
+
+def test_a_square_partly_yours_names_the_others_ground_then_yours():
+    """Bashlam, xoxasochka's and marked for withdrawal, shares every square
+    it is in with UL07a: the warning names UL07a, and Bashlam as theirs -
+    not both as "not yours" (2026-11-09)."""
+    a = T.Territory(1, 'UL07a', 'Ichkeria', 'owned', 'Rustem Pasha')
+    b = T.Territory(2, 'UL07f', 'Bashlam', 'marked for withdrawal', 'xoxasochka')
+    c = T.Territory(3, 'UL17g', 'Ante', 'collaborative', 'ante44')
+    assert T.describe([a, b], 'xoxasochka') == (
+        "partly another's to draw: Ichkeria (UL07a), owned by Rustem Pasha"
+        ' - yours: Bashlam (UL07f), marked for withdrawal by xoxasochka', True)
+    assert T.describe([b, a, c], 'xoxasochka')[0] == (
+        "partly another's to draw: Ichkeria (UL07a), owned by Rustem Pasha"
+        ' - yours: Bashlam (UL07f), marked for withdrawal by xoxasochka'
+        ' - also here: Ante (UL17g), collaborative, owned by ante44')
+    assert T.describe([b, c], 'xoxasochka') == (
+        'Bashlam (UL07f), marked for withdrawal by xoxasochka; Ante (UL17g), collaborative, owned by ante44', False)
+    assert T.describe([a, b], 'wangi', admin=True)[0] == (
+        'not yours to draw: Ichkeria (UL07a), owned by Rustem Pasha; '
+        'Bashlam (UL07f), marked for withdrawal by xoxasochka (administrator)')
 
 
 def test_a_relation_with_no_record_and_an_outline_are_not_under_a_square():

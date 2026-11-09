@@ -170,3 +170,41 @@ def test_whose_ground_off_is_kept_with_the_session(window):
     window.surface_panel.show_ground.setChecked(True)
     session.restore(window, {**data, 'set': None})
     assert not window.surface_panel.show_ground.isChecked()
+
+
+def test_an_administrator_views_ownership_as_another_mapper(window, qtbot, api):
+    """View as…: the territory line, whose ground and the upload mark as the
+    mapper named would have them; the administrator's own otherwise, and
+    nobody else's to view as."""
+    w = window
+    w.drop.base_url = api
+    qtbot.waitUntil(lambda: w.territory.complete, timeout=5000)
+    a = w.view_actions['view.view_as']
+    w.settings.user, w.settings.token, w.settings.roles = 'wangi', 'tok', []
+    w._account_changed()
+    assert not a.isVisible() and not w.viewing_as
+    w.set_view_as('Luciano')
+    assert not w.viewing_as, 'not an administrator: nobody to view as'
+    assert w._territory.text().startswith('not yours to draw: Pizarrales')
+    w.settings.roles = ['administrator']
+    w._account_changed()
+    assert a.isVisible()
+    w.set_view_as('Luciano')
+    assert w.viewing_as == 'Luciano' and a.text() == 'View &as Luciano…'
+    assert w.statusBar().currentMessage() == 'viewing as Luciano: 1 territory theirs to draw'
+    assert w._territory.text() == 'Pizarrales (AR031), owned by Luciano (viewing as Luciano)'
+    assert w._territory.styleSheet() == ''
+    # the server answers for the administrator; the line is Luciano's, from here
+    qtbot.waitUntil(lambda: 'yours to upload' in w.drop_line, timeout=5000)
+    assert w.drop_line == 'zone pizarrales - yours to upload: Pizarrales' and w._drop.text() == '^'
+    w.set_view_as('Nobody')
+    assert w.statusBar().currentMessage().startswith('viewing as Nobody: no territory theirs to draw')
+    assert w._territory.text() == 'not yours to draw: Pizarrales (AR031), owned by Luciano (viewing as Nobody)'
+    qtbot.waitUntil(lambda: 'not yours to upload' in w.drop_line, timeout=5000)
+    assert w._drop.text() == 'X'
+    w.set_view_as('')
+    assert not w.viewing_as and w.statusBar().currentMessage() == 'viewing as yourself, wangi'
+    assert w._territory.text().endswith('(administrator)')
+    w.set_view_as('Luciano')
+    w.sign_out()
+    assert not w.viewing_as and not w.view_as and not a.isVisible()

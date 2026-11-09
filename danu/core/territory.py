@@ -301,21 +301,33 @@ class TerritoryIndex:
 def describe(found: list[Territory], user: str = '', admin: bool = False) -> tuple[str, bool]:
     """One line for the status bar, and whether it is a warning: the ground
     is claimed by somebody who is not the user. No user set, no warning -
-    the line still says whose it is. An administrator is warned as anyone
-    is - so as to know - and told they are one."""
+    the line still says whose it is. Warned, the line names the others'
+    ground first, then the user's own, then the rest - available, shared or
+    unknown - so that a square partly theirs says so, rather than listing
+    their own under "not yours" (Bashlam beside UL07a, 2026-11-09). An
+    administrator is warned as anyone is - so as to know - and told they
+    are one."""
     if not found:
         return 'no territory here', False
-    line = '; '.join(t.describe() + (' - delegated to you' if user and user in t.editors - t.owners else '')
-                     for t in found)
-    # an administrator on their own ground is its owner or delegate, and
-    # the line says so: told they are one only where some of it is another's
-    if admin and user and any(user not in t.editors for t in found):
-        line += ' (administrator)'
+
+    def one(t: Territory) -> str:
+        return t.describe() + (' - delegated to you' if user and user in t.editors - t.owners else '')
+
     # not somebody else's to the owners, 'Alessa;Leowezy', nor to a dem:
     # delegate (#190) - Territory.editors. The CLAIMED gate stays, unlike in
     # permission: this is a warning while drawing, not who may upload
     others = [t for t in found if t.known and t.status in CLAIMED and t.owner
               and user not in t.editors]
-    if user and others:
-        return f'not yours to draw: {line}', True
-    return line, False
+    # an administrator on their own ground is its owner or delegate, and
+    # the line says so: told they are one only where some of it is another's
+    tail = ' (administrator)' if admin and user and any(user not in t.editors for t in found) else ''
+    if not user or not others:
+        return '; '.join(one(t) for t in found) + tail, False
+    mine = [t for t in found if user in t.editors]
+    rest = [t for t in found if t not in others and t not in mine]
+    line = ("partly another's to draw: " if mine else 'not yours to draw: ') + '; '.join(one(t) for t in others)
+    if mine:
+        line += ' - yours: ' + '; '.join(one(t) for t in mine)
+    if rest:
+        line += ' - also here: ' + '; '.join(one(t) for t in rest)
+    return line + tail, True
