@@ -208,7 +208,7 @@ def square_cache(root: Path) -> Path:
     return mine
 
 
-def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water: list = ()) -> Built:
+def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water=()) -> Built:
     """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
     touches no Qt object, so it is also the seam the queue's tests replace.
     ``water``: squares there read alongside the set, for their held lakes."""
@@ -336,10 +336,7 @@ class _Job(QRunnable):
 
     def _run(self):
         try:
-            # water only when there is some: the queue's tests stand in for
-            # the build with four arguments
-            more = {'water': self.water} if self.water else {}
-            built = self.fn(self.zone_dir, self.names, self.params, self.work, **more)
+            built = self.fn(self.zone_dir, self.names, self.params, self.work, water=self.water)
         except Abandoned:
             self._abandoned('the build')
             return

@@ -26,7 +26,7 @@ class FakeSet:
 
 def test_a_build_asks_the_checks_of_its_own_grids_before_it_is_handed_back(monkeypatch):
     jobs = []
-    builder = SurfaceBuilder(build_fn=lambda *a: Built(shaded=object()), runner=jobs.append)
+    builder = SurfaceBuilder(build_fn=lambda *a, **k: Built(shaded=object()), runner=jobs.append)
     got = []
     builder.finished.connect(lambda b, stale, secs: got.append(b))
     asked = []
