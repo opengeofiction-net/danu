@@ -4294,7 +4294,7 @@ The Edit menu had taken every action as it came. Now there are five menus:
 - **Edit**: undo and redo; delete, delete contour, split and unglue; the four
   tools; a **Water** sub-menu (import, set level, grade, grade the river
   network, flatten, burn and burn all) and a **Spot height** one (import);
-  cut out the loop chosen.
+  cut out the loop chosen (Edit › Cut out loop).
 - **View**: magnify and Show in JOSM; the surface panel's three overlays;
   a toggle for each of the seven panels; Reset panels.
 - **Elevation**: the steps, the metre nudges, pick under cursor, sea level and

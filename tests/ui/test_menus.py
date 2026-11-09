@@ -31,9 +31,9 @@ def test_the_menus_are_file_edit_view_elevation_surface_help(window):
 def test_the_water_work_has_a_menu_of_its_own(window):
     edit = menu(window, 'Edit')
     assert texts(edit) == ['Undo', 'Redo', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Absorb pieces',
-                           'Fit contours to the valley', 'Push back crossings',
+                           'Fit contours to valley', 'Push back crossings', 'Cut out loop',
                            'Select', 'Draw contour', 'Place spot height', 'Measure', 'Water', 'Spot height',
-                           'Coastline', 'Cut out the loop chosen']
+                           'Coastline']
     water = _menu(edit, 'Water')
     e = window.edit_actions
     assert water.actions() == [e['edit.import_water'], e['edit.set_level'], e['edit.grade'],
@@ -131,3 +131,17 @@ def test_a_key_still_reaches_an_action_in_a_sub_menu(window, name):
     window.map.setFocus()
     QTest.keyClick(window.map, seq.key(), seq.keyboardModifiers())
     assert fired == [name]
+
+
+def test_the_neighbouring_squares_are_under_file_named_for_where_they_go(window):
+    """File › Open neighbouring square: North, South, East and West, each with
+    the square it opens; none in View."""
+    e = window.edit_actions
+    names = ['view.set_north', 'view.set_south', 'view.set_east', 'view.set_west']
+    assert window.neighbour_menu.actions() == [e[n] for n in names]
+    assert window.neighbour_menu.menuAction() in menu(window, 'File').actions()
+    assert not any(e[n] in menu(window, 'View').actions() for n in names)
+    c = window.working_set.centre
+    assert texts(window.neighbour_menu) == [f'North ({c.neighbour(0, 1)})', f'South ({c.neighbour(0, -1)})',
+                                            f'East ({c.neighbour(1, 0)})', f'West ({c.neighbour(-1, 0)})']
+    assert e['view.set_west'].shortcut().toString() == 'Alt+Left'
