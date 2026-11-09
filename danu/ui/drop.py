@@ -96,7 +96,8 @@ def as_seen_by(body: dict, user: str, permission) -> dict:
     """An administrator's answer as ``user`` would have it (View as…): their
     name, no administrator's say, and the permission the editor's own
     territories give them - ``TerritoryIndex.permission``, which the server
-    calls too. The zone and what is held stay the server's."""
+    calls too. The zone and what is held stay the server's; whether the
+    mapper is blocked on OGF isn't known here, and is taken as not."""
     who = lambda ts: [{'ogfId': t.ogf_id, 'name': t.name, 'rel': t.rel} for t in ts]  # noqa: E731
     return {**body, 'user': user, 'admin': False, 'blocked': False,
             'permission': {'level': permission.level, 'mine': who(permission.mine),

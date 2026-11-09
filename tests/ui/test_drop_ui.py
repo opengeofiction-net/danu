@@ -202,7 +202,7 @@ def test_an_administrator_views_ownership_as_another_mapper(window, qtbot, api):
     assert w._territory.text() == 'not yours to draw: Pizarrales (AR031), owned by Luciano (viewing as Nobody)'
     qtbot.waitUntil(lambda: 'not yours to upload' in w.drop_line, timeout=5000)
     assert w._drop.text() == 'X'
-    w.set_view_as('')
+    w.set_view_as(' wangi ')
     assert not w.viewing_as and w.statusBar().currentMessage() == 'viewing as yourself, wangi'
     assert w._territory.text().endswith('(administrator)')
     w.set_view_as('Luciano')

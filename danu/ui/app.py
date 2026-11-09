@@ -811,9 +811,10 @@ class MainWindow(QMainWindow):
         """The drop's answer for the mapper viewed as: theirs from the
         territories here, the server answering only for who is signed in."""
         index = self.territory.index
-        if not self.viewing_as or index is None:
+        who = self.viewing_as
+        if not who or index is None:
             return None
-        return self.view_as, index.permission(square.bounds, self.view_as)
+        return who, index.permission(square.bounds, who)
 
     def ask_view_as(self) -> None:
         """View › View as…: a mapper's name, exact as OGF's are; blank to be
@@ -824,6 +825,7 @@ class MainWindow(QMainWindow):
             self.set_view_as(name.strip())
 
     def set_view_as(self, name: str) -> None:
+        name = name.strip()
         self.view_as = '' if name == self.settings.user else name
         self._view_as_changed()
         if not self.view_as:
@@ -904,7 +906,7 @@ class MainWindow(QMainWindow):
         self.account_action.setText(f'Sign &out ({user})' if user else 'Sign &in to OGF…')
         self.start.set_account(user)
         self.zone_editor.update_buttons()
-        if not self.settings.admin:
+        if not (self.settings.token and self.settings.admin):
             self.view_as = ''
         self._view_as_changed()
 
