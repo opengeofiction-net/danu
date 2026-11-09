@@ -6903,3 +6903,13 @@ finishes first, isofill being a C call with nothing to stop it. A build asked
 for - Ctrl+R, the panel's button - runs to the end. The usage log has a
 `build abandoned` line: how long it ran, the stage it was given up at, and why
 it had been started.
+
+**A set opened is built, in auto.** Moving to a neighbour, or opening any set,
+left the surface empty until an edit and a minute's pause, or Ctrl+R: the
+usage log of 2026-11-09 has the mapper pressing the button after each move. In
+auto, once a surface has been built in the session (`_arcsec` set), opening a
+set asks for a build at its resolution, `why='opened'`. It waits for the water
+alongside as any build asked for meanwhile does, and an edit gives it up as it
+does `idle`'s. The session's first set is left to the session restore's build,
+or to Ctrl+R: a set opened from nothing does not start a build nobody asked
+for (c478fa8).

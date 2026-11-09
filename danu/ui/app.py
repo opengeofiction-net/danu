@@ -110,7 +110,7 @@ HOME = (87.0, 20.5, 5)
 
 # the builds auto starts, which an edit made stale gives up; one asked for
 # (Ctrl+R, the panel's button) runs to the end
-AUTOMATIC_BUILDS = ('idle', 'auto on')
+AUTOMATIC_BUILDS = ('idle', 'auto on', 'opened')
 
 # the nearest the map goes to show something a grade found - G6d-3
 SHOW_ZOOM = 16
@@ -1936,6 +1936,12 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(said)
             self._checks_after_opening()
         self._read_alongside(ws)
+        # auto, and a surface built this session: the new set's built too, at
+        # its resolution - after the water alongside is read, as any build
+        # asked for meanwhile is. The session's first set is the session
+        # restore's to build, or Ctrl+R's
+        if self.settings.rebuild_mode == 'auto' and self._arcsec:
+            self.rebuild_surface(self._arcsec, why='opened')
 
     def _checks_after_opening(self) -> None:
         """The checks found over the set, if the panel is open - once the set
