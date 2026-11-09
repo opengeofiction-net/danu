@@ -51,21 +51,38 @@ class Snapshot:
 
 
 def snapshot(working_set) -> Snapshot:
+    """The set's waterways, and what is drawn at sea level - in the set's
+    squares and in those read alongside it (#279), whose water the build
+    holds at its level: roantra's inland sea, held in N46E030, is the shore
+    of N44E027's set. A water body's rings are at its level whether the
+    level is on them or on the relation alone."""
     s = Snapshot(squares=list(working_set.squares))
     zero = []
-    for sq in working_set.squares.values():
+
+    def at_sea_level(sq, w):
+        for r in w.refs:
+            n = sq.nodes.get(r)
+            if n is not None:
+                zero.append((n.lon, n.lat))
+                s.shore.add((math.floor(n.lon), math.floor(n.lat)))
+
+    extra = getattr(working_set, 'extra', {}) or {}
+    for sq in [*working_set.squares.values(), *extra.values()]:
+        alongside = sq.name not in working_set.squares
+        ringed = set()
+        for rel in sq.relations.values():
+            if rel.tags.get('natural') == 'water' and parse_ele(rel.tags.get('ele')) == 0:
+                ringed.update(m.ref for m in rel.members if m.type == 'way')
         for w in sq.ways.values():
             kind = w.tags.get('waterway')
             if kind in FLOWING_LINES:
+                if alongside:
+                    continue                  # the set's own rivers are the ones judged
                 pts = [(sq.nodes[r].lon, sq.nodes[r].lat) for r in w.refs if r in sq.nodes]
                 if len(pts) >= 2:
                     s.waterways.append((sq.name, w.id, w.tags.get('name'), kind, np.array(pts)))
-            elif parse_ele(w.tags.get('ele')) == 0:
-                for r in w.refs:
-                    n = sq.nodes.get(r)
-                    if n is not None:
-                        zero.append((n.lon, n.lat))
-                        s.shore.add((math.floor(n.lon), math.floor(n.lat)))
+            elif parse_ele(w.tags.get('ele')) == 0 or w.id in ringed:
+                at_sea_level(sq, w)
     s.zero = np.array(zero, float).reshape(-1, 2)
     return s
 

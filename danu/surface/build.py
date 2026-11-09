@@ -486,9 +486,18 @@ def _holds(path: Path, words, chunk: int = 1 << 20) -> bool:
 
 def lake_polygon(rings):
     """A lake as one polygon, every ring of it a ring - burned even-odd, so an
-    island is a hole whichever ring it is, and whichever order they come in."""
+    island is a hole whichever ring it is, and whichever order they come in.
+
+    The widest ring first, all the same: OGR takes a polygon's envelope from
+    its first ring, and the preview's burn finds the lakes in a box by their
+    envelopes. Roantra's inland sea came with a 26-point island first, and
+    every view but that island's had no sea in it - the 1" ground at z15 ran
+    out over the water the 3" build held at 0 m."""
+    def extent(ring):
+        xs, ys = [x for x, _ in ring], [y for _, y in ring]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys)) if ring else 0.0
     poly = ogr.Geometry(ogr.wkbPolygon)
-    for ring in rings:
+    for ring in sorted(rings, key=extent, reverse=True):
         r = ogr.Geometry(ogr.wkbLinearRing)
         for x, y in ring:
             r.AddPoint_2D(x, y)

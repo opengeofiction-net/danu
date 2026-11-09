@@ -157,3 +157,31 @@ def test_the_nearest_drawn_shore_indexed_once_is_what_every_point_asked_gives():
         assert np.allclose(far(pts, lat), brute), lat
     assert np.isinf(Nearest(np.zeros((0, 2)), 45.0)(shore)).all()
     assert not len(near(np.zeros((0, 2))))
+
+
+def test_the_shore_includes_the_water_held_alongside_and_rings_levelled_by_their_relation():
+    """Sea level drawn is the set's own ways at 0 m and the water at 0 m in
+    the squares read alongside it (#279), whose shore the build now holds:
+    roantra's inland sea is held in N46E030 and is N44E027's set's shore. A
+    ring takes its relation's level. The rivers alongside are not judged."""
+    from types import SimpleNamespace
+
+    from danu.core.square import Member, Node, Relation, Square, Way
+
+    def square(name, lon):
+        sq = Square(name=name, present=True)
+        for i, (x, y) in enumerate([(lon, -22.5), (lon + 0.1, -22.5), (lon + 0.1, -22.4)], 1):
+            sq.nodes[i] = Node(id=i, lon=x, lat=y)
+        return sq
+
+    own = square(A, 125.2)
+    own.ways[10] = Way(id=10, refs=[1, 2], tags={'ele': '0'})
+    far = square(SquareName(127, -23), 124.8)              # its water reaching west into A
+    far.ways[20] = Way(id=20, refs=[1, 2, 3, 1], tags={})  # the level on the relation alone
+    far.relations[30] = Relation(id=30, members=[Member('way', 20, 'outer')],
+                                 tags={'natural': 'water', 'ele': '0'})
+    far.ways[21] = Way(id=21, refs=[1, 2], tags={'waterway': 'river'})
+    s = surface.snapshot(SimpleNamespace(squares={A: own}, extra={far.name: far}))
+    assert len(s.zero) == 2 + 4 and (124, -23) in s.shore and (125, -23) in s.shore
+    assert [w[1] for w in s.waterways] == [], 'the rivers alongside are not the set\'s to judge'
+    assert len(surface.snapshot(SimpleNamespace(squares={A: own}, extra={})).zero) == 2

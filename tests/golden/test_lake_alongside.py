@@ -39,8 +39,10 @@ def squares():
         ring(land, la, [(x - r, y - r), (x + r, y - r), (x + r, y + r), (x - r, y + r)], {'ele': str(ele)})
     sea, sa = square(124)
     shore = ring(sea, sa, [(124.6, -23.8), (SHORE, -23.8), (SHORE, -23.2), (124.6, -23.2)], {'ele': '0'})
+    # an island first, as the inland sea's relation lists one
+    islet = ring(sea, sa, [(124.70, -23.30), (124.72, -23.30), (124.72, -23.28), (124.70, -23.28)], {'ele': '0'})
     rid = sa.take()
-    sea.relations[rid] = Relation(id=rid, members=[Member('way', shore, 'outer')],
+    sea.relations[rid] = Relation(id=rid, members=[Member('way', islet, 'inner'), Member('way', shore, 'outer')],
                                   tags={'natural': 'water', 'ele': '0'})
     return land, sea
 
@@ -63,6 +65,7 @@ def built(tmp_path, name, water):
     band = ds.GetRasterBand(1)
     cont, gt, nodata = band.ReadAsArray(), ds.GetGeoTransform(), band.GetNoDataValue()
     del ds
+    built.last = result
     return cont, gt, nodata, lines
 
 
@@ -80,3 +83,21 @@ def test_a_sea_held_alongside_is_held_at_its_level_and_does_not_widen_the_grid(t
     assert at(cont, gt, *sea) == 0, 'burned at its level'
     assert at(without, gt0, *sea) == nodata, 'nothing said there without it'
     assert at(cont, gt, *HILL) == at(without, gt0, *HILL), 'the set\'s own constraints as they were'
+
+
+def test_the_preview_burns_a_lake_whose_first_ring_is_an_island_where_the_build_does(tmp_path):
+    """The preview, and the 1" view on it, finds the lakes in a box by their
+    envelopes, and OGR takes a polygon's from its first ring: with the sea's
+    island first, no view but the island's had the sea in it."""
+    from danu.surface import NODATA
+    from danu.surface.local import Box
+    from danu.surface.preview import Contours
+
+    cont, gt, _, _ = built(tmp_path, 'with', water=True)
+    layer = Contours(built.last.contours_gpkg)
+    lon, lat = 125.15, HILL[1]                # in the sea, nowhere near its island
+    c, r = int((lon - gt[0]) / gt[1]), int((lat - gt[3]) / gt[5])
+    box = Box(c - 40, r - 40, c + 39, r + 39)
+    burned = layer.burn(gt, box, NODATA)
+    assert (burned == 0).all(), 'the sea burned in the box, as the build burned it'
+    assert (burned == cont[box.slice]).all()
