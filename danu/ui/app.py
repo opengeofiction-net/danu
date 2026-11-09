@@ -1280,10 +1280,8 @@ class MainWindow(QMainWindow):
                 ('view.magnify', '&Magnify', None),
                 # File › Open neighbouring square; named view.* still, as the
                 # keys kept in settings are
-                ('view.set_north', '&North', lambda: self.move_set(0, 1)),
-                ('view.set_south', '&South', lambda: self.move_set(0, -1)),
-                ('view.set_east', '&East', lambda: self.move_set(1, 0)),
-                ('view.set_west', '&West', lambda: self.move_set(-1, 0))):
+                *((name, f'&{word}', lambda _=False, dx=dx, dy=dy: self.move_set(dx, dy))
+                  for name, (word, dx, dy) in NEIGHBOURS.items())):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             self._logged(a, name)
