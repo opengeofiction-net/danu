@@ -179,6 +179,11 @@ def _undo_hint(doubled: str) -> str:
         return 'Ctrl+Z puts the doubled back, and again takes the import'
     return 'Ctrl+Z takes them all back'
 
+# File › Open neighbouring square: action, its word and the step it takes
+NEIGHBOURS = {'view.set_north': ('North', 0, 1), 'view.set_south': ('South', 0, -1),
+              'view.set_east': ('East', 1, 0), 'view.set_west': ('West', -1, 0)}
+
+
 class MainWindow(QMainWindow):
     def __init__(self, layers: list[config.Layer], cache_dir: Path | None = None,
                  settings: Settings | None = None, territory_fetcher: TerritoryFetcher | None = None,
@@ -1264,19 +1269,19 @@ class MainWindow(QMainWindow):
                 ('edit.split', 'S&plit', ed.split),
                 ('edit.unglue', 'U&nglue', ed.unglue),
                 ('edit.absorb', '&Absorb pieces', ed.absorb),
-                ('edit.fit_valley', 'Fit contours to the &valley', ed.fit_valley),
+                ('edit.fit_valley', 'Fit contours to &valley', ed.fit_valley),
                 ('edit.push_crossings', 'Push back &crossings', lambda: ed.push_crossings()),
-                ('edit.cut_loop', 'Cut &out the loop chosen',
+                ('edit.cut_loop', 'Cut &out loop',
                  lambda: ed.cut_loop(self.checks_dock.current_loop())),
                 ('view.josm', 'Show in &JOSM', self.show_in_josm),
                 ('view.josm_surface', 'Show in &JOSM', self.show_surface_in_josm),
                 # toggled turns the loupe on and off, below: the button's toggle reaches it
                 # through setChecked, which triggers nothing
                 ('view.magnify', '&Magnify', None),
-                ('view.set_west', 'Set a square &west', lambda: self.move_set(-1, 0)),
-                ('view.set_east', 'Set a square &east', lambda: self.move_set(1, 0)),
-                ('view.set_north', 'Set a square &north', lambda: self.move_set(0, 1)),
-                ('view.set_south', 'Set a square &south', lambda: self.move_set(0, -1))):
+                # File › Open neighbouring square; named view.* still, as the
+                # keys kept in settings are
+                *((name, f'&{word}', lambda _=False, dx=dx, dy=dy: self.move_set(dx, dy))
+                  for name, (word, dx, dy) in NEIGHBOURS.items())):
             a = QAction(text, self)
             a.setShortcut(QKeySequence(self.settings.key(name)))
             self._logged(a, name)
@@ -1294,6 +1299,10 @@ class MainWindow(QMainWindow):
         file.addAction(self.open_action)
         self.recent_menu = file.addMenu('Open &recent')
         self._fill_recent()
+        self.neighbour_menu = file.addMenu('Open neigh&bouring square')
+        for name in NEIGHBOURS:
+            self.neighbour_menu.addAction(e[name])
+        self._name_neighbours()
         # a zone's squares from the server (H6g)
         self.import_action = QAction('&Import…', self)
         self.import_action.triggered.connect(self.importer.start)
@@ -1351,7 +1360,7 @@ class MainWindow(QMainWindow):
 
         edit = self.menuBar().addMenu('&Edit')
         for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
-                     'edit.absorb', 'edit.fit_valley', 'edit.push_crossings', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
+                     'edit.absorb', 'edit.fit_valley', 'edit.push_crossings', 'edit.cut_loop', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
             if name:
                 edit.addAction(e[name])
             else:
@@ -1364,13 +1373,10 @@ class MainWindow(QMainWindow):
         coastline = edit.addMenu('&Coastline')
         for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast'):
             coastline.addAction(e[name])
-        edit.addAction(e['edit.cut_loop'])
 
         view = self.menuBar().addMenu('&View')
         view.addAction(e['view.magnify'])
         view.addAction(e['view.josm'])
-        for name in ('view.set_west', 'view.set_east', 'view.set_north', 'view.set_south'):
-            view.addAction(e[name])
         view.addSeparator()
         # the surface panel's three overlays, the same choices as its boxes
         p = self.surface_panel
@@ -1531,7 +1537,10 @@ class MainWindow(QMainWindow):
                 if a.menu() is not None:
                     walk(a.menu(), [*path, text])
                 elif a in by_action:
-                    out.setdefault(by_action[a], ' › '.join([*path, text]))
+                    name = by_action[a]
+                    # a neighbour by its word, not the square it opens now
+                    text = NEIGHBOURS[name][0] if name in NEIGHBOURS else text
+                    out.setdefault(name, ' › '.join([*path, text]))
         for top in self.menuBar().actions():
             walk(top.menu(), [top.text().replace('&', '')])
         return out
@@ -1791,6 +1800,17 @@ class MainWindow(QMainWindow):
         self._start_asked = True
         self.update_start()
 
+    def _name_neighbours(self) -> None:
+        """File › Open neighbouring square: each named for the square it
+        opens, and none with no set open - or past the pole."""
+        ws = self.working_set
+        for name, (word, dx, dy) in NEIGHBOURS.items():
+            to = ws.centre.neighbour(dx, dy) if ws is not None else None
+            a = self.edit_actions[name]
+            a.setText(f'&{word} ({to})' if to is not None else f'&{word}')
+            a.setEnabled(to is not None)
+        self.neighbour_menu.setEnabled(ws is not None)
+
     def move_set(self, dx: int, dy: int) -> None:
         """The open set a square over: Alt and an arrow."""
         ws = self.working_set
@@ -1886,6 +1906,7 @@ class MainWindow(QMainWindow):
             self._fill_recent()
         self._pending = None
         self.setWindowTitle(about.title(ws.centre, label=ws.squares[ws.centre].label))
+        self._name_neighbours()
         self._show_marks()
         self.waiting.refresh()                  # the set's folder may be outside the import folder
         self._ask_extent()

@@ -89,7 +89,7 @@ page back over whatever is open.
   rings picked, the largest is kept. Pieces more than 100 m apart are not joined.
   Two contours of one level listed in Validation's **Touching contours** need
   no lasso: choose the row, and **E** absorbs one into the other.
-- **Fit contours to the valley** with **Shift+E**: where a valley's contours
+- **Fit contours to valley** with **Shift+E**: where a valley's contours
   stop short and leave small rings at their levels up the river, lasso the
   valley with its river in it, the range filter on the levels to lay again.
   They are laid again off a surface the river's profile is the floor of: each

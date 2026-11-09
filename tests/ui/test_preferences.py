@@ -124,7 +124,8 @@ def test_the_wms_port_is_written(window, dlg):
 
 def test_the_keys_are_listed_in_the_menus_order(window, dlg):
     rows = [dlg.table.item(r, 0).text() for r in range(dlg.table.rowCount())]
-    assert rows[0] == 'File › Save' and rows.index('Edit › Undo') < rows.index('Edit › Water › Grade') \
+    assert rows[0] == 'File › Open neighbouring square › North' and rows.index('File › Save') < rows.index('Edit › Undo') \
+        and rows.index('Edit › Undo') < rows.index('Edit › Water › Grade') \
         < rows.index('Elevation › Big step up') < rows.index('Surface › Pinch ramp on active elevation')
 
 
