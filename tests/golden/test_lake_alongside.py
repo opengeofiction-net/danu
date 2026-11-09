@@ -65,8 +65,7 @@ def built(tmp_path, name, water):
     band = ds.GetRasterBand(1)
     cont, gt, nodata = band.ReadAsArray(), ds.GetGeoTransform(), band.GetNoDataValue()
     del ds
-    built.last = result
-    return cont, gt, nodata, lines
+    return cont, gt, nodata, lines, result
 
 
 def at(dem, gt, lon, lat):
@@ -74,10 +73,10 @@ def at(dem, gt, lon, lat):
 
 
 def test_a_sea_held_alongside_is_held_at_its_level_and_does_not_widen_the_grid(tmp_path):
-    cont, gt, nodata, lines = built(tmp_path, 'with', water=True)
+    cont, gt, nodata, lines, _ = built(tmp_path, 'with', water=True)
     assert any('1 of them from squares alongside' in ln for ln in lines), lines
     assert gt[0] == pytest.approx(125, abs=0.001), 'the grid is the set\'s square alone'
-    without, gt0, _, lines0 = built(tmp_path, 'without', water=False)
+    without, gt0, _, lines0, _ = built(tmp_path, 'without', water=False)
     assert gt0 == gt and not any('alongside' in ln for ln in lines0)
     sea = (125.15, HILL[1])                  # in the sea, in the set's square
     assert at(cont, gt, *sea) == 0, 'burned at its level'
@@ -93,8 +92,8 @@ def test_the_preview_burns_a_lake_whose_first_ring_is_an_island_where_the_build_
     from danu.surface.local import Box
     from danu.surface.preview import Contours
 
-    cont, gt, _, _ = built(tmp_path, 'with', water=True)
-    layer = Contours(built.last.contours_gpkg)
+    cont, gt, _, _, result = built(tmp_path, 'with', water=True)
+    layer = Contours(result.contours_gpkg)
     lon, lat = 125.15, HILL[1]                # in the sea, nowhere near its island
     c, r = int((lon - gt[0]) / gt[1]), int((lat - gt[3]) / gt[5])
     box = Box(c - 40, r - 40, c + 39, r + 39)
