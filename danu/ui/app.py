@@ -223,7 +223,12 @@ class MainWindow(QMainWindow):
         self.map.scene().addItem(self.ground)
         self.drop = DropClient(self.settings.url('drop/url'), self.settings.server_url, parent=self)
         self.drop.answered.connect(self._drop_answered)
-        self._drop_asked = None             # (square, token) last asked about
+        self.drop.viewed = self._viewed_permission
+        self._drop_asked = None             # (square, token, viewed as) last asked about
+        # View as…: an administrator shown the ownership another mapper is
+        # shown - the territory line, whose ground and the upload mark - for
+        # the session; what they may do stays their own
+        self.view_as = ''
         self._browsing = False              # the start page put away for the zones map
         self._drop_runner = QThreadPool.globalInstance().start      # the tests' to make run in place
         self.surface_panel = SurfacePanel(self.surface, self, unreached=self.unreached, envelope=self.envelope)
@@ -708,7 +713,11 @@ class MainWindow(QMainWindow):
         if self.working_set is None or self.territory.index is None:
             return
         found = self.territory.index.under(self.working_set.centre.bounds)
-        line, warn = territory.describe(found, self.settings.user, self.settings.admin and bool(self.settings.token))
+        if self.viewing_as:
+            line, warn = territory.describe(found, self.view_as)
+            line += f' (viewing as {self.view_as})'
+        else:
+            line, warn = territory.describe(found, self.settings.user, self.settings.admin and bool(self.settings.token))
         if not self.territory.complete:
             line += ' (owners not read yet)'
         elif 'attributes' in self.territory.stale:
@@ -727,7 +736,7 @@ class MainWindow(QMainWindow):
         """Each square's ground shaded for the mapper signed in (#190), and
         the drop asked about the open one."""
         ws, index = self.working_set, self.territory.index
-        user = self.settings.user if self.settings.token else ''
+        user = self.viewing_as or (self.settings.user if self.settings.token else '')
         on = self.surface_panel.show_ground.isChecked()
         if ws is None or index is None or not user or not on:
             self.ground.set_ground([])
@@ -744,8 +753,12 @@ class MainWindow(QMainWindow):
                 except RuntimeError as e:       # OGR's, on a territory it can't make whole
                     self.statusBar().showMessage(f'{sq}: whose ground not shaded - {e}')
             self.ground.set_ground(grounds)
-        if ws is not None and self._drop_asked != (ws.centre, self.settings.token):
-            self._drop_asked = (ws.centre, self.settings.token)
+        # viewing as a mapper, the drop's answer is made theirs from the
+        # territories here: not asked until they are, or the mark would be
+        # the administrator's beside the mapper's line
+        waiting = bool(self.viewing_as) and index is None
+        if ws is not None and not waiting and self._drop_asked != (ws.centre, self.settings.token, self.viewing_as):
+            self._drop_asked = (ws.centre, self.settings.token, self.viewing_as)
             self._drop.setText('…')
             self._drop.setStyleSheet('font-weight: bold')      # a mark, as the answer's will be
             self.drop_line = 'upload: asking…'
@@ -790,6 +803,51 @@ class MainWindow(QMainWindow):
         self._drop.setText(mark)
         self._drop.setStyleSheet('color: #b04000; font-weight: bold' if warn else 'font-weight: bold')
         self._ownership_tips()
+
+    # ------------------------------------------------------------ view as
+    @property
+    def viewing_as(self) -> str:
+        """The mapper an administrator is viewing as, or '' - nobody, or no
+        longer signed in as an administrator."""
+        return self.view_as if self.view_as and self.settings.token and self.settings.admin else ''
+
+    def _viewed_permission(self, square: SquareName):
+        """The drop's answer for the mapper viewed as: theirs from the
+        territories here, the server answering only for who is signed in."""
+        index = self.territory.index
+        who = self.viewing_as
+        if not who or index is None:
+            return None
+        return who, index.permission(square.bounds, who)
+
+    def ask_view_as(self) -> None:
+        """File › View as…: a mapper's name, exact as OGF's are; blank to be
+        yourself again."""
+        name, ok = QInputDialog.getText(self, 'View as', 'See ownership as this OGF user sees it - '
+                                        'blank for yourself:', text=self.view_as)
+        if ok:
+            self.set_view_as(name.strip())
+
+    def set_view_as(self, name: str) -> None:
+        name = name.strip()
+        self.view_as = '' if name == self.settings.user else name
+        self._view_as_changed()
+        if not self.view_as:
+            self.statusBar().showMessage(f'viewing as yourself, {self.settings.user}')
+            return
+        index = self.territory.index
+        held = [t for t in index.attributes.values() if t.known and name in t.editors] if index is not None else []
+        what = (f'{len(held)} territor{"y" if len(held) == 1 else "ies"} theirs to draw' if held
+                else 'no territory theirs to draw - names are exact, as OGF\'s are')
+        self.statusBar().showMessage(f'viewing as {name}: {what}')
+
+    def _view_as_changed(self) -> None:
+        a = getattr(self, 'view_as_action', None)       # None while the menus are being built
+        if a is not None:
+            a.setVisible(bool(self.settings.token and self.settings.admin))
+            a.setText(f'Vie&w as {self.view_as}…' if self.viewing_as else 'Vie&w as…')
+        self.show_territory()
+        self.show_ground()
 
     # ---------------------------------------------------------- signing in
     def account(self) -> None:
@@ -852,7 +910,9 @@ class MainWindow(QMainWindow):
         self.account_action.setText(f'Sign &out ({user})' if user else 'Sign &in to OGF…')
         self.start.set_account(user)
         self.zone_editor.update_buttons()
-        self.show_territory()
+        if not (self.settings.token and self.settings.admin):
+            self.view_as = ''
+        self._view_as_changed()
 
     # -------------------------------------------------------------- save
     def save_all(self) -> bool:
@@ -1270,6 +1330,12 @@ class MainWindow(QMainWindow):
         self.account_action = QAction(self)
         self.account_action.triggered.connect(self.account)
         file.addAction(self.account_action)
+        # under signing in: whose eyes the ownership is seen through
+        self.view_as_action = QAction('Vie&w as…', self)
+        self.view_as_action.setToolTip('see the ownership another OGF user sees - an administrator\'s')
+        self.view_as_action.triggered.connect(self.ask_view_as)
+        self.view_as_action.setVisible(bool(self.settings.token and self.settings.admin))
+        file.addAction(self.view_as_action)
         self.preferences_action = QAction('&Preferences…', self)
         self.preferences_action.setShortcut(QKeySequence.StandardKey.Preferences)
         # in the application's menu on macOS, where it is looked for (#194)

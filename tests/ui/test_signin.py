@@ -242,7 +242,7 @@ def test_an_administrator_is_warned_as_anyone_and_told_they_are_one(w, ogf, qtbo
     sign_in(w, ogf, qtbot)
     qtbot.waitUntil(lambda: w.settings.token == 'tok-1', timeout=10000)
     assert w.settings.roles == ['administrator'] and w.settings.admin
-    assert w._territory.text() == 'not yours to draw: Pizarrales (AR031), owned by Luciano (administrator)'
+    assert w._territory.text() == 'not yours to draw: Pizarrales (AR031, owned, Luciano) (administrator)'
     assert 'an administrator' in w.statusBar().currentMessage()
     w.account_action.trigger()                                          # signed out: no longer
     assert not w.settings.admin

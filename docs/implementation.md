@@ -5986,6 +5986,15 @@ Surface panel turns it off, with the other overlays' boxes, in View as well,
 and kept with the session. On 2026-10-18's squares it takes 5 ms at worst for any owner of any
 square.
 
+**View as…** (File, under signing in, an administrator's): the territory line, whose ground
+and the upload mark for another mapper, named exactly, for the session. The
+line and the shading take their name in place of the administrator's; the
+drop answers only for who is signed in, so `DropClient.viewed` swaps the
+permission in its answer for `TerritoryIndex.permission` of the territories
+here - the function the server calls - keeping the zone. Uploads and the
+zone buttons stay the administrator's. Signing out, or no longer an
+administrator, ends it.
+
 GDAL is imported where the shading is drawn, not with the window: the `ui`
 CI job has no GDAL, and the editor's import doesn't need it.
 
