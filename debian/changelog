@@ -1,3 +1,25 @@
+danu (1.5.3-1) unstable; urgency=medium
+
+  * Surfaces: water held in a zone square outside the open set and reaching
+    into it is held at its level in the set's build - roantra's inland sea,
+    held in N46E030, was missing from N44E027's, the surface running out
+    over it and land past the contours shown as sea. Opening a set, the
+    build and validation wait for that water to be read (#357).
+  * The 1" view at z15: a lake whose relation lists an island first is no
+    longer missing from it, nor from the preview; and the sea-level check
+    knows the shore of water held outside the set (#357).
+  * Auto: moving to or opening another set builds it, once a surface has
+    been built (#358).
+  * File › Open neighbouring square: North, South, East and West, each
+    naming the square it opens; Edit's Fit contours to valley and Cut out
+    loop renamed (#355).
+  * The territory line names a neighbour's ground first, each territory as
+    "Name (ogf:id, status, owner)"; administrators can see ownership as
+    another mapper does with File › View as… (#354).
+  * Windows: MSYS2's hdf5 no longer pinned (#353).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Tue, 10 Nov 2026 00:02:40 +0000
+
 danu (1.5.2-1) unstable; urgency=medium
 
   * Panel tabs: the one shown is highlighted, and each says what it is for;
