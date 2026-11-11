@@ -283,19 +283,19 @@ def test_an_idle_rebuild_settles_the_surface_that_is_on_screen(qtbot, window):
     assert window.rebuild_surface(1.0)
     asked = []
     window.rebuild_surface = lambda arcsec=None, why='': asked.append(arcsec)
-    window.editor.history.dirty_squares = lambda: {"S": object()}
+    window._edited_since_build = True                    # an edit since that build
     window._rebuild_after_idle()
     assert asked == [1.0], (
         "the idle rebuild asked for %r, not the 1 arcsecond the surface is at" % (asked,))
 
 
 def test_an_idle_rebuild_does_nothing_with_nothing_edited(qtbot, window):
-    """The timer runs on any edit, including one undone again. Rebuilding a set
-    with no unsaved change is seconds of CPU for the same answer."""
+    """Rebuilding a set with no edit since its last build is seconds of CPU
+    for the same answer. Edited since - saved or not - it is rebuilt."""
     window.builder._runner = held                        # start it, do not run it
     asked = []
     window.rebuild_surface = lambda arcsec=None, why='': asked.append(arcsec)
-    window.editor.history.dirty_squares = lambda: {}
+    window._edited_since_build = False
     window._rebuild_after_idle()
     assert asked == [], "an idle rebuild ran with nothing edited"
 

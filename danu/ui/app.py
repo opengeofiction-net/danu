@@ -406,6 +406,12 @@ class MainWindow(QMainWindow):
         # to the preview only while the surface rebuilds itself (#239): off,
         # nothing is solved until Ctrl+R, which the preview then adopts
         self._surface_out_of_date = False
+        # an edit since the last build was asked for, saved or not: what the
+        # idle rebuild settles. Unsaved edits were the test, and a save
+        # ended them - on 2026-11-11 a save at 49 minutes left the surface
+        # the session's first build, and the previews over it, for the rest
+        # of the hour
+        self._edited_since_build = False
         # a session's surface not built again, automatic rebuilds off: the
         # session written meanwhile still says one is wanted
         self.surface_wanted = False
@@ -1875,6 +1881,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self.open_action.setEnabled(True)
         self.working_set = ws
+        self._edited_since_build = False         # a new set: its build is its own
         # the report names squares of the set it was made against
         self.gone_from_upstream = []
         self.reshaped = []
@@ -2191,6 +2198,7 @@ class MainWindow(QMainWindow):
         # the edits so far are in this build; one made after it is asked for
         # puts the surface out of date again
         self._surface_out_of_date = self.surface_wanted = False
+        self._edited_since_build = False
         self.builder.request(self.working_set, p, self.editor.history.dirty_squares(), why=why)
         if queued:
             # the running build is already superseded; it finishes and is shown
@@ -3047,6 +3055,7 @@ class MainWindow(QMainWindow):
 
     def _edited_ways(self, square, ways, spots) -> None:
         mode = self.settings.rebuild_mode
+        self._edited_since_build = True
         if mode != 'auto' and self._arcsec:
             # out of date until Ctrl+R, previewed or not: a preview is an
             # approximation, and only a rebuild brings back the checks and the
@@ -3096,7 +3105,7 @@ class MainWindow(QMainWindow):
         drawing to stop, as it is the same driver, and its asking ends here."""
         if self.settings.rebuild_mode != 'auto':
             return
-        if self.working_set is None or not self.editor.history.dirty_squares():
+        if self.working_set is None or not self._edited_since_build:
             return
         if not self._arcsec:
             # nothing has been built, so there is no surface to settle. Passing
@@ -3201,6 +3210,7 @@ class MainWindow(QMainWindow):
     def _surface_abandoned(self, seconds: float, where: str, why: str) -> None:
         if self.usage is not None:
             self.usage.write('build abandoned', seconds=round(seconds, 3), at=where, why=why)
+        self._edited_since_build = True          # what it was to settle, still to settle
         self.surface_panel.building('rebuild put off: edited while it ran - '
                                     'it rebuilds once the drawing stops')
         if self._surface_pending:
@@ -3214,6 +3224,9 @@ class MainWindow(QMainWindow):
         # what it was asked for is still to build: off, turning automatic
         # rebuilds on again rebuilds it
         self._surface_out_of_date = bool(self._arcsec and self.editor.history.dirty_squares())
+        # not tried again on the next pause - a warning box a minute - but
+        # after the next edit
+        self._edited_since_build = False
         self.surface_panel.failed(text)
         self.statusBar().showMessage('the surface could not be built')
         QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
