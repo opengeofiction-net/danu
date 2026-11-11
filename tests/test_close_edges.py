@@ -3,6 +3,9 @@ ground only where the square across it is not the zone's (isofill 0.13's
 edge_void 0, 2026-11-11)."""
 
 import numpy as np
+import pytest
+
+pytest.importorskip('osgeo', reason='the build module needs GDAL')
 
 from danu.core.square import SquareName
 from danu.surface.build import close_edges
