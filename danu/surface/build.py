@@ -1178,15 +1178,22 @@ def close_edges(mask: np.ndarray, gt: tuple, bounds: tuple, beyond: set) -> np.n
     # so the set's north row and east column are the squares beyond's, which
     # a set build does not draw, and read as undrawn - a void seed along the
     # whole edge, whatever isofill is told
-    inner_r, inner_c = min(1, rows - 1), max(cols - 2, 0)
+    sides = []
     for cells, inside, across in (
             ((slice(None), 0), (slice(None), min(1, cols - 1)), [(west - 1, int(t)) for t in lats]),
-            ((slice(None), cols - 1), (slice(None), inner_c), [(east, int(t)) for t in lats]),
-            ((0, slice(None)), (inner_r, slice(None)), [(int(g), north) for g in lons]),
+            ((slice(None), cols - 1), (slice(None), max(cols - 2, 0)), [(east, int(t)) for t in lats]),
+            ((0, slice(None)), (min(1, rows - 1), slice(None)), [(int(g), north) for g in lons]),
             ((rows - 1, slice(None)), (max(rows - 2, 0), slice(None)), [(int(g), south - 1) for g in lons])):
         closed = np.array([SquareName(lon, lat) not in beyond for lon, lat in across], dtype=bool)
+        sides.append((cells, inside, closed))
+    # every side opened before any is closed: a corner is on two sides, and
+    # closed by either it stays closed
+    for cells, inside, closed in sides:
         edge = np.array(out[cells])
         edge[~closed] = np.maximum(edge[~closed], mask[inside][~closed])
+        out[cells] = edge
+    for cells, _inside, closed in sides:
+        edge = np.array(out[cells])
         edge[closed] = 0
         out[cells] = edge
     return out

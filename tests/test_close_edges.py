@@ -47,3 +47,12 @@ def test_an_open_edge_is_drawn_as_the_cell_inside_it():
     out = close_edges(mask, GT, (25, 43, 28, 46), zone)
     assert out[0, 1:-1].tolist() == [1, 1, 0] + [1] * 8
     assert out[1:, -1].all()
+
+
+def test_a_corner_closed_by_either_side_stays_closed():
+    mask = np.ones((13, 13), np.uint8)
+    zone = {SquareName(lon, lat) for lon in range(24, 29) for lat in range(42, 47)}
+    zone.discard(SquareName(24, 45))           # west of the north-west square only
+    out = close_edges(mask, GT, (25, 43, 28, 46), zone)
+    assert out[0, 0] == 0, 'closed from the west; the north, open, does not reopen it'
+    assert out[0, 1:].all()
