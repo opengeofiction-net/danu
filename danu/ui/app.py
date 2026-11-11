@@ -3224,7 +3224,9 @@ class MainWindow(QMainWindow):
         # what it was asked for is still to build: off, turning automatic
         # rebuilds on again rebuilds it
         self._surface_out_of_date = bool(self._arcsec and self.editor.history.dirty_squares())
-        self._edited_since_build = self._surface_out_of_date
+        # not tried again on the next pause - a warning box a minute - but
+        # after the next edit
+        self._edited_since_build = False
         self.surface_panel.failed(text)
         self.statusBar().showMessage('the surface could not be built')
         QMessageBox.warning(self, 'Danu', f'The surface could not be built.\n\n{text}')
