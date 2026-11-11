@@ -11,7 +11,7 @@ Package: python3-danu
 Architecture: all
 Section: python
 Depends: ${python3:Depends}, ${misc:Depends}, python3-gdal, python3-numpy,
-         isofill (>= 0.12.0)
+         isofill (>= 0.13.0)
 Breaks: danu-server (<< 0.2.0-2~)
 Replaces: danu-server (<< 0.2.0-2~)
 Description: OpenGeofiction contour editor and elevation pipeline - Python package
@@ -24,7 +24,7 @@ Description: OpenGeofiction contour editor and elevation pipeline - Python packa
 Package: danu-server
 Architecture: all
 Depends: ${misc:Depends}, python3-danu (= ${binary:Version}), python3-pyosmium,
-         gdal-bin, isofill (>= 0.12.0), osmium-tool, xz-utils, zip, gunicorn
+         gdal-bin, isofill (>= 0.13.0), osmium-tool, xz-utils, zip, gunicorn
 Description: OpenGeofiction elevation pipeline
  Builds digital elevation models from the contour squares mappers draw, and
  publishes the hillshades, reliefs and contour extracts the tile servers render

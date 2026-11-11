@@ -25,7 +25,7 @@ def test_help_about_names_the_version_and_what_it_runs_on(window, qtbot):
     help_ = menu(window.menuBar(), 'Help')
     assert window.about_action in help_.actions()
     v = {'danu': __version__, 'python': '3.x', 'qt': '6.x', 'pyside6': '6.x', 'platform': 'p',
-         'gdal': 'not available (No module named osgeo)', 'isofill': '0.12.0 (/lib/libisofill.so)'}
+         'gdal': 'not available (No module named osgeo)', 'isofill': '0.13.0 (/lib/libisofill.so)'}
     dlg = about.AboutDialog(window, v)
     qtbot.addWidget(dlg)
     assert f'danu: {__version__}' in dlg.versions and 'gdal: not available' in dlg.versions

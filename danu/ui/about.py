@@ -1,7 +1,7 @@
 """What this Danu is - J1: its version, and the versions of what it runs on,
 for the About box and for any report of a fault. A bug reported against
 "the latest" cannot be reproduced; one against 0.2.0 on GDAL 3.13.3 and
-isofill 0.12.0 can.
+isofill 0.13.0 can.
 """
 
 from __future__ import annotations

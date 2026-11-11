@@ -1155,9 +1155,47 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
     return None
 
 
+def close_edges(mask: np.ndarray, gt: tuple, bounds: tuple, beyond: set) -> np.ndarray:
+    """The drawn mask for a fill whose edge is not the end of the drawn ground
+    (isofill's ``edge_void`` 0): a copy, with the raster's edge cells left out
+    where the degree square across that edge is not one of ``beyond`` - the
+    zone's - so the void floods from there as it did from the whole edge.
+    Elsewhere the zone goes on, and the edge is no reason to hold ground at
+    zero (N45E027 from N45E028's set, 2026-11-11): an edge cell there is
+    drawn as the cell inside it is. ``bounds`` is the grid's
+    (west, south, east, north) in whole degrees. A corner cell is closed if
+    either square across it is not the zone's."""
+    rows, cols = mask.shape
+    west, south, east, north = bounds
+    out = np.array(mask, dtype=np.uint8, copy=True)
+    # each edge cell's own degree square, by its centre, kept inside the grid:
+    # the edge rows and columns lie on the degree lines that bound it
+    lats = np.clip(np.floor(gt[3] + (np.arange(rows) + 0.5) * gt[5]).astype(int), south, north - 1)
+    lons = np.clip(np.floor(gt[0] + (np.arange(cols) + 0.5) * gt[1]).astype(int), west, east - 1)
+    # the edge cells, the cells just inside them, and the squares across.
+    # Open stretches take the drawn state of the cell inside: the drawn area
+    # gives a cell on a shared degree line to the square south or east of it,
+    # so the set's north row and east column are the squares beyond's, which
+    # a set build does not draw, and read as undrawn - a void seed along the
+    # whole edge, whatever isofill is told
+    inner_r, inner_c = min(1, rows - 1), max(cols - 2, 0)
+    for cells, inside, across in (
+            ((slice(None), 0), (slice(None), min(1, cols - 1)), [(west - 1, int(t)) for t in lats]),
+            ((slice(None), cols - 1), (slice(None), inner_c), [(east, int(t)) for t in lats]),
+            ((0, slice(None)), (inner_r, slice(None)), [(int(g), north) for g in lons]),
+            ((rows - 1, slice(None)), (max(rows - 2, 0), slice(None)), [(int(g), south - 1) for g in lons])):
+        closed = np.array([SquareName(lon, lat) not in beyond for lon, lat in across], dtype=bool)
+        edge = np.array(out[cells])
+        edge[~closed] = np.maximum(edge[~closed], mask[inside][~closed])
+        edge[closed] = 0
+        out[cells] = edge
+    return out
+
+
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
                 isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
-                extra: list[str] | None = None, keep_pass1: bool = False) -> Path:
+                extra: list[str] | None = None, keep_pass1: bool = False,
+                beyond: set | None = None) -> Path:
     """The surface between the constraints, by isofill.
 
     isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
@@ -1245,7 +1283,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                 log(f'  {mb:.0f} MB in core is above {budget}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
-                                            _pass1_file(work) if keep_pass1 else None)
+                                            _pass1_file(work) if keep_pass1 else None, beyond=beyond)
     if keep_pass1:
         # the caller asked for the first pass and is not going to get one: the
         # binary writes a single raster. Said here rather than left for the
@@ -1253,8 +1291,34 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         # never asked, and the second fill it then runs is the cost this flag
         # exists to avoid
         log('  the binary cannot keep the first pass, so the overlay will fill again')
+    if beyond is not None:
+        # the binary reads the mask from a file: the edge-closed one, written
+        # beside it, and the flag that says the edge is not the end
+        ds = gdal.Open(str(cont))
+        gt = ds.GetGeoTransform()
+        m_ds = gdal.Open(str(mask))
+        closed = close_edges(m_ds.GetRasterBand(1).ReadAsArray(), gt, _bounds(ds), beyond)
+        m_ds = None
+        edged = work / 'drawn-mask-edges.tif'
+        o = gdal.GetDriverByName('GTiff').Create(str(edged), ds.RasterXSize, ds.RasterYSize, 1,
+                                                 gdal.GDT_Byte, options=['TILED=YES', 'COMPRESS=DEFLATE'])
+        o.SetGeoTransform(gt)
+        o.SetProjection(ds.GetProjection())
+        o.GetRasterBand(1).WriteArray(closed)
+        o = ds = None
+        mask, extra = edged, ['--no-edge-void', *(extra or [])]
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log,
                                budget=budget)
+
+
+def _bounds(ds) -> tuple[int, int, int, int]:
+    """A grid raster's (west, south, east, north) in whole degrees: its edge
+    cells' centres lie on them (``Grid``)."""
+    gt = ds.GetGeoTransform()
+    west, north = round(gt[0] + gt[1] / 2), round(gt[3] + gt[5] / 2)
+    east = round(gt[0] + (ds.RasterXSize - 0.5) * gt[1])
+    south = round(gt[3] + (ds.RasterYSize - 0.5) * gt[5])
+    return west, south, east, north
 
 
 def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
@@ -1275,7 +1339,8 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
-                         out: Path, log: Log, pass1: Path | None = None) -> Path:
+                         out: Path, log: Log, pass1: Path | None = None,
+                         beyond: set | None = None) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -1285,12 +1350,15 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
     m_ds = gdal.Open(str(mask))
     _same_grid(ds, m_ds, cont, mask)
     m = m_ds.GetRasterBand(1).ReadAsArray()
+    if beyond is not None:
+        m = close_edges(m, ds.GetGeoTransform(), _bounds(ds), beyond)
     w = None
     if water is not None:
         w_ds = gdal.Open(str(water))
         _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
-    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None)
+    result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None,
+                     edge_void=beyond is None)
     surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
     if pass1 is not None:
@@ -1397,7 +1465,8 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
               library: bool | None = None, water_file: Path | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
               keep_pass1: bool = False, cache: Path | None = None,
-              water_names: Iterable[SquareName] | None = None) -> Result:
+              water_names: Iterable[SquareName] | None = None,
+              beyond: Iterable[SquareName] | None = None) -> Result:
     """From squares to a DEM: extent, collect, rasterise, drawn area, water
     mask, interpolate, clamp. ``names``
     limits the build to a working set; None builds the whole zone. ``stage`` is
@@ -1405,7 +1474,10 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     from. The DEM is None when there was nothing to build. ``cache`` is
     ``collect``'s, kept between builds by the editor. ``water_names`` are
     squares of ``zone_dir`` read for their held lakes alone - ``collect``'s
-    ``water``."""
+    ``water``. ``beyond``, given, is the zone's squares, for a build of a
+    working set inside it: the raster's edge is not the end of the drawn
+    ground except where the square across it is not one of them
+    (``close_edges``)."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     stage('extent')
@@ -1468,7 +1540,8 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     pass1 = _pass1_file(work)
     if pass1.exists():
         pass1.unlink()                       # never a previous build's
-    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1)
+    rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1,
+                          beyond=set(beyond) if beyond is not None else None)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask, surface=rounded,
