@@ -6913,3 +6913,10 @@ alongside as any build asked for meanwhile does, and an edit gives it up as it
 does `idle`'s. The session's first set is left to the session restore's build,
 or to Ctrl+R: a set opened from nothing does not start a build nobody asked
 for (c478fa8).
+
+**Settled after a save, too.** The idle rebuild asked whether there were
+unsaved edits, and a save ended them: on 2026-11-11 the mapper saved at 49
+minutes, and the surface stayed the session's first build, with the previews
+over it, for the rest of the hour. It asks `_edited_since_build` instead: set
+by any edit, cleared when a build is asked for, set again when one is given up
+- what it was to settle is still to settle - and cleared when a set opens.

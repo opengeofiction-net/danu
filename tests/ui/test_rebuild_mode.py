@@ -172,3 +172,30 @@ def test_a_set_moved_to_is_built_in_auto_once_a_surface_has_been(window, qtbot, 
     w.move_set(-1, 0)
     qtbot.waitUntil(lambda: w.working_set.centre != before, timeout=5000)
     assert asked == ([(3.0, 'opened')] if built else [])
+
+
+def test_a_save_before_the_pause_still_rebuilds_on_it(window, monkeypatch):
+    """The idle rebuild asked for unsaved edits, and a save ended them: on
+    2026-11-11 a save at 49 minutes left the session's first build, and the
+    previews over it, for the rest of the hour. It asks whether anything was
+    edited since the last build was asked for."""
+    w = window
+    w.set_rebuild_mode('auto')
+    w._arcsec = 3.0
+    asked = []
+    monkeypatch.setattr(w, 'rebuild_surface', lambda arcsec=None, why='': asked.append(why) or True)
+    sq = next(s for s in w.working_set.squares.values() if s.ways)
+    w._edited_ways(sq, set(), set())
+    monkeypatch.setattr(w.editor.history, 'dirty_squares', lambda: [])     # saved
+    w._rebuild_after_idle()
+    assert asked == ['idle']
+    w._edited_since_build = False          # as the request clears it
+    w._rebuild_after_idle()
+    assert asked == ['idle'], 'nothing edited since: nothing to settle'
+
+
+def test_a_rebuild_given_up_is_still_to_settle(window):
+    w = window
+    w._edited_since_build = False
+    w._surface_abandoned(1.0, 'the build', 'idle')
+    assert w._edited_since_build
