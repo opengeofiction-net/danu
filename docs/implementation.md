@@ -6924,3 +6924,28 @@ build that fails leaves it clear: tried again on every pause it would warn
 every minute, so it waits for the next edit, however it came to be asked for.
 The flag counts edits made in local or manual too, so turning auto on and
 pausing builds them.
+
+## Dry outside water at sea level
+
+Roantra's inland sea is `natural=water` at 0 m, held whole in N46E030 and read
+alongside the sets it reaches (#357): wet inside its rings, dry outside. The
+build held the inside at 0 m, but nothing said the outside was land. Opened
+from N43E026, the low strip outside w809152 - one 10 m contour across it -
+filled to under half a metre, reached the set's east edge, and the clamp's
+flood from the edge took it for sea: 2% of it land. From N44E027's set, with
+N44E028's ground beyond the edge to lift it, 47%.
+
+`sea_mask.lake_seeds` steps off every ring of the `lake` layer's bodies at
+0 m as `seed_points` steps off a coastline, and sorts each seed by where it
+lands - inside a body, burned even-odd onto the grid, or not - rather than by
+the side it was stepped to, so a ring's direction and nesting do not matter
+and an island in the sea is dry. The water seeds join the coastline's; the dry
+ones are a third proximity pass, and `dry-mask.tif` is where a dry seed is
+nearer than any water seed, within `MAX_CELLS`. `land_clamp.clamp` takes it
+off the sea, so it reads 1 m at least, and the 1" view, which reads the sea
+off the 3" surface, has it too. A coastline's land side is not made dry: one
+drawn backwards would turn sea into land, and a ring cannot be backwards.
+
+On N43E026's set the strip went from 2% land to all of it outside the rings;
+the land and sea of that view lie on the sea's rings.
+

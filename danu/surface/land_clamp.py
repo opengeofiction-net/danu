@@ -101,11 +101,16 @@ def temp_raster(path, cols, rows, gt, proj, dtype=gdal.GDT_Byte):
     return ds
 
 
-def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None):
+def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None, dry_path=None):
     """The interpolated raster made publishable: sea to exactly zero, land
     never zero, the burned constraints back untouched. Returns (regions kept
     as sea, regions found, sea cells, land cells at 1..9 m, cells the water
-    mask added)."""
+    mask added).
+
+    ``dry_path``, given, is ground the rings of water held at sea level say is
+    dry (``sea_mask.lake_seeds``): land, whatever it joins up with. Without
+    it, low ground outside roantra's inland sea that reached the edge of a
+    working set flooded as sea."""
     say = log if log is not None else (lambda *a: None)
     dem_ds, dem_band = open_band(dem_path)
     cont_ds, cont_band = open_band(cont_path)
@@ -202,6 +207,9 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None)
     water_ds = water_band = None
     if water_path:
         water_ds, water_band = open_band(water_path)
+    dry_ds = dry_band = None
+    if dry_path:
+        dry_ds, dry_band = open_band(dry_path)
 
     sea_ds, sea_band = open_band(sea_path)
 
@@ -229,7 +237,7 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None)
     out_ds.SetProjection(proj)
     out_band = out_ds.GetRasterBand(1)
 
-    added = n_sea = n_low = 0
+    added = n_sea = n_low = dried = 0
     for y, h in strips(rows, cols):
         d = dem_band.ReadAsArray(0, y, cols, h)
         c = cont_band.ReadAsArray(0, y, cols, h)
@@ -238,6 +246,10 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None)
             wm = water_band.ReadAsArray(0, y, cols, h).astype(bool)
             added += int((wm & ~sea).sum())
             sea |= wm
+        if dry_band is not None:
+            dry = dry_band.ReadAsArray(0, y, cols, h).astype(bool)
+            dried += int((sea & dry).sum())
+            sea &= ~dry
 
         # Sea reads exactly zero. Land keeps its elevation but never reads zero,
         # so it cannot be mistaken for sea by a ramp which makes zero
@@ -255,13 +267,15 @@ def clamp(dem_path, cont_path, out_path, water_path=None, log=None, params=None)
         n_low += int(((d > 0) & (d < 10)).sum())   # 1 m exactly, up to 10
 
     out_band.FlushCache()
-    out_ds = sea_ds = water_ds = None
+    out_ds = sea_ds = water_ds = dry_ds = None
     for p in (cand_path, sea_path):
         os.unlink(p)
 
     cells = rows * cols
     if water_path:
         say(f'  water mask adds {added:,} cells of enclosed water')
+    if dry_path:
+        say(f'  {dried:,} cells kept land, dry outside the water at sea level')
     say(f'  {kept} of {total} water regions kept as sea; '
         f'sea {100 * n_sea / cells:.2f}% of the zone, '
         f'land at 1..9 m {100 * n_low / cells:.2f}%')

@@ -191,6 +191,54 @@ def seed_points(layer, gt, dropped: list | None = None):
     return water, land
 
 
+def lake_seeds(src_path, gt, cols, rows, scratch):
+    """Points just off each side of every ring of the water held at sea level -
+    the ``lake`` layer's bodies at 0 m - as (water, land) lists of (col, row).
+
+    A ring says which side is which more plainly than a coastline: inside the
+    body is water, outside it is not, whichever way the ring runs and however
+    deep it is nested - an island in the sea is outside it. So each seed is
+    sorted by where it lies, read off the bodies burned onto the grid, rather
+    than by the side of the segment it was stepped off. Roantra's inland sea
+    (r470432) is one: ground just outside its shore is dry, however low, and
+    the clamp took the low strip outside w809152 for sea where it reached the
+    edge of the set (2026-11-11)."""
+    src = ogr.Open(str(src_path))
+    layer = src.GetLayerByName('lake') if src is not None else None
+    if layer is None:
+        return [], []
+    layer.SetAttributeFilter('ele = 0')
+    if layer.GetFeatureCount() == 0:
+        return [], []
+    segs = _segments(layer, gt)
+    if not len(segs):
+        return [], []
+    d = segs[:, 2:] - segs[:, :2]
+    u = d / np.hypot(d[:, 0], d[:, 1])[:, None]
+    mid = (segs[:, :2] + segs[:, 2:]) / 2
+    left = np.stack([u[:, 1], -u[:, 0]], axis=1)
+    pts = np.trunc(np.concatenate([mid + left * SIDE_STEP, mid - left * SIDE_STEP])).astype(np.int64)
+    pts = pts[(pts[:, 0] >= 0) & (pts[:, 0] < cols) & (pts[:, 1] >= 0) & (pts[:, 1] < rows)]
+    pts = np.unique(pts, axis=0)
+    # the bodies burned, a strip at a time to read the seeds off: even-odd,
+    # as the build burns a lake, so an island is a hole
+    path = f'{scratch}.lakes.tif'
+    ds = gdal.GetDriverByName('GTiff').Create(path, cols, rows, 1, gdal.GDT_Byte,
+                                             options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
+    ds.SetGeoTransform(gt)
+    gdal.RasterizeLayer(ds, [1], layer, burn_values=[1])
+    band = ds.GetRasterBand(1)
+    inside = np.zeros(len(pts), dtype=bool)
+    for y, h in strips(rows, cols, itemsize=1):
+        sel = (pts[:, 1] >= y) & (pts[:, 1] < y + h)
+        if sel.any():
+            a = band.ReadAsArray(0, y, cols, h)
+            inside[sel] = a[pts[sel, 1] - y, pts[sel, 0]] == 1
+    ds = band = layer = src = None
+    os.unlink(path)
+    return list(map(tuple, pts[inside].tolist())), list(map(tuple, pts[~inside].tolist()))
+
+
 def proximity_worker(seed_path, out_path, cols, rows, gt, proj):
     """One proximity pass, in its own process. Opens the seed raster by path
     rather than taking a band across the fork."""
@@ -266,10 +314,16 @@ def sea_window(water, land, x0, y0, cols, rows, whole):
     return ((dw < dl) & (dw <= MAX_CELLS)).astype(np.uint8)
 
 
-def sea_mask(src_path, ref_path, out_path, log=None):
+def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     """A water mask from the coastline's direction, on the reference raster's
-    grid. Returns False, writing nothing, when the contours carry no
-    coastline - the command line's exit 2."""
+    grid, and the rings of the water held at sea level (``lake_seeds``).
+    Returns False, writing nothing, when there is neither - the command
+    line's exit 2.
+
+    ``dry_path``, given, gets the ground those rings say is dry: nearer a seed
+    just outside a sea-level body than any water seed, within the same reach.
+    The clamp keeps it land. A coastline's land side is not added to it: one
+    drawn backwards would turn sea into land, and a ring cannot be backwards."""
     say = log if log is not None else (lambda *a: None)
     ref = gdal.Open(ref_path)
     gt, proj = ref.GetGeoTransform(), ref.GetProjection()
@@ -278,15 +332,22 @@ def sea_mask(src_path, ref_path, out_path, log=None):
     src = ogr.Open(src_path)
     layer = src.GetLayer(0)
     layer.SetAttributeFilter("natural = 'coastline'")
-    if layer.GetFeatureCount() == 0:
-        say('  no coastline in this zone, no water mask')
+    coasts = layer.GetFeatureCount()
+    lake_water, lake_land = lake_seeds(src_path, gt, cols, rows, out_path)
+    if coasts == 0 and not lake_land:
+        say('  no coastline in this zone, nor water at sea level, no water mask')
         return False
-    say(f'  {layer.GetFeatureCount()} coastline ways')
-
-    gone = []
-    water_pts, land_pts = seed_points(layer, gt, gone)
-    say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
-        'stepped across a coastline')
+    water_pts, land_pts = [], []
+    if coasts:
+        say(f'  {coasts} coastline ways')
+        gone = []
+        water_pts, land_pts = seed_points(layer, gt, gone)
+        say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
+            'stepped across a coastline')
+    if lake_land:
+        say(f'  water at sea level: {len(lake_water)} seeds inside its rings and {len(lake_land)} outside')
+    water_pts = water_pts + lake_water
+    layer = src = None
 
     tmp = {}
 
@@ -309,6 +370,11 @@ def sea_mask(src_path, ref_path, out_path, log=None):
 
     w_ds, w_band = seed_raster('water', water_pts)
     l_ds, l_band = seed_raster('land', land_pts)
+    names = ['water', 'land']
+    if dry_path and lake_land:
+        d_ds, d_band = seed_raster('dry', lake_land)
+        d_ds = d_band = None
+        names.append('dry')
     # closed before forking: a GDAL dataset handle does not survive one, and
     # the children open the seeds by path
     w_ds = l_ds = w_band = l_band = None
@@ -330,13 +396,13 @@ def sea_mask(src_path, ref_path, out_path, log=None):
     # exactly what happened: both children stuck, the parent in do_wait, the
     # stage running 39 minutes against the 7 it had taken. A spawned child is a
     # fresh interpreter with no inherited lock state, for about half a second.
-    for name in ('water', 'land'):
+    for name in names:
         tmp[name + 'dist'] = f'{out_path}.{name}dist.tif'
     ctx = multiprocessing.get_context('spawn')
     jobs = [ctx.Process(
                 target=proximity_worker,
                 args=(tmp[n], tmp[n + 'dist'], cols, rows, gt, proj))
-            for n in ('water', 'land')]
+            for n in names]
     for j in jobs:
         j.start()
     for j in jobs:
@@ -348,6 +414,16 @@ def sea_mask(src_path, ref_path, out_path, log=None):
     wd_ds = gdal.Open(tmp['waterdist'])
     ld_ds = gdal.Open(tmp['landdist'])
     wd_band, ld_band = wd_ds.GetRasterBand(1), ld_ds.GetRasterBand(1)
+    dd_ds = dd_band = dry_ds = dry_band = None
+    if 'dry' in names:
+        dd_ds = gdal.Open(tmp['drydist'])
+        dd_band = dd_ds.GetRasterBand(1)
+        dry_ds = gdal.GetDriverByName('GTiff').Create(
+            dry_path, cols, rows, 1, gdal.GDT_Byte,
+            options=['TILED=YES', 'COMPRESS=DEFLATE', 'BIGTIFF=IF_SAFER'])
+        dry_ds.SetGeoTransform(gt)
+        dry_ds.SetProjection(proj)
+        dry_band = dry_ds.GetRasterBand(1)
 
     out_ds = gdal.GetDriverByName('GTiff').Create(
         out_path, cols, rows, 1, gdal.GDT_Byte,
@@ -356,19 +432,29 @@ def sea_mask(src_path, ref_path, out_path, log=None):
     out_ds.SetProjection(proj)
     out_band = out_ds.GetRasterBand(1)
 
-    n_water = 0
+    n_water = n_dry = 0
     for y, h in strips(rows, cols):
         dw = wd_band.ReadAsArray(0, y, cols, h)
         dl = ld_band.ReadAsArray(0, y, cols, h)
+        if dd_band is not None:
+            dd = dd_band.ReadAsArray(0, y, cols, h)
+            dl = np.minimum(dl, dd)
+            dry = ((dd < dw) & (dd <= MAX_CELLS)).astype(np.uint8)
+            dry_band.WriteArray(dry, 0, y)
+            n_dry += int(dry.sum())
         m = ((dw < dl) & (dw <= MAX_CELLS)).astype(np.uint8)
         out_band.WriteArray(m, 0, y)
         n_water += int(m.sum())
     out_band.FlushCache()
-    out_ds = wd_ds = ld_ds = w_ds = l_ds = None
+    if dry_band is not None:
+        dry_band.FlushCache()
+    out_ds = wd_ds = ld_ds = dd_ds = dry_ds = w_ds = l_ds = None
     for p in tmp.values():
         os.unlink(p)
 
     say(f'  water mask covers {100 * n_water / (rows * cols):.2f}% of the zone')
+    if 'dry' in names:
+        say(f'  dry outside the water at sea level: {100 * n_dry / (rows * cols):.2f}% of the zone')
     return True
 
 

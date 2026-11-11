@@ -1119,6 +1119,11 @@ def water_areas(water_file: Path, grid: Grid, work: Path, log: Log = _quiet) -> 
     return out
 
 
+# beside the water mask: ground the rings of water held at sea level say is
+# dry, which the clamp keeps land (sea_mask.lake_seeds)
+DRY_MASK = 'dry-mask.tif'
+
+
 def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | None:
     """Sea, from the coastline's own direction - land on the left, water on the
     right - which the squares already carry. None when they carry no coastline.
@@ -1140,10 +1145,11 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
     as water. The linear pass never needed telling, since it anchored every row
     and column at zero one step past its ends - a pull towards zero wherever the
     data is sparse, which was doing this job as a side effect."""
-    out = work / 'water-mask.tif'
-    if out.exists():
-        out.unlink()
-    if sea_mask.sea_mask(str(gpkg), str(cont), str(out), log=log):
+    out, dry = work / 'water-mask.tif', work / DRY_MASK
+    for f in (out, dry):
+        if f.exists():
+            f.unlink()
+    if sea_mask.sea_mask(str(gpkg), str(cont), str(out), log=log, dry_path=str(dry)):
         return out
     log('  no coastline - enclosed water will read as land unless a contour holds it')
     return None
@@ -1364,8 +1370,9 @@ def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = 
     out = work / 'dem.tif'
     if out.exists():
         out.unlink()
+    dry = work / DRY_MASK
     land_clamp.clamp(str(rounded), str(cont), str(out), str(water) if water else None,
-                     log=log, params=params)
+                     log=log, params=params, dry_path=str(dry) if dry.exists() else None)
     return out
 
 
