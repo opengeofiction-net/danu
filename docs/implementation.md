@@ -6919,4 +6919,8 @@ unsaved edits, and a save ended them: on 2026-11-11 the mapper saved at 49
 minutes, and the surface stayed the session's first build, with the previews
 over it, for the rest of the hour. It asks `_edited_since_build` instead: set
 by any edit, cleared when a build is asked for, set again when one is given up
-- what it was to settle is still to settle - and cleared when a set opens.
+- what it was to settle is still to settle - and cleared when a set opens. A
+build that fails leaves it clear: tried again on every pause it would warn
+every minute, so it waits for the next edit, however it came to be asked for.
+The flag counts edits made in local or manual too, so turning auto on and
+pausing builds them.
