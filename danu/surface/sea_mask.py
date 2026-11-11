@@ -323,7 +323,9 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     ``dry_path``, given, gets the ground those rings say is dry: nearer a seed
     just outside a sea-level body than any water seed, within the same reach.
     The clamp keeps it land. A coastline's land side is not added to it: one
-    drawn backwards would turn sea into land, and a ring cannot be backwards."""
+    drawn backwards would turn sea into land, and a ring cannot be backwards.
+    A ring drawn in the wrong place can still be wrong: its dry side is taken
+    as it is drawn, over a coastline's water as anywhere."""
     say = log if log is not None else (lambda *a: None)
     ref = gdal.Open(ref_path)
     gt, proj = ref.GetGeoTransform(), ref.GetProjection()
@@ -334,7 +336,7 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     layer.SetAttributeFilter("natural = 'coastline'")
     coasts = layer.GetFeatureCount()
     lake_water, lake_land = lake_seeds(src_path, gt, cols, rows, out_path)
-    if coasts == 0 and not lake_land:
+    if coasts == 0 and not (lake_water or lake_land):
         say('  no coastline in this zone, nor water at sea level, no water mask')
         return False
     water_pts, land_pts = [], []
@@ -344,7 +346,7 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
         water_pts, land_pts = seed_points(layer, gt, gone)
         say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
             'stepped across a coastline')
-    if lake_land:
+    if lake_water or lake_land:
         say(f'  water at sea level: {len(lake_water)} seeds inside its rings and {len(lake_land)} outside')
     water_pts = water_pts + lake_water
     layer = src = None
