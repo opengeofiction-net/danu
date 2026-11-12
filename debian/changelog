@@ -1,3 +1,25 @@
+danu (1.5.4-1) unstable; urgency=medium
+
+  * The sea comes from the squares alone: --water-areas and the
+    water/<zone>.osm file it read are gone. Built both ways, roantra's file
+    left a fill halo of 1-2 m land round every island and the outer coast;
+    danu-build-zone says so if one is left in water/ (#364, closes #192).
+  * Ground just outside water held at sea level is dry, not sea - the low
+    strip outside roantra's inland sea in N43E026 (#362) - and weighed
+    against the coastline's water side all along it, so a long straight
+    coastline closing a body off from the sea leaves no 1 m slivers in the
+    sea (#365).
+  * A working set's edge is not the end of the drawn ground where the square
+    across it is the zone's: valley floors cut by the set's edge no longer
+    come out as sea. Needs isofill 0.13.0; an older isofill binary is
+    refused with its version (#363).
+  * Auto: the pause rebuilds edits made since the last build, saved or not
+    (#361).
+  * Edit › Find element (Ctrl+F): a node, way or relation of the open
+    squares by its id - w-50092477, n123, r248 - selected and shown (#367).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Thu, 12 Nov 2026 22:53:25 +0000
+
 danu (1.5.3-1) unstable; urgency=medium
 
   * Surfaces: water held in a zone square outside the open set and reaching
