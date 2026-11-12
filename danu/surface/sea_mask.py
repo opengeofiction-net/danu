@@ -191,6 +191,42 @@ def seed_points(layer, gt, dropped: list | None = None):
     return water, land
 
 
+# how far apart the water seeds are along a coastline segment when they are
+# laid for the dry side to be weighed against (``dense_water_seeds``), in cells
+DENSE_STEP = 2.0
+
+
+def dense_water_seeds(layer, gt) -> list:
+    """Points just off the water side of every coastline segment, every
+    DENSE_STEP cells along it rather than once at its middle, as ``seed_points``
+    lays them.
+
+    For the dry side alone. A segment's single water seed is enough to sort
+    water from land, where the clamp's connectivity settles the sea anyway, but
+    dry ground is the clamp's to keep whatever it joins, so it is weighed
+    against water all along the shore. A long straight coastline - the line
+    closing roantra's inland sea r470435 off from the open sea - has one water
+    seed half way along it, and the dry seeds round its ends took the sea
+    beside them for land: a spike and a wedge of 1 m in N46E028 and a block in
+    N44E026 (2026-11-12). Seeds stepped across a coastline are dropped, as
+    there."""
+    segs = _segments(layer, gt)
+    if not len(segs):
+        return []
+    d = segs[:, 2:] - segs[:, :2]
+    length = np.hypot(d[:, 0], d[:, 1])
+    u = d / length[:, None]
+    n = np.maximum(1, np.ceil(length / DENSE_STEP)).astype(np.int64)
+    own = np.repeat(np.arange(len(segs)), n)
+    k = np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)
+    t = (k + 0.5) / n[own]
+    on = segs[own, :2] + d[own] * t[:, None]
+    water = -np.stack([u[own, 1], -u[own, 0]], axis=1)    # right of travel
+    at = on + water * SIDE_STEP
+    across = _odd_crossings(segs, own, np.concatenate([on, at], axis=1))
+    return list(map(tuple, np.unique(np.trunc(at[~across]).astype(np.int64), axis=0).tolist()))
+
+
 def lake_seeds(src_path, gt, cols, rows, scratch):
     """Points just off each side of every ring of the water held at sea level -
     the ``lake`` layer's bodies at 0 m - as (water, land) lists of (col, row).
@@ -321,7 +357,8 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     line's exit 2.
 
     ``dry_path``, given, gets the ground those rings say is dry: nearer a seed
-    just outside a sea-level body than any water seed, within the same reach.
+    just outside a sea-level body than any water seed, within the same reach,
+    and than the coastline's water side laid densely (``dense_water_seeds``).
     The clamp keeps it land. A coastline's land side is not added to it: one
     drawn backwards would turn sea into land, and a ring cannot be backwards.
     A ring drawn in the wrong place can still be wrong: its dry side is taken
@@ -339,13 +376,15 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     if coasts == 0 and not (lake_water or lake_land):
         say('  no coastline in this zone, nor water at sea level, no water mask')
         return False
-    water_pts, land_pts = [], []
+    water_pts, land_pts, dense = [], [], []
     if coasts:
         say(f'  {coasts} coastline ways')
         gone = []
         water_pts, land_pts = seed_points(layer, gt, gone)
         say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
             'stepped across a coastline')
+        if dry_path and lake_land:
+            dense = dense_water_seeds(layer, gt)
     if lake_water or lake_land:
         say(f'  water at sea level: {len(lake_water)} seeds inside its rings and {len(lake_land)} outside')
     water_pts = water_pts + lake_water
@@ -377,6 +416,10 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
         d_ds, d_band = seed_raster('dry', lake_land)
         d_ds = d_band = None
         names.append('dry')
+        if dense:
+            c_ds, c_band = seed_raster('shore', dense)
+            c_ds = c_band = None
+            names.append('shore')
     # closed before forking: a GDAL dataset handle does not survive one, and
     # the children open the seeds by path
     w_ds = l_ds = w_band = l_band = None
@@ -416,7 +459,10 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     wd_ds = gdal.Open(tmp['waterdist'])
     ld_ds = gdal.Open(tmp['landdist'])
     wd_band, ld_band = wd_ds.GetRasterBand(1), ld_ds.GetRasterBand(1)
-    dd_ds = dd_band = dry_ds = dry_band = None
+    dd_ds = dd_band = dry_ds = dry_band = sd_ds = sd_band = None
+    if 'shore' in names:
+        sd_ds = gdal.Open(tmp['shoredist'])
+        sd_band = sd_ds.GetRasterBand(1)
     if 'dry' in names:
         dd_ds = gdal.Open(tmp['drydist'])
         dd_band = dd_ds.GetRasterBand(1)
@@ -440,8 +486,11 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
         dl = ld_band.ReadAsArray(0, y, cols, h)
         if dd_band is not None:
             dd = dd_band.ReadAsArray(0, y, cols, h)
-            dl = np.minimum(dl, dd)
-            dry = ((dd < dw) & (dd <= MAX_CELLS)).astype(np.uint8)
+            wet = dw if sd_band is None else np.minimum(dw, sd_band.ReadAsArray(0, y, cols, h))
+            dry = ((dd < wet) & (dd <= MAX_CELLS)).astype(np.uint8)
+            # land for the mask only where it is dry: a dry seed that lost to
+            # the shore's water is not land's to claim the cell with either
+            dl = np.where(dry == 1, np.minimum(dl, dd), dl)
             dry_band.WriteArray(dry, 0, y)
             n_dry += int(dry.sum())
         m = ((dw < dl) & (dw <= MAX_CELLS)).astype(np.uint8)
@@ -450,7 +499,7 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
     out_band.FlushCache()
     if dry_band is not None:
         dry_band.FlushCache()
-    out_ds = wd_ds = ld_ds = dd_ds = dry_ds = w_ds = l_ds = None
+    out_ds = wd_ds = ld_ds = dd_ds = dry_ds = w_ds = l_ds = sd_ds = sd_band = None
     for p in tmp.values():
         os.unlink(p)
 
