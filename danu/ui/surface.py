@@ -209,10 +209,13 @@ def square_cache(root: Path) -> Path:
     return mine
 
 
-def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water=()) -> Built:
+def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water=(),
+                  beyond=None) -> Built:
     """The squares in ``zone_dir`` as a shaded surface. Runs on a worker and
     touches no Qt object, so it is also the seam the queue's tests replace.
-    ``water``: squares there read alongside the set, for their held lakes."""
+    ``water``: squares there read alongside the set, for their held lakes.
+    ``beyond``: the zone's squares - the set's edge is not the end of the
+    drawn ground but where the square across it is not one of them."""
     # here and not at import: building needs GDAL, looking does not
     from ..surface import build
     # keep_pass1: the overlay wants what the first pass could not answer, and
@@ -224,7 +227,7 @@ def build_surface(zone_dir: Path, names: list, params: Params, work: Path, water
     # same squares - see SQUARE_CACHE
     result = build.build_dem(zone_dir, work, params, names=names, keep_pass1=True, stage=watch,
                              cache=SQUARE_CACHE or Path(work).parent / 'square-cache',
-                             water_names=water)
+                             water_names=water, beyond=beyond)
     if result.dem is None:
         raise Nothing('nothing to build: no square in the set holds a contour')
     watch('classes')
@@ -312,11 +315,37 @@ class Nothing(Exception):
     """There is nothing to build - reported as itself, not as a traceback."""
 
 
+def zone_squares(ws) -> set:
+    """The squares of the zone a working set is in: the files beside its own,
+    and its own and those read alongside, saved or not. The set's build takes
+    its edge as the end of the drawn ground only where the square across is
+    not one of these."""
+    from ..core.square import SquareName
+    held = [*ws.squares.values(), *getattr(ws, 'extra', {}).values()]
+    out = {sq.name for sq in held}
+    homes = {Path(sq.path).parent for sq in held if getattr(sq, 'path', None)}
+    for home in homes:
+        # the names only, not list_squares: a square held twice (.osm beside
+        # .osm.xz) is an error to the build but still one of the zone's, and
+        # refusing the directory would close the whole edge again
+        try:
+            entries = [e for e in Path(home).iterdir() if e.is_file()]
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                out.add(SquareName.from_filename(entry))
+            except ValueError:
+                pass
+    return out
+
+
 class _Job(QRunnable):
     def __init__(self, fn, zone_dir: Path, names: list, params: Params, work: Path,
-                 signals: _Signals, after=None, water: list = ()):
+                 signals: _Signals, after=None, water: list = (), beyond=None):
         super().__init__()
         self.fn, self.zone_dir, self.names, self.water = fn, zone_dir, names, list(water)
+        self.beyond = beyond
         self.params, self.work, self.signals = params, work, signals
         self.after = after            # asked of the build's grids before it is handed back
         # set when run() returns, however it returns. What makes it safe to
@@ -337,7 +366,8 @@ class _Job(QRunnable):
 
     def _run(self):
         try:
-            built = self.fn(self.zone_dir, self.names, self.params, self.work, water=self.water)
+            built = self.fn(self.zone_dir, self.names, self.params, self.work, water=self.water,
+                            beyond=self.beyond)
         except Abandoned:
             self._abandoned('the build')
             return
@@ -522,7 +552,8 @@ class SurfaceBuilder(QObject):
         if snap is not None:
             from ..checks import surface as surface_checks
             after = lambda work: surface_checks.find(snap, work)      # noqa: E731
-        job = _Job(self._build_fn, zone_dir, names, params, here, sig, after, water=water)
+        job = _Job(self._build_fn, zone_dir, names, params, here, sig, after, water=water,
+                   beyond=zone_squares(ws))
         job.setAutoDelete(False)         # Python owns it; see the note in loader.py
         self._signals, self._job = sig, job
         self.started.emit()

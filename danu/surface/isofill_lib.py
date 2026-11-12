@@ -22,6 +22,7 @@ from __future__ import annotations
 import ctypes
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,7 +33,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.12.0'
+EXPECTED_VERSION = '0.13.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -44,7 +45,7 @@ class IsofillError(RuntimeError):
 class _Params(ctypes.Structure):
     _fields_ = [('radius', ctypes.c_int), ('barrier', ctypes.c_int),
                 ('grad_min', ctypes.c_double), ('pass2', ctypes.c_int),
-                ('threads', ctypes.c_int)]
+                ('threads', ctypes.c_int), ('edge_void', ctypes.c_int)]
 
 
 def candidates() -> list[Path]:
@@ -58,6 +59,46 @@ def candidates() -> list[Path]:
         out += [base / 'lib' / n for n in LIB_NAMES] + [base / 'bin' / n for n in LIB_NAMES]
     out += [Path(n) for n in LIB_NAMES]
     return out
+
+
+_binary_versions: dict[tuple[str, float], str] = {}
+
+
+def binary_version(exe: str) -> str:
+    """What ``exe --version`` says, as ``0.13.0``; kept per path and
+    modification time, so a rebuilt binary is asked again."""
+    path = shutil.which(exe) or exe
+    try:
+        key = (str(Path(path).resolve()), Path(path).stat().st_mtime)
+    except OSError as e:
+        raise IsofillError(f'no isofill binary at {exe}: {e}') from e
+    if key not in _binary_versions:
+        try:
+            run = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=30)
+        except OSError as e:
+            raise IsofillError(f'{path} could not be run: {e}') from e
+        words = (run.stdout or run.stderr).split()
+        if run.returncode != 0 or len(words) < 2 or words[0] != 'isofill':
+            raise IsofillError(f'{path} --version did not say which isofill it is')
+        _binary_versions[key] = words[1]
+    return _binary_versions[key]
+
+
+def check_binary(exe: str) -> str:
+    """The binary's version, or IsofillError where it is older than
+    EXPECTED_VERSION. Older, not other: unlike the library, the command line
+    only gains flags, so a newer binary still takes the ones the build passes.
+    Asked first so that an old binary fails with its version, not with a
+    usage text for a flag it does not know."""
+    version = binary_version(exe)
+    try:
+        older = tuple(int(x) for x in version.split('.')) < tuple(int(x) for x in EXPECTED_VERSION.split('.'))
+    except ValueError:
+        older = True
+    if older:
+        raise IsofillError(f'{shutil.which(exe) or exe} is isofill {version}; '
+                           f'this build of danu wants {EXPECTED_VERSION}')
+    return version
 
 
 @dataclass
@@ -103,7 +144,7 @@ class Isofill:
     def run(self, constraints: np.ndarray, params: Params, mask: np.ndarray | None = None,
             water: np.ndarray | None = None, nodata: float | None = None,
             pass2: bool = True, threads: int = 0,
-            keep_pass1: bool = False) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
+            keep_pass1: bool = False, edge_void: bool = True) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
         """Fill. ``constraints`` is rows x cols; cells equal to ``nodata`` (or
         NO_ELEV when None) are unset. Returns (surface float32 rows x cols,
         cells the first pass set).
@@ -121,7 +162,12 @@ class Isofill:
         command line left two cores free and the editor took the lot - on the
         machine somebody is drawing on. No caller in danu passes a number, and
         none needs to; a 77.8 M cell fill costs six and a half per cent for
-        the headroom."""
+        the headroom.
+
+        ``edge_void`` False is 0.13.0's ``--no-edge-void``: the raster's edge
+        is not the end of the drawn ground - a working set inside its zone -
+        so it seeds no void and the solve mirrors it. Where nothing is drawn
+        beyond, the caller leaves those edge cells out of ``mask``."""
         cons = np.ascontiguousarray(constraints, dtype=np.float32)
         rows, cols = cons.shape
         out = np.empty_like(cons)
@@ -144,6 +190,7 @@ class Isofill:
         p.barrier = params.barrier_cells
         p.pass2 = int(bool(pass2))
         p.threads = int(threads)
+        p.edge_void = int(bool(edge_void))
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
         fptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))                              # noqa: E731
         pass1 = np.empty_like(cons) if keep_pass1 else None

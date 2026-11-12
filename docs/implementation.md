@@ -6949,3 +6949,31 @@ drawn backwards would turn sea into land, and a ring cannot be backwards.
 On N43E026's set the strip went from 2% land to all of it outside the rings;
 the land and sea of that view lie on the sea's rings.
 
+
+## A working set's edge is not the end of the drawn ground
+
+isofill holds at zero the ground its first pass does not reach when it joins
+up with ground nobody drew - the void - and took the raster's edge for that:
+right for a zone, whose edge is the end of what anyone drew, and wrong for a
+working set inside one. N45E027's valley floor, opened from N45E028's set,
+ran to the set's west edge at 27 E, was held at zero, and the clamp made it
+sea though N45E026 describes the ground beyond; N44E029 likewise.
+
+isofill 0.13.0's `edge_void` 0 (`--no-edge-void`) takes the edge out of the
+void's seeds and mirrors it in the solve, so the ground runs on level. The
+editor's set build passes the zone's squares (`zone_squares`: the files
+beside the set's, and the set's own and those alongside), and
+`build.close_edges` decides, edge cell by edge cell, by the degree square
+across. Where that square is not the zone's, the cell is taken out of the mask
+given to isofill, and the void floods from there as it did; where it is, the
+cell takes the drawn state of the cell inside it. A corner on two sides is
+closed if either is. That
+second half matters as much as the first: the drawn
+area gives a cell on a shared degree line to the square south or east of it,
+so a set's north row and east column belong to squares the set build does not
+draw, and seeded the void along those edges whatever isofill was told. The
+zone build passes nothing and is unchanged.
+
+On N45E028's set, drawn ground held at zero: N45E027 16,822 cells to 2, N44E029
+21,185 to 52, N45E029 12,224 to 877, N44E027 7,807 to 518; the N46 row, whose
+north edge faces nothing, as it was.
