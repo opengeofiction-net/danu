@@ -27,8 +27,8 @@
 # you are on, and adjacency to lines cannot answer it: measured against the
 # existing dataset, enclosed regions run 2% to 89% sea depending only on their
 # size, with no threshold separating them. So the water is supplied as a mask,
-# from the squares' ways: the coastline's direction, land on the left, and the
-# water held at sea level (sea_mask).
+# which sea_mask builds from the squares' ways: the coastline's direction, land
+# on the left, and the water held at sea level.
 #
 # Without a mask the ocean is still correct and enclosed water is clamped to
 # 1 m - wrong but harmless for hillshade, visible in relief.

@@ -40,7 +40,7 @@ RAMP=${CONF}/relief.ramp
 # water held at sea level. water/<zone>.osm, which roantra once had, is no
 # longer read; said, so a file left there is not taken to be in use
 for f in ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf; do
-	[ -e "${f}" ] && echo "${ZONE}: ${f} is not read - the sea is the squares' own"
+	[ -f "${f}" ] && echo "${ZONE}: ${f} is not read - the sea is the squares' own"
 done
 
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
