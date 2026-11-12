@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from ..checks import crossings, files, inside, loops, spots, touches
 from ..checks import surface as surface_checks
-from ..core import doubled, dropclient, edits, make_square, mirror, save, territory, zone_index
+from ..core import doubled, dropclient, edits, find, make_square, mirror, save, territory, zone_index
 from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet, list_squares, read_square
 from ..surface import along, shade
@@ -393,6 +393,7 @@ class MainWindow(QMainWindow):
         self.zone_dir: Path | None = None
         self.prompt_on_close = True          # tests turn it off: a modal box has nobody to answer it
         self._last_cursor = HOME[:2]
+        self._last_find = ''                 # what Edit › Find element was last given
         self.elevation = ElevationControl(self.settings, self)
         self.elevation_panel = ElevationPanel(self.elevation, self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.elevation_panel)
@@ -1260,6 +1261,7 @@ class MainWindow(QMainWindow):
                 ('edit.redo', '&Redo', ed.redo),
                 ('edit.delete', '&Delete', ed.delete_selected),
                 ('edit.delete_way', 'Delete &contour', ed.delete_way),
+                ('edit.find', 'F&ind element…', self.find_element),
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
@@ -1371,7 +1373,7 @@ class MainWindow(QMainWindow):
         file.addAction(quit_action)
 
         edit = self.menuBar().addMenu('&Edit')
-        for name in ('edit.undo', 'edit.redo', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
+        for name in ('edit.undo', 'edit.redo', None, 'edit.find', None, 'edit.delete', 'edit.delete_way', 'edit.split', 'edit.unglue',
                      'edit.absorb', 'edit.fit_valley', 'edit.push_crossings', 'edit.cut_loop', None, 'tool.select', 'tool.draw', 'tool.spot', 'tool.measure', None):
             if name:
                 edit.addAction(e[name])
@@ -2572,6 +2574,16 @@ class MainWindow(QMainWindow):
             selection = Selection(square, None, relation=feature)
         else:
             ways, selection = [feature], Selection(square, feature)
+        self._select_ways(square, selection, ways)
+        if isinstance(g, flatten.Reshaped):
+            key = self.settings.key('edit.flatten') or 'F'
+            self.statusBar().showMessage(f'{g.describe()} - {key} flattens it again')
+            return
+        key = self.settings.key('edit.delete_way') or 'Shift+Delete'
+        self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
+
+    def _select_ways(self, square, selection, ways) -> None:
+        """A way or a relation selected, and the map framed on its ways."""
         self.editor.set_tool('select')
         self.editor.selection = selection
         self.editor.overlay.update()
@@ -2582,12 +2594,51 @@ class MainWindow(QMainWindow):
             # a margin, so the feature is seen against what is round it
             pad = max(e - w, n - s) * 0.15 or 0.005
             self.map.fit_bounds(w - pad, s - pad, e + pad, n + pad)
-        if isinstance(g, flatten.Reshaped):
-            key = self.settings.key('edit.flatten') or 'F'
-            self.statusBar().showMessage(f'{g.describe()} - {key} flattens it again')
+
+    def find_element(self) -> None:
+        """Edit › Find element: a node, way or relation of the open squares
+        by its id - ``n``, ``w`` or ``r`` and the number - selected as a click
+        would select it and brought into view. For the ids a report or a
+        mapper names, which the map gives no other way to reach."""
+        ws = self.working_set
+        if ws is None:
+            self.statusBar().showMessage('open a square first, then find in it')
             return
-        key = self.settings.key('edit.delete_way') or 'Shift+Delete'
-        self.statusBar().showMessage(f'{g.describe()} - {key} removes it, doing nothing keeps it')
+        text, ok = self.ask_text('Find element', 'n, w or r and its id (e.g. w-50092477, r248):',
+                                 self._last_find)
+        if not ok or not text.strip():
+            return
+        self._last_find = text.strip()
+        try:
+            kind, ident = find.parse(text)
+        except ValueError as e:
+            self.statusBar().showMessage(str(e))
+            return
+        name = f'{kind} {ident}'
+        hits = find.find([ws.squares[k] for k in sorted(ws.squares, key=str)], kind, ident)
+        if not hits:
+            self.statusBar().showMessage(f'{name} is not in the open squares')
+            return
+        square, el = hits[0]
+        where = f'{name} in {square.name}' + (
+            f' - also in {", ".join(str(sq.name) for sq, _ in hits[1:])}' if len(hits) > 1 else '')
+        if kind == 'node':
+            way = find.way_of(square, ident)
+            self.editor.set_tool('select')
+            # a vertex with its way, as a click on it selects it; a node on no
+            # way is a spot height, which is selected with none
+            self.editor.selection = Selection(square, way, ident)
+            self.editor.overlay.update()
+            self._show_place(el.lon, el.lat, el.lon, el.lat)
+            self.statusBar().showMessage(f'found {where}' + (f', a node of way {way.id}' if way else ''))
+            return
+        if kind == 'relation':
+            ways = [square.ways[mem.ref] for mem in el.members if mem.type == 'way' and mem.ref in square.ways]
+            selection = Selection(square, None, relation=el)
+        else:
+            ways, selection = [el], Selection(square, el)
+        self._select_ways(square, selection, ways)
+        self.statusBar().showMessage(f'found {where}')
 
     def _checks_opened(self, on: bool) -> None:
         """Opened from the menu: brought to the front of the tabs it shares,

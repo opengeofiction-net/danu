@@ -46,6 +46,8 @@ page back over whatever is open.
   the cursor.
 - **Q** selects: click a contour or a node to move, delete or split it.
 - **Z** places a spot height; **M** measures a line and the ground along it.
+- **Ctrl+F** finds an element of the open squares by its id - `w-50092477`,
+  `n123`, `r248` - selects it and brings it into view.
 
 ### Changing a contour
 

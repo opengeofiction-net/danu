@@ -43,6 +43,8 @@ DEFAULT_KEYS = {
     'edit.redo': 'Ctrl+Shift+Z',
     'edit.delete': 'Delete',
     'edit.delete_way': 'Shift+Delete',
+    # find an element of the open squares by its id: n, w or r and the number
+    'edit.find': 'Ctrl+F',
     'edit.import_water': 'Ctrl+I',
     # and the main map's peaks and saddles with a height, as spot heights - G9
     'edit.import_heights': 'Ctrl+Shift+I',
