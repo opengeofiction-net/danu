@@ -6964,9 +6964,10 @@ void's seeds and mirrors it in the solve, so the ground runs on level. The
 editor's set build passes the zone's squares (`zone_squares`: the files
 beside the set's, and the set's own and those alongside), and
 `build.close_edges` decides, edge cell by edge cell, by the degree square
-across: not the zone's, the cell is left out of the mask isofill is given, and
-the void floods from there as it did; the zone's, the cell takes the drawn state
-of the cell inside it, and a corner on two sides is closed if either is. That
+across. Where that square is not the zone's, the cell is taken out of the mask
+given to isofill, and the void floods from there as it did; where it is, the
+cell takes the drawn state of the cell inside it. A corner on two sides is
+closed if either is. That
 second half matters as much as the first: the drawn
 area gives a cell on a shared degree line to the square south or east of it,
 so a set's north row and east column belong to squares the set build does not

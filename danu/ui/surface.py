@@ -320,15 +320,23 @@ def zone_squares(ws) -> set:
     and its own and those read alongside, saved or not. The set's build takes
     its edge as the end of the drawn ground only where the square across is
     not one of these."""
-    from ..core.square import list_squares
+    from ..core.square import SquareName
     held = [*ws.squares.values(), *getattr(ws, 'extra', {}).values()]
     out = {sq.name for sq in held}
     homes = {Path(sq.path).parent for sq in held if getattr(sq, 'path', None)}
     for home in homes:
+        # the names only, not list_squares: a square held twice (.osm beside
+        # .osm.xz) is an error to the build but still one of the zone's, and
+        # refusing the directory would close the whole edge again
         try:
-            out |= set(list_squares(home))
-        except (OSError, ValueError):
-            pass                        # not listed: the set's own, as before
+            entries = [e for e in Path(home).iterdir() if e.is_file()]
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                out.add(SquareName.from_filename(entry))
+            except ValueError:
+                pass
     return out
 
 

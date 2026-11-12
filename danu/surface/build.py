@@ -1313,6 +1313,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         ds = gdal.Open(str(cont))
         gt = ds.GetGeoTransform()
         m_ds = gdal.Open(str(mask))
+        _same_grid(ds, m_ds, cont, mask)
         closed = close_edges(m_ds.GetRasterBand(1).ReadAsArray(), gt, _bounds(ds), beyond)
         m_ds = None
         edged = work / 'drawn-mask-edges.tif'
@@ -1331,9 +1332,13 @@ def _bounds(ds) -> tuple[int, int, int, int]:
     """A grid raster's (west, south, east, north) in whole degrees: its edge
     cells' centres lie on them (``Grid``)."""
     gt = ds.GetGeoTransform()
-    west, north = round(gt[0] + gt[1] / 2), round(gt[3] + gt[5] / 2)
-    east = round(gt[0] + (ds.RasterXSize - 0.5) * gt[1])
-    south = round(gt[3] + (ds.RasterYSize - 0.5) * gt[5])
+    edges = (gt[0] + gt[1] / 2, gt[3] + (ds.RasterYSize - 0.5) * gt[5],
+             gt[0] + (ds.RasterXSize - 0.5) * gt[1], gt[3] + gt[5] / 2)
+    # a grid off the degree lines would give edge cells to the wrong square,
+    # quietly; a tenth of a cell is far outside rounding
+    if any(abs(e - round(e)) > abs(gt[1]) / 10 for e in edges):
+        raise ValueError(f'the raster\'s edge cells are not centred on degree lines: {edges}')
+    west, south, east, north = (round(e) for e in edges)
     return west, south, east, north
 
 
@@ -1440,8 +1445,8 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     run = subprocess.run(cmd, capture_output=True, text=True)
     if run.returncode != 0:
         # isofill answers a flag it does not take with its whole usage text,
-        # which says nothing about which flag; the version check above is what
-        # catches that, and the usage is left out of what reaches the panel
+        # which says nothing about which flag; interpolate's check_binary is
+        # what catches that, and the usage is left out of the error
         err = run.stderr.split('usage: isofill', 1)[0].strip() or 'it printed its usage: a flag it does not take'
         raise RuntimeError(f'isofill failed ({run.returncode}): {err[-2000:]}\n{" ".join(cmd)}')
     return out

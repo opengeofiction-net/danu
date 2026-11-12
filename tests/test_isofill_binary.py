@@ -48,4 +48,18 @@ def test_a_failure_leaves_the_usage_out(tmp_path):
     with pytest.raises(RuntimeError) as e:
         build._interpolate_binary(tmp_path / 'c.tif', tmp_path / 'm.tif', None, params.load(),
                                   tmp_path / 'o.tif', exe, budget=100)
-    assert 'usage' in str(e.value) and '--radius N' not in str(e.value)
+    assert 'a flag it does not take' in str(e.value) and '--radius N' not in str(e.value)
+
+
+def test_the_zone_is_every_square_beside_the_set_even_one_held_twice(tmp_path):
+    pytest.importorskip('PySide6')
+    from types import SimpleNamespace
+
+    from danu.core.square import SquareName
+    from danu.ui.surface import zone_squares
+    for f in ('N45E028.osm.xz', 'N45E027.osm.xz', 'N44E029.osm', 'N44E029.osm.xz', 'EMPTY.osm.xz'):
+        (tmp_path / f).write_bytes(b'')
+    own = SimpleNamespace(name=SquareName.from_filename(tmp_path / 'N45E028.osm.xz'),
+                          path=str(tmp_path / 'N45E028.osm.xz'))
+    got = zone_squares(SimpleNamespace(squares={own.name: own}, extra={}))
+    assert {str(n) for n in got} == {'N45E028', 'N45E027', 'N44E029'}
