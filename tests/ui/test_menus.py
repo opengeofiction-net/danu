@@ -30,7 +30,7 @@ def test_the_menus_are_file_edit_view_elevation_surface_help(window):
 
 def test_the_water_work_has_a_menu_of_its_own(window):
     edit = menu(window, 'Edit')
-    assert texts(edit) == ['Undo', 'Redo', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Absorb pieces',
+    assert texts(edit) == ['Undo', 'Redo', 'Find element…', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Absorb pieces',
                            'Fit contours to valley', 'Push back crossings', 'Cut out loop',
                            'Select', 'Draw contour', 'Place spot height', 'Measure', 'Water', 'Spot height',
                            'Coastline']

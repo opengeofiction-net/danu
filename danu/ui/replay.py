@@ -34,7 +34,7 @@ from . import mercator as m
 
 INPUT = {'press', 'release', 'double', 'move', 'hover', 'wheel', 'key', 'action', 'tool', 'magnify', 'open'}
 OUTCOME = {'did', 'undid', 'redid', 'said'}
-SKIPPED = ('file.', 'edit.import_')            # dialogs and the network: not replayed
+SKIPPED = ('file.', 'edit.import_', 'edit.find')            # dialogs and the network: not replayed
 
 _TYPE = {'press': QEvent.Type.MouseButtonPress, 'release': QEvent.Type.MouseButtonRelease,
          'double': QEvent.Type.MouseButtonDblClick, 'move': QEvent.Type.MouseMove,
