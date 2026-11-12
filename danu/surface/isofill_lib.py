@@ -22,6 +22,7 @@ from __future__ import annotations
 import ctypes
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,46 @@ def candidates() -> list[Path]:
         out += [base / 'lib' / n for n in LIB_NAMES] + [base / 'bin' / n for n in LIB_NAMES]
     out += [Path(n) for n in LIB_NAMES]
     return out
+
+
+_binary_versions: dict[tuple[str, float], str] = {}
+
+
+def binary_version(exe: str) -> str:
+    """What ``exe --version`` says, as ``0.13.0``; kept per path and
+    modification time, so a rebuilt binary is asked again."""
+    path = shutil.which(exe) or exe
+    try:
+        key = (str(Path(path).resolve()), Path(path).stat().st_mtime)
+    except OSError as e:
+        raise IsofillError(f'no isofill binary at {exe}: {e}') from e
+    if key not in _binary_versions:
+        try:
+            run = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=30)
+        except OSError as e:
+            raise IsofillError(f'{path} could not be run: {e}') from e
+        words = (run.stdout or run.stderr).split()
+        if run.returncode != 0 or len(words) < 2 or words[0] != 'isofill':
+            raise IsofillError(f'{path} --version did not say which isofill it is')
+        _binary_versions[key] = words[1]
+    return _binary_versions[key]
+
+
+def check_binary(exe: str) -> str:
+    """The binary's version, or IsofillError where it is older than
+    EXPECTED_VERSION. Older, not other: unlike the library, the command line
+    only gains flags, so a newer binary still takes the ones the build passes.
+    Asked first so that an old binary fails with its version, not with a
+    usage text for a flag it does not know."""
+    version = binary_version(exe)
+    try:
+        older = tuple(int(x) for x in version.split('.')) < tuple(int(x) for x in EXPECTED_VERSION.split('.'))
+    except ValueError:
+        older = True
+    if older:
+        raise IsofillError(f'{shutil.which(exe) or exe} is isofill {version}; '
+                           f'this build of danu wants {EXPECTED_VERSION}')
+    return version
 
 
 @dataclass

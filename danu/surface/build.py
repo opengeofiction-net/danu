@@ -1267,6 +1267,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
     if out.exists():
         out.unlink()
     budget = memory_budget(params, log)
+    not_lib = None
     if extra:
         log(f'  extra isofill flags, so the binary: {" ".join(extra)}')
         if library is True:
@@ -1278,7 +1279,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         except isofill_lib.IsofillError as e:
             if library is True:
                 raise
-            log(f'  isofill library not used: {str(e).splitlines()[0]}')
+            not_lib = str(e).splitlines()[0]
+            log(f'  isofill library not used: {not_lib}')
             lib = None
         if lib is not None:
             ds = gdal.Open(str(cont))
@@ -1291,6 +1293,13 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
                                             _pass1_file(work) if keep_pass1 else None, beyond=beyond)
+    try:
+        isofill_lib.check_binary(isofill)
+    except isofill_lib.IsofillError as e:
+        # both said, where the library was tried first: the binary is only
+        # here because the library was not usable, and the fix is usually
+        # the one build of the pair
+        raise isofill_lib.IsofillError(str(e) + (f'\n(and the library: {not_lib})' if not_lib else '')) from None
     if keep_pass1:
         # the caller asked for the first pass and is not going to get one: the
         # binary writes a single raster. Said here rather than left for the
@@ -1430,7 +1439,11 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
     log(f'  isofill as the binary: {isofill}')
     run = subprocess.run(cmd, capture_output=True, text=True)
     if run.returncode != 0:
-        raise RuntimeError(f'isofill failed ({run.returncode}):\n{run.stderr[-2000:]}')
+        # isofill answers a flag it does not take with its whole usage text,
+        # which says nothing about which flag; the version check above is what
+        # catches that, and the usage is left out of what reaches the panel
+        err = run.stderr.split('usage: isofill', 1)[0].strip() or 'it printed its usage: a flag it does not take'
+        raise RuntimeError(f'isofill failed ({run.returncode}): {err[-2000:]}\n{" ".join(cmd)}')
     return out
 
 def clamp(rounded: Path, cont: Path, water: Path | None, work: Path, log: Log = _quiet,
