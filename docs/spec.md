@@ -153,10 +153,8 @@ the tools for everything else.
   way merged upstream, its nodes now on other ways, is removed and said so. An
   import is one undoable step.
 - **R28** Water anchors inside the squares are first-class and editable. The
-  separate `water/<zone>.osm` overlay is a legacy artefact to read, never a
-  store to write: only `roantra` has one, 54 MB of it, against 32 zones, and
-  every other zone's water lives in its squares where Danu already edits it. Reading roantra's overlay for context is cheap and
-  worth doing; editing it is a separate job with no second user.
+  separate `water/<zone>.osm` overlay roantra once had is no longer read:
+  every zone's water lives in its squares, where Danu edits it.
 
 ### Spot heights
 

@@ -4,9 +4,9 @@
 #
 #   sea_mask.py <contours.gpkg> <reference.tif> <out.tif>
 #
-# Produces exactly what water/<zone>.osm produces by hand for zone-roantra: a
-# Byte raster, 1 where there is water, for land_clamp.py to force to zero.
-# The difference is where it comes from. A coastline is directed - land on the
+# A Byte raster, 1 where there is water, for land_clamp.py to force to zero -
+# what zone-roantra's hand-kept water/<zone>.osm once gave, from the squares
+# instead. A coastline is directed - land on the
 # left, water on the right - so the squares already say which side is which, and
 # no separate file is needed.
 #

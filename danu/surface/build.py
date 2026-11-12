@@ -310,9 +310,8 @@ def lines_osmconf(work: Path) -> Path:
     there instead of on the shore. On zone-axian that put 99% of the published
     ele=0 vertices more than 500 m out to sea, a median of 1,693 m.
 
-    Derived from the one packaged ``osmconf.ini`` rather than kept as a second
-    copy, because ``water_areas`` wants the opposite - ``natural=water`` has to
-    be an area there."""
+    Derived from the packaged ``osmconf.ini``, with ``closed_ways_are_polygons``
+    emptied and the rest as it is, rather than kept as a second copy."""
     text = resources.files('danu.surface').joinpath('osmconf.ini').read_text(encoding='utf-8')
     text = re.sub(r'^closed_ways_are_polygons=.*$', 'closed_ways_are_polygons=', text, flags=re.M)
     out = work / 'osmconf-lines.ini'
@@ -840,8 +839,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         log(f'  {spots} spot heights')
     # Water with nothing holding it at sea level is the largest error this
     # pipeline can produce - 46 m RMS over the water in the one roantra square
-    # the water file did not reach - and it is silent, because the result looks
-    # like plausible terrain. A zone with no zero constraint anywhere either has
+    # its old water file did not reach - and it is silent, because the result
+    # looks like plausible terrain. A zone with no zero constraint anywhere either has
     # no sea, which is fine, or has sea nobody has drawn a coastline for
     log(f'  {zeros} of them at ele 0, holding sea level')
     if zeros == 0:
@@ -1085,40 +1084,6 @@ def drawn_area(grid: Grid, work: Path, log: Log = _quiet) -> Path:
     return out
 
 
-def water_areas(water_file: Path, grid: Grid, work: Path, log: Log = _quiet) -> Path:
-    """Sea and lakes from a curated water file, as a byte mask.
-
-    ``natural=water`` states that its interior is water; a closed coastline ring
-    does not, being equally able to describe an island - which is why this reads
-    the areas and ``water_mask`` reads directions. Used only to tell land at sea
-    level from the sea itself; the squares remain the elevation source of truth.
-
-    The file is per zone and optional. No zone has had one since the coastline
-    direction below started producing the same artefact from the squares
-    themselves, and the directory it is read from is empty on the server."""
-    log(f'  water areas from {water_file.name}')
-    areas = work / 'water-areas.gpkg'
-    for f in (areas, work / 'water-mask.tif'):
-        if f.exists():
-            f.unlink()
-    conf = resources.files('danu.surface').joinpath('osmconf.ini')
-    with gdal.config_options({'OSM_CONFIG_FILE': str(conf), 'OSM_USE_CUSTOM_INDEXING': 'NO',
-                              'CPL_TMPDIR': str(work)}):
-        gdal.VectorTranslate(str(areas), str(water_file), options=gdal.VectorTranslateOptions(
-            format='GPKG', layers=['multipolygons'], where="natural='water'", layerName='water'))
-    found = _feature_count(areas, 'water')
-    log(f'  {found} water areas')
-    if found == 0:
-        log(f'  WARNING: {water_file.name} has no natural=water areas, so the mask is empty and '
-            f'enclosed water will read as land. The coastline direction is the other way to this, '
-            f'and it is what a zone with no water file uses')
-    out = work / 'water-mask.tif'
-    gdal.Rasterize(str(out), str(areas), options=gdal.RasterizeOptions(
-        format='GTiff', burnValues=[1], initValues=[0], outputType=gdal.GDT_Byte,
-        xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te), creationOptions=CREATE))
-    return out
-
-
 # beside the water mask: ground the rings of water held at sea level say is
 # dry, which the clamp keeps land (sea_mask.lake_seeds)
 DRY_MASK = 'dry-mask.tif'
@@ -1130,8 +1095,11 @@ def water_mask(gpkg: Path, cont: Path, work: Path, log: Log = _quiet) -> Path | 
 
     It exists to stop the fill leaving elevation offshore: on zone-alved it
     covers 96.8% of the cells which had it, and 99.6% of what it marks is
-    genuinely sea. Same artefact as ``water_areas``, same slot, no file to
-    maintain.
+    genuinely sea. It replaced zone-roantra's hand-kept ``water/roantra.osm``,
+    which a build option, gone since, read in its place: built both ways on
+    2026-11-12, the file's mask left a fill halo of 1-2 m land kilometres wide
+    round every island and across the western bays, where the coastlines in
+    the squares stop at the shore.
 
     Built before the fill, not after it. It has always been derived from the
     collected contours and the constraint raster, both of which exist by now, so
@@ -1487,7 +1455,7 @@ class Result:
 
 def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[SquareName] | None = None,
               log: Log = _quiet, isofill: str = 'isofill',
-              library: bool | None = None, water_file: Path | None = None,
+              library: bool | None = None,
               extra: list[str] | None = None, stage: Log = _quiet,
               keep_pass1: bool = False, cache: Path | None = None,
               water_names: Iterable[SquareName] | None = None,
@@ -1555,12 +1523,8 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     cont = rasterise(gpkg, grid, work)
     stage('drawn area')
     mask = drawn_area(grid, work, log)
-    if water_file is not None:
-        stage('water areas')
-        wmask = water_areas(Path(water_file), grid, work, log)
-    else:
-        stage('water from the coastline direction')
-        wmask = water_mask(gpkg, cont, work, log)
+    stage('water from the coastline direction')
+    wmask = water_mask(gpkg, cont, work, log)
     stage(f'interpolate, radius {params.fill_cells} cells, barrier {params.barrier_cells}')
     pass1 = _pass1_file(work)
     if pass1.exists():
@@ -1609,8 +1573,6 @@ def main(argv: list[str] | None = None) -> int:
                          'argument for the same reason --arcsec is: the caller may be overriding '
                          'it, and TE_HGT has to be the grid the caller then slices on')
     ap.add_argument('--params', type=Path, help='an elevation.toml other than the packaged one')
-    ap.add_argument('--water-areas', type=Path, metavar='FILE',
-                    help='a curated natural=water file, in place of the coastline direction')
     ap.add_argument('--isofill-extra', default='', metavar='FLAGS',
                     help='further isofill flags, for trying a change on one zone')
     ap.add_argument('--shell', type=Path, metavar='FILE', help='write shell assignments here')
@@ -1641,7 +1603,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = build_dem(args.zone_dir, args.work, p,
-                           log=log, water_file=args.water_areas,
+                           log=log,
                            extra=args.isofill_extra.split() or None, stage=stage)
     except (ValueError, FileExistsError, RuntimeError, isofill_lib.IsofillError) as e:
         print(f'{prefix}{e}', file=sys.stderr)

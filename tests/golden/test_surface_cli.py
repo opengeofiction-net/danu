@@ -319,25 +319,3 @@ def test_extra_isofill_flags_take_the_binary_rather_than_the_library(tmp_path):
                           params.load(), tmp_path, library=True, extra=['--no-pass2'])
 
 
-# -------------------------------------------------------------- water areas
-
-def test_a_curated_water_file_becomes_a_mask_of_its_areas(tmp_path):
-    """natural=water states that its interior is water, which a closed
-    coastline ring does not - it is equally able to describe an island. The
-    branch has no zone using it, so this is what says it still works."""
-    from danu.surface import build
-    osm = tmp_path / 'zone-water.osm'
-    nodes = ''.join(f'<node id="-{i + 1}" lat="{lat}" lon="{lon}"/>' for i, (lat, lon) in
-                    enumerate([(-23.8, 125.2), (-23.8, 125.8), (-23.2, 125.8), (-23.2, 125.2)]))
-    refs = ''.join(f'<nd ref="-{i}"/>' for i in (1, 2, 3, 4, 1))
-    osm.write_text(f'<?xml version="1.0"?>\n<osm version="0.6" generator="test">{nodes}'
-                   f'<way id="-1">{refs}<tag k="natural" v="water"/></way></osm>')
-    grid = build.Grid(west=125, east=126, south=-24, north=-23, arcsec=30)
-    lines = []
-    mask_path = build.water_areas(osm, grid, tmp_path, log=lines.append)
-    ds = gdal.Open(str(mask_path))                 # held: the band outlives it otherwise
-    mask = ds.GetRasterBand(1).ReadAsArray()
-    assert mask.shape == (grid.size[1], grid.size[0])
-    assert mask.max() == 1, f'nothing was burnt: {lines}'
-    assert mask.min() == 0, 'the whole grid was burnt, not the area'
-    assert any('1 water areas' in l for l in lines), lines

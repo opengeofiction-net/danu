@@ -26,9 +26,9 @@
 # shoreline is a lake or an island is a question about which side of a polygon
 # you are on, and adjacency to lines cannot answer it: measured against the
 # existing dataset, enclosed regions run 2% to 89% sea depending only on their
-# size, with no threshold separating them. So the water areas are supplied as a
-# mask, built from natural=water multipolygons, which state outright that their
-# interior is water where a closed coastline ring does not.
+# size, with no threshold separating them. So the water is supplied as a mask,
+# which sea_mask builds from the squares' ways: the coastline's direction, land
+# on the left, and the water held at sea level.
 #
 # Without a mask the ocean is still correct and enclosed water is clamped to
 # 1 m - wrong but harmless for hillshade, visible in relief.
