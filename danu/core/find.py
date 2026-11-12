@@ -40,8 +40,9 @@ def find(squares, kind: str, ident: int) -> list:
 
 
 def way_of(square, node_id: int):
-    """A way of the square the node is a vertex of, or None: a contour's
-    before a lake's outline, so the selection is the line a click on the node
+    """A way of the square the node is a vertex of, or None: one with no
+    ``natural`` or ``waterway`` tag - a contour - before a water outline, a
+    coastline or a river, so the selection is the line a click on the node
     would most likely have meant."""
     found = None
     for w in square.ways.values():
