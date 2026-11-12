@@ -310,8 +310,8 @@ def lines_osmconf(work: Path) -> Path:
     there instead of on the shore. On zone-axian that put 99% of the published
     ele=0 vertices more than 500 m out to sea, a median of 1,693 m.
 
-    Derived from the packaged ``osmconf.ini``, its list emptied here, rather
-    than kept as a second copy of the rest of it."""
+    Derived from the packaged ``osmconf.ini``, with ``closed_ways_are_polygons``
+    emptied and the rest as it is, rather than kept as a second copy."""
     text = resources.files('danu.surface').joinpath('osmconf.ini').read_text(encoding='utf-8')
     text = re.sub(r'^closed_ways_are_polygons=.*$', 'closed_ways_are_polygons=', text, flags=re.M)
     out = work / 'osmconf-lines.ini'
