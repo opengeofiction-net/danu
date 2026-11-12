@@ -383,6 +383,8 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
         water_pts, land_pts = seed_points(layer, gt, gone)
         say(f'  {len(water_pts)} water seeds and {len(land_pts)} land; {gone[0]} and {gone[1]} dropped, '
             'stepped across a coastline')
+        # only for the dry side to be weighed against: with no water at sea
+        # level there are no dry seeds, and the mask is as it always was
         if dry_path and lake_land:
             dense = dense_water_seeds(layer, gt)
     if lake_water or lake_land:
@@ -488,8 +490,9 @@ def sea_mask(src_path, ref_path, out_path, log=None, dry_path=None):
             dd = dd_band.ReadAsArray(0, y, cols, h)
             wet = dw if sd_band is None else np.minimum(dw, sd_band.ReadAsArray(0, y, cols, h))
             dry = ((dd < wet) & (dd <= MAX_CELLS)).astype(np.uint8)
-            # land for the mask only where it is dry: a dry seed that lost to
-            # the shore's water is not land's to claim the cell with either
+            # the water mask's land distance takes a dry seed only where the
+            # cell is dry: one that lost to the shore's water does not keep
+            # the cell out of the water mask either
             dl = np.where(dry == 1, np.minimum(dl, dd), dl)
             dry_band.WriteArray(dry, 0, y)
             n_dry += int(dry.sum())
