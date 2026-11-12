@@ -3634,8 +3634,8 @@ grade from. Cells within half a metre of the lake's level:
 | flattened - server's 3" `.hgt` | 180 | 8,260 | 97.13% | 132 |
 
 The worst at 1" are lakes at sea level - Gazzag Lake, Pax Nova Lake, Firebird
-Water - at 0 to 1 m: the land clamp lifts enclosed water at 0 to 1 m when the
-zone has no water file, which no zone has, and says so in its own notes. The
+Water - at 0 to 1 m: the land clamp lifts enclosed water at 0 to 1 m unless it
+is held at sea level, and says so in its own notes. The
 `.hgt`'s misses are lakes of a cell or two, averaged with their shore on the
 way to 3". The editor at 1" is the server's code on the same squares, held to
 it by the golden test; at its default 3" it builds natively and reads flatter

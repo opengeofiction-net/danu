@@ -36,14 +36,12 @@ WORK=${WORKBASE}/${ZONE}
 PUB=${PUB:-${PUBROOT}}/${ZONE}
 
 RAMP=${CONF}/relief.ramp
-# Water areas for the zone, if there are any: coastline plus whatever is mapped
-# as natural=water instead, which for an inland sea is usual. Used only to tell
-# land at sea level from the sea itself - the squares remain the elevation
-# source of truth. Optional: with no file the surface derives the same mask from
-# the coastline's own direction, which is what every zone does today - the
-# directory is empty on util - so this path is held up by its test rather than
-# by a nightly build
-WATER=$(ls ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf 2>/dev/null | head -1)
+# The sea comes from the squares alone - the coastline's direction and the
+# water held at sea level. water/<zone>.osm, which roantra once had, is no
+# longer read; said, so a file left there is not taken to be in use
+for f in ${BASE}/water/${ZONE}.osm ${BASE}/water/${ZONE}.osm.pbf; do
+	[ -e "${f}" ] && echo "${ZONE}: ${f} is not read - the sea is the squares' own"
+done
 
 # No .aux.xml sidecars: they double the file count in the hgt archive and would
 # be published alongside every raster
@@ -133,7 +131,6 @@ rm -f ${SURFACE}
 surface_args=(--arcsec "${ARCSEC}" --hgt-arcsec "${HGT_ARCSEC}" --zone "${ZONE}"
 	--shell "${SURFACE}" --timings "${TIMINGS}" --since "${SECONDS}"
 	"${params_args[@]}")
-[ -z "${WATER}" ] || surface_args+=(--water-areas "${WATER}")
 # further isofill flags, for trying a change on one zone before it becomes the
 # default. Empty normally
 [ -z "${ISOFILL_EXTRA:-}" ] || surface_args+=(--isofill-extra "${ISOFILL_EXTRA}")
