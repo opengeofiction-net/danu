@@ -329,6 +329,9 @@ class PreviewDriver(QObject):
         # one, or stop it being one, and which it is decides where it goes
         regraded = self._graded_ways(square, set(way_ids))
         for nid in spot_ids:
+            # the index already has this edit's ways in it, from just above:
+            # a node a way took up or let go in this same command is routed
+            # by what the way is now
             ways = self._graded_index(square)[0].get(nid)
             if ways:
                 # a vertex of a held waterway, graded or not: never a spot

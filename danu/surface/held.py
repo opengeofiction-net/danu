@@ -37,6 +37,15 @@ def graded_way(way) -> bool:
     return way.tags.get('waterway') in KINDS
 
 
+def _vertices(square, way):
+    """Each vertex of the way as (ref, node, ele), ele None where it carries
+    no height - the one reading of a vertex ``runs`` and ``graded`` share, so
+    the nodes they call held cannot drift apart."""
+    for ref in way.refs:
+        node = square.nodes.get(ref)
+        yield ref, node, parse_ele(node.tags.get('ele')) if node is not None else None
+
+
 def runs(square, way) -> list[list[tuple[float, float, float]]]:
     """The way's held runs, as (lon, lat, ele) each: every stretch of its
     vertices that all carry a height, in order. A stretch of one - a vertex
@@ -46,9 +55,7 @@ def runs(square, way) -> list[list[tuple[float, float, float]]]:
         return []
     out: list[list[tuple[float, float, float]]] = []
     run: list[tuple[float, float, float]] = []
-    for ref in way.refs:
-        node = square.nodes.get(ref)
-        ele = parse_ele(node.tags.get('ele')) if node is not None else None
+    for _ref, node, ele in _vertices(square, way):
         if ele is None:
             if run:
                 out.append(run)
@@ -86,6 +93,5 @@ def graded(square) -> tuple[dict[int, list], set[int]]:
         if not got:
             continue
         by_way[wid] = got
-        nodes.update(r for r in way.refs if r in square.nodes
-                     and parse_ele(square.nodes[r].tags.get('ele')) is not None)
+        nodes.update(ref for ref, _node, ele in _vertices(square, way) if ele is not None)
     return by_way, nodes

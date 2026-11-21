@@ -234,7 +234,8 @@ class Isofill:
         ``run`` with ``held`` does between its passes (0.15.0's
         ``isofill_hold``): the ground within ``radius`` of a held cell that
         the first pass called out of reach declined, and each held cell at
-        its value. In place, and returned; None holds nothing. ``diffuse``
+        its value - a cell held unless it is NO_ELEV or NaN, as for ``run``.
+        In place, and returned; None holds nothing. ``diffuse``
         after it is the rest of ``run``, cell for cell - for the editor's
         solves, which run the two passes apart."""
         if held is None:

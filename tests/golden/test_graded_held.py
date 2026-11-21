@@ -25,7 +25,7 @@ RIVER = [(125.20 + 0.075 * i, e) for i, e in enumerate([58, 56, 54, 52, None, 48
 RUNS = [[58, 56, 54, 52], [48], [44, 42]]
 
 
-def a_valley(graded=True, river=True):
+def a_valley(graded=True, river=True, contours=CONTOURS):
     """The contours, and the river along LAT - its vertices carrying their
     heights when ``graded``, none when not."""
     from danu.core import edits
@@ -34,7 +34,7 @@ def a_valley(graded=True, river=True):
     sq = Square(name=SquareName(125, -24), present=True,
                 attrs={'version': '0.6', 'upload': 'never'})
     alloc = edits.IdAllocator(sq)
-    for dlat, ele in CONTOURS:
+    for dlat, ele in contours:
         pts = [(125.02 + 0.0192 * i, LAT + dlat) for i in range(51)]
         ids = [alloc.take() for _ in pts]
         edits.AddWay(alloc.take(), ids, pts, {'ele': str(ele)}).apply(sq)
@@ -99,8 +99,7 @@ def test_the_held_raster_interpolates_between_vertices(tmp_path):
     x = int((mid - gt[0]) / gt[1])
     assert h[y, x] == pytest.approx(57, abs=0.3)
     # and nothing is held across the ungraded vertex between the runs
-    gap = (RIVER[3][0] + RIVER[5][0]) / 2
-    assert h[y, int((gap - gt[0]) / gt[1])] == -32768
+    assert h[y, int((RIVER[4][0] - gt[0]) / gt[1])] == -32768
 
 
 def test_the_surface_keeps_the_held_heights(tmp_path):
@@ -134,6 +133,7 @@ def test_the_library_and_the_binary_hold_them_alike(tmp_path):
     import numpy as np
     lib = built(a_valley(), tmp_path, 'lib', library=True)
     exe = built(a_valley(), tmp_path, 'exe', library=False)
+    assert np.array_equal(read(lib.surface)[0], read(exe.surface)[0])
     assert np.array_equal(read(lib.dem)[0], read(exe.dem)[0])
 
 
@@ -160,14 +160,13 @@ def test_the_preview_burns_what_the_build_burned(tmp_path):
     y = int((LAT - gt[3]) / gt[5])
     box = Box(cols // 4, y - 30, cols // 2, y + 30)
     assert np.array_equal(c.burn_held(gt, box), h[box.slice])
-    # and a box with no river in it burns nothing
-    assert c.burn_held(gt, Box(0, 0, 20, 20)) is None
+    # and a box well north of the river burns nothing
+    assert c.burn_held(gt, Box(cols // 4, y - 300, cols // 2, y - 200)) is None
 
 
 def test_the_preview_edits_a_ways_runs(tmp_path):
     """A way's runs put in again from the square as edited, as the editor
     does when a vertex is graded: the new height is burned, the old one gone."""
-    import numpy as np
 
     from danu.surface import held
     from danu.surface.local import Box
@@ -187,7 +186,7 @@ def test_the_preview_edits_a_ways_runs(tmp_path):
     assert len(c.held_runs('S24E125', wid)) == 2
     c.remove_held('S24E125', wid)
     assert c.burn_held(gt, Box(x - 5, y - 5, x + 5, y + 5)) is None
-    assert not np.isnan(_h).any()
+    assert c.held_runs('S24E125', wid) == []
 
 
 def test_ground_only_the_river_reaches_is_solved_not_void(tmp_path):
@@ -197,13 +196,9 @@ def test_ground_only_the_river_reaches_is_solved_not_void(tmp_path):
     counts it in reach still, so that ground is solved - and the ground beyond
     the river's reach is void as it was. On 0.14.0 it all went to sea level,
     the river standing in it."""
-    global CONTOURS
-    saved, CONTOURS = CONTOURS, [(-0.08, 30), (0.08, 80)]
-    try:
-        r = built(a_valley(), tmp_path)
-        plain = built(a_valley(graded=False), tmp_path, 'plain')
-    finally:
-        CONTOURS = saved
+    apart = [(-0.08, 30), (0.08, 80)]
+    r = built(a_valley(contours=apart), tmp_path)
+    plain = built(a_valley(graded=False, contours=apart), tmp_path, 'plain')
     s, gt = read(r.surface)
     p, _ = read(plain.surface)
     y = int((LAT - gt[3]) / gt[5])
@@ -239,7 +234,9 @@ def test_a_box_solved_in_the_editor_holds_the_river_as_the_build_does(tmp_path):
                                      nodata=nodata, held=h)
     bare_patch, _ = local.resolve(cons.astype(np.float32), mask, None, surface, box, params,
                                   nodata=nodata)
-    # the band between the 40 m and 70 m contours: beyond them the ground is
+    # ``good`` is the box grown by the cover, two radii each way, so 87 rows;
+    # compared here over the band between the 40 m and 70 m contours, 25
+    # rows either side of the river: beyond them the ground is
     # out of reach of both and floods from the raster's edge as void, which
     # a box cannot see from inside - the local solve's own limit, settled by
     # the rebuild on idle, and nothing to do with the river
@@ -247,3 +244,24 @@ def test_a_box_solved_in_the_editor_holds_the_river_as_the_build_does(tmp_path):
     band = slice(y - good.y0 - 25, y - good.y0 + 26)
     assert np.abs(held_patch - exact)[band].max() < 0.01
     assert np.abs(bare_patch - exact)[band].max() > 1
+
+
+def test_the_editors_split_solve_is_the_builds(tmp_path):
+    """The editor runs the passes apart - the first, then ``Isofill.hold``,
+    then ``diffuse`` - and that has to be ``run`` with ``held``, cell for
+    cell, or the editor and the server describe different ground (R35)."""
+    import numpy as np
+
+    from danu.surface import isofill_lib
+    from danu.surface import params as sp
+    r = built(a_valley(contours=[(-0.08, 30), (0.08, 80)]), tmp_path)
+    params = sp.load().with_arcsec(3)
+    lib = isofill_lib.Isofill.load()
+    cons, _ = read(r.constraints)
+    mask, _ = read(r.drawn_mask)
+    h, _ = read(r.held)
+    cons = cons.astype(np.float32)
+    whole, _ = lib.run(cons, params, mask=mask, nodata=-9999.0, held=h)
+    first, _ = lib.run(cons, params, mask=mask, nodata=-9999.0, pass2=False)
+    split = lib.diffuse(lib.hold(first, h, params.fill_cells), mask=mask)
+    assert np.array_equal(whole.view(np.uint32), split.view(np.uint32))
