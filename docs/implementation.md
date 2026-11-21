@@ -7064,3 +7064,19 @@ already right: a point below the ring round it digs a pit.
 The selection panel gives a spot height a kind - plain, peak, volcano,
 saddle, sinkhole - as its `natural`, one step on the history (R49). A kind
 the list does not offer, a hill or a spring, is shown and kept.
+
+## Ridges and valleys held as rivers are (#191)
+
+A landform drawn as a line - OSM's `natural=valley`, `gully` and `gorge`, the
+low line of the ground, and `ridge` and `arete`, its high line - carries its
+heights on its vertices, and they are held as a graded river's are (R48):
+`held.graded_way` takes them, so the build leaves their vertices out of the
+spot heights and burns their runs into `held.tif`, and the second pass runs
+the ground down to a floor and up to a crest from the contours either side.
+
+The editor draws them with the water - picked, levelled at a point, graded -
+dashed in the ground's brown (`_Piece.landform`). G grades a floor as a river,
+descending, its direction found; a crest by `profile.grade_crest`, straight
+between each pair of contours it crosses whichever way, since a ridge rises
+to a summit and falls to a saddle. Each is the way alone: the river network's
+chains are of rivers.

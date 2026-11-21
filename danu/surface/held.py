@@ -27,14 +27,38 @@ from ..core.square import parse_ele
 # one with a height is nothing this knows how to hold.
 KINDS = ('river', 'stream', 'canal', 'ditch', 'drain')
 
+# And the landforms drawn as a line, by OSM's natural=* (#191): a valley floor,
+# a gully, a gorge - the low line of the ground, as a river is - and a ridge
+# or an arete, its high line. Heights on their vertices are held the same way:
+# the second pass runs the ground down to a valley floor from the contours
+# either side, and up to a crest.
+FLOORS = ('valley', 'gully', 'gorge')
+CRESTS = ('ridge', 'arete')
+LANDFORMS = FLOORS + CRESTS
+
 # Nothing to look for in a square that never says it: the byte guard ``collect``
 # uses before parsing a square for anything.
-WORDS = (b"'waterway'", b'"waterway"')
+WORDS = (b"'waterway'", b'"waterway"') + tuple(
+    q + k.encode() + q for k in LANDFORMS for q in (b"'", b'"'))
+
+
+def landform(way) -> str | None:
+    """The way's landform, a ``natural=*`` value of LANDFORMS, or None."""
+    kind = way.tags.get('natural')
+    return kind if kind in LANDFORMS else None
+
+
+def is_crest(way) -> bool:
+    """Whether a way is a ridge or an arete: graded between the contours it
+    crosses, rising and falling as they do, rather than descending as water
+    and a valley floor do."""
+    return way.tags.get('natural') in CRESTS
 
 
 def graded_way(way) -> bool:
-    """Whether a way is a waterway whose vertices' heights are held."""
-    return way.tags.get('waterway') in KINDS
+    """Whether a way's vertices' heights are held: a waterway that runs as a
+    line, or a landform drawn as one."""
+    return way.tags.get('waterway') in KINDS or landform(way) is not None
 
 
 def _vertices(square, way):

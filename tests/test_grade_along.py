@@ -118,3 +118,14 @@ def test_a_long_span_climbing_is_still_left():
     known = [(0, 50), (20_000, 60), (21_000, 0)]
     levels, rejected, _ = profile.grade_along(known, [10_000, 20_500])
     assert levels == [None, 30.0] and rejected == [(0, 20_000, 50, 60)]
+
+
+def test_a_crest_is_graded_straight_between_its_crossings_whichever_way():
+    """#191: a ridge rises to a summit and falls to a saddle - graded between
+    each pair of crossings, nothing rejected, nothing before the first or
+    after the last."""
+    from danu.core.profile import grade_crest
+    known = [(100.0, 500.0), (300.0, 550.0), (500.0, 525.0)]
+    levels = grade_crest(known, [0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
+    assert levels == [None, 500.0, 525.0, 550.0, 537.5, 525.0, None]
+    assert grade_crest([(0.0, 10.0)], [0.0, 5.0]) == [None, None]

@@ -77,6 +77,27 @@ def linear_fix(elev, intervals):
     return out
 
 
+def grade_crest(known, vertex_d):
+    """A ridge's level at each vertex (#191): between each pair of contours it
+    crosses, the value interpolated by distance, whichever way it goes. A
+    crest rises to a summit and falls to a saddle, so nothing here descends
+    or is rejected; before the first crossing and after the last there is
+    nothing to grade from, as for a river. Answers a level or None per
+    vertex, as ``grade_along``'s first item."""
+    known = sorted(known)
+    levels = [None] * len(vertex_d)
+    if len(known) < 2:
+        return levels
+    order = sorted(range(len(vertex_d)), key=lambda i: vertex_d[i])
+    ds = [vertex_d[i] for i in order]
+    for (da, ea), (db, eb) in pairwise(known):
+        for k in range(bisect.bisect_left(ds, da), bisect.bisect_right(ds, db)):
+            d = ds[k]
+            f = (d - da) / (db - da) if db != da else 0.0
+            levels[order[k]] = ea + (eb - ea) * f
+    return levels
+
+
 def grade_along(known, vertex_d):
     """A waterway's level at each vertex, from the contour values where it
     crosses one, graded between and descending only - for the editor (G6b).
