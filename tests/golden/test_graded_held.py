@@ -12,7 +12,6 @@ a river along the middle of it graded from 58 m to 42 m - with two vertices
 left ungraded, so it makes a run of four, a run of one and a run of two.
 """
 
-import math
 import shutil
 
 import pytest
@@ -121,6 +120,7 @@ def test_the_first_pass_never_sees_them(tmp_path):
     """The first pass of a graded river is the first pass of the same river
     ungraded, to the bit - which is the whole of the fix."""
     import numpy as np
+
     from danu.surface import build
     r1 = built(a_valley(), tmp_path, 'graded', keep_pass1=True)
     r0 = built(a_valley(graded=False), tmp_path, 'plain', keep_pass1=True)
@@ -148,6 +148,7 @@ def test_the_preview_burns_what_the_build_burned(tmp_path):
     """``Contours.burn_held`` over the whole raster and over a box inside it
     is ``rasterise_held``'s raster, cell for cell (R35)."""
     import numpy as np
+
     from danu.surface.local import Box
     from danu.surface.preview import Contours
     r = built(a_valley(), tmp_path)
@@ -167,6 +168,7 @@ def test_the_preview_edits_a_ways_runs(tmp_path):
     """A way's runs put in again from the square as edited, as the editor
     does when a vertex is graded: the new height is burned, the old one gone."""
     import numpy as np
+
     from danu.surface import held
     from danu.surface.local import Box
     from danu.surface.preview import Contours
@@ -218,6 +220,7 @@ def test_a_box_solved_in_the_editor_holds_the_river_as_the_build_does(tmp_path):
     passes, the box is the whole build's answer near the river. Without it,
     the river is gone from the box, and the box is nearly 2 m out."""
     import numpy as np
+
     from danu.surface import local
     from danu.surface import params as sp
     r = built(a_valley(), tmp_path)
