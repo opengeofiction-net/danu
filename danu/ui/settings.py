@@ -83,6 +83,8 @@ DEFAULT_KEYS = {
     # contour that keeps off it
     'edit.fit_coast': 'Shift+K',
     'edit.import_coastline': 'Ctrl+Alt+I',
+    # and the main map's landforms: ridges, valleys, cliffs, dry lakes - #191
+    'edit.import_landforms': 'Ctrl+Alt+Shift+I',
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map
     'view.josm': 'J',

@@ -24,7 +24,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 from ..core import zone_index
 from ..core.square import Square, read_square
-from ..water import coast, overpass, peaks
+from ..water import coast, landforms, overpass, peaks
 from ..water import gone as gone_mod
 
 
@@ -155,6 +155,36 @@ def coast_commands(placed: dict, working_set) -> list[tuple[Square, object]]:
             steps.append((square, edits.ImportWater(
                 upstream_owns=coast.UPSTREAM_OWNS, new_nodes=dict(got.nodes), new_ways=dict(got.ways),
                 name=f'import coastline into {name}')))
+    return steps
+
+
+def landform_work(payload: bytes, working_set, held) -> Answer:
+    """A landform answer (#191), placed as water's is - each feature whole
+    into the square holding most of it, or where the set already holds it;
+    never moved, but out of a square outside the zone, into it."""
+    snap = held if isinstance(held, Snapshot) else Snapshot(held)
+    got = landforms.landforms(payload)
+    placed, moved = overpass.homes(got, working_set, snap.held, move=False, within=snap.within)
+    return Answer(placed, frozenset(got.ways), frozenset(got.relations), moved=moved)
+
+
+def fetch_landforms(bounds, url: str = overpass.OVERPASS_URL) -> bytes:
+    return overpass.fetch(bounds, url=url, text=landforms.query(bounds))
+
+
+def landform_commands(placed: dict, working_set) -> list[tuple[Square, object]]:
+    """A landform import as its steps, a command a square, reconciling as
+    water's does - upstream owning what each is and its name."""
+    from ..core import edits
+    steps = []
+    for name in sorted(placed, key=str):
+        square = working_set.square(name)
+        if square is None:
+            continue
+        got = placed[name]
+        steps.append((square, edits.ImportWater(
+            upstream_owns=landforms.UPSTREAM_OWNS, new_nodes=dict(got.nodes), new_ways=dict(got.ways),
+            new_relations=dict(got.relations), name=f'import landforms into {name}')))
     return steps
 
 

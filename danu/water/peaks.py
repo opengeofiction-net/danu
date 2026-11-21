@@ -45,7 +45,7 @@ from ..core.square import Node, SquareName, parse_ele, xml_version
 from .gone import Gone
 from .overpass import QUERY_TIMEOUT, IncompleteAnswer
 
-KINDS = ('peak', 'volcano', 'saddle')
+KINDS = ('peak', 'volcano', 'saddle', 'sinkhole')    # a sinkhole a pit, read as one (#191)
 # what upstream is the authority for, on a spot height: what it is and what it
 # is called, and where it is. The height is the mapper's, as on water
 UPSTREAM_OWNS = ('natural', 'name')

@@ -7115,3 +7115,22 @@ a cliff in again when its way is edited.
 A cliff with no `ele` or no `height` burns nothing of its own. The wall the
 fill does not see or diffuse across, for every cliff, is an isofill change
 and comes separately.
+
+## Landforms imported from the main map (#191)
+
+Edit › Landforms › Import (Ctrl+Alt+Shift+I) brings the main map's landforms
+into the squares as the coastline import brings coastlines (R52): fetched over
+the working set, each feature whole into the square holding most of it under
+its OSM id and version, one step on the history; a second import reconciles,
+upstream owning what each is and its name, the heights set here kept, and one
+held that upstream no longer names reported, not deleted. `water/landforms.py`
+asks for the lines (`held.LANDFORMS`), the cliffs and earth banks, and the dry
+lakes and plateaus as ways or relations; `overpass.parse` keeps a cliff's
+`height` here, which water's import has no use for. A vertex's tags are left
+behind - a peak on a ridge is the spot heights' import's, which takes
+sinkholes now as well (R41).
+
+An import of its own and not part of water's: the main map holds 14,785 ridges
+and 38,011 cliffs, 9 and 34 of them with an `ele` (2026-11-21). They land as
+lines to grade and cliffs to give heights to, and change the surface only as
+they are.
