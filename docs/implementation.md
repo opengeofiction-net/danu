@@ -6977,3 +6977,53 @@ zone build passes nothing and is unchanged.
 On N45E028's set, drawn ground held at zero: N45E027 16,822 cells to 2, N44E029
 21,185 to 52, N45E029 12,224 to 877, N44E027 7,807 to 518; the N46 row, whose
 north edge faces nothing, as it was.
+
+## Graded waterways held, not read (#372)
+
+Grading writes an `ele` onto a river's vertices, and the build read each one as
+a spot height. Wherever the contours either side of a river are further apart
+than the fill reaches, that spoiled the ground beside it: the river, a few
+metres below the contour beside it, was the steepest pair in sight, so the
+first pass filled the ground between nearly flat out to the edge of its reach,
+and the ground stepped up there to the contour beyond. On castellan at
+65.360 E, a plain at 56-58 m ending in a 13 m cliff 2 km from the river. A
+wider reach moves the step rather than removing it, and costs ten times the
+fill at 5 km.
+
+So a graded waterway is not a constraint (R36, R48). `held.graded` says which
+nodes are its - those carrying a height on a waterway that runs as a line,
+river, stream, canal, ditch or drain - and `held.runs` what line they make:
+each stretch of graded vertices, a stretch of one a point. `collect` reads
+them in the same Python pass of the square as the lakes, keeps them out of
+the spot layer and writes them as the `held` layer, Z the height;
+`rasterise_held` burns that with GDAL's `-3d`, which interpolates the Z along
+each segment, into a Float32 `held.tif`. isofill holds it (`--held`, 0.14.0):
+unseen by the first pass, written over its answer and kept by the second,
+which runs the ground down to the river from the contours either side. A
+build with nothing graded has no `held.tif` and is the build it was.
+
+The prototype showed what 0.14.0 missed. Where the river was all that said
+how low the ground went - castellan below 300 m round 36.2 N, 64.1 E - its
+vertices as spot heights had put that ground in reach, and held instead it
+flooded as void and came out at sea level with the river standing in it at
+290 m: 31,727 cells of land. isofill 0.15.0 counts a held cell as reach: a
+cell out of reach of every constraint but within the radius of a held cell is
+solved rather than void. The editor's solves run the two passes apart, and
+call isofill's own step between them, `isofill_hold`, so the rule has one
+implementation.
+
+The editor keeps the held layer in step as it keeps the spot heights.
+`preview.Contours` loads it and burns a box of it (`burn_held`) as the build
+burned the whole; `local.resolve_window` and `fine.solve` hold it before
+their second pass. A node a command names goes to the held layer when it is a
+vertex of a waterway of those kinds, graded or not yet - `_graded_index` keeps
+the square's by node, so a river graded for the first time is found - and to
+the spot heights otherwise; a way edited, deleted or retagged has its runs put
+in again from the square. The overlay of unreached ground is the first pass's,
+which never sees the river, so it still marks the ground only a river
+describes.
+
+Castellan at 1", against the build today: 1.52% of the land moves more than a
+metre; the profile at 65.360 E is a valley, 92 m down to the river at 58 m and
+up to 89, where it was the plain and the cliff; the library and the binary
+give the same surface to the bit, and no land is at zero.

@@ -139,6 +139,9 @@ class Drawn:
             a[ys, xs] = ele
         return a
 
+    def burn_held(self, gt, box):
+        return None                     # no graded waterway here (#372)
+
 
 def drawn():
     from danu.surface import fine

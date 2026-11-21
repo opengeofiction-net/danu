@@ -36,7 +36,7 @@ import time
 from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
 from ..core.square import parse_ele
-from ..surface import local, preview, shade
+from ..surface import held, local, preview, shade
 from ..surface.params import Params
 from . import trace as _tracing
 from .trace import grid as _grid
@@ -113,20 +113,20 @@ class _SolveJob(QRunnable):
     """
 
     def __init__(self, serial, cons, mask, water, previous, good, grown, shape,
-                 params, nodata, signals):
+                 params, held, nodata, signals):
         super().__init__()
         self.serial, self.signals = serial, signals
-        self.args = (cons, mask, water, previous, good, grown, shape, params, nodata)
+        self.args = (cons, mask, water, previous, good, grown, shape, params, held, nodata)
         # set when run() returns, however it returns - see SurfaceLayer.cleanup
         # for why the Event and not the signal is what makes it safe to go
         self.done = threading.Event()
 
     def run(self):
-        cons, mask, water, previous, good, grown, shape, params, nodata = self.args
+        cons, mask, water, previous, good, grown, shape, params, held, nodata = self.args
         patch = at = error = None
         try:
             patch, at = local.resolve_window(cons, mask, water, previous, good, grown,
-                                             shape, params, nodata=nodata)
+                                             shape, params, nodata=nodata, held=held)
         except Exception as e:      # noqa: BLE001 - reported on the UI thread
             # not raised here: this is a worker, and the driver's own handling
             # of a solve that cannot run - say so once, fall back to rebuilding
@@ -192,6 +192,10 @@ class PreviewDriver(QObject):
         # within its square and no further
         self._drawn: dict = {}          # each way's geometry as last burned
         self._spots: dict = {}          # each spot height's position, likewise
+        # each square's graded waterways by their nodes, node id -> way ids:
+        # a node edited on one is held, not a spot height (#372). Made the
+        # first time a square is edited and kept in step with its ways
+        self._graded: dict = {}
         self._said = ''
         self._gesture = QTimer(self)
         self._gesture.setSingleShot(True)
@@ -225,6 +229,7 @@ class PreviewDriver(QObject):
         self._pending.clear()
         self._drawn.clear()
         self._spots.clear()
+        self._graded.clear()
         self._gesture.stop()
         self._idle.stop()
 
@@ -320,8 +325,24 @@ class PreviewDriver(QObject):
             return
         fresh: list = []
         sq = str(square.name)
+        # the graded waterways first: a way edited can make a node a vertex of
+        # one, or stop it being one, and which it is decides where it goes
+        regraded = self._graded_ways(square, set(way_ids))
         for nid in spot_ids:
-            self._spot_edited(square, nid)
+            # the index already has this edit's ways in it, from just above:
+            # a node a way took up or let go in this same command is routed
+            # by what the way is now
+            ways = self._graded_index(square)[0].get(nid)
+            if ways:
+                # a vertex of a held waterway, graded or not: never a spot
+                # height - the build drops one from the spot layer - and the
+                # ways it is on are held again as they now are
+                if self._spots.pop((sq, nid), None) is not None:
+                    self._kept.contours.remove_spot(sq, nid)
+                regraded |= ways
+            else:
+                self._spot_edited(square, nid)
+        self._held_edited(square, regraded)
         for wid in way_ids:
             key = (sq, wid)
             way = square.ways.get(wid)
@@ -359,6 +380,62 @@ class PreviewDriver(QObject):
             self.exact_wanted.emit()
         if self._pending:
             self._gesture.start()
+
+    def _graded_index(self, square) -> tuple[dict, dict]:
+        """The square's waterways of the kinds that are held, as node id ->
+        the ways it is a vertex of, and way id -> its vertices - whether the
+        vertex carries a height yet or not, so that grading a river for the
+        first time finds its nodes here. ``held.graded_way``'s rule, so the
+        preview and the build agree which nodes are held."""
+        sq = str(square.name)
+        index = self._graded.get(sq)
+        if index is None:
+            by_node: dict = {}
+            by_way: dict = {}
+            for wid, way in square.ways.items():
+                if held.graded_way(way):
+                    by_way[wid] = set(way.refs)
+                    for nid in way.refs:
+                        by_node.setdefault(nid, set()).add(wid)
+            index = self._graded[sq] = (by_node, by_way)
+        return index
+
+    def _graded_ways(self, square, way_ids: set) -> set:
+        """Bring the index up to date for the ways an edit named, and return
+        those that are or were held waterways."""
+        by_node, by_way = self._graded_index(square)
+        out = set()
+        for wid in way_ids:
+            was = by_way.pop(wid, set())
+            way = square.ways.get(wid)
+            now = set(way.refs) if way is not None and held.graded_way(way) else set()
+            for n in was - now:
+                by_node[n].discard(wid)
+                if not by_node[n]:
+                    del by_node[n]
+            for n in now - was:
+                by_node.setdefault(n, set()).add(wid)
+            if now:
+                by_way[wid] = now
+            if was or now or self._kept.contours.held_runs(str(square.name), wid):
+                out.add(wid)
+        return out
+
+    def _held_edited(self, square, way_ids) -> None:
+        """Hold each way's runs again as the square has them now -
+        ``held.runs`` - and box where they were and where they are."""
+        sq = str(square.name)
+        for wid in way_ids:
+            before = self._kept.contours.held_runs(sq, wid)
+            runs = held.runs(square, square.ways[wid]) if wid in square.ways else []
+            if runs == [[tuple(p) for p in r] for r in before]:
+                continue
+            self._kept.contours.apply_held(sq, wid, runs)
+            points = [(lon, lat) for r in before + runs for lon, lat, *_ in r]
+            if points:
+                self._mark_points(points)
+            if before and not runs:
+                self._removing = True
 
     def _lakes_edited(self, square, way_ids: set) -> None:
         """The lakes an edit touched, held at their level as the build holds

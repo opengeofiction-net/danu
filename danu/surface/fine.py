@@ -127,6 +127,7 @@ class Prepared:
     water: np.ndarray | None  # over good
     rim: np.ndarray           # over good, the 3 arcsecond surface brought up
     sea: np.ndarray           # over good, where the 3 arcsecond DEM is zero
+    held: np.ndarray | None = None   # over good: the graded waterways (#372), None without any
 
 
 @dataclass
@@ -420,7 +421,8 @@ class Fine:
             todo[dst] = False
         return Prepared(view, good, outer, cons, self.mask(outer), first, todo,
                         self.water(good), self.up(self.surface, good),
-                        self.up(self.dem, good, nearest=True) == 0)
+                        self.up(self.dem, good, nearest=True) == 0,
+                        self.contours.burn_held(self.fine.gt, good))
 
     def take(self, p: Prepared, solved: Solved, shaded: dict | None = None) -> list[tuple[int, int]]:
         """Keep what a solve found: the DEM of every tile of its view, with
@@ -500,6 +502,14 @@ def solve(p: Prepared, shape: tuple[int, int], params: Params, lib=None) -> Solv
         src = (slice(oy0 - read.y0, oy1 - read.y0 + 1), slice(ox0 - read.x0, ox1 - read.x0 + 1))
         first[dst] = np.where(p.todo[dst], found[src], first[dst])
     complete = first.copy()
+    # the graded waterways, unseen by the first pass and kept by the second,
+    # and the ground in their reach solved rather than void (#372) - after
+    # ``complete``, which is the first pass a tile keeps. Over the good box:
+    # a held cell just outside it is not seen, which can move what reach
+    # decides within a radius of its edge - the rim's ground, held at the
+    # coarse surface anyway - and not the view, two and a half radii in
+    if p.held is not None:
+        lib.hold(first, p.held, params.fill_cells)
     mask = np.ascontiguousarray(p.mask[inner])
     water = p.water
     # the rim at the coarse surface, on the sides with ground beyond them -

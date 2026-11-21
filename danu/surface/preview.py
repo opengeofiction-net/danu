@@ -45,6 +45,8 @@ from .params import Params
 LAYER = 'contour'
 LAKES = 'lake'
 SPOTS = 'spot'
+HELD = 'held'
+NO_ELEV = -32768.0               # isofill's: a cell nothing holds
 
 
 def box_extent(gt: tuple, box: Box) -> tuple[float, float, float, float]:
@@ -230,6 +232,32 @@ class Contours:
                     self._spot_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._spot_next = top + 1
 
+        # The graded waterways, held by the second pass and unseen by the
+        # first (#372): a raster of their own, burned from this layer as the
+        # build burns its. A way can make several runs, so each key has a list
+        self.held = None
+        self._held_fids: dict[tuple, list[int]] = {}
+        self._held_next = 0
+        held_lyr = src.GetLayer(HELD)
+        if held_lyr is not None:
+            self._make_held(held_lyr.GetSpatialRef())
+            hdefn = self.held.GetLayerDefn()
+            top = 0
+            named = _has_square(held_lyr)
+            id_i, sq_i = _indices(held_lyr, ('osm_id', 'square'))
+            out_id, = _indices(self.held, ('osm_id',))
+            for f in held_lyr:
+                fid = f.GetFID()
+                top = max(top, fid)
+                osm_id = _text(f, id_i)
+                g = ogr.Feature(hdefn)
+                g.SetFID(fid)
+                g.SetGeometry(f.GetGeometryRef())
+                g.SetField(out_id, osm_id)
+                self.held.CreateFeature(g)
+                self._held_fids.setdefault(_key(_text(f, sq_i) if named else None, osm_id), []).append(fid)
+            self._held_next = top + 1
+
     @staticmethod
     def _of(square, osm_id, fids: dict) -> tuple:
         """The key a feature of ``square`` is held by. A GeoPackage from
@@ -275,6 +303,81 @@ class Contours:
                                            geom_type=ogr.wkbPolygon)
         self.lakes.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.lakes.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def _make_held(self, srs=None) -> None:
+        """The in-memory layer of graded waterways, empty - made on demand
+        too, for a GeoPackage from a build before they were held."""
+        from osgeo import ogr
+        if self.held is not None:
+            return
+        self.held = self._mem.CreateLayer(HELD, srs=srs if srs is not None else self.layer.GetSpatialRef(),
+                                          geom_type=ogr.wkbUnknown)
+        self.held.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def remove_held(self, square, way_id) -> bool:
+        """Drop a way's held runs. False when it had none."""
+        fids = self._held_fids.pop(self._of(square, way_id, self._held_fids), None)
+        if not fids:
+            return False
+        for fid in fids:
+            self.held.DeleteFeature(fid)
+        return True
+
+    def apply_held(self, square, way_id, runs) -> None:
+        """Put a way's held runs in - ``held.runs`` - in place of what it had.
+        At the end of the layer: where two runs share a cell it is the vertex
+        two ways meet at, and both hold it at its one height."""
+        from . import held
+        self._make_held()
+        self.remove_held(square, way_id)
+        if not runs:
+            return
+        key = _key(square, way_id)
+        fids = []
+        for run in runs:
+            f = held.feature(self.held.GetLayerDefn(), run, way_id)
+            f.SetFID(self._held_next)
+            fids.append(self._held_next)
+            self._held_next += 1
+            self.held.CreateFeature(f)
+        self._held_fids[key] = fids
+
+    def held_runs(self, square, way_id) -> list:
+        """A way's held runs as the layer has them, as (lon, lat, ele) lists."""
+        out = []
+        for fid in self._held_fids.get(self._of(square, way_id, self._held_fids), ()):
+            f = self.held.GetFeature(fid)          # held: the geometry is the feature's
+            g = f.GetGeometryRef()
+            out.append([g.GetPoint(i) for i in range(g.GetPointCount())])
+        return out
+
+    def burn_held(self, gt: tuple, box: Box) -> np.ndarray | None:
+        """The graded waterways for ``box``, as ``build.rasterise_held`` burns
+        them - Float32, each run's height interpolated along it, NO_ELEV where
+        none. None where nothing is held in the box, which is most boxes."""
+        from osgeo import gdal
+        if self.held is None or self.held.GetFeatureCount() == 0:
+            return None
+        rows, cols = box.shape
+        x0, y1, x1, y0 = box_extent(gt, box)
+        west, south = min(x0, x1), min(y0, y1)
+        east, north = max(x0, x1), max(y0, y1)
+        self.held.SetSpatialFilterRect(west, south, east, north)
+        try:
+            if self.held.GetFeatureCount() == 0:
+                return None
+            out = gdal.GetDriverByName('MEM').Create('', cols, rows, 1, gdal.GDT_Float32)
+            out.SetGeoTransform((x0, gt[1], 0.0, y1, 0.0, gt[5]))
+            band = out.GetRasterBand(1)
+            band.SetNoDataValue(NO_ELEV)
+            band.Fill(NO_ELEV)
+            # burn_values 0: with BURN_VALUE_FROM=Z the burn value is added
+            # to the Z, and RasterizeLayer's own default is 255
+            gdal.RasterizeLayer(out, [1], self.held, burn_values=[0],
+                                options=['BURN_VALUE_FROM=Z', 'ALL_TOUCHED=FALSE'])
+        finally:
+            self.held.SetSpatialFilter(None)
+        return band.ReadAsArray()
 
     def lake(self, square, key) -> tuple | None:
         """A lake's (ele, polygon) as the layer holds it, or None."""
@@ -688,8 +791,8 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     written back. ``isofill`` takes the two masks as ``const``, and a test
     asserts they come back untouched.
     """
-    return local.resolve_window(*prepared(kept, box, params, cover, slack, removing),
-                                nodata=kept.nodata, lib=lib)
+    *args, held = prepared(kept, box, params, cover, slack, removing)
+    return local.resolve_window(*args, nodata=kept.nodata, lib=lib, held=held)
 
 
 def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
@@ -705,6 +808,10 @@ def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
 
     One implementation either way. Two would be two things to keep in step,
     and the whole point is that the worker solves what ``patch`` would have.
+
+    The last of what it returns is the graded waterways over the window,
+    burned from the layer as the constraints are (``Contours.burn_held``),
+    or None where none run through it - ``resolve_window``'s ``held``.
     """
     cover, slack = radii(params, cover, slack, removing)
     shape = kept.constraints.shape
@@ -713,4 +820,5 @@ def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
     fresh = kept.contours.burn(kept.geotransform, grown, kept.nodata)
     return (fresh, kept.mask.read(grown),
             kept.water.read(grown) if kept.water is not None else None,
-            kept.surface.read(grown), good, grown, shape, params)
+            kept.surface.read(grown), good, grown, shape, params,
+            kept.contours.burn_held(kept.geotransform, grown))
