@@ -132,3 +132,26 @@ def test_a_spot_height_is_drawn_as_what_it_is_said_to_be(window):
         sq.nodes[nid] = Node(id=nid, lon=125.5, lat=-22.5, tags={'natural': kind, 'ele': '100'})
     w.contours.refresh_spots(sq, [-901, -902, -903])
     assert [w.contours.spots[(NORTH, n)].kind for n in (-901, -902, -903)] == ['saddle', 'sinkhole', None]
+
+
+def test_a_cliffs_elevation_typed_and_tabbed_past_is_kept(window, qtbot):
+    """Typed into the panel and Tab to its height, not Enter: the elevation
+    is set - it was lost - and then the height typed and Enter."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w = window
+    sq = imported(w)
+    select(w, sq, sq.ways[202])
+    w.show()
+    p = w.selection_panel
+    p.refresh()
+    assert p.height_row.isVisibleTo(p)
+    p.ele.setFocus()
+    p.ele.selectAll()
+    QTest.keyClicks(p.ele, '300')
+    p.height.setFocus()                          # what Tab does: the field left
+    assert sq.ways[202].tags.get('ele') == '300'
+    p.height.selectAll()
+    QTest.keyClicks(p.height, '55')
+    QTest.keyClick(p.height, Qt.Key.Key_Return)
+    assert sq.ways[202].tags.get('height') == '55' and sq.ways[202].tags.get('ele') == '300'

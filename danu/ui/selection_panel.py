@@ -433,6 +433,7 @@ class SelectionPanel(QDockWidget):
         self.height.setToolTip('How far the ground drops from its top to its foot, on its right. '
                                'Enter to set it; empty and Enter to clear it. Escape puts it back.')
         self.height.returnPressed.connect(self._commit_height)
+        self.height.editingFinished.connect(lambda: self._commit_height(hand_back=False))
         self.height_label = QLabel('Height')
         self.height_row = unit(self.height)
         form.addRow(self.height_label, self.height_row)
@@ -555,6 +556,9 @@ class SelectionPanel(QDockWidget):
         editor.proposalChanged.connect(self.refresh_proposal)
         self.info = NOTHING
         self.ele.returnPressed.connect(self._commit)
+        # and on leaving it - Tab to a cliff's height lost the elevation typed;
+        # Enter commits and hands the keys back to the map, leaving does not
+        self.ele.editingFinished.connect(lambda: self._commit(hand_back=False))
         editor.selectionChanged.connect(self.refresh)
         editor.edited.connect(self.refresh)
         self.refresh()
@@ -691,27 +695,27 @@ class SelectionPanel(QDockWidget):
             return
         super().keyPressEvent(event)
 
-    def _commit(self) -> None:
+    def _commit(self, hand_back: bool = True) -> None:
         text = self.ele.text().strip()
         if text:
             value = parse_ele(text)
             if value is None:
                 self.editor.message.emit(f'not an elevation: {text}')
                 self.refresh()
-                self._hand_back()
+                self._hand_back(hand_back)
                 return
         else:
             value = None
         if (value is None and self.info.ele is None) or (
                 value is not None and self.info.ele is not None
                 and format_ele(value) == format_ele(self.info.ele)):
-            self._hand_back()                   # nothing changed: no step on the history
+            self._hand_back(hand_back)                   # nothing changed: no step on the history
             return
         self.editor.set_ele(value)
         self.refresh()
-        self._hand_back()
+        self._hand_back(hand_back)
 
-    def _commit_height(self) -> None:
+    def _commit_height(self, hand_back: bool = True) -> None:
         text = self.height.text().strip()
         value = parse_ele(text) if text else None
         if text and (value is None or value <= 0):
@@ -721,7 +725,9 @@ class SelectionPanel(QDockWidget):
                 and format_ele(value) == format_ele(self.info.height)):
             self.editor.set_height(value)
         self.refresh()
-        self._hand_back()
+        self._hand_back(hand_back)
 
-    def _hand_back(self) -> None:
+    def _hand_back(self, really: bool = True) -> None:
+        if not really:
+            return
         self.editor.view.setFocus()
