@@ -54,9 +54,10 @@ from ..core.square import (
     has_elevation,
     list_squares,
     loose_squares,
+    parse_ele,
     read_square,
 )
-from . import NODATA, drawn_mask, held, isofill_lib, land_clamp, sea_mask
+from . import NODATA, drawn_mask, held, isofill_lib, land_clamp, saddle, sea_mask
 from .params import Params
 
 gdal.UseExceptions()
@@ -89,6 +90,7 @@ NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
 HELD = 'held'                    # the graded waterways' layer, and their raster's stem
+SADDLE = 'saddle'                # each saddle's pass, as lines burned with the constraints
 Log = Callable[[str], None]
 
 
@@ -392,14 +394,41 @@ def graded_runs(path: Path, name: SquareName | None = None) -> tuple[list, set]:
     return [(wid, run) for wid, rs in sorted(by_way.items()) for run in rs], nodes
 
 
+def saddle_lines(path: Path, name: SquareName | None = None) -> tuple[list, int]:
+    """Each saddle's pass, as (node id, lines) - ``saddle.lines`` against the
+    square's own contours - and how many saddles the contours round them did
+    not show as one, which stay spot heights alone (#191)."""
+    if not _holds(path, saddle.WORDS):
+        return [], 0
+    from ..checks.spots import _Segments
+    square = _parsed(path, name)
+    segments = None
+    out, unread = [], 0
+    for nid, node in sorted(square.nodes.items()):
+        if not saddle.is_saddle(node):
+            continue
+        ele = parse_ele(node.tags.get('ele'))
+        if ele is None:
+            continue
+        if segments is None:
+            segments = _Segments(square).arrays()
+        got = saddle.lines(segments, node.lon, node.lat, ele)
+        if got:
+            out.append((nid, got))
+        else:
+            unread += 1
+    return out, unread
+
+
 def _square_facts(key: tuple, source: Path, name) -> tuple:
     """(way counts, (held lakes, lakes not held), backwards coasts, (graded
-    runs, their nodes)) for the square, read from ``source`` - its expanded
-    copy - unless the same contents were read before."""
+    runs, their nodes), (saddles' passes, saddles not read)) for the square,
+    read from ``source`` - its expanded copy - unless the same contents were
+    read before."""
     got = _FACTS.get(key)
     if got is None:
         got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name),
-               graded_runs(source, name))
+               graded_runs(source, name), saddle_lines(source, name))
         _FACTS[key] = got
         while len(_FACTS) > _FACTS_KEEP:
             del _FACTS[next(iter(_FACTS))]
@@ -664,6 +693,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     before = 0
     lakes, spanned, backwards = [], 0, []
     graded: list[tuple[str, int, list]] = []
+    saddles: list[tuple[str, int, list]] = []
+    saddles_unread = 0
     # where each square's rows begin in the contour and spot layers: the
     # fids past each are that square's, written as ``square`` at the end
     starts: list[tuple[str, int, int]] = []
@@ -703,13 +734,16 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # the guard reads the expanded file, not the archive: a square
             # read or translated afresh is decompressed for it once a build,
             # and one whose reading and piece are both kept is not at all
-            counts, (held_lakes, n), coasts, (runs, graded_nodes) = _square_facts(key, source, name)
+            counts, (held_lakes, n), coasts, (runs, graded_nodes), (passes, unread) = \
+                _square_facts(key, source, name)
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
             if piece is not None:
                 piece = _piece(cache, name, digest, source)
             lakes += [(str(name), *lake) for lake in held_lakes]
             spanned += n
             graded += [(str(name), wid, run) for wid, run in runs]
+            saddles += [(str(name), nid, ls) for nid, ls in passes]
+            saddles_unread += unread
             backwards += [f'{name}: {text}' for text in coasts]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
@@ -793,7 +827,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
                 source = square
-            _counts, (held_lakes, _n), _coasts, _graded = _square_facts(key, source, name)
+            _counts, (held_lakes, _n), _coasts, _graded, _saddles = _square_facts(key, source, name)
             lakes += [(str(name), *lake) for lake in held_lakes]
             alongside += len(held_lakes)
             if source == square:
@@ -841,6 +875,15 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     for name, wid, run in graded:
         out.CreateFeature(held.feature(out.GetLayerDefn(), run, wid, name))
     out = None
+    # and each saddle's pass, two lines falling from it to the nearest contour
+    # on each side, burned with the constraints - always, empty or not (#191)
+    out = ds.CreateLayer(SADDLE, ds.GetLayer('contour').GetSpatialRef(), ogr.wkbLineString25D)
+    out.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+    out.CreateField(ogr.FieldDefn('square', ogr.OFTString))
+    for name, nid, ls in saddles:
+        for f in saddle.features(out.GetLayerDefn(), ls, nid, name):
+            out.CreateFeature(f)
+    out = None
     _name_squares(ds, starts)
     _last_parsed = (None, None, None)            # not a square held past the read
     if lakes or spanned:
@@ -869,6 +912,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     if graded:
         log(f'  {sum(len(r) for _s, _w, r in graded)} graded waterway vertices held by the second pass, '
             f'{len({(s_, w) for s_, w, _r in graded})} ways')
+    if saddles or saddles_unread:
+        log(f'  {len(saddles)} saddles read as passes'
+            + (f'; {saddles_unread} not, the contours round them not a saddle\'s' if saddles_unread else ''))
     # Water with nothing holding it at sea level is the largest error this
     # pipeline can produce - 46 m RMS over the water in the one roantra square
     # its old water file did not reach - and it is silent, because the result
@@ -1019,6 +1065,10 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     a summit inside the top ring is higher than the ring, and a contour burned
     over it would flatten the thing the spot height is there to raise.
 
+    Each saddle's pass goes in after the lakes and before the spot heights -
+    two lines falling from it, each cell along them at the line's height (-3d)
+    - so the saddle itself, a spot height, still wins its own cell (#191).
+
     The envelope is the contour lines' alone. A spot height constrains the
     ground inside it and never stretches it: the main map's peaks, imported
     over a working set, stand beyond the contours as often as among them, and
@@ -1027,7 +1077,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     """
     out = work / 'cont.tif'
     ds = ogr.Open(str(gpkg))
-    layers = [name for name in ('contour', 'lake', 'spot')
+    layers = [name for name in ('contour', 'lake', SADDLE, 'spot')
               if ds.GetLayerByName(name) is not None]
     ds = None
     if not layers:
@@ -1080,8 +1130,10 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
                 drawn_mask.envelopes(str(raw), str(work / 'drawn.geojson'))
             continue
         into = gdal.Open(str(raw), gdal.GA_Update)
+        # a saddle's pass falls along it, its height the line's Z (-3d)
+        by = dict(useZ=True) if name == SADDLE else dict(attribute='ele')
         gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(
-            allTouched=False, attribute='ele', layers=[name]))
+            allTouched=False, layers=[name], **by))
         into.FlushCache()
         into = None
     try:

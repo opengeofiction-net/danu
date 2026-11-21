@@ -2355,6 +2355,26 @@ class EditController(QObject):
             return
         self.set_ele(self.elevation.value)
 
+    def set_spot_kind(self, kind: str | None) -> bool:
+        """The selected spot height's kind - its ``natural`` tag: a peak, a
+        volcano, a saddle, a sinkhole, or None for a plain spot height. One
+        step on the history. What the build makes of each is #191's: a saddle
+        is read as the top of a pass, a sinkhole may be as low as it likes, a
+        peak and a plain one are what they always were."""
+        sel = self.selection
+        if sel is None or not sel.spot or sel.node not in sel.square.nodes:
+            self.message.emit('no spot height selected')
+            return False
+        sq, node = sel.square, sel.square.nodes[sel.node]
+        if node.tags.get('natural') == kind:
+            return False
+        after = {k: v for k, v in node.tags.items() if k != 'natural'}
+        if kind:
+            after['natural'] = kind
+        self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), after))
+        self.message.emit(f'spot height: {kind or "plain"}')
+        return True
+
     def set_ele(self, value: float | None) -> bool:
         """The selection's elevation set to ``value``, or cleared with None -
         the one property the selection panel edits, and what L does with the

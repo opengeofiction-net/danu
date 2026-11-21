@@ -3,8 +3,9 @@
 A dock beside Elevation that says what the selection is - a contour, a point
 on one, a spot height, a point on a river, a river, a river area, a lake, or a
 lake ring two lakes share - its name, its
-elevation, where it is, and its other tags. **Only `ele` is editable.** Danu
-is not a general OSM editor; it edits elevation constraints. And on imported
+elevation, where it is, and its other tags. **Only `ele` is editable** - and a
+spot height's kind, its `natural`, which says what the surface reads it as
+(#191). Danu is not a general OSM editor; it edits elevation constraints. And on imported
 water upstream owns `name` and the rest (G5a), so an edit to them here would
 be undone by the next import.
 
@@ -68,6 +69,11 @@ class Info:
     osm: tuple[str, int] | None = None   # the object, to copy its id - a local one's is negative
 
 NOTHING = Info('Nothing selected', why_not='select something to see it here')
+
+
+# what a spot height can be said to be, as its natural tag (#191)
+SPOT_KINDS = (('Spot height', None), ('Peak', 'peak'), ('Volcano', 'volcano'),
+              ('Saddle', 'saddle'), ('Sinkhole', 'sinkhole'))
 
 
 def _ident(kind: str, i: int) -> str:
@@ -403,6 +409,15 @@ class SelectionPanel(QDockWidget):
         form.addRow('Name', self.name)
         form.addRow('Elevation', unit(self.ele))
         form.addRow('', self.why)
+        # a spot height's kind (#191): what the build reads it as
+        self.spot_kind = QComboBox()
+        for label, value in SPOT_KINDS:
+            self.spot_kind.addItem(label, value)
+        self.spot_kind.setToolTip('What the surface reads this spot height as: a summit, the top of a '
+                                  'pass between two valleys, or a pit')
+        self.spot_kind.activated.connect(self._kind_chosen)
+        self.spot_kind_label = QLabel('Kind')
+        form.addRow(self.spot_kind_label, self.spot_kind)
         form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
         # what a lasso picks (#201): everything, or nodes on contours at the
@@ -554,6 +569,21 @@ class SelectionPanel(QDockWidget):
         self.copy_url.setEnabled(info.osm is not None and info.osm[1] > 0)
         self.tags.setText(info.tags or '—')
         sel = self.editor.selection
+        node = (sel.square.nodes.get(sel.node) if sel is not None and sel.spot and not self.editor.picked
+                else None)
+        self.spot_kind.setVisible(node is not None)
+        self.spot_kind_label.setVisible(node is not None)
+        while self.spot_kind.count() > len(SPOT_KINDS):
+            self.spot_kind.removeItem(self.spot_kind.count() - 1)
+        if node is not None:
+            kind = node.tags.get('natural')
+            i = self.spot_kind.findData(kind)
+            if i < 0:
+                # a kind the list does not offer - a hill, a spring: shown as
+                # it is, and kept unless another is chosen
+                self.spot_kind.addItem(kind, kind)
+                i = self.spot_kind.count() - 1
+            self.spot_kind.setCurrentIndex(i)
         water = sel is not None and (
             (sel.relation is not None and water_tags(sel.relation.tags))
             or (sel.relation is None and sel.way is not None
@@ -597,6 +627,11 @@ class SelectionPanel(QDockWidget):
         self.issues.setVisible(bool(p.issues))
         self.accept_btn.setEnabled(p.acceptable)
         self.profile.show_proposal(p)
+
+    def _kind_chosen(self, _index: int) -> None:
+        self.editor.set_spot_kind(self.spot_kind.currentData())
+        self.refresh()
+        self._hand_back()
 
     def _pull_back_changed(self, value: int) -> None:
         """The flatten proposed again at the new distance - the strength

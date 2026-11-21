@@ -7027,3 +7027,40 @@ Castellan at 1", against the build today: 1.52% of the land moves more than a
 metre; the profile at 65.360 E is a valley, 92 m down to the river at 58 m and
 up to 89, where it was the plain and the cliff; the library and the binary
 give the same surface to the bit, and no land is at zero.
+
+## Saddles read as passes, sinkholes as pits (#191)
+
+A spot height is a point, and a point can only ever be a peak or a pit: the
+fill takes it for the top or the bottom of the ground round it. Castellan's
+504 m saddle between two 500 m contours (#370) came out a one-cell pit in a
+pass the fill had made a hump of, 500, 507, 510, 508, 504, 508, 512, 512, 508,
+502 across it.
+
+`saddle.lines` reads a `natural=saddle` from the contours round it: 72 rays,
+the first contour each meets within 3 km, and the directions whose contour is
+lower than the saddle make the pass, those higher the ridge. Two sectors of
+each is a saddle, and the pass is burned as two lines with the constraints,
+from the saddle down to the nearest contour of each lower sector - `collect`
+reads them with the square's other facts (`saddle_lines`) into the `saddle`
+layer, and `rasterise` burns it with `-3d` after the lakes and before the
+spot heights, so the saddle still wins its own cell. Across the same pass now:
+500, 501, 502, 502, 503, 504, 503, 503, 502, 501, 501. A saddle the contours
+do not show as one - fewer than 48 of the rays meeting a contour, or not two
+sectors down and two up - stays a spot height alone, and the build says how
+many: two of castellan's ten.
+
+Lines up the ridge as well were tried and left out: they fixed nothing the
+pass lines had not, drew a crease down each ridge, and moved the ground up to
+61 m against 15. A fan of a line along every ray was worse: flat facets and
+wedges. The editor keeps the saddle layer as it keeps the spot heights - a
+saddle edited, moved or re-tagged has its pass worked out again from the
+square's contours as they are; a contour edited near a saddle leaves its pass
+to the rebuild on idle.
+
+A `natural=sinkhole` is a pit by definition, so R38 says nothing of one lower
+than its ground allows, however deep - only of one too high. The surface was
+already right: a point below the ring round it digs a pit.
+
+The selection panel gives a spot height a kind - plain, peak, volcano,
+saddle, sinkhole - as its `natural`, one step on the history (R49). A kind
+the list does not offer, a hill or a spring, is shown and kept.

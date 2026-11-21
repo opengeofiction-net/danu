@@ -40,6 +40,9 @@ class Square:
         self.nodes = nodes
         self.relations = {r.id: r for r in relations}
 
+    def contours(self):
+        return [w for w in self.ways.values() if w.ele is not None]
+
 
 class FakeContours:
     def __init__(self, collided=()):
@@ -48,6 +51,7 @@ class FakeContours:
         self.collided = list(collided)
         self.lakes = {}
         self.held = {}
+        self.saddles = {}
 
     def burn(self, gt, box, nodata):
         import numpy as np
@@ -94,6 +98,19 @@ class FakeContours:
 
     def burn_held(self, gt, box):
         return None
+
+    # saddles' passes (#191), by (square, node id)
+    def saddle_lines(self, square, node_id):
+        return self.saddles.get((square, node_id), [])
+
+    def apply_saddle(self, square, node_id, lines):
+        if lines:
+            self.saddles[(square, node_id)] = list(lines)
+        else:
+            self.saddles.pop((square, node_id), None)
+
+    def remove_saddle(self, square, node_id):
+        return self.saddles.pop((square, node_id), None) is not None
 
 
 def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
@@ -1684,3 +1701,21 @@ def test_a_spot_height_off_any_river_is_still_a_spot_height(qtbot, monkeypatch):
     sq.nodes[99] = Node(0.5, 0.5, {'ele': '120'})
     d.edited(sq, set(), spot_ids={10, 11, 12, 99})
     assert [s[0] for s in d._kept.contours.spotted] == [99]
+
+
+def test_a_saddle_retagged_loses_its_pass(qtbot, monkeypatch):
+    """#191: a saddle whose kind is changed - here to a peak - has its pass
+    taken out and its ground boxed, with the wider cover a removal needs; a
+    saddle the contours round it do not show as one gets no pass at all."""
+    d = driver_over(monkeypatch)
+    gt = (0.0, 0.01, 0.0, 1.0, 0.0, -0.01)
+    lon, lat = gt[0] + 30.5 * gt[1], gt[3] + 30.5 * gt[5]
+    sq = Square([], {5: Node(lon, lat, {'ele': '510', 'natural': 'saddle'})})
+    d.edited(sq, set(), spot_ids={5})
+    assert d._kept.contours.saddles == {}, 'a saddle with no contours round it was given a pass'
+    d._kept.contours.saddles[('N00E000', 5)] = [((lon, lat, 510.0), (lon, lat + 0.05, 500.0))]
+    d._pending.clear()
+    sq.nodes[5].tags['natural'] = 'peak'
+    d.edited(sq, set(), spot_ids={5})
+    assert ('N00E000', 5) not in d._kept.contours.saddles
+    assert d._pending and d._removing

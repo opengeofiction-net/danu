@@ -36,7 +36,7 @@ import time
 from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
 from ..core.square import parse_ele
-from ..surface import held, local, preview, shade
+from ..surface import held, local, preview, saddle, shade
 from ..surface.params import Params
 from . import trace as _tracing
 from .trace import grid as _grid
@@ -342,6 +342,7 @@ class PreviewDriver(QObject):
                 regraded |= ways
             else:
                 self._spot_edited(square, nid)
+                self._saddle_edited(square, nid)
         self._held_edited(square, regraded)
         for wid in way_ids:
             key = (sq, wid)
@@ -553,6 +554,28 @@ class PreviewDriver(QObject):
         moved = [now] if was is None or was == now else [now, was]
         self._spots[(sq, node_id)] = now
         self._mark_points(moved)
+
+    def _saddle_edited(self, square, node_id) -> None:
+        """A node that is, or was, a saddle: its pass worked out again from
+        the square's contours as they are now - ``saddle.lines``, the build's
+        rule - and boxed where it was and where it is (#191). A contour edited
+        near a saddle without the saddle leaves its pass as it was until the
+        rebuild on idle."""
+        sq = str(square.name)
+        node = square.nodes.get(node_id)
+        ele = parse_ele(node.tags.get('ele')) if node is not None else None
+        before = self._kept.contours.saddle_lines(sq, node_id)
+        lines = None
+        if node is not None and ele is not None and saddle.is_saddle(node):
+            from ..checks.spots import _Segments
+            lines = saddle.lines(_Segments(square).arrays(), node.lon, node.lat, ele)
+        if not before and not lines:
+            return
+        self._kept.contours.apply_saddle(sq, node_id, lines)
+        points = [(p[0], p[1]) for a, b in before + (lines or []) for p in (a, b)]
+        self._mark_points(points)
+        if before and not lines:
+            self._removing = True
 
     def _mark_points(self, points) -> None:
         """Box a handful of lon/lat points. ``_mark`` is for a way, whose box
