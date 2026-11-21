@@ -570,3 +570,17 @@ def test_a_sea_with_coastline_rings_at_0_m_is_no_flattened_lake():
     assert flatten.flattened(w) == {}
     sq.relations[470432].tags['ele'] = '0'
     assert (A, 'relation', 470432) in flatten.flattened(w)
+
+
+def test_a_plateau_is_flattened_as_a_lake_is_and_another_plateau_left_alone():
+    """#191: a ``natural=plateau`` area with its level flattens as a lake
+    does - a contour inside it deleted - and a dry lake beside it, held flat
+    in its own right, is not reshaped as if it were a contour."""
+    w, sq = ws()
+    top = way(sq, box(125.50, -22.50, 0.04), {'natural': 'plateau', 'ele': '300'}, closed=True)
+    inner = contour(sq, box(125.51, -22.49, 0.01), 290, closed=True)
+    playa = way(sq, box(125.535, -22.505, 0.02), {'natural': 'dry_lake', 'ele': '280'}, closed=True)
+    before = list(playa.refs)
+    run(w, sq, top)
+    assert inner.id not in sq.ways
+    assert playa.id in sq.ways and sq.ways[playa.id].refs == before

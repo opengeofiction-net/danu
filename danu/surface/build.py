@@ -49,6 +49,7 @@ from osgeo import gdal, ogr
 
 from ..core.save import STAGE_MARKER
 from ..core.square import (
+    FLAT_KINDS,
     SquareName,
     has_constraints,
     has_elevation,
@@ -507,7 +508,9 @@ def _read(path: Path, name: SquareName | None):
 
 
 def _holds_water(path: Path) -> bool:
-    return _holds(path, (b"'water'", b'"water"'))
+    """Whether a square says anything held flat: still water, a dry lake, a
+    plateau (``flat_tags``)."""
+    return _holds(path, tuple(q + k.encode() + q for k in FLAT_KINDS for q in (b"'", b'"')))
 
 
 def _holds(path: Path, words, chunk: int = 1 << 20) -> bool:

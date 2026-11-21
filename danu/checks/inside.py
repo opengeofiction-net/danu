@@ -47,7 +47,7 @@ import numpy as np
 
 from ..core import ladder as L
 from ..core.rings import closed_rings, relation_rings
-from ..core.square import parse_ele
+from ..core.square import flat_tags, parse_ele
 from ..water.overpass import flows
 from .files import Finding
 
@@ -202,14 +202,14 @@ def _bodies(square) -> dict:
     out = {}
     members = {m.ref for r in square.relations.values() for m in r.members if m.type == 'way'}
     for w in square.ways.values():
-        if (w.tags.get('natural') != 'water' or flows(w.tags) or w.id in members
+        if (not flat_tags(w.tags) or flows(w.tags) or w.id in members
                 or not (len(w.refs) > 3 and w.refs[0] == w.refs[-1])):
             continue
         b = _body(square, ('way', w.id), w.tags, [w.refs], {w.id})
         if b is not None:
             out[b.key] = b
     for r in square.relations.values():
-        if r.tags.get('natural') != 'water' or flows(r.tags):
+        if not flat_tags(r.tags) or flows(r.tags):
             continue
         b = _body(square, ('relation', r.id), r.tags, relation_rings(square, r),
                   {m.ref for m in r.members if m.type == 'way'})
@@ -230,7 +230,8 @@ def _body(square, key, tags, ring_refs, ways) -> _Body | None:
         return None
     xs = np.concatenate([X for X, _ in rings]); ys = np.concatenate([Y for _, Y in rings])
     name = tags.get('name')
-    what = f'lake "{name}"' if name else f'lake, {key[0]} {key[1]}'
+    noun = {'dry_lake': 'dry lake', 'plateau': 'plateau'}.get(tags.get('natural'), 'lake')
+    what = f'{noun} "{name}"' if name else f'{noun}, {key[0]} {key[1]}'
     return _Body(key, parse_ele(tags.get('ele')), rings, np.unique(np.array(on, dtype=np.int64)), ways,
                  (xs.min(), ys.min(), xs.max(), ys.max()), what, np.array([_box(X, Y) for X, Y in rings]),
                  [_chunks(X, Y) for X, Y in rings])

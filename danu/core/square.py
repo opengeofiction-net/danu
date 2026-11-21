@@ -181,6 +181,19 @@ class Way:
         return len(self.refs) > 1 and self.refs[0] == self.refs[-1]
 
 
+# What is held flat at its own ``ele``, as a lake is (R26): still water, and
+# OSM's landforms that are flat by nature - a dry lake (a playa, a salt flat)
+# and a plateau drawn as an area (#191)
+FLAT_KINDS = ('water', 'dry_lake', 'plateau')
+
+
+def flat_tags(tags: dict) -> bool:
+    """Whether a closed way or a relation with these tags is held flat at its
+    level: ``natural=water``, ``dry_lake`` or ``plateau``. Flowing water is
+    the caller's to rule out (R27)."""
+    return tags.get('natural') in FLAT_KINDS
+
+
 def water_tags(tags: dict) -> bool:
     """``natural=water``, or any ``waterway``. Asked of a way and of a
     relation with the one function, so the two cannot drift apart."""
@@ -274,12 +287,12 @@ class Square:
                 yield way
 
     def water_bodies(self) -> set[int]:
-        """The outlines of still water: a closed ``natural=water`` way, and
-        every ring of a water relation, whose tagging is the relation's."""
-        out = {w.id for w in self.ways.values()
-               if w.tags.get('natural') == 'water' and w.closed}
+        """The outlines of still water, and of the landforms held flat as it
+        is (``flat_tags``): a closed way so tagged, and every ring of a water
+        or flat relation, whose tagging is the relation's."""
+        out = {w.id for w in self.ways.values() if flat_tags(w.tags) and w.closed}
         for rel in self.relations.values():
-            if water_tags(rel.tags):
+            if water_tags(rel.tags) or flat_tags(rel.tags):
                 out.update(m.ref for m in rel.members if m.type == 'way')
         return out
 
