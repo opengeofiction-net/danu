@@ -89,6 +89,7 @@ def test_the_preview_burns_what_the_build_burned(tmp_path):
     cliff is the build's constraints, cell for cell (R35) - the foot made
     for the grid it is burned on, and found from a cliff outside the box."""
     import numpy as np
+
     from danu.surface.local import Box
     from danu.surface.preview import Contours
     r, _ = built(a_cliff()[0], tmp_path)
