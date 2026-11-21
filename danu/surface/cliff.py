@@ -7,6 +7,12 @@ as ``height``; nothing gives the top a height. Where a mapper has given a cliff
 top edge burned as a constraint at ``ele``, and the foot, a line beside it on
 the right, at ``ele - height``.
 
+Every cliff, heights or none, is a wall as well (isofill 0.16.0's ``--wall``):
+the fill does not see past it or diffuse across it, so the ground either side
+is filled from its own side and the drop is where the contours put it - the
+cliff's line kept in the ``cliff`` layer whatever it carries, burned into a
+raster of its own by ``build.rasterise_wall`` and ``Contours.burn_wall``.
+
 How far the foot is from the top is the build's grid's to say, not the
 cliff's: a cell and a half, so the two lines never share a cell and nothing
 lies between them but the drop. A cliff is a face a few metres across; the
@@ -75,7 +81,7 @@ def lines(points, top: float, bottom: float, res_deg: float) -> list:
     return [(list(points), top), (foot(points, GAP_CELLS * res_deg), bottom)]
 
 
-def feature(defn, points, way_id, bottom: float, square=None):
+def feature(defn, points, way_id, bottom: float | None, square=None):
     """A cliff as a feature of the ``cliff`` layer: its top edge as drawn,
     and the level of its foot. The top is burned as the contour the cliff's
     ``ele`` makes it; the foot is made from this for the grid it is burned
@@ -87,7 +93,8 @@ def feature(defn, points, way_id, bottom: float, square=None):
     f = ogr.Feature(defn)
     f.SetGeometry(g)
     f.SetField('osm_id', str(way_id))
-    f.SetField('bottom', float(bottom))
+    if bottom is not None:
+        f.SetField('bottom', float(bottom))
     if square is not None and defn.GetFieldIndex('square') >= 0:
         f.SetField('square', square)
     return f
@@ -107,6 +114,8 @@ def burn_feet(ds, layer, res_deg: float) -> None:
     bottom_i = layer.GetLayerDefn().GetFieldIndex('bottom')
     n = 0
     for f in layer:
+        if not f.IsFieldSetAndNotNull(bottom_i):
+            continue                # a cliff with no heights: a wall, and no foot
         g = f.GetGeometryRef()
         pts = [g.GetPoint_2D(i) for i in range(g.GetPointCount())]
         ft = foot(pts, GAP_CELLS * res_deg)

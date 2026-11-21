@@ -33,7 +33,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.15.0'
+EXPECTED_VERSION = '0.16.1'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -46,6 +46,12 @@ class _Params(ctypes.Structure):
     _fields_ = [('radius', ctypes.c_int), ('barrier', ctypes.c_int),
                 ('grad_min', ctypes.c_double), ('pass2', ctypes.c_int),
                 ('threads', ctypes.c_int), ('edge_void', ctypes.c_int)]
+
+
+class _Layers(ctypes.Structure):
+    """isofill_layers: the inputs beside the constraints (0.16.0)."""
+    _fields_ = [('mask', ctypes.POINTER(ctypes.c_ubyte)), ('water', ctypes.POINTER(ctypes.c_ubyte)),
+                ('held', ctypes.POINTER(ctypes.c_float)), ('wall', ctypes.POINTER(ctypes.c_ubyte))]
 
 
 def candidates() -> list[Path]:
@@ -141,6 +147,16 @@ class Isofill:
                 ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_int,
                 ctypes.POINTER(_Params), ctypes.POINTER(ctypes.c_float),
                 ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_run_layers.restype = ctypes.c_longlong
+            lib.isofill_run_layers.argtypes = [
+                ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_double,
+                ctypes.POINTER(_Layers), ctypes.c_int, ctypes.c_int,
+                ctypes.POINTER(_Params), ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_diffuse_wall.restype = ctypes.c_int
+            lib.isofill_diffuse_wall.argtypes = [
+                ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_ubyte),
+                ctypes.POINTER(ctypes.c_ubyte), ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
             lib.isofill_hold.restype = ctypes.c_int
             lib.isofill_hold.argtypes = [
                 ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
@@ -156,7 +172,7 @@ class Isofill:
             water: np.ndarray | None = None, nodata: float | None = None,
             pass2: bool = True, threads: int = 0,
             keep_pass1: bool = False, edge_void: bool = True,
-            held: np.ndarray | None = None) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
+            held: np.ndarray | None = None, wall: np.ndarray | None = None) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
         """Fill. ``constraints`` is rows x cols; cells equal to ``nodata`` (or
         NO_ELEV when None) are unset. Returns (surface float32 rows x cols,
         cells the first pass set).
@@ -186,7 +202,11 @@ class Isofill:
         NO_ELEV or NaN, and unseen by the first - a graded river's heights
         (#372). Since 0.15.0 the ground within the radius of one that no
         constraint reaches is solved rather than void. The kept first pass is
-        without either."""
+        without either.
+
+        ``wall`` is 0.16.0's ``--wall``: bytes the shape of the constraints,
+        non-zero a cliff, which the first pass does not see past and the
+        second does not diffuse across (#191)."""
         cons = np.ascontiguousarray(constraints, dtype=np.float32)
         rows, cols = cons.shape
         out = np.empty_like(cons)
@@ -204,6 +224,11 @@ class Isofill:
             h = np.ascontiguousarray(held, dtype=np.float32)
             if h.shape != cons.shape:
                 raise IsofillError(f'held is {h.shape}, constraints are {cons.shape}')
+        wl = None
+        if wall is not None:
+            wl = np.ascontiguousarray(wall, dtype=np.uint8)
+            if wl.shape != cons.shape:
+                raise IsofillError(f'wall is {wl.shape}, constraints are {cons.shape}')
         # the binary's defaults, then only what the shell's flags set: radius,
         # barrier and pass 2. grad_min is left as the library has it, exactly
         # as the binary path passes no --grad-min - the same flags and no
@@ -218,12 +243,13 @@ class Isofill:
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
         fptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))                              # noqa: E731
         pass1 = np.empty_like(cons) if keep_pass1 else None
-        filled = self.lib.isofill_run_held(
+        layers = _Layers(cptr(m), cptr(w), fptr(h) if h is not None else None, cptr(wl))
+        filled = self.lib.isofill_run_layers(
             fptr(cons), int(nodata is not None), float(nodata if nodata is not None else 0.0),
-            cptr(m), cptr(w), fptr(h) if h is not None else None, cols, rows,
+            ctypes.byref(layers), cols, rows,
             ctypes.byref(p), fptr(out), fptr(pass1) if pass1 is not None else None)
         if filled < 0:
-            raise IsofillError('isofill_run_held: ' + ('out of memory' if filled == -2 else 'bad arguments'))
+            raise IsofillError('isofill_run_layers: ' + ('out of memory' if filled == -2 else 'bad arguments'))
         if keep_pass1:
             return out, int(filled), pass1
         return out, int(filled)
@@ -253,7 +279,7 @@ class Isofill:
         return surface
 
     def diffuse(self, surface: np.ndarray, mask: np.ndarray | None = None,
-                water: np.ndarray | None = None) -> np.ndarray:
+                water: np.ndarray | None = None, wall: np.ndarray | None = None) -> np.ndarray:
         """The second pass alone, over what the first pass left. Returns the
         solved surface; the argument is not written.
 
@@ -265,7 +291,8 @@ class Isofill:
         out = np.ascontiguousarray(surface, dtype=np.float32).copy()
         rows, cols = out.shape
         m = w = None
-        for name, arr in (('mask', mask), ('water', water)):
+        wl = None
+        for name, arr in (('mask', mask), ('water', water), ('wall', wall)):
             if arr is None:
                 continue
             a = np.ascontiguousarray(arr, dtype=np.uint8)
@@ -273,13 +300,15 @@ class Isofill:
                 raise IsofillError(f'{name} is {a.shape}, the surface is {out.shape}')
             if name == 'mask':
                 m = a
-            else:
+            elif name == 'water':
                 w = a
+            else:
+                wl = a
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
-        rc = self.lib.isofill_diffuse(out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-                                      cptr(m), cptr(w), cols, rows)
+        rc = self.lib.isofill_diffuse_wall(out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                           cptr(m), cptr(w), cptr(wl), cols, rows)
         if rc != 0:
-            raise IsofillError('isofill_diffuse: ' + ('out of memory' if rc == -2 else 'bad arguments'))
+            raise IsofillError('isofill_diffuse_wall: ' + ('out of memory' if rc == -2 else 'bad arguments'))
         return out
 
     def whole_mb(self, cols: int, rows: int) -> float:

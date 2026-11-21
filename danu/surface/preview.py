@@ -255,7 +255,8 @@ class Contours:
                 g.SetFID(fid)
                 g.SetGeometry(f.GetGeometryRef())
                 g.SetField(out_id, osm_id)
-                g.SetField(out_b, f.GetField(b_i))
+                if f.IsFieldSetAndNotNull(b_i):
+                    g.SetField(out_b, f.GetField(b_i))
                 self.cliffs.CreateFeature(g)
                 self._cliff_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._cliff_next = top + 1
@@ -376,17 +377,17 @@ class Contours:
         self.cliffs.DeleteFeature(fid)
         return True
 
-    def apply_cliff(self, square, way_id, points, bottom: float | None) -> None:
-        """Put a cliff in - its top edge as drawn and its foot's level - in
-        place of what it had, at its own FID if it had one; None takes it out:
-        a cliff with no top or no height has no foot."""
+    def apply_cliff(self, square, way_id, points, bottom: float | None, is_cliff: bool = True) -> None:
+        """Put a cliff in - its top edge as drawn, a wall, and its foot's
+        level, None for a cliff with no top or no height - in place of what it
+        had, at its own FID if it had one. ``is_cliff`` False takes it out."""
         from . import cliff
         self._make_cliffs()
         key = self._of(square, way_id, self._cliff_fid)
         fid = self._cliff_fid.pop(key, None)
         if fid is not None:
             self.cliffs.DeleteFeature(fid)
-        if bottom is None or len(points) < 2:
+        if not is_cliff or len(points) < 2:
             return
         if fid is None:
             fid = self._cliff_next
@@ -397,13 +398,34 @@ class Contours:
         self._cliff_fid[key] = fid
 
     def cliff_of(self, square, way_id):
-        """A cliff as the layer has it, as (points, foot level), or None."""
+        """A cliff as the layer has it, as (points, foot level or None), or
+        None."""
         fid = self._cliff_fid.get(self._of(square, way_id, self._cliff_fid))
         if fid is None:
             return None
         f = self.cliffs.GetFeature(fid)              # held: the geometry is the feature's
         g = f.GetGeometryRef()
-        return [g.GetPoint_2D(i) for i in range(g.GetPointCount())], f.GetField('bottom')
+        bottom = f.GetField('bottom') if f.IsFieldSetAndNotNull('bottom') else None
+        return [g.GetPoint_2D(i) for i in range(g.GetPointCount())], bottom
+
+    def burn_wall(self, gt: tuple, box: Box) -> np.ndarray | None:
+        """The cliffs for ``box``, as ``build.rasterise_wall`` burns them: a
+        byte a cell, 1 a wall (#191). None where no cliff crosses the box."""
+        from osgeo import gdal
+        if self.cliffs is None or self.cliffs.GetFeatureCount() == 0:
+            return None
+        rows, cols = box.shape
+        x0, y1, x1, y0 = box_extent(gt, box)
+        self.cliffs.SetSpatialFilterRect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        try:
+            if self.cliffs.GetFeatureCount() == 0:
+                return None
+            out = gdal.GetDriverByName('MEM').Create('', cols, rows, 1, gdal.GDT_Byte)
+            out.SetGeoTransform((x0, gt[1], 0.0, y1, 0.0, gt[5]))
+            gdal.RasterizeLayer(out, [1], self.cliffs, burn_values=[1], options=['ALL_TOUCHED=FALSE'])
+        finally:
+            self.cliffs.SetSpatialFilter(None)
+        return out.GetRasterBand(1).ReadAsArray()
 
     def _make_saddles(self, srs=None) -> None:
         """The in-memory layer of saddles' passes, empty - made on demand
@@ -954,8 +976,8 @@ def patch(kept: Kept, box: Box, params: Params, cover: int | None = None,
     written back. ``isofill`` takes the two masks as ``const``, and a test
     asserts they come back untouched.
     """
-    *args, held = prepared(kept, box, params, cover, slack, removing)
-    return local.resolve_window(*args, nodata=kept.nodata, lib=lib, held=held)
+    *args, held, wall = prepared(kept, box, params, cover, slack, removing)
+    return local.resolve_window(*args, nodata=kept.nodata, lib=lib, held=held, wall=wall)
 
 
 def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
@@ -972,9 +994,10 @@ def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
     One implementation either way. Two would be two things to keep in step,
     and the whole point is that the worker solves what ``patch`` would have.
 
-    The last of what it returns is the graded waterways over the window,
-    burned from the layer as the constraints are (``Contours.burn_held``),
-    or None where none run through it - ``resolve_window``'s ``held``.
+    The last two of what it returns are the graded waterways and the cliffs'
+    walls over the window, burned from the layer as the constraints are
+    (``Contours.burn_held``, ``burn_wall``), each None where none is there -
+    ``resolve_window``'s ``held`` and ``wall``.
     """
     cover, slack = radii(params, cover, slack, removing)
     shape = kept.constraints.shape
@@ -984,4 +1007,5 @@ def prepared(kept: Kept, box: Box, params: Params, cover: int | None = None,
     return (fresh, kept.mask.read(grown),
             kept.water.read(grown) if kept.water is not None else None,
             kept.surface.read(grown), good, grown, shape, params,
-            kept.contours.burn_held(kept.geotransform, grown))
+            kept.contours.burn_held(kept.geotransform, grown),
+            kept.contours.burn_wall(kept.geotransform, grown))

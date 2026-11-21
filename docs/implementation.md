@@ -7112,9 +7112,8 @@ layer; `rasterise` and `Contours.burn` both make the feet with
 `cliff.burn_feet`, after the lakes and before the saddles, and the editor puts
 a cliff in again when its way is edited.
 
-A cliff with no `ele` or no `height` burns nothing of its own. The wall the
-fill does not see or diffuse across, for every cliff, is an isofill change
-and comes separately.
+A cliff with no `ele` or no `height` burns no line of its own, and is still
+a wall - below.
 
 ## Landforms imported from the main map (#191)
 
@@ -7134,3 +7133,28 @@ An import of its own and not part of water's: the main map holds 14,785 ridges
 and 38,011 cliffs, 9 and 34 of them with an `ele` (2026-11-21). They land as
 lines to grade and cliffs to give heights to, and change the surface only as
 they are.
+
+## Every cliff a wall (#191)
+
+Without a height a cliff says only that the ground drops there, and the fill
+smoothed it away: a cell on the high side and a contour on the low side are a
+pair like any other. isofill 0.16's `--wall` makes it a wall (R53): the first
+pass does not see past it, and the second does not diffuse across it, a wall
+cell's neighbours leaving it out of their mean - so each side is filled from
+its own contours and the drop lands at the cliff. A wall cell takes the
+highest of its neighbours, the top, where OSM draws a cliff.
+
+Every cliff is kept in the `cliff` layer now, its foot's level empty where it
+has no heights; `build.rasterise_wall` burns them all into `wall.tif`, passed
+to the library and the binary alike, and `Contours.burn_wall` burns the same
+for a window, which `local.resolve_window` and `fine.solve` give both passes.
+
+0.16.0's wall dug a trench: the cells beside a wall see nothing past it or
+along it, came out of reach, and the void's flood ran along the cliff from
+the raster's edge and took them - 115, 92, 69, 46, 23, 0, 0, 0 across the test
+cliff. 0.16.1 stops the flood at a wall and declines those cells. On the test
+cliff, 300 m ground to the north and 200 m to the south: about 296 on the high
+side, an 89 m drop at the cliff, about 204 below - the sides meeting a little
+round the cliff's ends, which stop short of the raster's edge. The editor's
+box solve with the wall is within a few metres of that, against tens of
+metres without it; the rebuild on idle settles the rest.

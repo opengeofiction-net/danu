@@ -423,17 +423,20 @@ def saddle_lines(path: Path, name: SquareName | None = None) -> tuple[list, int]
 
 
 def cliff_lines(path: Path, name: SquareName | None = None) -> list:
-    """The square's cliffs with a top and a height - ``cliff.levels`` - as
-    (way id, points, foot level) (#191)."""
+    """The square's cliffs as (way id, points, foot level): every one, a wall
+    whatever it carries, the foot level ``cliff.levels``'s where it has a top
+    and a height and None where not (#191)."""
     if not _holds(path, cliff.WORDS):
         return []
     square = _parsed(path, name)
     out = []
     for wid, way in sorted(square.ways.items()):
+        if not cliff.is_cliff(way):
+            continue
         got = cliff.levels(way)
         pts = square.coords(way)
-        if got is not None and len(pts) >= 2:
-            out.append((wid, pts, got[1]))
+        if len(pts) >= 2:
+            out.append((wid, pts, got[1] if got else None))
     return out
 
 
@@ -943,7 +946,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         log(f'  {sum(len(r) for _s, _w, r in graded)} graded waterway vertices held by the second pass, '
             f'{len({(s_, w) for s_, w, _r in graded})} ways')
     if cliffs:
-        log(f'  {len(cliffs)} cliffs with a top and a height, their feet burned beside them')
+        footed = sum(1 for c in cliffs if c[3] is not None)
+        log(f'  {len(cliffs)} cliffs, walls the fill does not cross'
+            + (f'; {footed} with a top and a height, their feet burned beside them' if footed else ''))
     if saddles or saddles_unread:
         log(f'  {len(saddles)} saddles read as passes'
             + (f'; {saddles_unread} not, the contours round them not a saddle\'s' if saddles_unread else ''))
@@ -1219,6 +1224,35 @@ def rasterise_held(gpkg: Path, grid: Grid, work: Path) -> Path | None:
     return out
 
 
+def rasterise_wall(gpkg: Path, grid: Grid, work: Path) -> Path | None:
+    """Every cliff's line as a byte raster on the constraints' grid, 1 a wall
+    - isofill's ``--wall`` (0.16.0): the fill does not see past a cliff or
+    diffuse across it (#191). None where the GeoPackage has none, so that a
+    build without them is the build it always was. The cells a line runs
+    through, as the constraints are burned; isofill widens them by its
+    barrier for the sight test, as it widens a contour."""
+    ds = ogr.Open(str(gpkg))
+    lyr = ds.GetLayerByName(CLIFF)
+    n = lyr.GetFeatureCount() if lyr is not None else 0
+    lyr = ds = None
+    out = work / 'wall.tif'
+    out.unlink(missing_ok=True)
+    if not n:
+        return None
+    raw = work / 'wall-raw.tif'
+    try:
+        ds = gdal.Rasterize(str(raw), str(gpkg), options=gdal.RasterizeOptions(
+            format='GTiff', allTouched=False, burnValues=[1], initValues=[0],
+            layers=[CLIFF], outputType=gdal.GDT_Byte,
+            xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te)))
+        ds.FlushCache()
+        ds = None
+        gdal.Translate(str(out), str(raw), creationOptions=CREATE)
+    finally:
+        raw.unlink(missing_ok=True)
+    return out
+
+
 def drawn_area(grid: Grid, work: Path, log: Log = _quiet) -> Path:
     """Where the contours describe ground, as a byte mask on the same grid.
 
@@ -1342,7 +1376,8 @@ def close_edges(mask: np.ndarray, gt: tuple, bounds: tuple, beyond: set) -> np.n
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
                 isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
                 extra: list[str] | None = None, keep_pass1: bool = False,
-                beyond: set | None = None, held: Path | None = None) -> Path:
+                beyond: set | None = None, held: Path | None = None,
+                wall: Path | None = None) -> Path:
     """The surface between the constraints, by isofill.
 
     isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
@@ -1404,7 +1439,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
 
     ``held``, given, is ``rasterise_held``'s raster: the graded waterways,
     held at their heights by the second pass and unseen by the first (#372) -
-    ``--held`` to the binary, ``held`` to the library."""
+    ``--held`` to the binary, ``held`` to the library. ``wall``, given, is
+    ``rasterise_wall``'s: the cliffs, ``--wall`` and ``wall`` likewise."""
     if params.pass2 != 'diffuse':
         raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
@@ -1437,7 +1473,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
                                             _pass1_file(work) if keep_pass1 else None, beyond=beyond,
-                                            held=held)
+                                            held=held, wall=wall)
     try:
         isofill_lib.check_binary(isofill)
     except isofill_lib.IsofillError as e:
@@ -1470,7 +1506,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         o = ds = None
         mask, extra = edged, ['--no-edge-void', *(extra or [])]
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log,
-                               budget=budget, held=held)
+                               budget=budget, held=held, wall=wall)
 
 
 def _bounds(ds) -> tuple[int, int, int, int]:
@@ -1506,7 +1542,8 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
                          out: Path, log: Log, pass1: Path | None = None,
-                         beyond: set | None = None, held: Path | None = None) -> Path:
+                         beyond: set | None = None, held: Path | None = None,
+                         wall: Path | None = None) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -1529,8 +1566,14 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         _same_grid(ds, h_ds, cont, held)
         h = h_ds.GetRasterBand(1).ReadAsArray()
         h_ds = None
+    wl = None
+    if wall is not None:
+        l_ds = gdal.Open(str(wall))
+        _same_grid(ds, l_ds, cont, wall)
+        wl = l_ds.GetRasterBand(1).ReadAsArray()
+        l_ds = None
     result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None,
-                     edge_void=beyond is None, held=h)
+                     edge_void=beyond is None, held=h, wall=wl)
     surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
     if pass1 is not None:
@@ -1552,7 +1595,7 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
                         isofill: str, extra: list[str] | None = None, log: Log = _quiet,
-                        *, budget: int, held: Path | None = None) -> Path:
+                        *, budget: int, held: Path | None = None, wall: Path | None = None) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -1588,6 +1631,8 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
         cmd += ['--water', str(water)]
     if held is not None:
         cmd += ['--held', str(held)]
+    if wall is not None:
+        cmd += ['--wall', str(wall)]
     cmd += list(extra or [])
     cmd += [str(cont), str(out)]
     # which of the two ran, in the zone's own log. The library and the binary
@@ -1635,6 +1680,7 @@ class Result:
     water_mask: Path | None
     surface: Path | None = None         # rounded.tif: the fill before the clamp
     held: Path | None = None            # held.tif: the graded waterways (#372), None without any
+    wall: Path | None = None            # wall.tif: the cliffs (#191), None without any
     envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
     blank: int = 0                      # squares with a file but no contours
 
@@ -1708,6 +1754,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     stage(f'rasterise at {params.arcsec:g}"')
     cont = rasterise(gpkg, grid, work)
     held_tif = rasterise_held(gpkg, grid, work)
+    wall_tif = rasterise_wall(gpkg, grid, work)
     stage('drawn area')
     mask = drawn_area(grid, work, log)
     stage('water from the coastline direction')
@@ -1717,11 +1764,12 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     if pass1.exists():
         pass1.unlink()                       # never a previous build's
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1,
-                          beyond=set(beyond) if beyond is not None else None, held=held_tif)
+                          beyond=set(beyond) if beyond is not None else None, held=held_tif,
+                          wall=wall_tif)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask, surface=rounded,
-                  envelopes=work / 'drawn.geojson', blank=blank, held=held_tif)
+                  envelopes=work / 'drawn.geojson', blank=blank, held=held_tif, wall=wall_tif)
 
 
 # ------------------------------------------------------------------- cli
