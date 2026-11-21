@@ -47,6 +47,7 @@ class FakeContours:
         self.spotted, self.unspotted = [], []
         self.collided = list(collided)
         self.lakes = {}
+        self.held = {}
 
     def burn(self, gt, box, nodata):
         import numpy as np
@@ -78,6 +79,22 @@ class FakeContours:
     def remove_lake(self, square, key):
         return self.lakes.pop((square, key), None) is not None
 
+    # the graded waterways (#372), by (square, way id)
+    def held_runs(self, square, way_id):
+        return self.held.get((square, way_id), [])
+
+    def apply_held(self, square, way_id, runs):
+        if runs:
+            self.held[(square, way_id)] = [list(r) for r in runs]
+        else:
+            self.held.pop((square, way_id), None)
+
+    def remove_held(self, square, way_id):
+        return self.held.pop((square, way_id), None) is not None
+
+    def burn_held(self, gt, box):
+        return None
+
 
 def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     """A driver holding a 100x100 grid, with the solve and the repaint stubbed:
@@ -93,12 +110,13 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     calls = []
     # Stubbed at `prepared`, which is where the driver splits the work: what
     # it returns goes to a worker as arrays. The shape matters - the driver
-    # unpacks it into the job - so this returns the same eight things the real
-    # one does, with the box standing in for `good` and `grown`.
+    # unpacks it into the job - so this returns the same nine things the real
+    # one does, with the box standing in for `good` and `grown`, and no
+    # graded waterway held in it.
     monkeypatch.setattr(surface_preview, 'prepared',
                         lambda kept, box, p, **kw: (calls.append(box),
                                                     (None, None, None, None, box, box,
-                                                     kept.shape, p))[1])
+                                                     kept.shape, p, None))[1])
     monkeypatch.setattr(local, 'resolve_window',
                         lambda cons, mask, water, previous, good, grown, shape, params,
                         **kw: (zeros[good.slice], good))
@@ -1607,3 +1625,62 @@ def test_a_preview_says_where_its_time_went(qtbot, monkeypatch):
     assert stats['cells'] > 0
     for k in ('prepare_ms', 'solve_ms', 'repaint_ms'):
         assert stats[k] >= 0.0, k
+
+
+def a_river(eles, wid=7, col=30, row=30):
+    """A river of three vertices across a few cells, each vertex carrying the
+    height given - None for none."""
+    gt = (0.0, 0.01, 0.0, 1.0, 0.0, -0.01)
+    lat = gt[3] + (row + 0.5) * gt[5]
+    nodes = {}
+    for i, e in enumerate(eles):
+        nodes[10 + i] = Node(gt[0] + (col + 0.5 + 2 * i) * gt[1], lat,
+                             {'ele': str(e)} if e is not None else {})
+    return Square([Way(wid, list(nodes), ele=None, tags={'waterway': 'river'})], nodes)
+
+
+def test_grading_a_river_holds_it_and_makes_no_spot_heights(qtbot, monkeypatch):
+    """#372: a grade writes heights onto a river's vertices, and the command
+    names those nodes as maybe-spot-heights. They are held instead - the
+    way's runs go into the held layer, boxed - and none becomes a spot height,
+    though the river had no graded vertex when the driver first saw it."""
+    d = driver_over(monkeypatch)
+    d.edited(a_river([None, None, None]), set(), spot_ids=())
+    sq = a_river([60, 58, 56])
+    d.edited(sq, set(), spot_ids={10, 11, 12})
+    held = d._kept.contours.held
+    assert d._kept.contours.spotted == []
+    assert [[round(e) for _x, _y, e in run] for run in held[('N00E000', 7)]] == [[60, 58, 56]]
+    assert d._pending, 'the graded river was not boxed for a preview'
+
+
+def test_a_vertex_ungraded_splits_the_run(qtbot, monkeypatch):
+    """A height taken off a vertex in the middle leaves two runs of one."""
+    d = driver_over(monkeypatch)
+    d.edited(a_river([60, 58, 56]), set(), spot_ids={10, 11, 12})
+    d.edited(a_river([60, None, 56]), set(), spot_ids={11})
+    runs = d._kept.contours.held[('N00E000', 7)]
+    assert [[round(e) for _x, _y, e in run] for run in runs] == [[60], [56]]
+    assert d._kept.contours.unspotted == []
+
+
+def test_a_river_deleted_is_no_longer_held(qtbot, monkeypatch):
+    """A river deleted arrives as its way id and a square without it: its runs
+    go, its ground is boxed, and the preview takes the wider cover a removal
+    needs."""
+    d = driver_over(monkeypatch)
+    d.edited(a_river([60, 58, 56]), set(), spot_ids={10, 11, 12})
+    d._pending.clear()
+    d.edited(Square([], {}), {7})
+    assert ('N00E000', 7) not in d._kept.contours.held
+    assert d._pending and d._removing
+
+
+def test_a_spot_height_off_any_river_is_still_a_spot_height(qtbot, monkeypatch):
+    """The routing takes only a river's vertices: a peak beside it is a spot
+    height as it always was."""
+    d = driver_over(monkeypatch)
+    sq = a_river([60, 58, 56])
+    sq.nodes[99] = Node(0.5, 0.5, {'ele': '120'})
+    d.edited(sq, set(), spot_ids={10, 11, 12, 99})
+    assert [s[0] for s in d._kept.contours.spotted] == [99]

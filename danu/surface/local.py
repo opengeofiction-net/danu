@@ -80,7 +80,7 @@ def reach(params: Params, slack: int) -> int:
 def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
             previous: np.ndarray, box: Box, params: Params, cover: int | None = None,
             slack: int | None = None, nodata: float | None = None,
-            lib=None) -> tuple[np.ndarray, Box]:
+            lib=None, held: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
     """The re-solved patch, and the box it is good for.
 
     ``constraints``, ``mask`` and ``water`` are the whole raster as it is after
@@ -119,6 +119,9 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     is the same. It is the irreducible part of being local: a quarter of a
     metre against a 25 m contour interval, invisible in a hillshade, and the
     exact rebuild on idle is what removes it.
+
+    ``held``, the whole raster too, is the graded waterways (#372), held as
+    isofill holds them between its passes (``Isofill.hold``).
     """
     if cover is None:
         cover = 2 * params.fill_cells
@@ -131,13 +134,13 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     return resolve_window(constraints[sl], mask[sl],
                           water[sl] if water is not None else None,
                           previous[sl], good, grown, shape, params,
-                          nodata=nodata, lib=lib)
+                          nodata=nodata, lib=lib, held=held[sl] if held is not None else None)
 
 
 def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
                    previous: np.ndarray, good: Box, grown: Box, shape: tuple[int, int],
                    params: Params, nodata: float | None = None,
-                   lib=None) -> tuple[np.ndarray, Box]:
+                   lib=None, held: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
     """``resolve`` once the windows have been cut: the same solve, over arrays
     that are already the ``grown`` box rather than the whole raster.
 
@@ -156,6 +159,13 @@ def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray 
     # it, which is every cell of the edited box
     first, _ = lib.run(cons, params, mask=sub_mask, water=sub_water,
                        nodata=nodata, pass2=False)
+    # the graded waterways, which the first pass did not see and the second
+    # keeps, and the ground in their reach solved rather than void - isofill's
+    # own step between its passes (isofill_hold). Exact for the good box,
+    # which is a radius and more inside the window, so every held cell within
+    # reach of it is in the window too
+    if held is not None:
+        lib.hold(first, held, params.fill_cells)
 
     # The rim, from the answer the last whole-raster solve gave - but only on
     # the sides that have ground beyond them. Where the box runs into the

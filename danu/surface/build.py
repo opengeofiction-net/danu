@@ -56,7 +56,7 @@ from ..core.square import (
     loose_squares,
     read_square,
 )
-from . import NODATA, drawn_mask, isofill_lib, land_clamp, sea_mask
+from . import NODATA, drawn_mask, held, isofill_lib, land_clamp, sea_mask
 from .params import Params
 
 gdal.UseExceptions()
@@ -88,6 +88,7 @@ def _pass1_file(work: Path) -> Path:
 NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
           "AND ele NOT GLOB '*[^-0-9.]*')")
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
+HELD = 'held'                    # the graded waterways' layer, and their raster's stem
 Log = Callable[[str], None]
 
 
@@ -381,13 +382,24 @@ def _facts_key(name, digest: str) -> tuple:
     return (str(name), digest, lake_rings, backwards_coasts)
 
 
+def graded_runs(path: Path, name: SquareName | None = None) -> tuple[list, set]:
+    """The square's graded waterways - ``held.graded`` - as (way id, run) for
+    each run, and the ids of the nodes in them, which are not spot heights
+    (#372)."""
+    if not _holds(path, held.WORDS):
+        return [], set()
+    by_way, nodes = held.graded(_parsed(path, name))
+    return [(wid, run) for wid, rs in sorted(by_way.items()) for run in rs], nodes
+
+
 def _square_facts(key: tuple, source: Path, name) -> tuple:
-    """(way counts, (held lakes, lakes not held), backwards coasts) for the
-    square, read from ``source`` - its expanded copy - unless the same contents
-    were read before."""
+    """(way counts, (held lakes, lakes not held), backwards coasts, (graded
+    runs, their nodes)) for the square, read from ``source`` - its expanded
+    copy - unless the same contents were read before."""
     got = _FACTS.get(key)
     if got is None:
-        got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name))
+        got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name),
+               graded_runs(source, name))
         _FACTS[key] = got
         while len(_FACTS) > _FACTS_KEEP:
             del _FACTS[next(iter(_FACTS))]
@@ -651,6 +663,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     first = True
     before = 0
     lakes, spanned, backwards = [], 0, []
+    graded: list[tuple[str, int, list]] = []
     # where each square's rows begin in the contour and spot layers: the
     # fids past each are that square's, written as ``square`` at the end
     starts: list[tuple[str, int, int]] = []
@@ -690,12 +703,13 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # the guard reads the expanded file, not the archive: a square
             # read or translated afresh is decompressed for it once a build,
             # and one whose reading and piece are both kept is not at all
-            counts, (held, n), coasts = _square_facts(key, source, name)
+            counts, (held_lakes, n), coasts, (runs, graded_nodes) = _square_facts(key, source, name)
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
             if piece is not None:
                 piece = _piece(cache, name, digest, source)
-            lakes += [(str(name), *lake) for lake in held]
+            lakes += [(str(name), *lake) for lake in held_lakes]
             spanned += n
+            graded += [(str(name), wid, run) for wid, run in runs]
             backwards += [f'{name}: {text}' for text in coasts]
             spots_before = _feature_count(gpkg, 'spot')
             top = _last_line(gpkg)
@@ -730,6 +744,11 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             gdal.VectorTranslate(str(gpkg), str(frm),
                                  options=gdal.VectorTranslateOptions(**spot_opts))
             spots_now = _feature_count(gpkg, 'spot')
+            if graded_nodes:
+                # a graded waterway's vertices are held, not spot heights:
+                # out of this square's rows of the layer, by the node ids
+                # the translate wrote as osm_id
+                _drop_spots(gpkg, starts[-1][2], graded_nodes)
             # the same silent loss the lines guard below is for - GDAL handing
             # back an empty layer rather than an error - said rather than
             # raised: the count is of ele tags outside a way, so a relation
@@ -774,9 +793,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
                 source = square
-            _counts, (held, _n), _coasts = _square_facts(key, source, name)
-            lakes += [(str(name), *lake) for lake in held]
-            alongside += len(held)
+            _counts, (held_lakes, _n), _coasts, _graded = _square_facts(key, source, name)
+            lakes += [(str(name), *lake) for lake in held_lakes]
+            alongside += len(held_lakes)
             if source == square:
                 square.unlink()
     if not gpkg.exists():
@@ -812,6 +831,16 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         f.SetField('square', name)
         out.CreateFeature(f)
     out = None
+    # and the graded waterways, as lines with their heights for Z - a run of
+    # one as a point - always, empty or not, as the lake layer is. Burned
+    # into a raster of their own by rasterise, which isofill holds by its
+    # second pass and the first never reads (#372)
+    out = ds.CreateLayer(HELD, ds.GetLayer('contour').GetSpatialRef(), ogr.wkbUnknown)
+    out.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+    out.CreateField(ogr.FieldDefn('square', ogr.OFTString))
+    for name, wid, run in graded:
+        out.CreateFeature(held.feature(out.GetLayerDefn(), run, wid, name))
+    out = None
     _name_squares(ds, starts)
     _last_parsed = (None, None, None)            # not a square held past the read
     if lakes or spanned:
@@ -837,6 +866,9 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     log(f'  {features} constraint lines')
     if spots:
         log(f'  {spots} spot heights')
+    if graded:
+        log(f'  {sum(len(r) for _s, _w, r in graded)} graded waterway vertices held by the second pass, '
+            f'{len({(s_, w) for s_, w, _r in graded})} ways')
     # Water with nothing holding it at sea level is the largest error this
     # pipeline can produce - 46 m RMS over the water in the one roantra square
     # its old water file did not reach - and it is silent, because the result
@@ -847,6 +879,18 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         log('  WARNING: no ele 0 constraint anywhere. If this ground has sea, its squares need '
             'coastline, or the water will interpolate upward')
     return gpkg
+
+
+def _drop_spots(gpkg: Path, after: int, ids: set) -> None:
+    """Delete from the spot layer the rows past fid ``after`` whose osm_id is
+    one of ``ids``."""
+    ds = ogr.Open(str(gpkg), update=1)
+    ids = sorted(str(int(i)) for i in ids)
+    for i in range(0, len(ids), 500):
+        listed = ','.join(f"'{x}'" for x in ids[i:i + 500])
+        ds.ExecuteSQL(f'DELETE FROM spot WHERE fid > {int(after)} AND osm_id IN ({listed})',
+                      dialect='SQLite')
+    ds = None
 
 
 def _layer_count(ds, layer_name: str) -> int:
@@ -1047,6 +1091,38 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     return out
 
 
+def rasterise_held(gpkg: Path, grid: Grid, work: Path) -> Path | None:
+    """The graded waterways as a Float32 raster on the constraints' grid: each
+    run's height interpolated along it between its vertices, NO_ELEV where
+    none - what isofill's ``--held`` reads (#372). None where the GeoPackage
+    has none, so that a build without them is the build it always was.
+
+    Float, not the constraints' Int16: a graded river falls a few metres
+    between contours, and its heights in between are the point. The cells a
+    line runs through, as the constraints are burned, and GDAL's ``-3d``
+    interpolates the Z along each segment."""
+    ds = ogr.Open(str(gpkg))
+    lyr = ds.GetLayerByName(HELD)
+    n = lyr.GetFeatureCount() if lyr is not None else 0
+    lyr = ds = None
+    out = work / f'{HELD}.tif'
+    out.unlink(missing_ok=True)
+    if not n:
+        return None
+    raw = work / f'{HELD}-raw.tif'
+    try:
+        ds = gdal.Rasterize(str(raw), str(gpkg), options=gdal.RasterizeOptions(
+            format='GTiff', allTouched=False, useZ=True, noData=isofill_lib.NO_ELEV,
+            initValues=[isofill_lib.NO_ELEV], layers=[HELD], outputType=gdal.GDT_Float32,
+            xRes=grid.res, yRes=grid.res, outputBounds=list(grid.te)))
+        ds.FlushCache()
+        ds = None
+        gdal.Translate(str(out), str(raw), creationOptions=CREATE + ['PREDICTOR=3'])
+    finally:
+        raw.unlink(missing_ok=True)
+    return out
+
+
 def drawn_area(grid: Grid, work: Path, log: Log = _quiet) -> Path:
     """Where the contours describe ground, as a byte mask on the same grid.
 
@@ -1170,7 +1246,7 @@ def close_edges(mask: np.ndarray, gt: tuple, bounds: tuple, beyond: set) -> np.n
 def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work: Path,
                 isofill: str = 'isofill', library: bool | None = None, log: Log = _quiet,
                 extra: list[str] | None = None, keep_pass1: bool = False,
-                beyond: set | None = None) -> Path:
+                beyond: set | None = None, held: Path | None = None) -> Path:
     """The surface between the constraints, by isofill.
 
     isofill, not ``gdal_fillnodata``: the latter will interpolate from a single
@@ -1228,7 +1304,11 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
 
     No ``--grad-min``: the file's value is held equal to isofill's own default
     by a test, and neither path passes it. ``pass2`` has one implemented value
-    and this refuses any other rather than ignoring it."""
+    and this refuses any other rather than ignoring it.
+
+    ``held``, given, is ``rasterise_held``'s raster: the graded waterways,
+    held at their heights by the second pass and unseen by the first (#372) -
+    ``--held`` to the binary, ``held`` to the library."""
     if params.pass2 != 'diffuse':
         raise ValueError(f'pass2 = {params.pass2!r}: isofill implements only "diffuse" ("linear" was removed)')
     out = work / 'rounded.tif'
@@ -1260,7 +1340,8 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
                 log(f'  {mb:.0f} MB in core is above {budget}: the binary bands it')
             else:
                 return _interpolate_library(lib, ds, cont, mask, water, params, out, log,
-                                            _pass1_file(work) if keep_pass1 else None, beyond=beyond)
+                                            _pass1_file(work) if keep_pass1 else None, beyond=beyond,
+                                            held=held)
     try:
         isofill_lib.check_binary(isofill)
     except isofill_lib.IsofillError as e:
@@ -1293,7 +1374,7 @@ def interpolate(cont: Path, mask: Path, water: Path | None, params: Params, work
         o = ds = None
         mask, extra = edged, ['--no-edge-void', *(extra or [])]
     return _interpolate_binary(cont, mask, water, params, out, isofill, extra, log,
-                               budget=budget)
+                               budget=budget, held=held)
 
 
 def _bounds(ds) -> tuple[int, int, int, int]:
@@ -1329,7 +1410,7 @@ def _same_grid(a, b, a_path: Path, b_path: Path) -> None:
 
 def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, params: Params,
                          out: Path, log: Log, pass1: Path | None = None,
-                         beyond: set | None = None) -> Path:
+                         beyond: set | None = None, held: Path | None = None) -> Path:
     """The library call, with the rasters read to arrays and the surface written
     as the binary writes it: Float32, ZSTD, the float predictor. This is the
     in-core branch of isofill.c's own main(), which is isofill_run()."""
@@ -1346,8 +1427,14 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
         w_ds = gdal.Open(str(water))
         _same_grid(ds, w_ds, cont, water)
         w = w_ds.GetRasterBand(1).ReadAsArray()
+    h = None
+    if held is not None:
+        h_ds = gdal.Open(str(held))
+        _same_grid(ds, h_ds, cont, held)
+        h = h_ds.GetRasterBand(1).ReadAsArray()
+        h_ds = None
     result = lib.run(cons, params, mask=m, water=w, nodata=nodata, keep_pass1=pass1 is not None,
-                     edge_void=beyond is None)
+                     edge_void=beyond is None, held=h)
     surface, filled = result[0], result[1]
     log(f'  isofill {lib.version} as a library: pass 1 set {filled:,} of {cons.size:,} cells')
     if pass1 is not None:
@@ -1369,7 +1456,7 @@ def _interpolate_library(lib, ds, cont: Path, mask: Path, water: Path | None, pa
 
 def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Params, out: Path,
                         isofill: str, extra: list[str] | None = None, log: Log = _quiet,
-                        *, budget: int) -> Path:
+                        *, budget: int, held: Path | None = None) -> Path:
     """The binary, with the flags the build sets and no others.
 
     What isofill may hold is a budget, not a peak. The two passes decide
@@ -1403,6 +1490,8 @@ def _interpolate_binary(cont: Path, mask: Path, water: Path | None, params: Para
            '--mask', str(mask)]
     if water is not None:
         cmd += ['--water', str(water)]
+    if held is not None:
+        cmd += ['--held', str(held)]
     cmd += list(extra or [])
     cmd += [str(cont), str(out)]
     # which of the two ran, in the zone's own log. The library and the binary
@@ -1449,6 +1538,7 @@ class Result:
     drawn_mask: Path | None
     water_mask: Path | None
     surface: Path | None = None         # rounded.tif: the fill before the clamp
+    held: Path | None = None            # held.tif: the graded waterways (#372), None without any
     envelopes: Path | None = None       # drawn.geojson, the outline R21 draws
     blank: int = 0                      # squares with a file but no contours
 
@@ -1521,6 +1611,7 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     log(f'  fill bounded to {params.fill_metres:g} m = {params.fill_cells} cells')
     stage(f'rasterise at {params.arcsec:g}"')
     cont = rasterise(gpkg, grid, work)
+    held_tif = rasterise_held(gpkg, grid, work)
     stage('drawn area')
     mask = drawn_area(grid, work, log)
     stage('water from the coastline direction')
@@ -1530,11 +1621,11 @@ def build_dem(zone_dir: Path, work: Path, params: Params, names: Iterable[Square
     if pass1.exists():
         pass1.unlink()                       # never a previous build's
     rounded = interpolate(cont, mask, wmask, params, work, isofill, library, log, extra, keep_pass1,
-                          beyond=set(beyond) if beyond is not None else None)
+                          beyond=set(beyond) if beyond is not None else None, held=held_tif)
     stage('clamp')
     dem = clamp(rounded, cont, wmask, work, log, params)
     return Result(dem, grid, squares, gpkg, cont, mask, wmask, surface=rounded,
-                  envelopes=work / 'drawn.geojson', blank=blank)
+                  envelopes=work / 'drawn.geojson', blank=blank, held=held_tif)
 
 
 # ------------------------------------------------------------------- cli
@@ -1683,8 +1774,8 @@ def first_pass_classes(cont: Path, mask: Path, params: Params, work: Path,
         raise ValueError(f'the drawn mask is {m.shape}, the constraints are {grid}')
     kept = _pass1_file(work)
     if kept.exists():
-        with np.load(kept) as held:
-            surface, gt, fill = held['surface'], held['gt'], held['fill']
+        with np.load(kept) as npz:
+            surface, gt, fill = npz['surface'], npz['gt'], npz['fill']
         want = _fill_identity(params, band.GetNoDataValue())
         if surface.shape != grid or not np.array_equal(gt, np.asarray(ds.GetGeoTransform())):
             raise ValueError(

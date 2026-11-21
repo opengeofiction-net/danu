@@ -33,7 +33,7 @@ from .params import Params
 
 # the isofill this module speaks to; extern/isofill's src/isofill.h says the
 # same, and a test holds the two equal
-EXPECTED_VERSION = '0.13.0'
+EXPECTED_VERSION = '0.15.0'
 NO_ELEV = -32768                     # ISOFILL_NO_ELEV in isofill.h
 LIB_NAMES = ('libisofill.dll',) if sys.platform == 'win32' else ('libisofill.so',)
 
@@ -134,6 +134,17 @@ class Isofill:
             lib.isofill_run_ex.restype = ctypes.c_longlong
             lib.isofill_run_ex.argtypes = lib.isofill_run.argtypes + [
                 ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_run_held.restype = ctypes.c_longlong
+            lib.isofill_run_held.argtypes = [
+                ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_double,
+                ctypes.POINTER(ctypes.c_ubyte), ctypes.POINTER(ctypes.c_ubyte),
+                ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_int,
+                ctypes.POINTER(_Params), ctypes.POINTER(ctypes.c_float),
+                ctypes.POINTER(ctypes.c_float)]
+            lib.isofill_hold.restype = ctypes.c_int
+            lib.isofill_hold.argtypes = [
+                ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+                ctypes.c_int, ctypes.c_int, ctypes.c_int]
             lib.isofill_diffuse.restype = ctypes.c_int
             lib.isofill_diffuse.argtypes = [
                 ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_ubyte),
@@ -144,7 +155,8 @@ class Isofill:
     def run(self, constraints: np.ndarray, params: Params, mask: np.ndarray | None = None,
             water: np.ndarray | None = None, nodata: float | None = None,
             pass2: bool = True, threads: int = 0,
-            keep_pass1: bool = False, edge_void: bool = True) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
+            keep_pass1: bool = False, edge_void: bool = True,
+            held: np.ndarray | None = None) -> tuple[np.ndarray, int] | tuple[np.ndarray, int, np.ndarray]:
         """Fill. ``constraints`` is rows x cols; cells equal to ``nodata`` (or
         NO_ELEV when None) are unset. Returns (surface float32 rows x cols,
         cells the first pass set).
@@ -167,7 +179,14 @@ class Isofill:
         ``edge_void`` False is 0.13.0's ``--no-edge-void``: the raster's edge
         is not the end of the drawn ground - a working set inside its zone -
         so it seeds no void and the solve mirrors it. Where nothing is drawn
-        beyond, the caller leaves those edge cells out of ``mask``."""
+        beyond, the caller leaves those edge cells out of ``mask``.
+
+        ``held`` is 0.14.0's ``--held``: a float raster the shape of the
+        constraints, a cell held at its value by the second pass unless it is
+        NO_ELEV or NaN, and unseen by the first - a graded river's heights
+        (#372). Since 0.15.0 the ground within the radius of one that no
+        constraint reaches is solved rather than void. The kept first pass is
+        without either."""
         cons = np.ascontiguousarray(constraints, dtype=np.float32)
         rows, cols = cons.shape
         out = np.empty_like(cons)
@@ -180,6 +199,11 @@ class Isofill:
             w = np.ascontiguousarray(water, dtype=np.uint8)
             if w.shape != cons.shape:
                 raise IsofillError(f'water is {w.shape}, constraints are {cons.shape}')
+        h = None
+        if held is not None:
+            h = np.ascontiguousarray(held, dtype=np.float32)
+            if h.shape != cons.shape:
+                raise IsofillError(f'held is {h.shape}, constraints are {cons.shape}')
         # the binary's defaults, then only what the shell's flags set: radius,
         # barrier and pass 2. grad_min is left as the library has it, exactly
         # as the binary path passes no --grad-min - the same flags and no
@@ -194,16 +218,38 @@ class Isofill:
         cptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)) if a is not None else None  # noqa: E731
         fptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))                              # noqa: E731
         pass1 = np.empty_like(cons) if keep_pass1 else None
-        filled = self.lib.isofill_run_ex(
+        filled = self.lib.isofill_run_held(
             fptr(cons), int(nodata is not None), float(nodata if nodata is not None else 0.0),
-            cptr(m), cptr(w), cols, rows, ctypes.byref(p), fptr(out),
-            fptr(pass1) if pass1 is not None else None)
+            cptr(m), cptr(w), fptr(h) if h is not None else None, cols, rows,
+            ctypes.byref(p), fptr(out), fptr(pass1) if pass1 is not None else None)
         if filled < 0:
-            raise IsofillError('isofill_run_ex: ' + ('out of memory' if filled == -2 else 'bad arguments'))
+            raise IsofillError('isofill_run_held: ' + ('out of memory' if filled == -2 else 'bad arguments'))
         if keep_pass1:
             return out, int(filled), pass1
         return out, int(filled)
 
+
+    def hold(self, surface: np.ndarray, held: np.ndarray | None, radius: int) -> np.ndarray:
+        """The held cells written into a surface the first pass left, as
+        ``run`` with ``held`` does between its passes (0.15.0's
+        ``isofill_hold``): the ground within ``radius`` of a held cell that
+        the first pass called out of reach declined, and each held cell at
+        its value. In place, and returned; None holds nothing. ``diffuse``
+        after it is the rest of ``run``, cell for cell - for the editor's
+        solves, which run the two passes apart."""
+        if held is None:
+            return surface
+        if surface.dtype != np.float32 or not surface.flags.c_contiguous:
+            raise IsofillError('hold writes in place: the surface must be C-contiguous float32')
+        h = np.ascontiguousarray(held, dtype=np.float32)
+        if h.shape != surface.shape:
+            raise IsofillError(f'held is {h.shape}, the surface is {surface.shape}')
+        rows, cols = surface.shape
+        fptr = lambda a: a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))   # noqa: E731
+        rc = self.lib.isofill_hold(fptr(surface), fptr(h), cols, rows, int(radius))
+        if rc != 0:
+            raise IsofillError('isofill_hold: ' + ('out of memory' if rc == -2 else 'bad arguments'))
+        return surface
 
     def diffuse(self, surface: np.ndarray, mask: np.ndarray | None = None,
                 water: np.ndarray | None = None) -> np.ndarray:

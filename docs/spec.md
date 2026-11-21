@@ -152,6 +152,9 @@ the tools for everything else.
   from upstream is reported rather than deleted, and keeps its version - but a
   way merged upstream, its nodes now on other ways, is removed and said so. An
   import is one undoable step.
+- **R48** A graded waterway's heights are held by the surface along its line,
+  interpolated between its vertices, without the fill reading them as
+  constraints.
 - **R28** Water anchors inside the squares are first-class and editable. The
   separate `water/<zone>.osm` overlay roantra once had is no longer read:
   every zone's water lives in its squares, where Danu edits it.
@@ -161,7 +164,8 @@ the tools for everything else.
 Numbered from R36 because the earlier numbers are cited from the code.
 
 - **R36** Nodes with `ele` inside the squares are first-class and editable.
-  A node carrying `ele` is a constraint, the same as a contour way.
+  A node carrying `ele` is a constraint, the same as a contour way, unless it
+  is a vertex of a waterway (R48).
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
 - **R41** The main map's peaks, volcanoes and saddles with a height are
