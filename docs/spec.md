@@ -149,6 +149,9 @@ the tools for everything else.
 - **R52** The main map's landforms - ridges, aretes, valleys, gullies,
   gorges, cliffs, earth banks, dry lakes and plateaus - are imported into the
   squares when asked for, and a second import reconciles as R40 says.
+- **R54** The editor draws every landform with or without a height, each in a
+  style of its own after JOSM's, so it can be selected and given one: a
+  cliff its top's `ele` and its `height`, a flat area its level.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the

@@ -41,8 +41,18 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from ..core import geometry, profile
 from ..core.rings import is_closed, relation_rings
-from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele, water_tags
-from ..surface import held
+from ..core.square import (
+    Relation,
+    Square,
+    SquareName,
+    Way,
+    WorkingSet,
+    flat_tags,
+    is_coastline,
+    parse_ele,
+    water_tags,
+)
+from ..surface import cliff
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import box as _bbox
@@ -154,9 +164,57 @@ WATER = QColor(20, 70, 140, 200)
 # faint wash says "inside", the firm edge says "shore", and between them a
 # lake stops reading as a very round contour
 WATER_FILL = QColor(20, 70, 140, 58)
-# a ridge or a valley drawn as a line (#191): the ground's brown, dashed, so it
-# is not taken for water or for a contour
-LANDFORM = QColor(120, 75, 30, 210)
+# the landforms (#191), styled after JOSM's standard map style: its shapes -
+# a cliff's teeth hanging on its low side, a ridge and a valley a plain line -
+# in its colours, darkened where JOSM draws on black and this on a light map.
+# A floor - a valley, a gully, a gorge - dashed, as it runs as water does; a
+# crest solid. Neither is the ramp's, so none is taken for a contour
+CREST = QColor(0, 47, 0, 220)              # ridge, valley: JOSM's natural#002f00
+ARETE = QColor(105, 105, 105, 230)         # JOSM's #e6e6e6, lost on white
+CLIFF = QColor(95, 95, 95, 240)            # JOSM's #b2b2b2
+EARTH_BANK = QColor(156, 111, 50, 240)     # JOSM's, as it is
+# the flat landforms, which JOSM does not style: a dry lake's pale clay and a
+# plateau's brown, as water's wash and edge are
+DRY_LAKE = QColor(170, 140, 80, 220)
+PLATEAU = QColor(130, 100, 60, 220)
+FILL_ALPHA = 50
+LANDFORM_PENS = {
+    'ridge': (CREST, Qt.PenStyle.SolidLine), 'arete': (ARETE, Qt.PenStyle.SolidLine),
+    'valley': (CREST, Qt.PenStyle.DashLine), 'gully': (CREST, Qt.PenStyle.DashLine),
+    'gorge': (CREST, Qt.PenStyle.DashLine),
+    'cliff': (CLIFF, Qt.PenStyle.SolidLine), 'earth_bank': (EARTH_BANK, Qt.PenStyle.SolidLine),
+    'dry_lake': (DRY_LAKE, Qt.PenStyle.DashLine), 'plateau': (PLATEAU, Qt.PenStyle.DashLine),
+}
+LANDFORM_KINDS = tuple(LANDFORM_PENS)
+# a cliff's teeth, as JOSM's cliff_pattern.svg repeats them: a triangle every
+# 9 px, 5 px along the line and 7 px down from it, on its right - the low side
+TOOTH_SPACING_PX, TOOTH_BASE_PX, TOOTH_LENGTH_PX = 9.0, 5.0, 7.0
+# what a spot height is said to be, drawn as JOSM draws its icon - a peak's
+# triangle, a saddle's notch, a sinkhole's pit - in the elevation's colour
+SPOT_KINDS = ('peak', 'volcano', 'saddle', 'sinkhole')
+
+
+def landform_kind(tags: dict) -> str | None:
+    """What a way or relation with these tags is drawn as, of
+    LANDFORM_KINDS - a ``natural`` value - or None."""
+    kind = tags.get('natural')
+    return kind if kind in LANDFORM_PENS else None
+
+
+def landform_pen(kind: str, width: float = 1.4) -> QPen:
+    colour, style = LANDFORM_PENS.get(kind, (CREST, Qt.PenStyle.DashLine))
+    pen = QPen(colour, width, style)
+    pen.setCosmetic(True)
+    return pen
+
+
+def landform_fill(kind: str | None) -> QColor:
+    """A body's wash: water's, or a flat landform's."""
+    if kind is None:
+        return WATER_FILL
+    c = QColor(LANDFORM_PENS.get(kind, (DRY_LAKE, None))[0])
+    c.setAlpha(FILL_ALPHA)
+    return c
 
 
 @dataclass
@@ -197,9 +255,10 @@ class _Piece:
     # paint; and its path cut to the view last drawn, by that view
     rings: list | None = field(default=None, compare=False, repr=False)
     cut: tuple = field(default=(None, None), compare=False, repr=False)
-    # a ridge or a valley drawn as a line, painted in the ground's colour (#191);
-    # last, as the fields before it are given by position
-    landform: bool = field(default=False, compare=False)
+    # the landform it is drawn as (#191), LANDFORM_KINDS - a line, or a flat
+    # area's ring or fill - or None for water; last, as the fields before it
+    # are given by position
+    landform: str | None = field(default=None, compare=False)
 
     def fill(self, view: QRectF) -> QPainterPath:
         """What of a water fill to draw in ``view``: the whole path, or for
@@ -349,9 +408,27 @@ def _water_members(square: Square) -> frozenset:
     relation the predicates disagreed about would draw its rings on one path
     and not the other.
     """
-    return frozenset(mem.ref for rel in square.relations.values()
-                     if water_tags(rel.tags)
-                     for mem in rel.members if mem.type == 'way')
+    ids, kinds = set(), {}
+    for rel in square.relations.values():
+        water, flat = water_tags(rel.tags), flat_tags(rel.tags)
+        if not (water or flat):
+            continue
+        # and a dry lake's or a plateau's (#191), held flat as a lake is
+        kind = None if water else landform_kind(rel.tags)
+        for mem in rel.members:
+            if mem.type == 'way':
+                ids.add(mem.ref)
+                if kind is not None:
+                    kinds[mem.ref] = kind
+    out = _Members(ids)
+    out.kinds = kinds
+    return out
+
+
+class _Members(frozenset):
+    """The ways a square's water and flat relations are made of, and which
+    landform each ring of a flat relation is - its relation's."""
+    kinds: dict = {}
 
 
 def water_feature(square: Square, way: Way):
@@ -363,7 +440,7 @@ def water_feature(square: Square, way: Way):
     a shore with a river area - leave the click without an answer, and the
     way is what it gets; G5c's dock selects either relation by name.
     """
-    naming = [r for r in square.relations.values() if water_tags(r.tags)
+    naming = [r for r in square.relations.values() if (water_tags(r.tags) or flat_tags(r.tags))
               and any(mem.type == 'way' and mem.ref == way.id for mem in r.members)]
     return naming[0] if len(naming) == 1 else way
 
@@ -378,15 +455,81 @@ def is_outline(way: Way) -> bool:
     return way.closed or 'waterway' not in way.tags or way.tags.get('waterway') == 'riverbank'
 
 
+def _marks(pts, along, step: float, rect: QRectF | None = None) -> list:
+    """Marks every ``step`` along a line from half that in, as (x, y, dx,
+    dy), the unit vector the way it runs - those within ``rect``, if one
+    is given. A coastline's and a cliff's."""
+    if along[-1] <= 0:
+        return []
+    at = np.arange(step / 2, along[-1], step)
+    i = np.clip(np.searchsorted(along, at, side='right') - 1, 0, len(pts) - 2)
+    seg = pts[i + 1] - pts[i]
+    length = np.hypot(seg[:, 0], seg[:, 1])
+    ok = length > 0
+    f = np.where(ok, (at - along[i]) / np.where(ok, length, 1), 0)
+    xy = pts[i] + seg * f[:, None]
+    d = seg / np.where(ok, length, 1)[:, None]
+    if rect is not None:
+        ok &= ((xy[:, 0] >= rect.left()) & (xy[:, 0] <= rect.right())
+               & (xy[:, 1] >= rect.top()) & (xy[:, 1] <= rect.bottom()))
+    return [(float(x), float(y), float(dx), float(dy)) for (x, y), (dx, dy) in zip(xy[ok], d[ok], strict=True)]
+
+
+def _spot_mark(kind: str | None) -> QPainterPath:
+    """A spot height's marker in pixels about its point: a ring, or the shape
+    of JOSM's icon for what it is said to be - a peak's or a volcano's
+    triangle, a saddle's notched block, a sinkhole's triangle pointing down
+    into its pit. Cached: there are five."""
+    got = _SPOT_MARKS.get(kind)
+    if got is not None:
+        return got
+    r = SPOT_PX
+    path = QPainterPath()
+    if kind in ('peak', 'volcano'):
+        h = r * 1.8
+        path.moveTo(0, -h)
+        path.lineTo(h, h * 0.75)
+        path.lineTo(-h, h * 0.75)
+        path.closeSubpath()
+    elif kind == 'sinkhole':
+        h = r * 1.8
+        path.moveTo(0, h)
+        path.lineTo(h, -h * 0.75)
+        path.lineTo(-h, -h * 0.75)
+        path.closeSubpath()
+    elif kind == 'saddle':
+        # JOSM's saddle.svg: a block with a V cut into its top
+        w = r * 1.6
+        path.moveTo(-w, -w)
+        path.lineTo(0, -w * 0.15)
+        path.lineTo(w, -w)
+        path.lineTo(w, w * 0.8)
+        path.lineTo(-w, w * 0.8)
+        path.closeSubpath()
+    else:
+        path.addEllipse(QPointF(0, 0), r, r)
+    _SPOT_MARKS[kind] = path
+    return path
+
+
+_SPOT_MARKS: dict = {}
+
+
+def _kind(way: Way, members) -> str | None:
+    """The landform a way is drawn as: its own, or its flat relation's."""
+    return landform_kind(way.tags) or getattr(members, 'kinds', {}).get(way.id)
+
+
 def _is_water(way: Way) -> bool:
     """A way an import brought, or a mapper drew, as water - or a landform
-    drawn as a line (#191), which is drawn, picked, levelled at points and
-    graded as a river is, and painted in the ground's colour.
+    (#191). A ridge or a valley drawn as a line is drawn, picked, levelled at
+    points and graded as a river is; a cliff and a flat area are drawn and
+    picked as water is, with or without a height, each in its own style.
 
     ``natural=water`` or any ``waterway``. A multipolygon's member rings carry
     neither - the relation holds the tagging - so ``set_working_set`` marks
     them from the relation; this answers for the way alone."""
-    return water_tags(way.tags) or held.landform(way) is not None
+    return water_tags(way.tags) or landform_kind(way.tags) is not None
 
 
 @dataclass
@@ -408,6 +551,8 @@ class Spot:
     # graded river of three hundred vertices does not bury them; and never
     # picked as one, because a spot height selected is a node Delete removes
     on_water: bool = False
+    # what it is said to be (#191), of SPOT_KINDS, drawn as JOSM draws it
+    kind: str | None = None
 
 
 @dataclass
@@ -437,6 +582,9 @@ class WayGeom:
     ele: float | None
     pts: np.ndarray
     refs: list[int] = field(default_factory=list)
+    # the landform it is drawn as (#191), a ring of a flat relation the
+    # relation's: LANDFORM_KINDS, or None
+    kind: str | None = None
 
     def __post_init__(self):
         # _rebuild_arrays builds the node index by putting refs against points
@@ -518,6 +666,10 @@ class ContourLayer(QGraphicsItem):
         # points, the length along them to each, and their rectangle
         self.coasts: dict[tuple[SquareName, int], tuple] = {}
         self.drawn_coast_marks = 0
+        # the cliffs and earth banks (#191), whose teeth are drawn over the
+        # lines, with or without a height: as a coastline's, and their kind
+        self.cliffs: dict[tuple[SquareName, int], tuple] = {}
+        self.drawn_teeth = 0
         # how many water ways name each vertex, so a node carrying `ele` can
         # be told apart as a level on a river rather than a spot height. Here
         # and not only in set_working_set, for the reason `water` is
@@ -576,7 +728,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, _Counted(), {}, _Counted()
-        self.fills, self.coasts = _Counted(), {}
+        self.fills, self.coasts, self.cliffs = _Counted(), {}, {}
         self.water_fills, self._rel_members = _Counted(), {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
@@ -624,6 +776,7 @@ class ContourLayer(QGraphicsItem):
 
     def _add_geom(self, key, geom) -> None:
         self._add_coast(key, geom)
+        self._add_cliff(key, geom)
         if geom.ele is not None:
             self._add_way(key, geom)
         elif 'danu:fill' in geom.way.tags:
@@ -679,7 +832,7 @@ class ContourLayer(QGraphicsItem):
         ele, refs = got
         nodes = square.nodes
         pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
-        return WayGeom(square, way, ele, pts, refs)
+        return WayGeom(square, way, ele, pts, refs, _kind(way, water_members))
 
     @staticmethod
     def _project_all(square: Square, ways, water_members=frozenset()) -> list[WayGeom]:
@@ -696,7 +849,8 @@ class ContourLayer(QGraphicsItem):
         refs = [r for _, _, rs in kept for r in rs]
         pts = m.lonlat_to_scene_array([nodes[r].lon for r in refs], [nodes[r].lat for r in refs])
         ends = np.cumsum([len(rs) for _, _, rs in kept])[:-1]
-        return [WayGeom(square, way, ele, p, rs) for (way, ele, rs), p in zip(kept, np.split(pts, ends), strict=True)]
+        return [WayGeom(square, way, ele, p, rs, _kind(way, water_members))
+                for (way, ele, rs), p in zip(kept, np.split(pts, ends), strict=True)]
 
     @staticmethod
     def _placed(square: Square, way: Way, water_members=frozenset()) -> tuple[float | None, list[int]] | None:
@@ -708,7 +862,8 @@ class ContourLayer(QGraphicsItem):
         # lake's. The build reads it as a contour, which is what makes the lake
         # flat. A waterway *line* with an ele is a contour as it always was -
         # see Square.contours
-        body = way.id in water_members or (way.tags.get('natural') == 'water' and way.closed)
+        # and a dry lake's or a plateau's (#191), held flat as a lake is
+        body = way.id in water_members or (flat_tags(way.tags) and way.closed)
         fill = 'danu:fill' in way.tags
         ele = None if body or fill else way.ele
         if ele is None and not water and not fill and way.tags.get('natural') != 'coastline':
@@ -732,8 +887,10 @@ class ContourLayer(QGraphicsItem):
             self.spots.pop(key, None)
             return
         x, y = m.lonlat_to_scene(node.lon, node.lat)
+        kind = node.tags.get('natural')
         self.spots[key] = Spot(square, node_id, ele, x, y,
-                               on_water=self._water_refs.get(key, 0) > 0)
+                               on_water=self._water_refs.get(key, 0) > 0,
+                               kind=kind if kind in SPOT_KINDS else None)
 
     def refresh_spots(self, square: Square, node_ids) -> None:
         """Some nodes of a square changed - re-project the ones that are spot
@@ -786,6 +943,7 @@ class ContourLayer(QGraphicsItem):
             self._drop_way(key)
             self.fills.pop(key, None)
             self.coasts.pop(key, None)
+            self.cliffs.pop(key, None)
             old = self._geoms.pop(key, None)
             if self.water.pop(key, None) is not None and old is not None:
                 for r in old.refs:
@@ -800,13 +958,7 @@ class ContourLayer(QGraphicsItem):
             changed.append((key, old, geom))
             if geom is not None:
                 self._geoms[key] = geom
-                self._add_coast(key, geom)
-                if geom.ele is not None:
-                    self._add_way(key, geom)
-                elif 'danu:fill' in geom.way.tags:
-                    self._add_fill(key, geom)
-                elif geom.way.tags.get('natural') != 'coastline':
-                    self._add_water(key, geom)
+                self._add_geom(key, geom)
         # unguarded, and the 0.25 ms it costs on the gobras square that holds
         # six thousand ways is worth it. The guard was "did one of these ways
         # have a fill or a line", which is false for an ordinary contour edit
@@ -861,7 +1013,7 @@ class ContourLayer(QGraphicsItem):
         before - a node dragged on a contour across the view redrew the view -
         or the whole of it as it was and is. A coastline is whole: its arrows
         are spaced from its start, and one node moved moves them all."""
-        same = (old is not None and new is not None and key not in self.coasts
+        same = (old is not None and new is not None and key not in self.coasts and key not in self.cliffs
                 and old.refs == new.refs and len(old.pts) == len(new.pts) and len(old.pts) > 0)
         if not same:
             return [b for g in (old, new) if g is not None for b in (_bbox(g.pts),) if b is not None]
@@ -1052,10 +1204,11 @@ class ContourLayer(QGraphicsItem):
         key = (square.name, 'rel', rel.id)
         self.water_fills.pop(key, None)
         self._rel_members[key] = _member_ways(rel)
-        if not water_tags(rel.tags):
+        if not (water_tags(rel.tags) or flat_tags(rel.tags)):
             return
         paths = [self._ring_path(square, r) for r in relation_rings(square, rel)]
-        self._put_fill(key, [p for p in paths if p], parse_ele(rel.tags.get('ele')))
+        self._put_fill(key, [p for p in paths if p], parse_ele(rel.tags.get('ele')),
+                       None if water_tags(rel.tags) else landform_kind(rel.tags))
 
     def _way_fill(self, square: Square, way: Way, members) -> None:
         """A closed water way's own fill, unless a water relation names it.
@@ -1076,10 +1229,11 @@ class ContourLayer(QGraphicsItem):
         """
         key = (square.name, 'way', way.id)
         self.water_fills.pop(key, None)
-        if way.id in members or not water_tags(way.tags) or not is_closed(way):
+        if way.id in members or not (water_tags(way.tags) or flat_tags(way.tags)) or not is_closed(way):
             return
         ring = self._ring_path(square, way.refs)
-        self._put_fill(key, [ring] if ring else [], parse_ele(way.tags.get('ele')))
+        self._put_fill(key, [ring] if ring else [], parse_ele(way.tags.get('ele')),
+                       None if water_tags(way.tags) else landform_kind(way.tags))
 
     @staticmethod
     def _ring_path(square: Square, refs) -> list:
@@ -1100,7 +1254,7 @@ class ContourLayer(QGraphicsItem):
         pts = m.lonlat_to_scene_array([n.lon for n in placed], [n.lat for n in placed])
         return pts.tolist()
 
-    def _put_fill(self, key, rings: list, ele: float | None = None) -> None:
+    def _put_fill(self, key, rings: list, ele: float | None = None, kind: str | None = None) -> None:
         if not rings:
             return
         path = QPainterPath()
@@ -1110,7 +1264,7 @@ class ContourLayer(QGraphicsItem):
             for x, y in ring[1:]:
                 path.lineTo(x, y)
             path.closeSubpath()
-        piece = _Piece(path, path.boundingRect(), ele, None)
+        piece = _Piece(path, path.boundingRect(), ele, None, landform=kind)
         if sum(len(r) for r in rings) > BIG_FILL:
             # without the closing point, as _cut_ring takes them: it closes
             # each ring itself, last point to first - _ring_path's rings close
@@ -1172,7 +1326,7 @@ class ContourLayer(QGraphicsItem):
         xs, ys = g.pts[:, 0], g.pts[:, 1]
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-        self.water[key] = _Piece(path, rect, None, None, landform=held.landform(g.way) is not None)
+        self.water[key] = _Piece(path, rect, None, None, landform=g.kind)
         for r in g.refs:
             k = (key[0], r)
             self._water_refs[k] = self._water_refs.get(k, 0) + 1
@@ -1193,6 +1347,18 @@ class ContourLayer(QGraphicsItem):
         for x, y in pts[1:].tolist():
             path.lineTo(x, y)
         self.coasts[key] = (pts, along, rect, path)
+
+    def _add_cliff(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+        """A cliff's or an earth bank's points and the length along them, for
+        its teeth: as a coastline's, drawn whether it has its height or not."""
+        if not cliff.is_cliff(g.way):
+            return
+        pts = np.asarray(g.pts, dtype=float)
+        along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
+        xs, ys = pts[:, 0], pts[:, 1]
+        rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
+                      float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
+        self.cliffs[key] = (pts, along, rect, g.way.tags.get('natural'))
 
     def _add_fill(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A lake's fill line (G7a): drawn faintly over its water, and in
@@ -1689,6 +1855,7 @@ class ContourLayer(QGraphicsItem):
                 for piece in active:
                     for path in piece.drawn(rect, scale):
                         painter.drawPath(path)
+        self._paint_cliffs(painter, near, scale, zoom)
         self._paint_coasts(painter, near, scale, zoom)
         self._paint_spots(painter, near, scale, zoom, view)
         if zoom >= ZOOM_LABELS:
@@ -1700,21 +1867,45 @@ class ContourLayer(QGraphicsItem):
         half that in - those within ``rect``, if one is given. The sea is to
         the right of (dx, dy), which on a scene whose y runs down is (-dy, dx)."""
         pts, along, _, _ = self.coasts[key]
-        step = COAST_SPACING_PX / scale
-        if along[-1] <= 0:
-            return []
-        at = np.arange(step / 2, along[-1], step)
-        i = np.clip(np.searchsorted(along, at, side='right') - 1, 0, len(pts) - 2)
-        seg = pts[i + 1] - pts[i]
-        length = np.hypot(seg[:, 0], seg[:, 1])
-        ok = length > 0
-        f = np.where(ok, (at - along[i]) / np.where(ok, length, 1), 0)
-        xy = pts[i] + seg * f[:, None]
-        d = seg / np.where(ok, length, 1)[:, None]
-        if rect is not None:
-            ok &= ((xy[:, 0] >= rect.left()) & (xy[:, 0] <= rect.right())
-                   & (xy[:, 1] >= rect.top()) & (xy[:, 1] <= rect.bottom()))
-        return [(float(x), float(y), float(dx), float(dy)) for (x, y), (dx, dy) in zip(xy[ok], d[ok], strict=True)]
+        return _marks(pts, along, COAST_SPACING_PX / scale, rect)
+
+    def cliff_teeth(self, key, scale: float, rect: QRectF | None = None) -> list:
+        """Where a cliff's teeth go at a scale, as ``coast_marks``: every
+        TOOTH_SPACING_PX along it, its low side to the right of (dx, dy)."""
+        pts, along, _, _ = self.cliffs[key]
+        return _marks(pts, along, TOOTH_SPACING_PX / scale, rect)
+
+    def _paint_cliffs(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
+        """Each cliff's and earth bank's teeth, as JOSM draws them: filled
+        triangles on its right, its low side, pointing down it - over the
+        contours, as a coastline's marks are, so a cliff drawn as the contour
+        its top makes reads as a cliff. From the zoom every contour is drawn
+        at: below it, teeth 9 px apart are a grey smear."""
+        self.drawn_teeth = 0
+        if not self.cliffs or zoom < ZOOM_ALL:
+            return
+        b, length = TOOTH_BASE_PX / scale / 2, TOOTH_LENGTH_PX / scale
+        off = 0.5 / scale
+        grown = rect.adjusted(-length, -length, length, length)
+        teeth: dict = {}
+        for key, (_, _, box, kind) in self.cliffs.items():
+            if not box.intersects(grown):
+                continue
+            path = teeth.setdefault(kind, QPainterPath())
+            for x, y, dx, dy in self.cliff_teeth(key, scale, grown):
+                nx, ny = -dy, dx                          # the low side
+                bx, by = x + nx * off, y + ny * off
+                path.moveTo(bx - dx * b, by - dy * b)
+                path.lineTo(bx + dx * b, by + dy * b)
+                path.lineTo(x + nx * length, y + ny * length)
+                path.closeSubpath()
+                self.drawn_teeth += 1
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        for kind, path in teeth.items():
+            painter.setBrush(LANDFORM_PENS[kind][0])
+            painter.drawPath(path)
+        painter.restore()
 
     def _paint_coasts(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
         """Each coastline in the coast's colour, a V pointing the way it runs
@@ -1834,8 +2025,10 @@ class ContourLayer(QGraphicsItem):
             pad = 8.0 / scale
             view = device_scene_rect(painter).adjusted(-pad, -pad, pad, pad)
             for piece in self._in('water_fills', self.water_fills, self.water_fills.values, rect):
+                painter.setBrush(landform_fill(piece.landform))
                 painter.drawPath(piece.fill(view))
                 self.drawn_water_fills += 1
+            painter.setBrush(WATER_FILL)
             if self.fills:
                 faint = QPen(WATER.lighter(130), 1.0, Qt.PenStyle.DashLine)
                 faint.setCosmetic(True)
@@ -1849,20 +2042,19 @@ class ContourLayer(QGraphicsItem):
                 return
             pen = QPen(WATER, 1.4)
             pen.setCosmetic(True)
-            ground = QPen(LANDFORM, 1.4, Qt.PenStyle.DashLine)
-            ground.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            landforms = []
+            landforms: dict = {}
             for piece in self._in('water', self.water, self.water.values, rect):
                 if piece.landform:
-                    landforms.append(piece)
+                    landforms.setdefault(piece.landform, []).append(piece)
                     continue
                 painter.drawPath(piece.path)
                 self.drawn_water += 1
-            if landforms:
-                painter.setPen(ground)
-                for piece in landforms:
+            # each landform in its own style (#191), after JOSM's
+            for kind, pieces in landforms.items():
+                painter.setPen(landform_pen(kind))
+                for piece in pieces:
                     painter.drawPath(piece.path)
                     self.drawn_water += 1
             self._paint_lake_levels(painter, rect if near is None else near, scale, zoom)
@@ -1985,19 +2177,21 @@ class ContourLayer(QGraphicsItem):
             # those fix the stroke width, this fixes the size of the thing
             # being stroked
             painter.scale(1.0 / scale, 1.0 / scale)
+            # a ring; a peak, a saddle or a sinkhole as JOSM draws it (#191)
+            mark = _spot_mark(spot.kind)
             pen = QPen(QColor(255, 255, 255, 220), 3.0)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPointF(0, 0), SPOT_PX, SPOT_PX)
+            painter.drawPath(mark)
             pen = QPen(colour.darker(130), 1.8)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(colour)
-            painter.drawEllipse(QPointF(0, 0), SPOT_PX, SPOT_PX)
+            painter.drawPath(mark)
             if zoom >= ZOOM_LABELS:
                 tp = self._text_path(f'{spot.ele:g}', font)
-                painter.translate(SPOT_PX + 3.0, 4.0)
+                painter.translate(mark.boundingRect().right() + 3.0, 4.0)
                 painter.setPen(QPen(QColor(255, 255, 255, 220), 3.0))
                 painter.drawPath(tp)
                 painter.fillPath(tp, colour.darker(150))

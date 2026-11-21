@@ -49,10 +49,10 @@ from PySide6.QtWidgets import (
 from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
 from ..core.square import flat_tags, is_coastline, parse_ele
-from ..surface import held
+from ..surface import cliff, held
 from ..water.overpass import flows
 from . import icons
-from .contours import water_tags
+from .contours import landform_kind, water_tags
 from .icons import PaintedButton
 from .widgets import copy, unit
 
@@ -68,6 +68,10 @@ class Info:
     where: str = ''
     tags: str = ''               # the rest of the tags, read-only
     osm: tuple[str, int] | None = None   # the object, to copy its id - a local one's is negative
+    # a cliff's or an earth bank's (#191): its elevation is its top's, and
+    # its height the drop to its foot, the second thing it is given
+    cliff: bool = False
+    height: float | None = None
 
 NOTHING = Info('Nothing selected', why_not='select something to see it here')
 
@@ -85,8 +89,8 @@ def _ident(kind: str, i: int) -> str:
     return f'{kind} {i}' + (' (local)' if i < 0 else '')
 
 
-def _others(tags: dict) -> str:
-    rest = [f'{k}={v}' for k, v in tags.items() if k not in ('name', 'ele')]
+def _others(tags: dict, shown=('name', 'ele')) -> str:
+    rest = [f'{k}={v}' for k, v in tags.items() if k not in shown]
     return '\n'.join(rest)
 
 
@@ -180,7 +184,9 @@ def _describe(sel, layer) -> Info:
         rel = sel.relation
         flowing = flows(rel.tags)
         members = sum(1 for mem in rel.members if mem.type == 'way')
-        return Info(kind='river area' if flowing else rel.tags.get('water', 'lake'),
+        flat = landform_kind(rel.tags)
+        return Info(kind='river area' if flowing else flat.replace('_', ' ') if flat
+                    else rel.tags.get('water', 'lake'),
                     name=rel.tags.get('name', ''), ele=rel.ele, editable=not flowing,
                     why_not='a river area descends, so it has no one level (R27)' if flowing else '',
                     where=f'{sq.name} · {_ident("relation", rel.id)} · {members} ways',
@@ -195,9 +201,17 @@ def _describe(sel, layer) -> Info:
     if way is None:
         return NOTHING
     where = f'{sq.name} · {_ident("way", way.id)} · {len(way.refs)} nodes'
+    if cliff.is_cliff(way):
+        # whole, a vertex of it too: its heights are the way's, its top's
+        # elevation and its drop - with or without either (#191)
+        return Info(kind=way.tags['natural'].replace('_', ' '), name=way.tags.get('name', ''),
+                    ele=way.ele, editable=True, where=where, cliff=True,
+                    height=parse_ele(way.tags.get('height')),
+                    tags=_others(way.tags, ('name', 'ele', 'height')))
     if (sq.name, way.id) in layer.water:
         name = way.tags.get('name', '')
-        kind = way.tags.get('waterway') or held.landform(way) or way.tags.get('water') or 'water'
+        kind = (way.tags.get('waterway') or landform_kind(way.tags) or way.tags.get('water')
+                or 'water').replace('_', ' ')
         if sel.node is not None and sel.node in sq.nodes:
             node = sq.nodes[sel.node]
             return Info(kind=f'point on a {kind}' if way.tags.get('waterway') or held.landform(way)
@@ -220,7 +234,7 @@ def _describe(sel, layer) -> Info:
                                  'a river descends: select one of its points to set a level there'),
                         where=f'{where} · levels at {levelled} of {len(way.refs)} points',
                         tags=_others(way.tags))
-        if not water_tags(way.tags):
+        if not (water_tags(way.tags) or flat_tags(way.tags)):
             return Info(kind='lake ring', name=name, editable=False,
                         why_not='more than one water relation names this ring; '
                                 'the level belongs to the lake',
@@ -413,6 +427,15 @@ class SelectionPanel(QDockWidget):
         form.addRow('Name', self.name)
         form.addRow('Elevation', unit(self.ele))
         form.addRow('', self.why)
+        # a cliff's height (#191): the drop from its top to its foot
+        self.height = QLineEdit()
+        self.height.setPlaceholderText('no height')
+        self.height.setToolTip('How far the ground drops from its top to its foot, on its right. '
+                               'Enter to set it; empty and Enter to clear it. Escape puts it back.')
+        self.height.returnPressed.connect(self._commit_height)
+        self.height_label = QLabel('Height')
+        self.height_row = unit(self.height)
+        form.addRow(self.height_label, self.height_row)
         # a spot height's kind (#191): what the build reads it as
         self.spot_kind = QComboBox()
         for label, value in SPOT_KINDS:
@@ -567,6 +590,11 @@ class SelectionPanel(QDockWidget):
         self.why.setVisible(bool(info.why_not) and not info.editable)
         self.ele.setToolTip(info.why_not or 'Enter to set it; empty and Enter to clear a '
                             "water level. Escape puts it back.")
+        self.height.setText(format_ele(info.height) if info.height is not None else '')
+        self.height_row.setVisible(info.cliff)
+        self.height_label.setVisible(info.cliff)
+        if info.cliff:
+            self.ele.setToolTip('The elevation of its top. Enter to set it; empty and Enter to clear it.')
         self.where.setText(info.where or '—')
         self.copy_name.setEnabled(bool(info.name))
         self.copy_id.setEnabled(info.osm is not None)
@@ -592,10 +620,16 @@ class SelectionPanel(QDockWidget):
             (sel.relation is not None and water_tags(sel.relation.tags))
             or (sel.relation is None and sel.way is not None
                 and (sel.square.name, sel.way.id) in self.editor.layer.water))
-        self.grade_btn.setVisible(water)
+        # a cliff and a flat area are drawn as water is, and graded as none
+        # is: a cliff is given its heights, a flat area flattened (#191)
+        held_flat = sel is not None and (
+            (sel.relation is not None and flat_tags(sel.relation.tags) and not water_tags(sel.relation.tags))
+            or (sel.relation is None and sel.way is not None
+                and (cliff.is_cliff(sel.way) or (flat_tags(sel.way.tags) and not water_tags(sel.way.tags)))))
+        self.grade_btn.setVisible(water and not held_flat)
         self.flatten_btn.setVisible(
             sel is not None and (
-                (sel.relation is not None and water_tags(sel.relation.tags) and not flows(sel.relation.tags))
+                (sel.relation is not None and flat_tags(sel.relation.tags) and not flows(sel.relation.tags))
                 or (sel.relation is None and sel.way is not None and sel.way.closed
                     and flat_tags(sel.way.tags) and not flows(sel.way.tags))))
         way = sel.way if sel is not None and sel.relation is None and not water else None
@@ -651,7 +685,7 @@ class SelectionPanel(QDockWidget):
             self.editor.flatten(pull_back_m=value)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self.ele.hasFocus():
+        if event.key() == Qt.Key.Key_Escape and (self.ele.hasFocus() or self.height.hasFocus()):
             self.refresh()
             self._hand_back()
             return
@@ -674,6 +708,18 @@ class SelectionPanel(QDockWidget):
             self._hand_back()                   # nothing changed: no step on the history
             return
         self.editor.set_ele(value)
+        self.refresh()
+        self._hand_back()
+
+    def _commit_height(self) -> None:
+        text = self.height.text().strip()
+        value = parse_ele(text) if text else None
+        if text and (value is None or value <= 0):
+            self.editor.message.emit(f'not a height: {text}')
+        elif not (value is None and self.info.height is None) and not (
+                value is not None and self.info.height is not None
+                and format_ele(value) == format_ele(self.info.height)):
+            self.editor.set_height(value)
         self.refresh()
         self._hand_back()
 

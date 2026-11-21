@@ -34,7 +34,7 @@ from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Chain, Link, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, flat_tags, is_coastline, parse_ele
-from ..surface import held
+from ..surface import cliff, held
 from ..water import burn, coastfit, contradict, flatten, lassofit
 from ..water.overpass import flows
 from . import mercator as m
@@ -846,7 +846,8 @@ class EditController(QObject):
         if isinstance(feature, Relation):
             self.selection = Selection(square, None, relation=feature)
             ele = feature.ele
-        elif not whole and not way.closed and vdist <= self._px(SNAP_PX):
+        elif not whole and not way.closed and not cliff.is_cliff(way) and vdist <= self._px(SNAP_PX):
+            # a cliff is whole: its heights are the way's, not its points' (#191)
             self.selection = Selection(square, way, vid)
             ele = parse_ele(square.nodes[vid].tags.get('ele')) if vid in square.nodes else None
         else:
@@ -2376,6 +2377,29 @@ class EditController(QObject):
         self.message.emit(f'spot height: {kind or "plain"}')
         return True
 
+    def set_height(self, value: float | None) -> bool:
+        """The selected cliff's or earth bank's ``height`` - the drop from
+        its top to its foot, on its right - set, or taken off with None. One
+        step on the history (#191)."""
+        sel = self.selection
+        if sel is None or sel.way is None or not cliff.is_cliff(sel.way):
+            self.message.emit('no cliff selected')
+            return False
+        if value is not None and value <= 0:
+            self.message.emit('a cliff drops: its height is more than 0 m')
+            return False
+        sq, way = sel.square, sel.way
+        after = {k: v for k, v in way.tags.items() if k != 'height'}
+        if value is not None:
+            after['height'] = format_ele(value)
+        if after == way.tags:
+            return False
+        self.do(sq, edits.SetTags(way.id, dict(way.tags), after))
+        what = f'{format_ele(value)} m' if value is not None else 'no height'
+        self.message.emit(f'{way.tags["natural"].replace("_", " ")} height: {what}')
+        self.overlay.update()
+        return True
+
     def set_ele(self, value: float | None) -> bool:
         """The selection's elevation set to ``value``, or cleared with None -
         the one property the selection panel edits, and what L does with the
@@ -2444,6 +2468,14 @@ class EditController(QObject):
                 return False
             self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
             self.message.emit(f'spot height: {what}')
+        elif sel.way is not None and cliff.is_cliff(sel.way):
+            # its top's elevation (#191), on the way, set or taken off: a
+            # cliff with none is still a cliff, a wall the fill does not cross
+            way = sel.way
+            if unchanged(way.tags):
+                return False
+            self.do(sq, edits.SetTags(way.id, dict(way.tags), retagged(way.tags)))
+            self.message.emit(f'{way.tags["natural"].replace("_", " ")} top: {what}')
         elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
             way = sel.way
             name = way.tags.get('name')
@@ -2461,7 +2493,7 @@ class EditController(QObject):
                 self.message.emit('a river descends, so its level is set at a point on it: '
                                   'click one of its vertices, or grade it')
                 return False
-            elif not water_tags(way.tags):
+            elif not (water_tags(way.tags) or flat_tags(way.tags)):
                 self.message.emit('more than one water relation names this ring; '
                                   'the level belongs to the lake, not to its ring')
                 return False
@@ -2516,6 +2548,12 @@ class EditController(QObject):
                                   'down it')
             else:
                 self._propose_lake(sq, sel.relation)
+        elif sel.way is not None and cliff.is_cliff(sel.way):
+            self.message.emit('a cliff is not graded: give it the elevation of its top and its height')
+        elif sel.relation is not None and flat_tags(sel.relation.tags) or (
+                sel.way is not None and sel.way.closed and flat_tags(sel.way.tags)
+                and not water_tags(sel.way.tags)):
+            self.message.emit('a dry lake or a plateau is held flat: give it its level, or flatten it')
         elif sel.way is not None and (sq.name, sel.way.id) in self.layer.water:
             way = sel.way
             if way.closed and flows(way.tags):
