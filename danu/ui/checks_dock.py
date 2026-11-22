@@ -67,6 +67,15 @@ CHECKS = {
     'coast': ('Coastlines drawn backwards', "A coastline with land on its right - clockwise round an island, "
                                            "or the contours beside it on its sea side. Land is on a coastline's "
                                            'left, so the build reads it as sea - R reverses a way'),
+    'cliff_back': ('Cliffs drawn backwards', "A cliff or an earth bank whose right the contours beside it say "
+                                             "is the high side. Its low side is on its right, so R reverses it"),
+    'cliff_cross': ('Cliffs across contours', 'A cliff with no ele that contours run through: its drop is '
+                                              'across it, and the contours say there is none there. The one '
+                                              'crossing the most first'),
+    'no_height': ('Landforms with no height', 'A peak, a saddle or a sinkhole with no ele; a ridge or a valley '
+                                              'with no level at any point - G grades it; a dry lake or a '
+                                              'plateau with no level. The build makes nothing of one until '
+                                              'it has'),
     'climb': ('Climbing rivers', 'Rivers which climb on the surface (R29) - choose one, and B burns its climb '
               'there, or sets back the contour that crowds it'),
     'backwards': ('Rivers drawn backwards', 'Rivers that climb where they should fall - drawn '
@@ -76,6 +85,7 @@ CHECKS = {
 }
 FILES = ('long', 'ele', 'ladder')
 INSIDE = ('lake', 'coast')
+LANDFORMS = ('cliff_back', 'cliff_cross', 'no_height')
 SURFACE = ('climb', 'backwards', 'sea', 'unreached')
 
 
@@ -339,6 +349,11 @@ class ChecksDock(QDockWidget):
         """What lies inside the rings (H1b): lakes spanning contours, and
         coastlines drawn backwards."""
         self._show_findings(INSIDE, found)
+
+    def show_landforms(self, found: list) -> None:
+        """The landforms (#191): cliffs drawn backwards or across contours,
+        and those still to be given a height."""
+        self._show_findings(LANDFORMS, found)
 
     def show_surface(self, found, at: str = '', stale: bool = False, pending: bool = False) -> None:
         """What the last build said (H2), from its grids: None is no build
