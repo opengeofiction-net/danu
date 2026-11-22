@@ -340,10 +340,11 @@ def test_a_square_newer_on_the_server_is_marked_until_imported(w, zone, qtbot):
     reopened(w, qtbot, lambda: w.open_working_set(zone, centre))
     qtbot.waitUntil(lambda: w.waiting.newer == {centre}, timeout=5000)
     assert w.squares.marks[centre] == '↓' and w.zone_editor.item.marks[centre] == '↓'
+    assert w.windowTitle().endswith(' ↓'), 'the centre square, in the title'
     assert 'S24E125 is newer on the server' in w.statusBar().currentMessage()
     reopened(w, qtbot, w.import_action.trigger)               # untouched here: taken unasked
     qtbot.waitUntil(lambda: w.waiting.newer == set(), timeout=5000)
-    assert centre not in w.squares.marks
+    assert centre not in w.squares.marks and '↓' not in w.windowTitle()
 
 
 def test_the_server_is_asked_again_every_half_hour_while_the_set_stays_open(w, zone, qtbot):
@@ -367,6 +368,7 @@ def test_changed_on_both_sides_it_is_marked_both_ways(w, zone, qtbot):
     (zone / GOLDEN).write_bytes(osm(2))                      # and saved here, not uploaded
     reopened(w, qtbot, lambda: w.open_working_set(zone, centre))
     qtbot.waitUntil(lambda: w.squares.marks.get(centre) == '^↓', timeout=5000)
+    assert w.windowTitle().endswith(' ^↓')
     # the same bytes there as here, however they came, is nothing to take
     shutil.copy(zone / GOLDEN, w.there / GOLDEN)
     assert M.newer_there(zone, w.settings.url('drop/url'), opener=w.importer.opener) == set()

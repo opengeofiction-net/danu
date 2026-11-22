@@ -749,7 +749,8 @@ class MainWindow(QMainWindow):
         if self.working_set is not None:
             ws = self.working_set
             self.setWindowTitle(about.title(ws.centre, bool(dirty), ws.squares[ws.centre].label,
-                                            ws.centre in self.waiting.unsent, ws.centre in self.waiting.outside))
+                                            ws.centre in self.waiting.unsent, ws.centre in self.waiting.outside,
+                                            ws.centre in self.waiting.newer))
 
     # --------------------------------------------------------- territory
     def _territory_ready(self, index):

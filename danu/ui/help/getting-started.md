@@ -199,11 +199,11 @@ centre square's file. Only the folders an import made are marked. **File › Upl
 sends every **^** square of the open zone, one after another, listed
 first for you to agree; other zones' wait until you open them.
 
-**↓** marks a square the server has newer than yours - a neighbour's upload
-to a square you share, since your last import. It is looked for when you
-open a set, after an import and every half hour, and said on the status line; **File ›
-Import** brings it. With **^↓** both copies have changed: the import asks
-which to keep.
+**↓** marks a square the server has newer than yours - a neighbour's
+upload to a square you share, since your last import - and the title has it
+for the centre square. It is looked for when you open a set, after an import
+and every half hour, and said on the status line; **File › Import** brings
+it. With **^↓** both copies have changed: the import asks which to keep.
 
 A square outside its folder's zone is marked **X**: a neighbour of the set
 beyond the zone's edge, written by an import before Danu kept to the zone,
