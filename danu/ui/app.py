@@ -48,6 +48,7 @@ from . import help as help_ui
 from . import mercator as m
 from .autosave import AutoSaver
 from .background import Job
+from .busy_note import BusyNote
 from .checks_dock import ChecksDock
 from .contours import ContourLayer
 from .drop import MARKS, DropClient
@@ -199,6 +200,8 @@ class MainWindow(QMainWindow):
         self.settings = settings if settings is not None else Settings()
         self.map = MapView(self)
         self.setCentralWidget(self.map)
+        # over the map while its squares are replaced: an import or a revert, and the read after it
+        self.busy_note = BusyNote(self.map)
         self.fetcher = TileFetcher(cache_dir, parent=self)
         # the tests hand in a fetcher pointed at files; the app fetches the published ones
         self.territory = territory_fetcher or TerritoryFetcher(
@@ -514,7 +517,8 @@ class MainWindow(QMainWindow):
             self.usage = UsageLog(self, data_dir / 'usage', self)
             self.editor.stepped.connect(self.usage.stepped)
         self.importer = Importer(self, self)
-        self.importer.message.connect(lambda t: self.statusBar().showMessage(t) if t else None)
+        self.importer.message.connect(self._import_said)
+        self.importer.failed.connect(lambda _: self.busy_note.clear())
         self.importer.finished.connect(self._imported)
         # each square's marks on the map: '*' unsaved, '^' saved but not uploaded
         self.waiting = Pending(self, self)
@@ -1830,8 +1834,19 @@ class MainWindow(QMainWindow):
         self.update_start()                              # the start page goes while it is read
         self.open_action.setEnabled(False)
         self.statusBar().showMessage(f'reading {centre} and its neighbours from {zone_dir.name}…')
+        self.busy_note.say(f'reading {centre} and its neighbours…')
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         return True
+
+    def _import_said(self, text: str) -> None:
+        """An import's word: on the status line, and over the map while it
+        fetches - the squares drawn are the ones it is about to replace."""
+        if text:
+            self.statusBar().showMessage(text)
+        if self.importer.busy and text:
+            self.busy_note.say(text)
+        elif not self.importer.busy:
+            self.busy_note.clear()
 
     def update_start(self) -> None:
         """The start page, while there is no working set and none is being
@@ -1914,6 +1929,7 @@ class MainWindow(QMainWindow):
 
     def _loaded(self, ws: WorkingSet):
         QApplication.restoreOverrideCursor()
+        self.busy_note.clear()
         self.open_action.setEnabled(True)
         self.working_set = ws
         self._edited_since_build = False         # a new set: its build is its own
@@ -3381,6 +3397,7 @@ class MainWindow(QMainWindow):
 
     def _load_failed(self, text: str):
         QApplication.restoreOverrideCursor()
+        self.busy_note.clear()
         self.open_action.setEnabled(True)
         self._pending = None
         self.update_start()

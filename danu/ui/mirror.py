@@ -150,9 +150,20 @@ class Importer(QObject):
             return False
         zone_dir = Path(zone_dir)
         base, api = self.window.settings.url('squares/mirror'), self.window.settings.url('drop/url')
-        self.job = Job(lambda: mirror.fetch(zone_dir.name, zone_dir.parent, base, api=api, **self._kw()),
-                       lambda f: self._fetched(f, frozenset(squares)), self._failed)
-        self.runner(self.job)
+        reverting = getattr(self.window, '_reverting', None)
+        doing = (f'reverting {", ".join(sorted(str(n) for n in reverting))}' if reverting
+                 else f'importing {zone_dir.name}')
+        job = None
+
+        def report(step):
+            job.report(step)
+        job = Job(lambda: mirror.fetch(zone_dir.name, zone_dir.parent, base, report=report, api=api, **self._kw()),
+                  lambda f: self._fetched(f, frozenset(squares)), self._failed,
+                  on_progress=lambda s: self.message.emit(
+                      f'{doing}: {s[0]} of {s[1]} squares' + (f' - {s[2]}' if s[2] else '')))
+        self.job = job
+        self.message.emit(f'{doing}: asking the server…')
+        self.runner(job)
         return True
 
     def _fetched(self, f: mirror.Fetched, squares=frozenset()) -> None:
@@ -176,11 +187,16 @@ class Importer(QObject):
 
     def _held(self, zone_dir: Path) -> set[str]:
         """The open set's squares in this zone, when it has unsaved edits:
-        kept, whatever the server has."""
+        kept, whatever the server has - the set is opened again from what
+        is replaced, and its edits would go with it. A revert opens it again
+        whatever happens, so then only the squares with unsaved edits are
+        kept: a clean square beside them takes the server's newer copy."""
         w = self.window
         if w.working_set is None or w.zone_dir is None or Path(w.zone_dir) != Path(zone_dir) \
                 or not w.editor.dirty():
             return set()
+        if getattr(w, '_reverting', None) is not None:
+            return {sq.path.name for sq in w.editor.history.dirty_squares() if sq.path is not None}
         return {sq.path.name for sq in w.working_set.squares.values() if sq.path is not None}
 
     def _failed(self, why: str) -> None:
