@@ -839,7 +839,9 @@ class EditController(QObject):
     def _choose_spot(self, hit, pos: QPointF) -> None:
         square, nid, _ = hit
         self.selection = Selection(square, None, nid)
-        self.elevation.pick_up(self.layer.spots[(square.name, nid)].ele)
+        spot = self.layer.spots.get((square.name, nid))
+        if spot is not None:                       # a peak with no ele has none to pick up
+            self.elevation.pick_up(spot.ele)
         n = square.nodes[nid]
         self._drag = (square, nid, (n.lon, n.lat))
         self._press = pos

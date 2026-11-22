@@ -214,3 +214,29 @@ def test_a_cliffs_elevation_typed_and_tabbed_past_is_kept(window, qtbot):
     QTest.keyClicks(p.height, '55')
     QTest.keyClick(p.height, Qt.Key.Key_Return)
     assert sq.ways[202].tags.get('height') == '55' and sq.ways[202].tags.get('ele') == '300'
+
+
+def test_a_peak_with_no_height_is_drawn_hollow_picked_and_given_one(window):
+    """A peak, a saddle or a sinkhole imported with no ``ele`` is drawn
+    hollow and picked; given its height it is a spot height as any other,
+    and taken back it is hollow again. A plain node with no ele is nothing."""
+    from danu.ui import mercator as m
+    from danu.ui.contours import ZOOM_SPOTS
+    from danu.ui.tools import Selection
+    w = window
+    sq = w.working_set.squares[NORTH]
+    sq.nodes[-911] = Node(id=-911, lon=125.5, lat=-22.5, tags={'natural': 'peak', 'name': 'Bare'})
+    sq.nodes[-912] = Node(id=-912, lon=125.6, lat=-22.5, tags={'name': 'nothing'})
+    w.contours.set_working_set(w.working_set)
+    c = w.contours
+    assert (NORTH, -911) in c.bare_spots and (NORTH, -911) not in c.spots
+    assert (NORTH, -912) not in c.bare_spots
+    x, y = m.lonlat_to_scene(125.5, -22.5)
+    hit = c.pick_spot(x, y, 1.0, ZOOM_SPOTS)
+    assert hit is not None and hit[1] == -911
+    w.editor.selection = Selection(sq, None, -911)
+    assert w.editor.set_ele(1200)
+    assert sq.nodes[-911].tags['ele'] == '1200'
+    assert c.spots[(NORTH, -911)].kind == 'peak' and (NORTH, -911) not in c.bare_spots
+    w.editor.undo()
+    assert (NORTH, -911) in c.bare_spots and (NORTH, -911) not in c.spots

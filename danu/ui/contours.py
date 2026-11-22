@@ -171,6 +171,7 @@ WATER_FILL = QColor(20, 70, 140, 58)
 CREST = QColor(0, 47, 0, 220)              # ridge, valley: JOSM's natural#002f00
 ARETE = QColor(105, 105, 105, 230)         # JOSM's #e6e6e6, lost on white
 CLIFF = QColor(95, 95, 95, 240)            # JOSM's #b2b2b2
+BARE_SPOT = QColor(90, 90, 90)              # a peak, a saddle or a sinkhole with no ele, hollow
 EARTH_BANK = QColor(156, 111, 50, 240)     # JOSM's, as it is
 # the flat landforms, which JOSM does not style: a dry lake's pale clay and a
 # plateau's brown, as water's wash and edge are
@@ -663,6 +664,10 @@ class ContourLayer(QGraphicsItem):
         # ground a contour runs through, so a click that could mean either
         # means the small thing
         self.spots: dict[tuple[SquareName, int], Spot] = {}
+        # a peak, a saddle or a sinkhole with no ``ele`` (#191): the main map
+        # has them by the thousand. Drawn hollow and picked, to be given one;
+        # kept apart, so nothing that reads a spot height's level meets one
+        self.bare_spots: dict[tuple[SquareName, int], Spot] = {}
         # the water, drawn under everything. Here and not only in
         # set_working_set because _paint_water reads it, and a layer can be
         # painted before it is given a set
@@ -734,6 +739,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, _Counted(), {}, _Counted()
+        self.bare_spots = {}
         self.fills, self.coasts, self.marked = _Counted(), {}, {}
         self.water_fills, self._rel_members = _Counted(), {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
@@ -773,7 +779,7 @@ class ContourLayer(QGraphicsItem):
         # having been counted, and they are counted as the water is added
         for square in ws.squares.values():
             for nid, node in square.nodes.items():
-                if 'ele' in node.tags:           # the spots start empty: an untagged node is none
+                if 'ele' in node.tags or node.tags.get('natural') in SPOT_KINDS:   # the spots start empty
                     self._project_spot(square, nid)
         self._reindex()
         self._levels_moved = False
@@ -889,11 +895,15 @@ class ContourLayer(QGraphicsItem):
         # and neither is inf. A mapper should not see one of those drawn as
         # ground at 0 m, or at all
         ele = parse_ele(node.tags.get('ele')) if node is not None else None
+        kind = node.tags.get('natural') if node is not None else None
+        self.bare_spots.pop(key, None)
         if ele is None:
             self.spots.pop(key, None)
+            if kind in SPOT_KINDS:
+                x, y = m.lonlat_to_scene(node.lon, node.lat)
+                self.bare_spots[key] = Spot(square, node_id, math.nan, x, y, kind=kind)
             return
         x, y = m.lonlat_to_scene(node.lon, node.lat)
-        kind = node.tags.get('natural')
         # a peak or a saddle on a ridge is drawn as one, not as a level on it
         self.spots[key] = Spot(square, node_id, ele, x, y,
                                on_water=self._water_refs.get(key, 0) > 0 and kind not in SPOT_KINDS,
@@ -916,9 +926,9 @@ class ContourLayer(QGraphicsItem):
         dirty = []
         for nid in node_ids:
             key = (square.name, nid)
-            was = self.spots.get(key)
+            was = self.spots.get(key) or self.bare_spots.get(key)
             self._project_spot(square, nid)
-            now = self.spots.get(key)
+            now = self.spots.get(key) or self.bare_spots.get(key)
             if was is not now:
                 dirty += [QRectF(s.x, s.y, 0, 0) for s in (was, now) if s is not None]
         update_around(self, dirty, DRAWN_PAD_PX)
@@ -2177,7 +2187,7 @@ class ContourLayer(QGraphicsItem):
         at z12 and a blot at z19, and what it marks is a point either way.
         """
         self.drawn_spots = 0
-        if not self.spots or zoom < ZOOM_SPOTS:
+        if not (self.spots or self.bare_spots) or zoom < ZOOM_SPOTS:
             return
         font = QFont()
         font.setPointSize(FONT_PT)
@@ -2230,6 +2240,29 @@ class ContourLayer(QGraphicsItem):
                 painter.fillPath(tp, colour.darker(150))
             painter.restore()
             self.drawn_spots += 1
+        # hollow: what it is, and no level yet (#191)
+        for spot in self.bare_spots.values():
+            if not (x0 <= spot.x <= x1 and y0 <= spot.y <= y1):
+                continue
+            painter.save()
+            painter.translate(spot.x, spot.y)
+            painter.scale(1.0 / scale, 1.0 / scale)
+            mark = _spot_mark(spot.kind)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for colour, width in ((QColor(255, 255, 255, 220), 3.4), (BARE_SPOT, 1.6)):
+                pen = QPen(colour, width)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawPath(mark)
+            if zoom >= ZOOM_LABELS:
+                # where the level goes, asked for
+                tp = self._text_path('?', font)
+                painter.translate(mark.boundingRect().right() + 3.0, 4.0)
+                painter.setPen(QPen(QColor(255, 255, 255, 220), 3.0))
+                painter.drawPath(tp)
+                painter.fillPath(tp, BARE_SPOT)
+            painter.restore()
+            self.drawn_spots += 1
 
     def pick_spot(self, x: float, y: float, tolerance: float, zoom: float):
         """The nearest spot height within ``tolerance``, as (square, node id,
@@ -2244,7 +2277,7 @@ class ContourLayer(QGraphicsItem):
         if zoom < ZOOM_SPOTS:
             return None
         best = None
-        for spot in self.spots.values():
+        for spot in [*self.spots.values(), *self.bare_spots.values()]:
             if spot.on_water:
                 continue        # a level on a river: picked as a vertex of it
             d = math.hypot(spot.x - x, spot.y - y)
