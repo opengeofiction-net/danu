@@ -143,7 +143,7 @@ def test_the_scan_shows_its_progress_and_hides_the_tree(window):
     w._checks_runner = held.append
     w.checks_dock.toggleViewAction().trigger()
     d = w.checks_dock
-    assert d.progress.isVisible() and d.progress.maximum() == 6 and d.progress.value() == 0
+    assert d.progress.isVisible() and d.progress.maximum() == 7 and d.progress.value() == 0
     assert not d.tree.isVisible()
     assert not d.cut_btn.isVisible() and not d.josm_btn.isVisible()
     assert 'validating' in w.statusBar().currentMessage()
@@ -151,8 +151,8 @@ def test_the_scan_shows_its_progress_and_hides_the_tree(window):
     seen = []
     job.signals.progress.connect(lambda step: seen.append((step, d.progress.format(), d.progress.value())))
     job.run()
-    assert [s[0][0] for s in seen] == [1, 2, 3, 4, 5, 6]
-    assert seen[0][1] == 'Validating: Crossing contours (1 of 6)' and seen[0][2] == 0
-    assert seen[1][1] == 'Validating: Contours crossing themselves (2 of 6)' and seen[1][2] == 1
+    assert [s[0][0] for s in seen] == [1, 2, 3, 4, 5, 6, 7]
+    assert seen[0][1] == 'Validating: Crossing contours (1 of 7)' and seen[0][2] == 0
+    assert seen[1][1] == 'Validating: Contours crossing themselves (2 of 7)' and seen[1][2] == 1
     assert not d.progress.isVisible() and d.josm_btn.isVisible() and d.tree.isVisible()
     assert w.statusBar().currentMessage().startswith('validated in')

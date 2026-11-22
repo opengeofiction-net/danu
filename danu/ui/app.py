@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..checks import crossings, files, inside, loops, spots, touches
+from ..checks import landforms as landform_checks
 from ..checks import surface as surface_checks
 from ..core import doubled, dropclient, edits, find, make_square, mirror, save, territory, zone_index
 from ..core.autosave import Store
@@ -145,7 +146,8 @@ CHECKS = (('Crossing contours', lambda ws: crossings.Index(ws)),
           ('Touching contours', lambda ws: touches.Index(ws)),
           ('Spot heights', lambda ws: spots.Index(ws)),
           ('Way lengths, ele and the ladder', lambda ws: files.Index(ws)),
-          ('Lakes and coastlines', lambda ws: inside.Index(ws)))
+          ('Lakes and coastlines', lambda ws: inside.Index(ws)),
+          ('Landforms', lambda ws: landform_checks.Index(ws)))
 
 
 # an edit of more ways than this has the checks found again whole, on the
@@ -260,6 +262,7 @@ class MainWindow(QMainWindow):
         self.spot_index = None                  # spot heights the rings contradict (R38)
         self.file_index = None                  # what the files say: long ways, ele, the ladder (H1a)
         self.inside_index = None                # what lies inside the rings: lakes, coasts (H1b)
+        self.landform_index = None              # cliffs the contours contradict, landforms with no height (#191)
         self.surface_findings = None            # what the last build said (H2), or None
         self._surface_found_at = ''             # when that build landed
         self._surface_stale = False             # edits since it
@@ -1927,6 +1930,7 @@ class MainWindow(QMainWindow):
         self.spot_index = None
         self.file_index = None
         self.inside_index = None
+        self.landform_index = None
         self.surface_findings = None
         self.squares.set_working_set(ws)
         self.contours.set_working_set(ws)
@@ -2760,7 +2764,7 @@ class MainWindow(QMainWindow):
                     self._checks_shown(self.checks_dock.isVisible())
                     return
                 (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
-                 self.file_index, self.inside_index) = indexes
+                 self.file_index, self.inside_index, self.landform_index) = indexes
                 # put to it a square at a time, everything edited there
                 # together: one step's ways asked before a later one's
                 # removals were met what the later had taken
@@ -2821,6 +2825,10 @@ class MainWindow(QMainWindow):
             # the rings and lakes round what moved, 23 ms at the most measured
             self.inside_index.update(square, ways or (), spot_ids or ())
             self._checks_due.start()
+        if self.landform_index is not None and (ways or spot_ids):
+            # a landform edited, or a contour near a cliff - 4 ms on gobras
+            self.landform_index.update(square, ways or (), spot_ids or ())
+            self._checks_due.start()
         if self.spot_index is not None and (ways or spot_ids):
             # a spot height moved or re-levelled, or a ring round one changed
             self.spot_index.update(square, ways or (), spot_ids or ())
@@ -2855,7 +2863,7 @@ class MainWindow(QMainWindow):
         to put to them way by way."""
         self._checks_wide = False
         (self.crossing_index, self.loop_index, self.touch_index, self.spot_index,
-         self.file_index, self.inside_index) = (None,) * 6
+         self.file_index, self.inside_index, self.landform_index) = (None,) * 7
         self._checks_shown(self.checks_dock.isVisible())
 
     def _refresh_checks(self) -> None:
@@ -2866,6 +2874,8 @@ class MainWindow(QMainWindow):
         self.checks_dock.show_spots(sh(self.spot_index.contradictions() if self.spot_index is not None else []))
         self.checks_dock.show_files(sh(self.file_index.findings() if self.file_index is not None else []))
         self.checks_dock.show_inside(sh(self.inside_index.findings() if self.inside_index is not None else []))
+        self.checks_dock.show_landforms(sh(self.landform_index.findings()
+                                           if self.landform_index is not None else []))
         self.checks_dock.show_surface(sh(self.surface_findings), self._surface_found_at, self._surface_stale,
                                       self._surface_pending)
         self._refocus()
@@ -2911,6 +2921,11 @@ class MainWindow(QMainWindow):
                              # crosses over every hill
                              + [m.lonlat_to_scene(f.lon, f.lat)
                                 for f in sh(self.inside_index.findings('lake') if self.inside_index is not None else [])]
+                             # a cliff drawn backwards; not those crossing contours, nor every
+                             # peak with no height - gobras has 161 and 62
+                             + [m.lonlat_to_scene(f.lon, f.lat)
+                                for f in sh(self.landform_index.findings('cliff_back')
+                                            if self.landform_index is not None else [])]
                              # a square of unreached ground is a row, not a place to mark
                              + [m.lonlat_to_scene(f.lon, f.lat)
                                 for f in sh(self.surface_findings or []) if f.kind != 'unreached']

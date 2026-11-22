@@ -412,3 +412,15 @@ def test_the_votes_of_all_contours_at_once_are_each_contours_own():
     apart = {i: v for i in lines if (v := s.sides.votes(lines[i]))}
     assert together == apart
     assert len(together) > 10, 'too few contours near the coast to test anything'
+
+
+def test_a_dry_lake_or_plateau_spanning_contours_is_listed_as_a_lake_is():
+    for kind, noun in (('dry_lake', 'dry lake'), ('plateau', 'plateau')):
+        w, sq = ws()
+        flat = ring(sq, 125.5, -22.5, 0.02, {'natural': kind, 'name': 'Tull'})
+        line(sq, [(125.45, -22.5), (125.55, -22.5)], 125)
+        line(sq, [(125.45, -22.51), (125.55, -22.51)], 150)
+        (f,) = kinds(w, 'lake')
+        assert f.way == flat.id and f.describe() == f'{noun} "Tull" - 2 contour levels inside, 125 to 150 m'
+        flat.tags['ele'] = '125'                                       # its level now: 150 still contradicts it
+        assert len(kinds(w, 'lake')) == 1
