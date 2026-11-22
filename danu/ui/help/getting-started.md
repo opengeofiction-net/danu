@@ -132,6 +132,29 @@ page back over whatever is open.
   crossed nothing are not put down crossing another; ones that already
   crossed move, and the status bar says how the crossings changed.
 
+### Landforms
+
+Ridges, aretes, valleys, gullies and gorges are held as graded rivers are;
+dry lakes and plateaus flat at their level, as a lake is; every cliff and
+earth bank is a wall the surface does not fill across; peaks, saddles and
+sinkholes are spot heights, a saddle read as a pass.
+
+- **Ctrl+Shift+I** (Edit › Landforms) imports the main map's landforms and
+  spot heights into the open squares, in one step. Few have a height there:
+  they arrive to be given one.
+- **D** draws a landform of the kind chosen in Edit › Landforms › Draw as;
+  it is edited as a contour is. A landform's **Kind** in the Selected panel
+  makes it any other.
+- **G** grades a ridge or a valley from the contours it crosses, putting a
+  point at each crossing; **L** sets a level at a point of it. **F**
+  flattens a dry lake or a plateau as a lake.
+- A cliff's low side is on its right, where its teeth point. **R** reverses
+  one drawn backwards. Give it an **Elevation** for its top and a **Height**
+  for its drop, and the foot is laid as well.
+- A peak, saddle or sinkhole with no height is drawn hollow, with a **?**.
+- The Validation panel lists cliffs drawn backwards, cliffs the contours run
+  across, and landforms with no height.
+
 Every key can be changed in **File › Preferences…**; **Help › Keys** lists
 them as they are set now.
 

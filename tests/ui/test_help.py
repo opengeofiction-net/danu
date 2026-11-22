@@ -71,7 +71,9 @@ def test_every_binding_is_on_the_keys_page():
 # the keys getting-started names, and the bindings they must be
 NAMED = {'A': 'tool.draw', 'Q': 'tool.select', 'Z': 'tool.spot', 'M': 'tool.measure',
          'W': 'elevation.small_up', 'S': 'elevation.small_down', '2': 'elevation.big_up',
-         'X': 'elevation.big_down', 'Space': 'elevation.pick_up', 'Ctrl+S': 'file.save'}
+         'X': 'elevation.big_down', 'Space': 'elevation.pick_up', 'Ctrl+S': 'file.save',
+         'D': 'tool.landform', 'G': 'edit.grade', 'L': 'edit.set_level', 'F': 'edit.flatten',
+         'R': 'edit.reverse_coastline', 'Ctrl+Shift+I': 'edit.import_landforms'}
 
 
 def test_getting_started_names_the_keys_danu_ships_with():
