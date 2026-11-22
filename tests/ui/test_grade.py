@@ -951,3 +951,34 @@ def test_a_tributarys_long_last_stretch_to_its_river_is_graded(window, sq):
     got = levels(sq, t)
     assert got[-1] == levels(sq, r)[8] and got[1] is not None, got
     assert float(got[-1]) < float(got[1]) < 30, got
+
+
+# ------------------------------------------------------------- landforms (#191)
+
+def test_a_ridge_is_graded_rising_and_falling_between_its_crossings(window, sq):
+    """A ``natural=ridge`` crossing 100, 125 and 100 m: graded straight
+    between each pair, up then down - where a river would have the climb
+    left ungraded - and drawn, picked and named as a landform line."""
+    three_contours(sq, values=(100, 125, 100))
+    r = river(sq, EAST, tags={'natural': 'ridge'})
+    rebuild(window)
+    assert window.contours.water[(NORTH, r.id)].landform
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable and 'left ungraded' not in p.summary
+    window.editor.accept_proposal()
+    got = [float(v) if v is not None else None for v in levels(sq, r)]
+    assert got[4] == pytest.approx(112.5) and got[6] == pytest.approx(120.8)
+    assert got[3] < got[4] < got[5] and got[6] > got[7] > got[8], "the crest does not rise and fall"
+    window.editor.selection = Selection(sq, r, r.refs[4])
+    assert window.selection_panel.kind.text() == 'point on a ridge'
+
+
+def test_a_valley_is_graded_as_a_river_is(window, sq):
+    """A ``natural=valley`` floor descends, as water does: the river's rule."""
+    three_contours(sq)
+    r = river(sq, EAST, tags={'natural': 'valley'})
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable
+    window.editor.accept_proposal()
+    assert levels(sq, r)[4] == '87.5'

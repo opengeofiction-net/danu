@@ -265,3 +265,25 @@ def test_the_editors_split_solve_is_the_builds(tmp_path):
     first, _ = lib.run(cons, params, mask=mask, nodata=-9999.0, pass2=False)
     split = lib.diffuse(lib.hold(first, h, params.fill_cells), mask=mask)
     assert np.array_equal(whole.view(np.uint32), split.view(np.uint32))
+
+
+@pytest.mark.parametrize('kind', ['valley', 'ridge'])
+def test_a_landform_line_is_held_as_a_river_is(tmp_path, kind):
+    """#191: a ``natural=valley`` or ``ridge`` drawn as a line, heights on its
+    vertices, is held as a graded river is - its vertices not spot heights,
+    its runs the held layer, its heights kept by the fill."""
+    import numpy as np
+    from osgeo import ogr
+    sq = a_valley()
+    wid, way = next((w, x) for w, x in sq.ways.items() if 'waterway' in x.tags)
+    way.tags = {'natural': kind}
+    r = built(sq, tmp_path)
+    ds = ogr.Open(str(r.contours_gpkg))
+    assert ds.GetLayerByName('spot').GetFeatureCount() == 0
+    assert ds.GetLayerByName('held').GetFeatureCount() == len(RUNS)
+    del ds
+    h, _ = read(r.held)
+    s, _ = read(r.surface)
+    m, _ = read(r.drawn_mask)
+    at = (h != -32768) & (m > 0)
+    assert at.sum() > 100 and np.array_equal(s[at], h[at])

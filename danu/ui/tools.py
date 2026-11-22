@@ -31,9 +31,10 @@ from PySide6.QtWidgets import QGraphicsItem
 from ..checks import loops
 from ..checks.files import API_LIMIT
 from ..core import crossfix, edits, geometry, profile
-from ..core.chains import LINE_KINDS, Network, component, free_end_side, node_key
+from ..core.chains import LINE_KINDS, Chain, Link, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele
+from ..surface import held
 from ..water import burn, coastfit, contradict, flatten, lassofit
 from ..water.overpass import flows
 from . import mercator as m
@@ -2563,10 +2564,17 @@ class EditController(QObject):
         split into, end to end, crossing gaps of up to ``chains.TOLERANCE_M``
         between free ends: the vertices in one order, the distances and the
         crossings carried across each link, one grade along the lot."""
-        chain = Network(self.working_set).chain_of(sq, way)
-        seq, dist, known = self._along_chain(chain)
-        water = _water_ends(self._shore_lines(), seq, dist)
-        known = _with_ends(known, water)
+        kind = held.landform(way)
+        if kind is not None:
+            # a ridge or a valley drawn as a line (#191): the way alone - the
+            # river network's chains are of rivers - and no shore to run to
+            chain = Chain([Link(sq, way, False)])
+            seq, dist, known = self._along_chain(chain)
+        else:
+            chain = Network(self.working_set).chain_of(sq, way)
+            seq, dist, known = self._along_chain(chain)
+            water = _water_ends(self._shore_lines(), seq, dist)
+            known = _with_ends(known, water)
         name = way.tags.get('name') or f'way {way.id}'
         pieces = len(chain.links)
         if len(known) < 2:
@@ -2575,7 +2583,12 @@ class EditController(QObject):
                               + (f' along its {pieces} ways' if pieces > 1 else '')
                               + ' - not enough to grade from')
             return
-        levels, rejected, upstream = profile.grade_along(known, dist)
+        if held.is_crest(way):
+            # a crest rises and falls between the contours it crosses: graded
+            # straight between each pair, nothing rejected, no way downstream
+            levels, rejected, upstream = profile.grade_crest(known, dist), [], False
+        else:
+            levels, rejected, upstream = profile.grade_along(known, dist)
         # to the decimetre: the build rasterises to the metre, and a level
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
@@ -2624,7 +2637,7 @@ class EditController(QObject):
             parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded '
                          '- where the contours climb')
         river = [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
-        steep = contradict.find(self.working_set, river, dist, levels)
+        steep = [] if held.is_crest(way) else contradict.find(self.working_set, river, dist, levels)
         if steep:
             parts.append(steep_part(len(steep)))
         if upstream:

@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
 from ..core.square import is_coastline, parse_ele
+from ..surface import held
 from ..water.overpass import flows
 from . import icons
 from .contours import water_tags
@@ -196,10 +197,11 @@ def _describe(sel, layer) -> Info:
     where = f'{sq.name} · {_ident("way", way.id)} · {len(way.refs)} nodes'
     if (sq.name, way.id) in layer.water:
         name = way.tags.get('name', '')
-        kind = way.tags.get('waterway') or way.tags.get('water') or 'water'
+        kind = way.tags.get('waterway') or held.landform(way) or way.tags.get('water') or 'water'
         if sel.node is not None and sel.node in sq.nodes:
             node = sq.nodes[sel.node]
-            return Info(kind=f'point on a {kind}' if way.tags.get('waterway') else 'point on water',
+            return Info(kind=f'point on a {kind}' if way.tags.get('waterway') or held.landform(way)
+                        else 'point on water',
                         name=name, ele=parse_ele(node.tags.get('ele')), editable=True,
                         where=f'{sq.name} · {_ident("node", sel.node)} of way {way.id}',
                         tags=_others(node.tags))
@@ -213,7 +215,9 @@ def _describe(sel, layer) -> Info:
             levelled = sum(1 for r in way.refs
                            if r in sq.nodes and 'ele' in sq.nodes[r].tags)
             return Info(kind=kind, name=name, editable=False,
-                        why_not='a river descends: select one of its points to set a level there',
+                        why_not=(f'a {kind} rises and falls: select one of its points to set a level there'
+                                 if held.landform(way) else
+                                 'a river descends: select one of its points to set a level there'),
                         where=f'{where} · levels at {levelled} of {len(way.refs)} points',
                         tags=_others(way.tags))
         if not water_tags(way.tags):

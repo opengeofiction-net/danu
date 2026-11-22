@@ -152,7 +152,8 @@ the tools for everything else.
   from upstream is reported rather than deleted, and keeps its version - but a
   way merged upstream, its nodes now on other ways, is removed and said so. An
   import is one undoable step.
-- **R48** A graded waterway's heights are held by the surface along its line,
+- **R48** A graded waterway's heights, and those on a valley, gully, gorge,
+  ridge or arete drawn as a line, are held by the surface along it,
   interpolated between its vertices, without the fill reading them as
   constraints.
 - **R28** Water anchors inside the squares are first-class and editable. The
@@ -165,7 +166,7 @@ Numbered from R36 because the earlier numbers are cited from the code.
 
 - **R36** Nodes with `ele` inside the squares are first-class and editable.
   A node carrying `ele` is a constraint, the same as a contour way, unless it
-  is a vertex of a waterway (R48).
+  is a vertex of a waterway or of a landform drawn as a line (R48).
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
 - **R49** A spot height's kind says what the surface makes of it: a saddle is

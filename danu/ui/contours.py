@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QGraphicsItem
 from ..core import geometry, profile
 from ..core.rings import is_closed, relation_rings
 from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele, water_tags
+from ..surface import held
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import box as _bbox
@@ -153,6 +154,9 @@ WATER = QColor(20, 70, 140, 200)
 # faint wash says "inside", the firm edge says "shore", and between them a
 # lake stops reading as a very round contour
 WATER_FILL = QColor(20, 70, 140, 58)
+# a ridge or a valley drawn as a line (#191): the ground's brown, dashed, so it
+# is not taken for water or for a contour
+LANDFORM = QColor(120, 75, 30, 210)
 
 
 @dataclass
@@ -193,6 +197,9 @@ class _Piece:
     # paint; and its path cut to the view last drawn, by that view
     rings: list | None = field(default=None, compare=False, repr=False)
     cut: tuple = field(default=(None, None), compare=False, repr=False)
+    # a ridge or a valley drawn as a line, painted in the ground's colour (#191);
+    # last, as the fields before it are given by position
+    landform: bool = field(default=False, compare=False)
 
     def fill(self, view: QRectF) -> QPainterPath:
         """What of a water fill to draw in ``view``: the whole path, or for
@@ -372,12 +379,14 @@ def is_outline(way: Way) -> bool:
 
 
 def _is_water(way: Way) -> bool:
-    """A way an import brought, or a mapper drew, as water.
+    """A way an import brought, or a mapper drew, as water - or a landform
+    drawn as a line (#191), which is drawn, picked, levelled at points and
+    graded as a river is, and painted in the ground's colour.
 
     ``natural=water`` or any ``waterway``. A multipolygon's member rings carry
     neither - the relation holds the tagging - so ``set_working_set`` marks
     them from the relation; this answers for the way alone."""
-    return water_tags(way.tags)
+    return water_tags(way.tags) or held.landform(way) is not None
 
 
 @dataclass
@@ -1163,7 +1172,7 @@ class ContourLayer(QGraphicsItem):
         xs, ys = g.pts[:, 0], g.pts[:, 1]
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-        self.water[key] = _Piece(path, rect, None, None)
+        self.water[key] = _Piece(path, rect, None, None, landform=held.landform(g.way) is not None)
         for r in g.refs:
             k = (key[0], r)
             self._water_refs[k] = self._water_refs.get(k, 0) + 1
@@ -1840,11 +1849,22 @@ class ContourLayer(QGraphicsItem):
                 return
             pen = QPen(WATER, 1.4)
             pen.setCosmetic(True)
+            ground = QPen(LANDFORM, 1.4, Qt.PenStyle.DashLine)
+            ground.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
+            landforms = []
             for piece in self._in('water', self.water, self.water.values, rect):
+                if piece.landform:
+                    landforms.append(piece)
+                    continue
                 painter.drawPath(piece.path)
                 self.drawn_water += 1
+            if landforms:
+                painter.setPen(ground)
+                for piece in landforms:
+                    painter.drawPath(piece.path)
+                    self.drawn_water += 1
             self._paint_lake_levels(painter, rect if near is None else near, scale, zoom)
         finally:
             painter.restore()
