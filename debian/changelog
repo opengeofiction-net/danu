@@ -1,3 +1,31 @@
+danu (1.6.0-1) unstable; urgency=medium
+
+  * Terrain features (#191). Saddles are read as passes from the contours
+    round them, and sinkholes as pits (#375). Ridges, aretes, valleys,
+    gullies and gorges are held as graded rivers are (#376). Dry lakes and
+    plateaus are held flat at their level as lakes are, and flatten as a
+    lake does (#377). A cliff or earth bank with ele and height drops that
+    height to its right (#378), and every cliff, with heights or without,
+    is a wall the fill does not cross (#380). Needs isofill 0.16.1; an
+    older isofill binary is refused with its version.
+  * Edit > Landforms > Import landforms and spot heights (Ctrl+Shift+I):
+    the main map's ridges, cliffs, valleys, dry lakes, plateaus, peaks,
+    saddles and sinkholes in one undoable step, reconciled on a second
+    import (#379, #382).
+  * Landforms are drawn in JOSM's style and picked with or without a height,
+    drawn with D and edited as a contour is. Kind changes one into any other,
+    R reverses a cliff or earth bank, and grading one puts a point at each
+    contour crossing it. A peak, saddle or sinkhole with no ele is drawn
+    hollow (#382).
+  * Validation: cliffs drawn backwards, cliffs across contours, and
+    landforms with no height; the lakes row covers dry lakes and plateaus
+    too (#383).
+  * Graded rivers are held by isofill's second pass, not read as spot
+    heights: no flat plain ending in a step beside a river (#373, closes
+    #372).
+
+ -- Lee Kindness <wangi@opengeofiction.net>  Sun, 22 Nov 2026 18:46:23 +0000
+
 danu (1.5.4-1) unstable; urgency=medium
 
   * The sea comes from the squares alone: --water-areas and the
