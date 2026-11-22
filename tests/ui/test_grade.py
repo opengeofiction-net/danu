@@ -966,11 +966,32 @@ def test_a_ridge_is_graded_rising_and_falling_between_its_crossings(window, sq):
     p = grade(window, sq, r)
     assert p is not None and p.acceptable and 'left ungraded' not in p.summary
     window.editor.accept_proposal()
-    got = [float(v) if v is not None else None for v in levels(sq, r)]
-    assert got[4] == pytest.approx(112.5) and got[6] == pytest.approx(120.8)
-    assert got[3] < got[4] < got[5] and got[6] > got[7] > got[8], "the crest does not rise and fall"
-    window.editor.selection = Selection(sq, r, r.refs[4])
+    at = {round(sq.nodes[n].lon, 3): float(v) if v is not None else None
+          for n, v in zip(r.refs, levels(sq, r), strict=True)}
+    assert at[125.34] == pytest.approx(112.5) and at[125.36] == pytest.approx(120.8)
+    assert at[125.33] < at[125.34] < at[125.35] and at[125.36] > at[125.37] > at[125.38], \
+        "the crest does not rise and fall"
+    window.editor.selection = Selection(sq, r, r.refs[5])
     assert window.selection_panel.kind.text() == 'point on a ridge'
+
+
+def test_a_ridge_of_two_points_is_given_one_at_each_crossing(window, sq):
+    """An arete drawn as one stroke across the contours has no point between
+    them to carry a level - it graded none and said it was already graded.
+    Graded, it is given a point where each contour crosses it, at that
+    contour's level, one step; Ctrl+Z takes the points and levels back."""
+    three_contours(sq, values=(100, 125, 100))
+    r = river(sq, [125.30, 125.40], tags={'natural': 'arete'})
+    rebuild(window)
+    p = grade(window, sq, r)
+    assert p is not None and p.acceptable, p
+    assert '3 crossings, 3 of 5 points levelled' in p.summary
+    assert '3 points added where contours cross it' in p.summary
+    window.editor.accept_proposal()
+    got = [(round(sq.nodes[n].lon, 3), sq.nodes[n].tags.get('ele')) for n in r.refs]
+    assert got == [(125.3, None), (125.325, '100'), (125.355, '125'), (125.385, '100'), (125.4, None)]
+    window.editor.undo()
+    assert len(sq.ways[r.id].refs) == 2 and not any('ele' in sq.nodes[n].tags for n in sq.ways[r.id].refs)
 
 
 def test_a_valley_is_graded_as_a_river_is(window, sq):
@@ -981,4 +1002,5 @@ def test_a_valley_is_graded_as_a_river_is(window, sq):
     p = grade(window, sq, r)
     assert p is not None and p.acceptable
     window.editor.accept_proposal()
-    assert levels(sq, r)[4] == '87.5'
+    at = {round(sq.nodes[n].lon, 3): sq.nodes[n].tags.get('ele') for n in r.refs}
+    assert at[125.34] == '87.5' and at[125.355] == '75'

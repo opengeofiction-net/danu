@@ -349,6 +349,7 @@ class TranslateWay(Command):
     way_id: int
     moves: dict[int, tuple[Coord, Coord]]
     copies: dict[int, tuple[int, Coord]]
+    what: str = 'contour'                       # how the history names it: a landform's kind (#191)
 
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
@@ -381,7 +382,7 @@ class TranslateWay(Command):
             n.lon, n.lat = lon, lat
 
     def describe(self) -> str:
-        return 'move contour'
+        return f'move {self.what}'
 
 
 def translate_way(square: Square, way_id: int, move, alloc: IdAllocator) -> TranslateWay:

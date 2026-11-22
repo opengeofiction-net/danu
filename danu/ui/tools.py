@@ -57,6 +57,13 @@ def _named(way) -> str:
         return f'the {kind.replace("_", " ")}'
     return f'the {format_ele(way.ele)} m contour' if way.ele is not None else 'the way'
 
+
+def _a(kind: str) -> str:
+    """A landform kind with its article: a ridge, an arete."""
+    said = kind.replace('_', ' ')
+    return f'{"an" if said[0] in "aeiou" else "a"} {said}'
+
+
 SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
@@ -1665,12 +1672,16 @@ class EditController(QObject):
             return
         self.marks_focus = []
         cmd = edits.translate_way(square, way.id, move, self.history.alloc(square))
+        if kind is not None and way.ele is None:
+            cmd.what = kind.replace('_', ' ')
         self.do(square, cmd)
         said = f'{what[0]} {name}' + (f' {what[1]}' if what[1] else '')
         if cmd.copies:
             said += f'; it came away from {len(cmd.copies)} node{"s" * (len(cmd.copies) != 1)} it shared'
         n = f'{len(after)} contour{"s" * (len(after) != 1)}'
-        if not after:
+        if kind is not None and way.ele is None:
+            pass                                   # it crosses what it likes
+        elif not after:
             said += '; it crosses nothing now'
         elif len(after) == len(before):
             said += f'; it still crosses {n}'
@@ -1826,7 +1837,7 @@ class EditController(QObject):
             self.pending = (square, node, (lon, lat))
             self.message.emit(f'redrawing the {format_ele(ele)} m contour - end on it with Enter or a right click'
                               if origin is not None else
-                              f'drawing a {self._landform().replace("_", " ")} in {square.name}' if self._landform()
+                              f'drawing {_a(self._landform())} in {square.name}' if self._landform()
                               else f'drawing at {format_ele(ele)} m in {square.name}')
             self.overlay.update()
             return False
@@ -2125,7 +2136,7 @@ class EditController(QObject):
             self._stop_drawing()
         self.landform_kind = kind
         self.set_tool('landform')
-        self.message.emit(f'drawing a {kind.replace("_", " ")}: as a contour is drawn - click or drag, '
+        self.message.emit(f'drawing {_a(kind)}: as a contour is drawn - click or drag, '
                           'Enter or a right click ends it' + (' and closes it' if kind in AREA_KINDS else '')
                           + (' - its low side on the right' if kind in ('cliff', 'earth_bank') else ''))
         self.landformKindChanged.emit(kind)
@@ -2609,7 +2620,8 @@ class EditController(QObject):
                 if unchanged(node.tags):
                     return False
                 self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), retagged(node.tags)))
-                self.message.emit(f'{what} at a point on {name or "the river"}')
+                kind = landform_kind(way.tags)
+                self.message.emit(f'{what} at a point on {name or ("the " + kind.replace("_", " ") if kind else "the river")}')
             elif way.closed and flows(way.tags):
                 self.message.emit(f'{name or "a river area"} flows, so it has no one level '
                                   '(R27): grade it instead')
@@ -2722,6 +2734,38 @@ class EditController(QObject):
             offset += length
         return seq, dist, sorted(set(known))
 
+    def _at_crossings(self, sq: Square, way: Way, seq, dist, known, near_m: float = 1.0):
+        """A landform's vertices with a new one wherever a contour crosses it
+        between two of its own (#191): a ridge drawn as a few long strokes
+        across the contours has no point there to carry their level - an
+        arete of two points crossing thirteen contours graded none - and the
+        held line is its levels at its points. Answers the sequence and the
+        distances with the new points in place, and the new points as
+        {node id: (lon, lat)}, their ids taken from the square's allocator."""
+        if len(seq) < 2:
+            return seq, dist, {}
+        alloc = self.history.alloc(sq)
+        coords = [(sq.nodes[r].lon, sq.nodes[r].lat) for _s, r in seq]
+        out_seq, out_dist, added = [seq[0]], [dist[0]], {}
+        cross = sorted({d for d, _e in known})
+        j = 0
+        for k in range(len(seq) - 1):
+            d0, d1 = dist[k], dist[k + 1]
+            while j < len(cross) and cross[j] <= d0 + near_m:
+                j += 1
+            while j < len(cross) and cross[j] < d1 - near_m:
+                d = cross[j]
+                f = (d - d0) / (d1 - d0)
+                (x0, y0), (x1, y1) = coords[k], coords[k + 1]
+                nid = alloc.take()
+                added[nid] = (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
+                out_seq.append((sq, nid))
+                out_dist.append(d)
+                j += 1
+            out_seq.append(seq[k + 1])
+            out_dist.append(d1)
+        return out_seq, out_dist, added
+
     def _propose_river(self, sq: Square, way: Way) -> None:
         """A river graded as the chain it belongs to - G6d. The ways it was
         split into, end to end, crossing gaps of up to ``chains.TOLERANCE_M``
@@ -2733,7 +2777,9 @@ class EditController(QObject):
             # river network's chains are of rivers - and no shore to run to
             chain = Chain([Link(sq, way, False)])
             seq, dist, known = self._along_chain(chain)
+            seq, dist, added = self._at_crossings(sq, way, seq, dist, known)
         else:
+            added = {}
             chain = Network(self.working_set).chain_of(sq, way)
             seq, dist, known = self._along_chain(chain)
             water = _water_ends(self._shore_lines(), seq, dist)
@@ -2756,7 +2802,10 @@ class EditController(QObject):
         # interpolated to the millimetre is precision nobody measured - but a
         # metre would make a slow river a staircase
         levels = [round(v, 1) if v is not None else None for v in levels]
-        current = [parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
+        current = [None if r in added else parse_ele(s2.nodes[r].tags.get('ele')) for s2, r in seq]
+
+        def lonlat(s2, r):
+            return added[r] if r in added else (s2.nodes[r].lon, s2.nodes[r].lat)
         # an imported node is one OSM node in every file that holds it - a
         # junction in two squares of the chain, or a node a contour in a third
         # square was snapped to - and its level goes into every one of them
@@ -2767,6 +2816,9 @@ class EditController(QObject):
             if lv is None:
                 continue
             text = format_ele(lv)
+            if r in added:
+                changes.setdefault(s2.name, {})[r] = ({}, {'ele': text})
+                continue
             for holder in ([s2] if r < 0 else [x for x in everywhere if r in x.nodes]):
                 tags = holder.nodes[r].tags
                 if tags.get('ele') == text or r in changes.get(holder.name, {}):
@@ -2778,7 +2830,17 @@ class EditController(QObject):
         by_name = {x.name: x for x in everywhere}
         for sq_name, ch in changes.items():
             ids = tuple(link.way.id for link in chain.links if link.square.name == sq_name)
-            steps.append((by_name[sq_name], edits.SetNodeLevels(ch, ids, f'grade {name}')))
+            levels_set = edits.SetNodeLevels(ch, ids, f'grade {name}')
+            if added and sq_name == sq.name:
+                # the points at its crossings put in first, then levelled with
+                # the rest: one step, and Ctrl+Z takes both back
+                # each at its place in the finished way, in order, so each
+                # index is right when it goes in; the way itself kept, so a
+                # selection of it stays one
+                inserts = [edits.InsertNode(way.id, i, r, added[r])
+                           for i, (_s, r) in enumerate(seq) if r in added]
+                levels_set = edits.Compound([*inserts, levels_set], f'grade {name}')
+            steps.append((by_name[sq_name], levels_set))
         graded = [v for v in levels if v is not None]
         # points counted as nodes, not as places along the chain: a way that
         # passes through one of its own nodes twice - Wandrasoon Creek's
@@ -2794,12 +2856,14 @@ class EditController(QObject):
         parts = [f'{name}' + (f': a chain of {pieces} ways' if pieces > 1 else '')
                  + f', {len(known)} crossings, {levelled} of {points} points levelled'
                  + (f', {max(graded):g} to {min(graded):g} m' if graded else '')]
+        if added:
+            parts.append(f'{len(added)} point{"s" * (len(added) != 1)} added where contours cross it')
         # a span is left ungraded only where the contours climb: the contours
         # and the river disagreeing
         if rejected:
             parts.append(f'{len(rejected)} span{"s" * (len(rejected) != 1)} left ungraded '
                          '- where the contours climb')
-        river = [(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
+        river = [lonlat(s2, r) for s2, r in seq]
         steep = [] if held.is_crest(way) else contradict.find(self.working_set, river, dist, levels)
         if steep:
             parts.append(steep_part(len(steep)))
@@ -2814,9 +2878,11 @@ class EditController(QObject):
                          'a mapping error, to join upstream')
         if replaced:
             parts.append(f'replaces {replaced} level{"s" * (replaced != 1)} set before')
-        if not steps:
+        if not steps and levelled:
             parts.append('already graded so - nothing to change')
-        pts = [m.lonlat_to_scene(s2.nodes[r].lon, s2.nodes[r].lat) for s2, r in seq]
+        elif not steps:
+            parts.append('no point of it lies between two crossings - nothing to change')
+        pts = [m.lonlat_to_scene(*lonlat(s2, r)) for s2, r in seq]
         # six of the seven gaps on the gobras set are two nodes on one spot,
         # never merged - "a 0 m gap" would say nothing a mapper can act on
         issues = sorted(span_issues(name, pts, dist, rejected, True)
