@@ -63,7 +63,7 @@ CHECKS = {
     'long': ('Ways too long', 'Ways too long for the API or GDAL (R30) - save splits them'),
     'ele': ('Ele not a number', 'An ele that is not a number (R31) - the build drops it'),
     'ladder': ('Off the ladder', 'A value off the ladder, used once or twice - a mistyped value?'),
-    'lake': ('Lakes spanning contours', 'Water spanning contours (R33) - select it, and F flattens it'),
+    'lake': ('Lakes and flat areas spanning contours', 'A lake, a dry lake or a plateau spanning contours (R33) - select it, and F flattens it'),
     'coast': ('Coastlines drawn backwards', "A coastline with land on its right - clockwise round an island, "
                                            "or the contours beside it on its sea side. Land is on a coastline's "
                                            'left, so the build reads it as sea - R reverses a way'),

@@ -35,7 +35,7 @@ def test_a_lake_spanning_contours_is_listed_and_a_node_unfolded_stays_so(window,
     w.checks_dock.toggleViewAction().trigger()
     qtbot.waitUntil(lambda: w.inside_index is not None, timeout=5000)
     h = heads(w.checks_dock)
-    water, coast = h['Lakes spanning contours'], h['Coastlines drawn backwards']
+    water, coast = h['Lakes and flat areas spanning contours'], h['Coastlines drawn backwards']
     assert not water.isExpanded() and not coast.isExpanded(), 'folded, as the tree starts'
     assert 'F flattens it' in water.toolTip(0)
     (row,) = [water.child(j) for j in range(water.childCount()) if water.child(j).data(0, 256).square == NORTH]
@@ -43,4 +43,4 @@ def test_a_lake_spanning_contours_is_listed_and_a_node_unfolded_stays_so(window,
     assert w.editor.selection.way is lake and 'F flattens it' in w.statusBar().currentMessage()
     water.setExpanded(True)
     w._refresh_checks()
-    assert heads(w.checks_dock)['Lakes spanning contours'].isExpanded(), 'unfolded, it stays so'
+    assert heads(w.checks_dock)['Lakes and flat areas spanning contours'].isExpanded(), 'unfolded, it stays so'

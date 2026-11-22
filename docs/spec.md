@@ -214,7 +214,7 @@ Numbered from R36 because the earlier numbers are cited from the code.
 - **R31** `ele` values which are not numbers.
 - **R32** Sea level lines which do not lie on a drawn coastline, per
   `demCheckZeroLine.py`.
-- **R33** A water body spanning more than one contour.
+- **R33** A water body, a dry lake or a plateau spanning more than one contour.
 - **R38** A spot height which contradicts the contours around it: one which
   does not lie between the elevations of the rings enclosing it, or, in no
   ring, within a step of the contours nearest it.
