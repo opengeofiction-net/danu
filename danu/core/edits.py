@@ -1069,10 +1069,12 @@ class ReplaceSection(Command):
 
 @dataclass
 class ReverseWay(Command):
-    """A way's nodes in the other order, and nothing else. For a coastline,
-    which is the one way whose direction is data: land on the left, sea on
-    the right, so turning it round puts the sea on the other side."""
+    """A way's nodes in the other order, and nothing else. For the ways
+    whose direction is data: a coastline, land on the left and sea on the
+    right; a cliff or an earth bank, its low side on the right (#191).
+    Turning one round puts the sea, or the drop, on the other side."""
     way_id: int
+    what: str = 'coastline'
 
     def ways(self, square: Square) -> set[int]:
         return {self.way_id}
@@ -1087,17 +1089,32 @@ class ReverseWay(Command):
         square.ways[self.way_id].refs.reverse()
 
     def describe(self) -> str:
-        return 'reverse coastline'
+        return f'reverse {self.what}'
+
+
+# a landform whose direction is data: its low side on the right, as OSM has it
+DIRECTED = ('cliff', 'earth_bank')
+
+
+def directed(way) -> str | None:
+    """What a way whose direction matters is - 'coastline', 'cliff',
+    'earth bank' - or None for one whose direction means nothing."""
+    if is_coastline(way):
+        return 'coastline'
+    kind = way.tags.get('natural')
+    return kind.replace('_', ' ') if kind in DIRECTED else None
 
 
 def reverse_coastline(square: Square, way_id: int) -> Command | str:
-    """The command that turns a coastline round, or why not, as a string."""
+    """The command that turns a coastline, a cliff or an earth bank round,
+    or why not, as a string."""
     way = square.ways.get(way_id)
     if way is None:
         return 'that way is no longer there'
-    if not is_coastline(way):
-        return 'only a coastline has a direction that matters'
-    return ReverseWay(way_id)
+    what = directed(way)
+    if what is None:
+        return 'only a coastline, a cliff or an earth bank has a direction that matters'
+    return ReverseWay(way_id, what)
 
 
 def mark_coastline(square: Square, way_id: int, on: bool) -> Command | str:

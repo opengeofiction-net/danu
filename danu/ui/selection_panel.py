@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import edits
 from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
 from ..core.square import flat_tags, is_coastline, parse_ele
@@ -54,6 +55,7 @@ from ..water.overpass import flows
 from . import icons
 from .contours import landform_kind, water_tags
 from .icons import PaintedButton
+from .tools import LANDFORM_TOOL_KINDS
 from .widgets import copy, unit
 
 
@@ -446,6 +448,14 @@ class SelectionPanel(QDockWidget):
         self.spot_kind.activated.connect(self._kind_chosen)
         self.spot_kind_label = QLabel('Kind')
         form.addRow(self.spot_kind_label, self.spot_kind)
+        # a landform's kind (#191): any made any other - a ridge an arete
+        self.landform_kind = QComboBox()
+        for value in LANDFORM_TOOL_KINDS:
+            self.landform_kind.addItem(value.replace('_', ' ').capitalize(), value)
+        self.landform_kind.setToolTip('What this landform is: any kind may be made any other')
+        self.landform_kind.activated.connect(self._landform_chosen)
+        self.landform_kind_label = QLabel('Kind')
+        form.addRow(self.landform_kind_label, self.landform_kind)
         form.addRow('Where', self.where)
         form.addRow('Tags', self.tags)
         # what a lasso picks (#201): everything, or nodes on contours at the
@@ -485,7 +495,7 @@ class SelectionPanel(QDockWidget):
         self.coast_btn = PaintedButton(icons.coastline, 'Mark as coastline', 'edit.mark_coastline', keys,
                                        checkable=True)
         self.coast_btn.clicked.connect(editor.mark_coastline)
-        self.reverse_btn = PaintedButton(icons.reverse, 'Reverse coastline direction', 'edit.reverse_coastline', keys)
+        self.reverse_btn = PaintedButton(icons.reverse, 'Reverse direction - a coastline, a cliff or an earth bank', 'edit.reverse_coastline', keys)
         self.reverse_btn.clicked.connect(lambda: editor.reverse_coastline())
         self.flatten_btn = PaintedButton(icons.flatten, 'Flatten lake', 'edit.flatten', keys)
         self.flatten_btn.clicked.connect(lambda: editor.flatten())
@@ -620,6 +630,20 @@ class SelectionPanel(QDockWidget):
                 self.spot_kind.addItem(kind, kind)
                 i = self.spot_kind.count() - 1
             self.spot_kind.setCurrentIndex(i)
+        feature = (None if sel is None or self.editor.picked else sel.relation if sel.relation is not None
+                   else sel.way if not sel.spot else None)
+        lf = landform_kind(feature.tags) if feature is not None else None
+        self.landform_kind.setVisible(lf is not None)
+        self.landform_kind_label.setVisible(lf is not None)
+        while self.landform_kind.count() > len(LANDFORM_TOOL_KINDS):
+            self.landform_kind.removeItem(self.landform_kind.count() - 1)
+        if lf is not None:
+            kind = feature.tags.get('natural')
+            i = self.landform_kind.findData(kind)
+            if i < 0:
+                self.landform_kind.addItem(kind.replace('_', ' '), kind)
+                i = self.landform_kind.count() - 1
+            self.landform_kind.setCurrentIndex(i)
         water = sel is not None and (
             (sel.relation is not None and water_tags(sel.relation.tags))
             or (sel.relation is None and sel.way is not None
@@ -640,7 +664,8 @@ class SelectionPanel(QDockWidget):
         coast = way is not None and is_coastline(way)
         self.coast_btn.setVisible(coast or (way is not None and way.ele == 0 and not sel.spot))
         self.coast_btn.setChecked(coast)
-        self.reverse_btn.setVisible(coast)
+        self.reverse_btn.setVisible(coast or (sel is not None and sel.relation is None and sel.way is not None
+                                              and edits.directed(sel.way) is not None))
         # a network is of lines: a river or a stream, not a lake
         self.network_btn.setVisible(
             sel is not None and sel.relation is None and sel.way is not None
@@ -669,6 +694,11 @@ class SelectionPanel(QDockWidget):
         self.issues.setVisible(bool(p.issues))
         self.accept_btn.setEnabled(p.acceptable)
         self.profile.show_proposal(p)
+
+    def _landform_chosen(self, _index: int) -> None:
+        self.editor.set_landform(self.landform_kind.currentData())
+        self.refresh()
+        self._hand_back()
 
     def _kind_chosen(self, _index: int) -> None:
         self.editor.set_spot_kind(self.spot_kind.currentData())

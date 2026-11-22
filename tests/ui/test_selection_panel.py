@@ -464,7 +464,8 @@ def test_reverse_on_anything_but_a_coastline_says_why(w):
     refs = list(way.refs)
     w.edit_actions['edit.reverse_coastline'].trigger()
     assert way.refs == refs
-    assert 'only a coastline has a direction that matters' in w.statusBar().currentMessage()
+    assert 'only a coastline, a cliff or an earth bank has a direction that matters' \
+        in w.statusBar().currentMessage()
 
 
 def test_mark_in_the_menu_makes_the_line_selected_a_coastline_and_takes_it_off_again(w):

@@ -154,7 +154,9 @@ the tools for everything else.
   cliff its top's `ele` and its `height`, a flat area its level.
 - **R55** Every landform is drawn and edited in the editor as a contour is,
   as what it is: a line across the contours, a cliff with its low side to its
-  right, a flat area as a closed ring.
+  right, which Reverse turns as it does a coastline, a flat area as a closed
+  ring. Its kind may be changed to any other. Grading a line across the
+  contours gives it a point at each crossing.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the

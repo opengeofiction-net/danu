@@ -136,6 +136,63 @@ def test_a_spot_height_is_drawn_as_what_it_is_said_to_be(window):
     assert [w.contours.spots[(NORTH, n)].kind for n in (-901, -902, -903)] == ['saddle', 'sinkhole', None]
 
 
+def test_a_cliff_is_reversed_and_its_teeth_turn_with_it(window):
+    """R turns a cliff round as it does a coastline: its low side, and its
+    teeth, on the other side; the panel offers it, one step, named so.
+    A ridge, whose direction means nothing, is refused."""
+    from danu.core import edits
+    w = window
+    sq = imported(w)
+    way = sq.ways[202]
+    refs = list(way.refs)
+    select(w, sq, way)
+    w.selection_panel.refresh()
+    assert not w.selection_panel.reverse_btn.isHidden()
+    _, _, dx, dy = w.contours.line_marks((NORTH, 202), 1.0)[0]
+    w.edit_actions['edit.reverse_coastline'].trigger()
+    assert sq.ways[202].refs == refs[::-1]
+    assert 'cliff reversed: its low side is on the other side' in w.statusBar().currentMessage()
+    _, _, dx2, dy2 = w.contours.line_marks((NORTH, 202), 1.0)[0]
+    assert dx * dx2 + dy * dy2 < 0, 'its teeth did not turn'
+    assert w.editor.history.describe_undo().endswith('reverse cliff')
+    w.editor.undo()
+    assert sq.ways[202].refs == refs
+    select(w, sq, sq.ways[201])
+    w.selection_panel.refresh()
+    assert w.selection_panel.reverse_btn.isHidden()
+    w.edit_actions['edit.reverse_coastline'].trigger()
+    assert 'only a coastline, a cliff or an earth bank' in w.statusBar().currentMessage()
+    assert edits.directed(sq.ways[201]) is None
+
+
+def test_a_landforms_kind_is_changed_to_any_other(window):
+    """The panel's Kind for a landform: a ridge made an arete, restyled, one
+    step; a cliff a ridge, its other tags kept; a dry lake's relation a
+    plateau. A contour has no Kind."""
+    w = window
+    sq = imported(w)
+    p = w.selection_panel
+    select(w, sq, sq.ways[201])
+    p.refresh()
+    assert not p.landform_kind.isHidden() and p.landform_kind.currentData() == 'ridge'
+    p.landform_kind.setCurrentIndex(p.landform_kind.findData('arete'))
+    p.landform_kind.activated.emit(p.landform_kind.currentIndex())
+    assert sq.ways[201].tags['natural'] == 'arete'
+    assert w.contours.water[(NORTH, 201)].landform == 'arete'
+    assert 'ridge made an arete' in w.statusBar().currentMessage()
+    w.editor.undo()
+    assert sq.ways[201].tags['natural'] == 'ridge'
+    select(w, sq, sq.ways[202])
+    w.editor.set_height(40)
+    assert w.editor.set_landform('ridge')
+    assert sq.ways[202].tags['natural'] == 'ridge' and sq.ways[202].tags['height'] == '40'
+    assert w.contours.water[(NORTH, 202)].landform == 'ridge'
+    select(w, sq, relation=sq.relations[301])
+    assert w.editor.set_landform('plateau')
+    assert sq.relations[301].tags['natural'] == 'plateau'
+    assert w.contours.water_fills[(NORTH, 'rel', 301)].landform == 'plateau'
+
+
 def test_a_cliffs_elevation_typed_and_tabbed_past_is_kept(window, qtbot):
     """Typed into the panel and Tab to its height, not Enter: the elevation
     is set - it was lost - and then the height typed and Enter."""

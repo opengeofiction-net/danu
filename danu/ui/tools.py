@@ -1583,17 +1583,19 @@ class EditController(QObject):
 
     def reverse_coastline(self):
         """R: the coastline selected turned round, so the sea is on its other
-        side - the one edit that changes which way a coastline runs."""
+        side - the one edit that changes which way a coastline runs; and a
+        cliff or an earth bank, so its drop is on the other side (#191)."""
         sel = self.selection
         if sel is None or sel.relation is not None or sel.way is None:
-            self.message.emit('choose a coastline, then R reverses it')
+            self.message.emit('choose a coastline, a cliff or an earth bank, then R reverses it')
             return
         cmd = edits.reverse_coastline(sel.square, sel.way.id)
         if isinstance(cmd, str):
             self.message.emit(f'not reversed: {cmd}')
             return
         self.do(sel.square, cmd)
-        self.message.emit('coastline reversed: the sea is on the other side')
+        self.message.emit('coastline reversed: the sea is on the other side' if cmd.what == 'coastline'
+                          else f'{cmd.what} reversed: its low side is on the other side')
 
     def split(self):
         """P: the contour selected split at the node selected, its two new
@@ -2511,6 +2513,31 @@ class EditController(QObject):
             after['natural'] = kind
         self.do(sq, edits.SetNodeTags(sel.node, dict(node.tags), after))
         self.message.emit(f'spot height: {kind or "plain"}')
+        return True
+
+    def set_landform(self, kind: str) -> bool:
+        """The selected landform made another - its ``natural`` tag: a ridge
+        an arete, a valley a gorge, a cliff a ridge; any kind to any other,
+        its other tags kept (#191). A way, or a flat area's relation. One step
+        on the history."""
+        sel = self.selection
+        feature = None
+        if sel is not None and sel.relation is not None:
+            feature = sel.relation
+        elif sel is not None and sel.way is not None and not sel.spot:
+            feature = sel.way
+        if feature is None or landform_kind(feature.tags) is None:
+            self.message.emit('no landform selected')
+            return False
+        was = feature.tags.get('natural')
+        if kind == was:
+            return False
+        after = {**feature.tags, 'natural': kind}
+        cmd = (edits.SetRelationTags(feature.id, dict(feature.tags), after) if sel.relation is not None
+               else edits.SetTags(feature.id, dict(feature.tags), after))
+        self.do(sel.square, cmd)
+        self.message.emit(f'{was.replace("_", " ")} made {_a(kind)}')
+        self.overlay.update()
         return True
 
     def set_height(self, value: float | None) -> bool:

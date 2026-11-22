@@ -1282,7 +1282,7 @@ class MainWindow(QMainWindow):
                 ('edit.import_coastline', '&Import', self.import_coastline),
                 ('edit.import_landforms', '&Import landforms and spot heights', self.import_landforms),
                 ('edit.mark_coastline', '&Mark / unmark', ed.toggle_coastline),
-                ('edit.reverse_coastline', '&Reverse', ed.reverse_coastline),
+                ('edit.reverse_coastline', '&Reverse direction', ed.reverse_coastline),
                 ('edit.fit_coast', '&Fit contours to the coast', ed.fit_coast),
                 ('edit.set_level', 'Set &level', ed.set_level),
                 ('edit.grade', '&Grade', ed.grade),
@@ -1414,6 +1414,9 @@ class MainWindow(QMainWindow):
             self.landform_kinds.addAction(a)
         ed.landformKindChanged.connect(
             lambda k: [a.setChecked(a.data() == k) for a in self.landform_kinds.actions()])
+        landforms_menu.addSeparator()
+        # a cliff's or an earth bank's drop is on its right: R turns it, as a coastline
+        landforms_menu.addAction(e['edit.reverse_coastline'])
 
         view = self.menuBar().addMenu('&View')
         view.addAction(e['view.magnify'])
