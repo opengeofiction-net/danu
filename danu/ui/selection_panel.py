@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 
 from ..core.chains import LINE_KINDS
 from ..core.ladder import format_ele
-from ..core.square import is_coastline, parse_ele
+from ..core.square import flat_tags, is_coastline, parse_ele
 from ..surface import held
 from ..water.overpass import flows
 from . import icons
@@ -597,7 +597,7 @@ class SelectionPanel(QDockWidget):
             sel is not None and (
                 (sel.relation is not None and water_tags(sel.relation.tags) and not flows(sel.relation.tags))
                 or (sel.relation is None and sel.way is not None and sel.way.closed
-                    and sel.way.tags.get('natural') == 'water' and not flows(sel.way.tags))))
+                    and flat_tags(sel.way.tags) and not flows(sel.way.tags))))
         way = sel.way if sel is not None and sel.relation is None and not water else None
         coast = way is not None and is_coastline(way)
         self.coast_btn.setVisible(coast or (way is not None and way.ele == 0 and not sel.spot))

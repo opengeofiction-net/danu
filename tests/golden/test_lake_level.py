@@ -24,7 +24,7 @@ def box(r):
     return [(LON - r, LAT - r), (LON + r, LAT - r), (LON + r, LAT + r), (LON - r, LAT + r)]
 
 
-def a_lake(level, contours, fill=False, shore=True):
+def a_lake(level, contours, fill=False, shore=True, kind='water'):
     """Contours round a lake at ``level`` with an island in it, the lake a
     relation with no ``type`` - as an import holds one - its rings at the
     level too unless ``shore`` is False, as a main-map lake tagged on the
@@ -49,7 +49,7 @@ def a_lake(level, contours, fill=False, shore=True):
     outer, inner = ring(LAKE, rim), ring(ISLAND, rim)
     rid = alloc.take()
     sq.relations[rid] = Relation(id=rid, members=[Member('way', outer, 'outer'), Member('way', inner, 'inner')],
-                                 tags={'natural': 'water', 'ele': str(level)})
+                                 tags={'natural': kind, 'ele': str(level)})
     lat = LAT - LAKE + FILL
     while fill and lat < LAT + LAKE:
         if abs(lat - LAT) > ISLAND + FILL:
@@ -170,3 +170,14 @@ def test_a_lake_over_contours_at_other_levels_is_left_to_them(tmp_path):
     dem, gt, lines, _ = built(sq, tmp_path, 'spanned')
     assert any('0 lakes held at their level; 1 not' in line for line in lines), '\n'.join(lines)
     assert (water(dem, gt) != 120).sum() > 1000, 'held over a contour at 150 m'
+
+
+@pytest.mark.parametrize('kind', ['dry_lake', 'plateau'])
+def test_a_dry_lake_or_a_plateau_is_held_flat_as_a_lake_is(tmp_path, kind):
+    """#191: OSM's flat landforms, an area with its own ``ele``, held at it
+    whole as a lake is - the lake layer, and every drawn cell inside at the
+    level."""
+    dem, gt, lines, _ = built(a_lake(120, LEVELS, kind=kind), tmp_path, kind)
+    assert any('1 lakes held at their level' in line for line in lines), '\n'.join(lines)
+    w = water(dem, gt)
+    assert w.size > 1000 and (w == 120).all(), f'{(w != 120).sum()} cells of the {kind} are not at 120 m'

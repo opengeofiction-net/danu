@@ -144,6 +144,8 @@ the tools for everything else.
 - **R26** Flatten a water body at a level: the level goes on its outline, the
   contours inside it are removed and those crossing its shore are pulled back,
   as a proposal likewise.
+- **R50** A dry lake, or a plateau drawn as an area, with its own level is
+  held flat at it as a lake is, and is flattened as one.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the

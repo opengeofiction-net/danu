@@ -33,7 +33,7 @@ from ..checks.files import API_LIMIT
 from ..core import crossfix, edits, geometry, profile
 from ..core.chains import LINE_KINDS, Chain, Link, Network, component, free_end_side, node_key
 from ..core.ladder import format_ele
-from ..core.square import Relation, Square, SquareName, Way, WorkingSet, is_coastline, parse_ele
+from ..core.square import Relation, Square, SquareName, Way, WorkingSet, flat_tags, is_coastline, parse_ele
 from ..surface import held
 from ..water import burn, coastfit, contradict, flatten, lassofit
 from ..water.overpass import flows
@@ -3043,11 +3043,13 @@ class EditController(QObject):
         feature = None
         if sel is not None and sel.relation is not None and water_tags(sel.relation.tags):
             feature = sel.relation
+        elif sel is not None and sel.relation is not None and flat_tags(sel.relation.tags):
+            feature = sel.relation
         elif (sel is not None and sel.way is not None and sel.way.closed
-              and sel.way.tags.get('natural') == 'water'):
+              and flat_tags(sel.way.tags)):
             feature = sel.way
         if feature is None:
-            self.message.emit('select a lake to flatten')
+            self.message.emit('select a lake, a dry lake or a plateau to flatten')
             return
         sq = sel.square
         name = feature.tags.get('name') or 'the lake'

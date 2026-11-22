@@ -7080,3 +7080,20 @@ descending, its direction found; a crest by `profile.grade_crest`, straight
 between each pair of contours it crosses whichever way, since a ridge rises
 to a summit and falls to a saddle. Each is the way alone: the river network's
 chains are of rivers.
+
+## Dry lakes and plateaus held flat (#191)
+
+OSM's `natural=dry_lake` - a playa, a salt flat - and `natural=plateau` drawn
+as an area (the wiki prefers a node, and allows an area where the edges are
+sharp, a mesa) are flat by nature. With an `ele` of their own they are held
+at it as a lake is (R50): `flat_tags` is the one test, and `water_bodies`,
+`checks.inside`'s bodies - so `held`, the lake layer, R33 - the build's byte
+guard and the preview's lake edits all ask it in place of `natural=water`.
+Flatten (R26) takes one as it takes a lake, and does not reshape another
+flat area's outline as if it were a contour. A sinkhole area is left alone:
+its outline is the rim and its `ele` the floor. Sand, bare rock, scree and
+dunes describe the surface's cover, not its height.
+
+The editor draws a flat area's outline as the contour its level makes; one
+whose level is on the relation alone is not drawn. Both are for the hands-on
+pass to judge.

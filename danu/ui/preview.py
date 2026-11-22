@@ -35,7 +35,7 @@ import time
 
 from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
-from ..core.square import parse_ele
+from ..core.square import flat_tags, parse_ele
 from ..surface import held, local, preview, saddle, shade
 from ..surface.params import Params
 from . import trace as _tracing
@@ -449,10 +449,10 @@ class PreviewDriver(QObject):
         """
         sq = str(square.name)
         keys = {f'relation/{r.id}' for r in getattr(square, 'relations', {}).values()
-                if r.tags.get('natural') == 'water'
+                if flat_tags(r.tags)
                 and any(m.type == 'way' and m.ref in way_ids for m in r.members)}
         keys |= {f'way/{wid}' for wid in way_ids
-                 if ((w := square.ways.get(wid)) is not None and w.tags.get('natural') == 'water')
+                 if ((w := square.ways.get(wid)) is not None and flat_tags(w.tags))
                  or self._kept.contours.lake(sq, f'way/{wid}') is not None}   # one held, now not water
         # a contour edited into a held lake, at another level, with no shore
         # edited: the build lets that lake go, and the preview has to, or it

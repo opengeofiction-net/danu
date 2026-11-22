@@ -57,7 +57,7 @@ from ..core import edits
 from ..core.ladder import format_ele
 from ..core.push import Pusher, _length
 from ..core.rings import _chains, is_closed
-from ..core.square import Relation, Square, Way, is_coastline, parse_ele, water_tags
+from ..core.square import Relation, Square, Way, flat_tags, is_coastline, parse_ele, water_tags
 from .overpass import flows
 
 PULL_BACK_M = 100.0
@@ -319,11 +319,13 @@ def plan(working_set, square: Square, feature, alloc, pull_back_m: float = PULL_
     by_name = {sq.name: sq for sq in [*working_set.squares.values(), *getattr(working_set, 'extra', {}).values()]}
     near = []
     for sq in working_set.squares.values():
-        watery = {m.ref for r in sq.relations.values() if water_tags(r.tags)
+        # water, and the areas held flat as it is (#191), are never reshaped
+        watery = {m.ref for r in sq.relations.values() if water_tags(r.tags) or flat_tags(r.tags)
                   for m in r.members if m.type == 'way'}
         for way in list(sq.ways.values()):
             e = parse_ele(way.tags.get('ele'))
-            if (e is None or len(way.refs) < 2 or water_tags(way.tags) or way.id in watery
+            if (e is None or len(way.refs) < 2 or water_tags(way.tags) or flat_tags(way.tags)
+                    or way.id in watery
                     or FILL in way.tags or is_coastline(way)          # never reshaped: its direction is the sea
                     or (sq is square and way.id in outline_ids)
                     or any(r not in sq.nodes for r in way.refs)):
