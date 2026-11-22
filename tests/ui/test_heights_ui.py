@@ -209,3 +209,46 @@ def test_a_held_coastline_upstream_no_longer_has_is_reported_and_kept(window):
     assert 101 in sq.ways, 'deleted'
     assert [(g.id, g.what) for g in w.gone_from_upstream] == [(101, 'coastline')]
     assert 'no coastline in this working set; 1 held no longer upstream, kept' in w.statusBar().currentMessage()
+
+
+# ----------------------------------------------------------------- landforms
+
+LANDFORMS = b"""<osm version="0.6">
+  <node id="21" version="1" lat="-22.5" lon="125.2"><tag k="natural" v="peak"/><tag k="ele" v="900"/></node>
+  <node id="22" version="1" lat="-22.5" lon="125.3"/>
+  <node id="23" version="1" lat="-22.6" lon="125.3"/>
+  <node id="24" version="1" lat="-22.6" lon="125.4"/>
+  <node id="31" version="1" lat="-22.8" lon="125.2"/>
+  <node id="32" version="1" lat="-22.8" lon="125.3"/>
+  <node id="33" version="1" lat="-22.9" lon="125.3"/>
+  <way id="201" version="3"><nd ref="21"/><nd ref="22"/><tag k="natural" v="ridge"/><tag k="name" v="Spine"/></way>
+  <way id="202" version="2"><nd ref="23"/><nd ref="24"/><tag k="natural" v="cliff"/><tag k="height" v="40"/></way>
+  <way id="203" version="1"><nd ref="31"/><nd ref="32"/><nd ref="33"/><nd ref="31"/></way>
+  <relation id="301" version="1"><member type="way" ref="203" role="outer"/>
+    <tag k="natural" v="dry_lake"/><tag k="type" v="multipolygon"/><tag k="ele" v="120"/></relation>
+</osm>"""
+
+
+def test_the_landform_import_is_one_step_and_a_vertex_brings_no_spot_height(window):
+    """#191: a ridge, a cliff and a dry lake from the main map, one step on
+    the history - the ridge's vertex, a peak upstream, as geometry alone:
+    a peak is the spot heights' import's."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    steps = len(w.editor.history._done)
+    w.landforms._fetch = lambda bounds: LANDFORMS
+    w.landforms._runner = lambda job: job.run()
+    w.edit_actions['edit.import_landforms'].trigger()
+    assert sq.ways[201].tags == {'natural': 'ridge', 'name': 'Spine'} and sq.ways[201].version == 3
+    assert sq.ways[202].tags == {'natural': 'cliff', 'height': '40'}
+    assert sq.relations[301].tags['natural'] == 'dry_lake' and 203 in sq.ways
+    assert sq.nodes[21].tags == {}, 'a vertex came in as a spot height'
+    assert len(w.editor.history._done) == steps + 1
+    msg = w.statusBar().currentMessage()
+    assert 'imported 1 ridge, 1 cliff, 1 dry lake' in msg, msg
+    assert (NORTH, 201) in w.contours.water and w.contours.water[(NORTH, 201)].landform
+    # and a second import with the cliff gone reports it and keeps it
+    w.landforms._fetch = lambda bounds: LANDFORMS.replace(b'v="cliff"', b'v="scree"')
+    w.edit_actions['edit.import_landforms'].trigger()
+    assert 202 in sq.ways
+    assert [(g.id, g.what) for g in w.gone_from_upstream] == [(202, 'cliff')]

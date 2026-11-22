@@ -58,7 +58,7 @@ def test_an_answer_cut_short_is_refused():
 def test_the_query_asks_for_the_kinds_with_a_height_over_the_box():
     q = peaks.query((125.0, -23.0, 127.0, -22.0))
     assert '[bbox:-23.0,125.0,-22.0,127.0]' in q
-    assert 'node["natural"~"^(peak|volcano|saddle)$"]["ele"]' in q
+    assert 'node["natural"~"^(peak|volcano|saddle|sinkhole)$"]["ele"]' in q
 
 
 def test_each_goes_into_the_square_it_falls_in_or_the_one_holding_it():

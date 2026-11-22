@@ -146,6 +146,9 @@ the tools for everything else.
   as a proposal likewise.
 - **R50** A dry lake, or a plateau drawn as an area, with its own level is
   held flat at it as a lake is, and is flattened as one.
+- **R52** The main map's landforms - ridges, aretes, valleys, gullies,
+  gorges, cliffs, earth banks, dry lakes and plateaus - are imported into the
+  squares when asked for, and a second import reconciles as R40 says.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the
@@ -176,7 +179,7 @@ Numbered from R36 because the earlier numbers are cited from the code.
   however deep.
 - **R51** A cliff with its top's `ele` and its `height` drops that height to
   its right, its top at `ele` and its foot beside it at `ele - height`.
-- **R41** The main map's peaks, volcanoes and saddles with a height are
+- **R41** The main map's peaks, volcanoes, saddles and sinkholes with a height are
   imported from Overpass into the squares as spot heights, where the contours
   are; a second import reconciles as R40 says, the height set in the square
   kept, and lists each the main map gives otherwise for the mapper to take.

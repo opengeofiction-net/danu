@@ -39,7 +39,7 @@ from ..core.autosave import Store
 from ..core.square import Square, SquareName, WorkingSet, list_squares, read_square
 from ..surface import along, shade
 from ..surface import difference as surface_difference
-from ..water import coast, flatten, overpass, peaks
+from ..water import coast, flatten, landforms, overpass, peaks
 from ..water.gone import gone
 from . import about, config, crash, desktop, icons, josm, oauth, pending, session, theme, update, wms
 from . import autosave as autosave_ui
@@ -86,10 +86,13 @@ from .water import (
     copies_by,
     fetch_coast,
     fetch_heights,
+    fetch_landforms,
     height_commands,
     heights_held,
     heights_work,
     held_by,
+    landform_commands,
+    landform_work,
     move_commands,
 )
 from .water import commands as water_commands
@@ -372,6 +375,15 @@ class MainWindow(QMainWindow):
         self.coast.started.connect(lambda ws: self.statusBar().showMessage(
             'importing coastlines from Overpass…'))
         self.coast.finished.connect(self._coast_imported)
+        # and its landforms, on the same footing again (#191)
+        self.landforms = WaterImporter(self, fetch=lambda bounds: fetch_landforms(bounds, self.settings.overpass_url),
+                                       work=landform_work,
+                                       held=lambda ws: Snapshot(held_by(ws), within=mirror.extent(self.zone_dir)))
+        self.landforms.started.connect(lambda ws: self.statusBar().showMessage(
+            'importing landforms from Overpass…'))
+        self.landforms.finished.connect(self._landforms_imported)
+        self.landforms.failed.connect(
+            lambda why: self.statusBar().showMessage(f'landform import failed: {why.splitlines()[0]}'))
         self.coast.failed.connect(
             lambda why: self.statusBar().showMessage(f'coastline import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
@@ -1269,6 +1281,7 @@ class MainWindow(QMainWindow):
                 ('edit.import_water', '&Import', self.import_water),
                 ('edit.import_heights', '&Import', self.import_heights),
                 ('edit.import_coastline', '&Import', self.import_coastline),
+                ('edit.import_landforms', '&Import', self.import_landforms),
                 ('edit.mark_coastline', '&Mark / unmark', ed.toggle_coastline),
                 ('edit.reverse_coastline', '&Reverse', ed.reverse_coastline),
                 ('edit.fit_coast', '&Fit contours to the coast', ed.fit_coast),
@@ -1387,6 +1400,7 @@ class MainWindow(QMainWindow):
         coastline = edit.addMenu('&Coastline')
         for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast'):
             coastline.addAction(e[name])
+        edit.addMenu('&Landforms').addAction(e['edit.import_landforms'])
 
         view = self.menuBar().addMenu('&View')
         view.addAction(e['view.magnify'])
@@ -2268,6 +2282,51 @@ class MainWindow(QMainWindow):
         if queued:
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
+
+    def import_landforms(self) -> bool:
+        """The main map's landforms - ridges, valleys, cliffs, dry lakes and
+        plateaus - into the squares (#191), asked for, as water is, and
+        reconciled the same way."""
+        if self.working_set is None:
+            self.statusBar().showMessage('open a square first')
+            return False
+        queued = self.landforms.busy
+        self.landforms.request(self.working_set)
+        if queued:
+            self.statusBar().showMessage('already importing; the newer request wins')
+        return True
+
+    def _landforms_imported(self, answer, working_set):
+        """One landform import, one step on the history: upstream's features,
+        the square's heights kept, and a held one upstream no longer has
+        reported and kept."""
+        if working_set is not self.working_set:
+            self.statusBar().showMessage(
+                'the working set changed while the landforms were fetched - import again')
+            return
+        self.gone_from_upstream = landforms.gone(working_set, answer.ways, answer.relations)
+        steps = move_commands(answer, working_set, self.editor.history.alloc)
+        steps += landform_commands(answer.placed, working_set)
+        if steps:
+            self.editor.do_across(steps)
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[])
+        if self.gone_from_upstream:
+            self.gone_dock.show()
+            self.gone_dock.raise_()
+        kinds: dict = {}
+        for got in answer.placed.values():
+            for w in got.ways.values():
+                if landforms.is_landform(w.tags):
+                    kinds[w.tags['natural']] = kinds.get(w.tags['natural'], 0) + 1
+            for r in got.relations.values():
+                kinds[r.tags['natural']] = kinds.get(r.tags['natural'], 0) + 1
+        kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+                if self.gone_from_upstream else '')
+        if not kinds:
+            self.statusBar().showMessage(f'no landforms in this working set{kept}')
+            return
+        what = ', '.join(f'{kinds[k]} {k.replace("_", " ")}' for k in landforms.KINDS if k in kinds)
+        self.statusBar().showMessage(f'imported {what}{kept}. {_undo_hint("")}')
 
     def _coast_imported(self, answer, working_set):
         """One coastline import, one step on the history: upstream's way and

@@ -205,10 +205,10 @@ def fetch(bounds, url: str = OVERPASS_URL, opener=None, retries: int = RETRIES,
     raise OSError(f'overpass did not answer after {retries} attempts: {last}')
 
 
-def kept(tags: dict[str, str]) -> dict[str, str]:
-    """The tags an imported feature keeps, in the order ``KEEP`` names them so
+def kept(tags: dict[str, str], keep=KEEP) -> dict[str, str]:
+    """The tags an imported feature keeps, in the order ``keep`` names them so
     that two imports of one feature write the same line."""
-    return {k: tags[k] for k in KEEP if k in tags}
+    return {k: tags[k] for k in keep if k in tags}
 
 
 @dataclass
@@ -225,8 +225,9 @@ class Water:
         return len(self.ways) + len(self.relations)
 
 
-def parse(payload: bytes) -> Water:
-    """Overpass XML as nodes, ways and relations, tags filtered by ``kept``.
+def parse(payload: bytes, keep=KEEP) -> Water:
+    """Overpass XML as nodes, ways and relations, tags filtered by ``kept``
+    to ``keep`` - water's, unless an import of something else says.
 
     A node keeps no tags at all unless it carries one of ``KEEP`` - a river's
     vertices are geometry and nothing else, and the ones that do carry
@@ -241,19 +242,19 @@ def parse(payload: bytes) -> Water:
         if elem.tag == 'node':
             water.nodes[int(elem.get('id'))] = Node(
                 id=int(elem.get('id')), lat=float(elem.get('lat')),
-                lon=float(elem.get('lon')), tags=kept(tags), version=xml_version(elem))
+                lon=float(elem.get('lon')), tags=kept(tags, keep), version=xml_version(elem))
         elif elem.tag == 'way':
             water.ways[int(elem.get('id'))] = Way(
                 id=int(elem.get('id')),
                 refs=[int(nd.get('ref')) for nd in elem.findall('nd')],
-                tags=kept(tags), version=xml_version(elem))
+                tags=kept(tags, keep), version=xml_version(elem))
         elif elem.tag == 'relation':
             water.relations[int(elem.get('id'))] = Relation(
                 id=int(elem.get('id')),
                 members=[Member(type=m.get('type'), ref=int(m.get('ref')),
                                 role=m.get('role') or '')
                          for m in elem.findall('member')],
-                tags=kept(tags), version=xml_version(elem))
+                tags=kept(tags, keep), version=xml_version(elem))
     return water
 
 
