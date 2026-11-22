@@ -119,8 +119,8 @@ def test_a_new_spot_height_outside_the_zone_is_not_imported_and_is_said(window, 
                '<tag k="natural" v="peak"/><tag k="ele" v="150"/></node></osm>').encode()
     answer = heights_work(payload, ws, heights_held(ws, mirror.extent(w.zone_dir)))
     assert answer.outside == 1 and not answer.placed
-    w._heights_imported(answer, ws)
-    assert '1 outside the zone, not imported' in w.statusBar().currentMessage()
+    _steps, said, _gone, _differs = w._height_steps(answer, ws)
+    assert '1 outside the zone, not imported' in said
     # without the extent, it is imported as before
     answer = heights_work(payload, ws, heights_held(ws))
     assert 77 in answer.placed[WEST]

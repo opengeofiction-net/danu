@@ -333,7 +333,12 @@ class PreviewDriver(QObject):
             # a node a way took up or let go in this same command is routed
             # by what the way is now
             ways = self._graded_index(square)[0].get(nid)
-            if ways:
+            if ways and held.stays_spot(square.nodes.get(nid)):
+                # a peak or a saddle on a ridge: held, and a spot height too
+                regraded |= ways
+                self._spot_edited(square, nid)
+                self._saddle_edited(square, nid)
+            elif ways:
                 # a vertex of a held waterway, graded or not: never a spot
                 # height - the build drops one from the spot layer - and the
                 # ways it is on are held again as they now are

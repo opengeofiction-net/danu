@@ -65,7 +65,7 @@ def test_reverse_turns_a_coastline_round_and_back():
     assert sq.ways[-1].refs == [3, 2, 1]
     cmd.undo(sq)
     assert sq.ways[-1].refs == [1, 2, 3]
-    assert edits.reverse_coastline(sq, -2) == 'only a coastline has a direction that matters'
+    assert edits.reverse_coastline(sq, -2) == 'only a coastline, a cliff or an earth bank has a direction that matters'
 
 
 def test_a_coastline_joins_only_a_coastline():

@@ -43,7 +43,12 @@ def importing(w, payload):
     contoured(w)
     w.heights._fetch = lambda bounds: payload
     w.heights._runner = lambda job: job.run()
-    w.edit_actions['edit.import_heights'].trigger()
+    w.landforms._fetch = lambda bounds: NONE
+    w.landforms._runner = lambda job: job.run()
+    w.edit_actions['edit.import_landforms'].trigger()
+
+
+NONE = b'<osm version="0.6"></osm>'
 
 
 PEAKS = answer((501, 125.5, -22.5, {'natural': 'peak', 'name': 'Welfare Peak', 'ele': '430'}),
@@ -93,10 +98,13 @@ def test_one_upstream_no_longer_answers_is_reported_kept_and_chosen_from_the_rep
 
 
 def test_the_key_and_the_button(window):
-    assert window.edit_actions['edit.import_heights'].shortcut().toString() == 'Ctrl+Shift+I'
+    """One import of landforms and spot heights both (#191), its key the
+    spot heights' was."""
+    assert window.edit_actions['edit.import_landforms'].shortcut().toString() == 'Ctrl+Shift+I'
     window.heights._runner = lambda job: None          # asked for, not run
-    window.controls.heights.click()
-    assert window.heights.busy
+    window.landforms._runner = lambda job: None
+    window.controls.landforms.click()
+    assert window.heights.busy and window.landforms.busy
 
 
 def test_one_beyond_the_contours_is_not_imported_and_is_counted(window):
@@ -238,6 +246,8 @@ def test_the_landform_import_is_one_step_and_a_vertex_brings_no_spot_height(wind
     steps = len(w.editor.history._done)
     w.landforms._fetch = lambda bounds: LANDFORMS
     w.landforms._runner = lambda job: job.run()
+    w.heights._fetch = lambda bounds: NONE
+    w.heights._runner = lambda job: job.run()
     w.edit_actions['edit.import_landforms'].trigger()
     assert sq.ways[201].tags == {'natural': 'ridge', 'name': 'Spine'} and sq.ways[201].version == 3
     assert sq.ways[202].tags == {'natural': 'cliff', 'height': '40'}
@@ -252,3 +262,23 @@ def test_the_landform_import_is_one_step_and_a_vertex_brings_no_spot_height(wind
     w.edit_actions['edit.import_landforms'].trigger()
     assert 202 in sq.ways
     assert [(g.id, g.what) for g in w.gone_from_upstream] == [(202, 'cliff')]
+
+
+def test_landforms_and_spot_heights_come_in_as_one_import_one_step(window):
+    """#191: Edit > Landforms > Import brings both, and one Ctrl+Z takes both
+    back."""
+    w = window
+    sq = w.working_set.squares[NORTH]
+    contoured(w)
+    steps = len(w.editor.history._done)
+    w.landforms._fetch = lambda bounds: LANDFORMS
+    w.landforms._runner = lambda job: job.run()
+    w.heights._fetch = lambda bounds: PEAKS
+    w.heights._runner = lambda job: job.run()
+    w.edit_actions['edit.import_landforms'].trigger()
+    assert 202 in sq.ways and sq.nodes[501].tags.get('natural') == 'peak'
+    assert len(w.editor.history._done) == steps + 1
+    said = w.statusBar().currentMessage()
+    assert 'imported 1 ridge, 1 cliff, 1 dry lake; imported 2 spot heights' in said, said
+    w.editor.undo()
+    assert 202 not in sq.ways and 501 not in sq.nodes

@@ -1178,3 +1178,151 @@ def test_a_line_begun_at_a_contours_end_continues_it_as_ever(w):
     click(w, *pts[-1]); click(w, 126.50, -23.25)
     key(w, Qt.Key.Key_Return)
     assert w.editor.drawing is None and len(square.ways[wid].refs) == 4
+
+
+def test_a_contour_drawn_is_the_selection_the_panel_shows(w):
+    """Something selected and then a contour drawn: the panel follows the
+    line as it is drawn, as it does a spot height placed - it went on saying
+    what was selected before."""
+    square = w.working_set.squares[TEN]
+    other = next(x for x in square.ways.values() if x.ele == 10)
+    w.editor.selection = Selection(square, other)
+    w.editor.set_tool('draw')
+    w.elevation.set(123)
+    click(w, 126.3, -23.85); click(w, 126.4, -23.86)
+    (way,) = ways_at(square, 123)
+    assert w.editor.selection.way is way
+    assert w.selection_panel.ele.text() == '123'
+    click(w, 126.5, -23.85)
+    key(w, Qt.Key.Key_Return)
+    assert w.editor.selection.way is way and len(way.refs) == 3
+
+
+# ----------------------------------------------------------- landforms
+
+def test_a_ridge_is_drawn_across_the_contours_and_selected(w):
+    """#191: the landform tool draws a line no contour stops - a ridge runs
+    across them - tagged as what it is, with no height, and selected."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('ridge')
+    assert w.editor.tool == 'landform' and w.controls.landform.isChecked()
+    before = set(square.ways)
+    click(w, 126.4, -23.95); click(w, 126.41, -23.7); click(w, 126.42, -23.45)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    way = square.ways[wid]
+    assert way.tags == {'natural': 'ridge'} and len(way.refs) == 3 and not way.closed
+    assert w.editor.selection.way is way and w.editor.drawing is None
+    assert w.selection_panel.kind.text() == 'ridge'
+
+
+def test_a_dry_lake_is_drawn_as_a_closed_ring(w):
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('dry_lake')
+    before = set(square.ways)
+    click(w, 126.3, -23.62); click(w, 126.35, -23.62); click(w, 126.33, -23.58)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    way = square.ways[wid]
+    assert way.closed and len(way.refs) == 4 and way.tags == {'natural': 'dry_lake'}
+    assert w.selection_panel.kind.text() == 'dry lake'
+
+
+def test_a_ridges_point_is_dragged_and_a_peak_on_it_drawn_as_one(w):
+    """#191: a landform's points move as a contour's do - water's do not,
+    upstream owns where it is - and a peak that is a ridge's point is drawn
+    as a peak, not as a level on the ridge."""
+    square = w.working_set.squares[TEN]
+    alloc = w.editor.history.alloc(square)
+    wid, ids = alloc.take(), [alloc.take() for _ in range(3)]
+    w.editor.do(square, edits.AddWay(wid, ids, [(126.4, -23.62), (126.45, -23.62), (126.5, -23.62)],
+                                     {'natural': 'ridge'}))
+    w.editor.do(square, edits.SetNodeTags(ids[0], {}, {'natural': 'peak', 'ele': '500'}))
+    spot = w.contours.spots[(TEN, ids[0])]
+    assert spot.kind == 'peak' and not spot.on_water
+    w.editor.set_tool('select')
+    drag(w, 126.45, -23.62, 0, 40)
+    assert square.nodes[ids[1]].lat < -23.621
+    assert w.editor.selection.way is square.ways[wid]
+
+
+def a_ridge(w, pts=((126.4, -23.62), (126.45, -23.62), (126.5, -23.62)), tags=None):
+    square = w.working_set.squares[TEN]
+    alloc = w.editor.history.alloc(square)
+    wid, ids = alloc.take(), [alloc.take() for _ in pts]
+    w.editor.do(square, edits.AddWay(wid, ids, list(pts), tags or {'natural': 'ridge'}))
+    return square, square.ways[wid]
+
+
+def shift_drag(w, lon, lat, dx_px, dy_px):
+    pos = at(w, lon, lat)
+    mods = Qt.KeyboardModifier.ShiftModifier
+    w.map.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(pos), w.map.viewport().mapToGlobal(pos),
+                                      Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods))
+    for f in (0.5, 1.0):
+        p = pos + QPoint(round(dx_px * f), round(dy_px * f))
+        w.map.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, QPointF(p), w.map.viewport().mapToGlobal(p),
+                                         Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, mods))
+    p = pos + QPoint(dx_px, dy_px)
+    w.map.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(p), w.map.viewport().mapToGlobal(p),
+                                        Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, mods))
+
+
+def test_a_landform_is_fast_drawn_across_the_contours(w):
+    """#191: drawn as a contour is - a drag lays a stroke - and no contour
+    stops it."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('valley')
+    before = set(square.ways)
+    drag(w, 126.4, -23.95, 0, -400)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    assert square.ways[wid].tags == {'natural': 'valley'} and len(square.ways[wid].refs) >= 2
+
+
+def test_a_ridge_begins_on_a_peak_and_is_continued_from_its_end(w):
+    """A ridge snaps to a peak - where it naturally runs - which becomes its
+    point; begun again on its free end, it goes on."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(500)
+    click(w, 126.3, -23.62)
+    (peak,) = [n for n, s in spots_in(w, square).items()]
+    w.editor.do(square, edits.SetNodeTags(peak, dict(square.nodes[peak].tags),
+                                          {**square.nodes[peak].tags, 'natural': 'peak'}))
+    w.editor.set_landform_kind('ridge')
+    before = set(square.ways)
+    click(w, 126.3, -23.62); click(w, 126.35, -23.63)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    ridge = square.ways[wid]
+    assert ridge.refs[0] == peak and len(ridge.refs) == 2
+    end = square.nodes[ridge.refs[-1]]
+    click(w, end.lon, end.lat); click(w, 126.4, -23.64)
+    key(w, Qt.Key.Key_Return)
+    assert set(square.ways) - before == {wid} and len(ridge.refs) == 3
+
+
+def test_a_ridge_is_edited_as_a_contour_is(w):
+    """Double-click puts a point in it, Delete takes one out, P splits it,
+    shift and a drag carries it."""
+    square, ridge = a_ridge(w)
+    w.editor.set_tool('select')
+    double_click(w, 126.425, -23.62)
+    assert len(ridge.refs) == 4
+    mid = ridge.refs[2]
+    n = square.nodes[mid]
+    click(w, n.lon, n.lat)
+    assert w.editor.selection.node == mid and w.editor.selection.way is ridge
+    w.edit_actions['edit.delete'].trigger()
+    assert mid not in square.nodes and len(ridge.refs) == 3
+    n = square.nodes[ridge.refs[1]]
+    click(w, n.lon, n.lat)
+    w.editor.split()
+    assert sum(1 for x in square.ways.values() if x.tags.get('natural') == 'ridge') == 2
+    other = next(x for x in square.ways.values() if x.tags.get('natural') == 'ridge' and x is not ridge)
+    lat0 = square.nodes[other.refs[-1]].lat
+    p = square.nodes[other.refs[-1]]
+    click(w, (p.lon + square.nodes[other.refs[0]].lon) / 2, p.lat)
+    shift_drag(w, (p.lon + square.nodes[other.refs[0]].lon) / 2, p.lat, 0, 60)
+    assert square.nodes[other.refs[-1]].lat < lat0 - 0.001
