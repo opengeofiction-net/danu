@@ -80,7 +80,8 @@ def reach(params: Params, slack: int) -> int:
 def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
             previous: np.ndarray, box: Box, params: Params, cover: int | None = None,
             slack: int | None = None, nodata: float | None = None,
-            lib=None, held: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
+            lib=None, held: np.ndarray | None = None,
+            wall: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
     """The re-solved patch, and the box it is good for.
 
     ``constraints``, ``mask`` and ``water`` are the whole raster as it is after
@@ -134,13 +135,15 @@ def resolve(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
     return resolve_window(constraints[sl], mask[sl],
                           water[sl] if water is not None else None,
                           previous[sl], good, grown, shape, params,
-                          nodata=nodata, lib=lib, held=held[sl] if held is not None else None)
+                          nodata=nodata, lib=lib, held=held[sl] if held is not None else None,
+                          wall=wall[sl] if wall is not None else None)
 
 
 def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray | None,
                    previous: np.ndarray, good: Box, grown: Box, shape: tuple[int, int],
                    params: Params, nodata: float | None = None,
-                   lib=None, held: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
+                   lib=None, held: np.ndarray | None = None,
+                   wall: np.ndarray | None = None) -> tuple[np.ndarray, Box]:
     """``resolve`` once the windows have been cut: the same solve, over arrays
     that are already the ``grown`` box rather than the whole raster.
 
@@ -158,7 +161,7 @@ def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray 
     # pass 1 over the grown box. Exact for every cell more than radius inside
     # it, which is every cell of the edited box
     first, _ = lib.run(cons, params, mask=sub_mask, water=sub_water,
-                       nodata=nodata, pass2=False)
+                       nodata=nodata, pass2=False, wall=wall)
     # the graded waterways, which the first pass did not see and the second
     # keeps, and the ground in their reach solved rather than void - isofill's
     # own step between its passes (isofill_hold). Exact for the good box,
@@ -196,7 +199,8 @@ def resolve_window(constraints: np.ndarray, mask: np.ndarray, water: np.ndarray 
     if grown.x1 < cols - 1:
         first[:, -1] = prev[:, -1]
 
-    solved = lib.diffuse(first, mask=sub_mask, water=sub_water)
+    # and the cliffs, which the second pass does not diffuse across either
+    solved = lib.diffuse(first, mask=sub_mask, water=sub_water, wall=wall)
     # crop the scaffolding: only the ground a radius inside the solve is the
     # answer a whole-raster run would have given
     return solved[good.y0 - grown.y0:good.y1 - grown.y0 + 1,

@@ -142,6 +142,9 @@ class Drawn:
     def burn_held(self, gt, box):
         return None                     # no graded waterway here (#372)
 
+    def burn_wall(self, gt, box):
+        return None                     # nor a cliff (#191)
+
 
 def drawn():
     from danu.surface import fine

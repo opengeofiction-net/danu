@@ -179,6 +179,8 @@ Numbered from R36 because the earlier numbers are cited from the code.
   however deep.
 - **R51** A cliff with its top's `ele` and its `height` drops that height to
   its right, its top at `ele` and its foot beside it at `ele - height`.
+- **R53** Every cliff is a wall the surface does not fill across: the ground
+  either side of it is made from its own side's contours.
 - **R41** The main map's peaks, volcanoes, saddles and sinkholes with a height are
   imported from Overpass into the squares as spot heights, where the contours
   are; a second import reconciles as R40 says, the height set in the square

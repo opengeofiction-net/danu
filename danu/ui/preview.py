@@ -113,20 +113,20 @@ class _SolveJob(QRunnable):
     """
 
     def __init__(self, serial, cons, mask, water, previous, good, grown, shape,
-                 params, held, nodata, signals):
+                 params, held, wall, nodata, signals):
         super().__init__()
         self.serial, self.signals = serial, signals
-        self.args = (cons, mask, water, previous, good, grown, shape, params, held, nodata)
+        self.args = (cons, mask, water, previous, good, grown, shape, params, held, wall, nodata)
         # set when run() returns, however it returns - see SurfaceLayer.cleanup
         # for why the Event and not the signal is what makes it safe to go
         self.done = threading.Event()
 
     def run(self):
-        cons, mask, water, previous, good, grown, shape, params, held, nodata = self.args
+        cons, mask, water, previous, good, grown, shape, params, held, wall, nodata = self.args
         patch = at = error = None
         try:
             patch, at = local.resolve_window(cons, mask, water, previous, good, grown,
-                                             shape, params, nodata=nodata, held=held)
+                                             shape, params, nodata=nodata, held=held, wall=wall)
         except Exception as e:      # noqa: BLE001 - reported on the UI thread
             # not raised here: this is a worker, and the driver's own handling
             # of a solve that cannot run - say so once, fall back to rebuilding
@@ -392,15 +392,16 @@ class PreviewDriver(QObject):
         for wid in way_ids:
             way = square.ways.get(wid)
             was = self._kept.contours.cliff_of(sq, wid)
-            got = cliff.levels(way) if way is not None else None
-            pts = square.coords(way) if way is not None else []
-            if was is None and got is None:
+            is_cliff = way is not None and cliff.is_cliff(way)
+            if was is None and not is_cliff:
                 continue
-            self._kept.contours.apply_cliff(sq, wid, pts, got[1] if got else None)
-            moved = (pts if got else []) + (was[0] if was else [])
+            got = cliff.levels(way) if is_cliff else None
+            pts = square.coords(way) if is_cliff else []
+            self._kept.contours.apply_cliff(sq, wid, pts, got[1] if got else None, is_cliff)
+            moved = pts + (was[0] if was else [])
             if moved:
                 self._mark_points(moved)
-            if was is not None and got is None:
+            if was is not None and not is_cliff:
                 self._removing = True
 
     def _graded_index(self, square) -> tuple[dict, dict]:

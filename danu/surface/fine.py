@@ -128,6 +128,7 @@ class Prepared:
     rim: np.ndarray           # over good, the 3 arcsecond surface brought up
     sea: np.ndarray           # over good, where the 3 arcsecond DEM is zero
     held: np.ndarray | None = None   # over good: the graded waterways (#372), None without any
+    wall: np.ndarray | None = None   # over outer: the cliffs (#191), None without any
 
 
 @dataclass
@@ -422,7 +423,8 @@ class Fine:
         return Prepared(view, good, outer, cons, self.mask(outer), first, todo,
                         self.water(good), self.up(self.surface, good),
                         self.up(self.dem, good, nearest=True) == 0,
-                        self.contours.burn_held(self.fine.gt, good))
+                        self.contours.burn_held(self.fine.gt, good),
+                        self.contours.burn_wall(self.fine.gt, outer))
 
     def take(self, p: Prepared, solved: Solved, shaded: dict | None = None) -> list[tuple[int, int]]:
         """Keep what a solve found: the DEM of every tile of its view, with
@@ -493,7 +495,8 @@ def solve(p: Prepared, shape: tuple[int, int], params: Params, lib=None) -> Solv
         todo[inner] = p.todo
         search = np.where(todo[at], p.mask[at], 0).astype(np.uint8)
         found, _ = lib.run(np.ascontiguousarray(p.constraints[at]), params, mask=search,
-                           nodata=NODATA, pass2=False)
+                           nodata=NODATA, pass2=False,
+                           wall=np.ascontiguousarray(p.wall[at]) if p.wall is not None else None)
         # read covers good wherever there is todo, but not necessarily all of
         # it: put the found values back where todo is, through the overlap
         oy0, oy1 = max(good.y0, read.y0), min(good.y1, read.y1)
@@ -523,7 +526,8 @@ def solve(p: Prepared, shape: tuple[int, int], params: Params, lib=None) -> Solv
         first[:, 0] = p.rim[:, 0]
     if good.x1 < cols - 1:
         first[:, -1] = p.rim[:, -1]
-    surface = lib.diffuse(first, mask=mask, water=water)
+    surface = lib.diffuse(first, mask=mask, water=water,
+                          wall=np.ascontiguousarray(p.wall[inner]) if p.wall is not None else None)
     cons = p.constraints[inner]
     # the clamp's sea is a global decision, read off the coarse DEM - but only
     # for a cell the clamp would have offered it: one the fill left under half

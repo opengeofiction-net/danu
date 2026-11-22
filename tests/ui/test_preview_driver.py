@@ -107,11 +107,14 @@ class FakeContours:
     def cliff_of(self, square, way_id):
         return self.cliffs.get((square, way_id))
 
-    def apply_cliff(self, square, way_id, points, bottom):
-        if bottom is None:
+    def apply_cliff(self, square, way_id, points, bottom, is_cliff=True):
+        if not is_cliff:
             self.cliffs.pop((square, way_id), None)
         else:
             self.cliffs[(square, way_id)] = (list(points), bottom)
+
+    def burn_wall(self, gt, box):
+        return None
 
     # saddles' passes (#191), by (square, node id)
     def saddle_lines(self, square, node_id):
@@ -141,13 +144,13 @@ def driver_over(monkeypatch, gesture_ms=1, idle_ms=10_000):
     calls = []
     # Stubbed at `prepared`, which is where the driver splits the work: what
     # it returns goes to a worker as arrays. The shape matters - the driver
-    # unpacks it into the job - so this returns the same nine things the real
+    # unpacks it into the job - so this returns the same ten things the real
     # one does, with the box standing in for `good` and `grown`, and no
-    # graded waterway held in it.
+    # graded waterway held in it and no cliff.
     monkeypatch.setattr(surface_preview, 'prepared',
                         lambda kept, box, p, **kw: (calls.append(box),
                                                     (None, None, None, None, box, box,
-                                                     kept.shape, p, None))[1])
+                                                     kept.shape, p, None, None))[1])
     monkeypatch.setattr(local, 'resolve_window',
                         lambda cons, mask, water, previous, good, grown, shape, params,
                         **kw: (zeros[good.slice], good))
