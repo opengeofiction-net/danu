@@ -201,7 +201,7 @@ first for you to agree; other zones' wait until you open them.
 
 **↓** marks a square the server has newer than yours - a neighbour's upload
 to a square you share, since your last import. It is looked for when you
-open a set and after an import, and said on the status line; **File ›
+open a set, after an import and every half hour, and said on the status line; **File ›
 Import** brings it. With **^↓** both copies have changed: the import asks
 which to keep.
 

@@ -346,6 +346,19 @@ def test_a_square_newer_on_the_server_is_marked_until_imported(w, zone, qtbot):
     assert centre not in w.squares.marks
 
 
+def test_the_server_is_asked_again_every_half_hour_while_the_set_stays_open(w, zone, qtbot):
+    from danu.ui import pending
+    centre = SquareName(125, -24)
+    w._drop_runner = lambda job: job.run()
+    w.waiting.check_server()
+    timer = w.waiting.timer
+    assert timer.isActive() and timer.interval() == pending.CHECK_EVERY_MS == 30 * 60 * 1000
+    _newer_there(w.there / GOLDEN)                           # uploaded mid-session
+    timer.timeout.emit()                                     # half an hour on
+    assert w.waiting.newer == {centre} and w.squares.marks[centre] == '↓'
+    assert timer.isActive(), 'and again half an hour after'
+
+
 def test_changed_on_both_sides_it_is_marked_both_ways(w, zone, qtbot):
     from danu.core import mirror as M
     centre = SquareName(125, -24)

@@ -3,8 +3,8 @@ saved but not uploaded - the file is not the version the server has, or
 this folder never had it from the server (``dropclient.unsent``) - and
 ``↓`` newer on the server than the copy here: a neighbour's upload to a
 square the two share, which an import brings (``mirror.newer_there``).
-Asked of the drop when a set is opened and after an import, never
-otherwise: one request for the zone's listing.
+Asked of the drop when a set is opened, after an import, and every half
+hour while one stays open: one request for the zone's listing.
 
 The marks follow each square's grid name, on the open set's frames and on
 the zones map alike; the window's title has ``*`` for the set and ``^`` for
@@ -27,11 +27,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 
 from ..core import dropclient, mirror
 from ..core.square import SquareName, list_squares
 from .background import Job
+
+CHECK_EVERY_MS = 30 * 60 * 1000          # the server asked again while a set stays open
 
 
 def scan(dirs: list[Path]) -> dict[SquareName, tuple[Path, bool]]:
@@ -82,6 +84,12 @@ class Pending(QObject):
         self.outside: dict[SquareName, Path] = {}
         self.newer: set[SquareName] = set()     # the open zone's, newer on the server
         self._newer_job = None
+        # asked again while a set stays open: a neighbour uploads mid-session.
+        # Started by each check, so it runs half an hour after the last
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(CHECK_EVERY_MS)
+        self.timer.timeout.connect(self.check_server)
         self.job = None
         self._again = False
         self._jobs: list[Job] = []          # every one run, for detach
@@ -134,6 +142,7 @@ class Pending(QObject):
         a worker; not reached, or a folder never imported to, none are."""
         w = self.window
         zone_dir = w.zone_dir
+        self.timer.start()
         if zone_dir is None or not (Path(zone_dir) / mirror.MANIFEST).exists():
             self.newer = set()              # never imported to: not a copy of the server's
             return
@@ -168,5 +177,6 @@ class Pending(QObject):
             self._newer_job = None
 
     def detach(self) -> None:
+        self.timer.stop()
         for job in list(self._jobs):
             self._let_go(job)
