@@ -280,7 +280,7 @@ class MapControls(QWidget):
     """
 
     importWater = Signal()
-    importHeights = Signal()
+    importLandforms = Signal()
 
     def __init__(self, view, editor=None, settings=None, layers=None):
         super().__init__(view)
@@ -352,11 +352,11 @@ class MapControls(QWidget):
                           'edit.import_water'),
             column, paint=_water)
         self.water.clicked.connect(self.importWater)
-        self.heights = self._button(
-            '', self._tip("Import the main map's peaks and saddles as spot heights",
-                          'edit.import_heights'),
+        self.landforms = self._button(
+            '', self._tip("Import the main map's landforms and spot heights",
+                          'edit.import_landforms'),
             column, paint=_peak)
-        self.heights.clicked.connect(self.importHeights)
+        self.landforms.clicked.connect(self.importLandforms)
 
         self.zoom_in.clicked.connect(lambda: view.set_zoom(view.zoom + 1))
         self.zoom_out.clicked.connect(lambda: view.set_zoom(view.zoom - 1))

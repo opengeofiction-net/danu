@@ -32,14 +32,12 @@ def test_the_water_work_has_a_menu_of_its_own(window):
     edit = menu(window, 'Edit')
     assert texts(edit) == ['Undo', 'Redo', 'Find element…', 'Delete', 'Delete contour', 'Split', 'Unglue', 'Absorb pieces',
                            'Fit contours to valley', 'Push back crossings', 'Cut out loop',
-                           'Select', 'Draw contour', 'Place spot height', 'Measure', 'Water', 'Spot height',
+                           'Select', 'Draw contour', 'Place spot height', 'Measure', 'Water',
                            'Coastline', 'Landforms']
     water = _menu(edit, 'Water')
     e = window.edit_actions
     assert water.actions() == [e['edit.import_water'], e['edit.set_level'], e['edit.grade'],
                                e['edit.grade_network'], e['edit.flatten'], e['edit.burn'], e['edit.burn_all']]
-    heights = _menu(edit, 'Spot height')
-    assert heights.actions() == [e['edit.import_heights']]
     coastline = _menu(edit, 'Coastline')
     assert coastline.actions() == [e['edit.import_coastline'], e['edit.mark_coastline'], e['edit.reverse_coastline'],
                                    e['edit.fit_coast']]
@@ -120,7 +118,7 @@ def test_single_level_ground_waits_on_unknown_ground(window):
     assert single.isEnabled()
 
 
-@pytest.mark.parametrize('name', ['edit.set_level', 'edit.import_heights', 'edit.import_coastline',
+@pytest.mark.parametrize('name', ['edit.set_level', 'edit.import_coastline',
                                   'edit.import_landforms',
                                   'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast',
                                   'view.josm_surface'])

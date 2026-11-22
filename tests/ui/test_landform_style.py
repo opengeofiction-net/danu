@@ -19,6 +19,8 @@ NORTH = SquareName(125, -23)
 def imported(w):
     w.landforms._fetch = lambda bounds: LANDFORMS
     w.landforms._runner = lambda job: job.run()
+    w.heights._fetch = lambda bounds: b'<osm version="0.6"></osm>'
+    w.heights._runner = lambda job: job.run()
     w.edit_actions['edit.import_landforms'].trigger()
     return w.working_set.squares[NORTH]
 
@@ -35,7 +37,7 @@ def test_a_cliff_and_a_dry_lake_with_no_heights_are_drawn_in_their_own_styles(wi
     imported(w)
     c = w.contours
     assert c.water[(NORTH, 202)].landform == 'cliff'
-    assert (NORTH, 202) in c.cliffs
+    assert (NORTH, 202) in c.marked
     assert c.water[(NORTH, 203)].landform == 'dry_lake'
     assert c.water_fills[(NORTH, 'rel', 301)].landform == 'dry_lake'
     assert c.water[(NORTH, 201)].landform == 'ridge'
@@ -49,9 +51,9 @@ def test_a_cliffs_teeth_hang_on_its_right(window):
     w = window
     imported(w)
     c = w.contours
-    pts, along, _, _ = c.cliffs[(NORTH, 202)]
+    pts, along, _, _ = c.marked[(NORTH, 202)]
     scale = 10 * TOOTH_SPACING_PX / along[-1]          # ten teeth along it
-    teeth = c.cliff_teeth((NORTH, 202), scale)
+    teeth = c.line_marks((NORTH, 202), scale)
     assert len(teeth) == 10
     x0, y0 = pts[0]
     x1, y1 = pts[-1]
@@ -85,7 +87,7 @@ def test_a_cliff_selected_is_given_its_top_and_its_height(window):
     steps = len(w.editor.history._done)
     assert w.editor.set_ele(300)
     assert sq.ways[202].tags['ele'] == '300'
-    assert (NORTH, 202) not in w.contours.water and (NORTH, 202) in w.contours.cliffs
+    assert (NORTH, 202) not in w.contours.water and (NORTH, 202) in w.contours.marked
     assert w.editor.set_height(55)
     assert sq.ways[202].tags['height'] == '55'
     assert not w.editor.set_height(-5)

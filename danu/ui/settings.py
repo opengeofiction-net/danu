@@ -47,7 +47,6 @@ DEFAULT_KEYS = {
     'edit.find': 'Ctrl+F',
     'edit.import_water': 'Ctrl+I',
     # and the main map's peaks and saddles with a height, as spot heights - G9
-    'edit.import_heights': 'Ctrl+Shift+I',
     # L for level: a lake's, or a river's at the point selected - G6a
     'edit.set_level': 'L',
     # G for grade: a level from the contours, proposed - G6b
@@ -84,7 +83,7 @@ DEFAULT_KEYS = {
     'edit.fit_coast': 'Shift+K',
     'edit.import_coastline': 'Ctrl+Alt+I',
     # and the main map's landforms: ridges, valleys, cliffs, dry lakes - #191
-    'edit.import_landforms': 'Ctrl+Alt+Shift+I',
+    'edit.import_landforms': 'Ctrl+Shift+I',
     # J for JOSM: the place shown, and what is selected, shown in JOSM by its
     # remote control - for the water and peaks fixed on the main map
     'view.josm': 'J',

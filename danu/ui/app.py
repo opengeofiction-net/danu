@@ -363,11 +363,8 @@ class MainWindow(QMainWindow):
         self.heights = WaterImporter(self, fetch=lambda bounds: fetch_heights(bounds, self.settings.overpass_url),
                                      work=heights_work,
                                      held=lambda ws: heights_held(ws, mirror.extent(self.zone_dir)))
-        self.heights.started.connect(lambda ws: self.statusBar().showMessage(
-            'importing spot heights from Overpass…'))
         self.heights.finished.connect(self._heights_imported)
-        self.heights.failed.connect(
-            lambda why: self.statusBar().showMessage(f'spot-height import failed: {why.splitlines()[0]}'))
+        self.heights.failed.connect(lambda why: self._terrain_failed('spot-height', why))
         # and its coastlines, on the same footing again
         self.coast = WaterImporter(self, fetch=lambda bounds: fetch_coast(bounds, self.settings.overpass_url),
                                    work=coast_work,
@@ -380,10 +377,12 @@ class MainWindow(QMainWindow):
                                        work=landform_work,
                                        held=lambda ws: Snapshot(held_by(ws), within=mirror.extent(self.zone_dir)))
         self.landforms.started.connect(lambda ws: self.statusBar().showMessage(
-            'importing landforms from Overpass…'))
+            'importing landforms and spot heights from Overpass…'))
         self.landforms.finished.connect(self._landforms_imported)
-        self.landforms.failed.connect(
-            lambda why: self.statusBar().showMessage(f'landform import failed: {why.splitlines()[0]}'))
+        self.landforms.failed.connect(lambda why: self._terrain_failed('landform', why))
+        # one import of the two (#191): each answer kept until both are in,
+        # then put in as one step - None when none is out
+        self._terrain: dict | None = None
         self.coast.failed.connect(
             lambda why: self.statusBar().showMessage(f'coastline import failed: {why.splitlines()[0]}'))
         self.gone_dock.chosen.connect(self._choose_gone)
@@ -485,7 +484,7 @@ class MainWindow(QMainWindow):
         self.surface_panel.styleChanged.connect(lambda _style: self._difference_wanted())
         self.controls = MapControls(self.map, self.editor, self.settings, layers=self.layer_chooser)
         self.controls.importWater.connect(self.import_water)
-        self.controls.importHeights.connect(self.import_heights)
+        self.controls.importLandforms.connect(self.import_landforms)
         # magnify (H3d): the map again at the cursor, a few times over
         self.loupe = Loupe(self.map, self.surface)
         self.map.loupe = self.loupe
@@ -1279,9 +1278,8 @@ class MainWindow(QMainWindow):
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
                 ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
                 ('edit.import_water', '&Import', self.import_water),
-                ('edit.import_heights', '&Import', self.import_heights),
                 ('edit.import_coastline', '&Import', self.import_coastline),
-                ('edit.import_landforms', '&Import', self.import_landforms),
+                ('edit.import_landforms', '&Import landforms and spot heights', self.import_landforms),
                 ('edit.mark_coastline', '&Mark / unmark', ed.toggle_coastline),
                 ('edit.reverse_coastline', '&Reverse', ed.reverse_coastline),
                 ('edit.fit_coast', '&Fit contours to the coast', ed.fit_coast),
@@ -1396,7 +1394,6 @@ class MainWindow(QMainWindow):
         for name in ('edit.import_water', 'edit.set_level', 'edit.grade', 'edit.grade_network', 'edit.flatten',
                      'edit.burn', 'edit.burn_all'):
             water.addAction(e[name])
-        edit.addMenu('Spot &height').addAction(e['edit.import_heights'])
         coastline = edit.addMenu('&Coastline')
         for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast'):
             coastline.addAction(e[name])
@@ -2259,18 +2256,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
 
-    def import_heights(self) -> bool:
-        """R41: the main map's peaks, volcanoes and saddles with a height,
-        into the squares as spot heights (G9) - asked for, as water is."""
-        if self.working_set is None:
-            self.statusBar().showMessage('open a square first')
-            return False
-        queued = self.heights.busy
-        self.heights.request(self.working_set)
-        if queued:
-            self.statusBar().showMessage('already importing; the newer request wins')
-        return True
-
     def import_coastline(self) -> bool:
         """The main map's coastlines, into the squares at ele=0 - asked for,
         as water is, and reconciled the same way."""
@@ -2285,34 +2270,68 @@ class MainWindow(QMainWindow):
 
     def import_landforms(self) -> bool:
         """The main map's landforms - ridges, valleys, cliffs, dry lakes and
-        plateaus - into the squares (#191), asked for, as water is, and
-        reconciled the same way."""
+        plateaus (#191) - and its peaks, volcanoes, saddles and sinkholes with
+        a height (R41, G9), into the squares: one import, asked for as water
+        is, reconciled the same way, and one step on the history once both
+        answers are in."""
         if self.working_set is None:
             self.statusBar().showMessage('open a square first')
             return False
-        queued = self.landforms.busy
+        queued = self.landforms.busy or self.heights.busy
+        self._terrain = {'set': self.working_set}
         self.landforms.request(self.working_set)
+        self.heights.request(self.working_set)
         if queued:
             self.statusBar().showMessage('already importing; the newer request wins')
         return True
 
-    def _landforms_imported(self, answer, working_set):
-        """One landform import, one step on the history: upstream's features,
-        the square's heights kept, and a held one upstream no longer has
-        reported and kept."""
+    def _terrain_failed(self, what: str, why: str) -> None:
+        self._terrain = None
+        self.statusBar().showMessage(f'{what} import failed: {why.splitlines()[0]}')
+
+    def _terrain_answered(self, part: str, answer, working_set) -> None:
+        """One of the import's two answers; with both in, both put in as one
+        step - the landforms first, so a peak on a ridge, which comes in as a
+        vertex of it with no tags, is then given its own."""
+        t = self._terrain
         if working_set is not self.working_set:
+            self._terrain = None
             self.statusBar().showMessage(
                 'the working set changed while the landforms were fetched - import again')
             return
-        self.gone_from_upstream = landforms.gone(working_set, answer.ways, answer.relations)
-        steps = move_commands(answer, working_set, self.editor.history.alloc)
-        steps += landform_commands(answer.placed, working_set)
+        if t is None or t['set'] is not working_set:
+            return                                  # an answer to a request since replaced
+        t[part] = answer
+        if 'landforms' not in t or 'heights' not in t:
+            return
+        self._terrain = None
+        land, said_land, gone_land = self._landform_steps(t['landforms'], working_set)
+        heights, said_heights, gone_heights, differs = self._height_steps(t['heights'], working_set)
+        steps = land + heights
         if steps:
             self.editor.do_across(steps)
-        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[])
-        if self.gone_from_upstream:
+        self.gone_from_upstream = gone_land + gone_heights
+        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[], differs=differs)
+        if self.gone_from_upstream or differs:
             self.gone_dock.show()
             self.gone_dock.raise_()
+        said = f'{said_land}; {said_heights}'
+        if self.gone_from_upstream:
+            said += f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
+        if differs:
+            said += (f"; {len(differs)} the main map gives another height, the square's kept - "
+                     'listed in the report')
+        self.statusBar().showMessage(said + (f'. {_undo_hint("")}' if steps else ''))
+
+    def _landforms_imported(self, answer, working_set):
+        self._terrain_answered('landforms', answer, working_set)
+
+    def _landform_steps(self, answer, working_set):
+        """A landform answer as its steps, what to say of it, and the held
+        landforms upstream no longer has, reported and kept."""
+        gone = landforms.gone(working_set, answer.ways, answer.relations)
+        steps = move_commands(answer, working_set, self.editor.history.alloc)
+        steps += landform_commands(answer.placed, working_set)
         kinds: dict = {}
         for got in answer.placed.values():
             for w in got.ways.values():
@@ -2320,13 +2339,10 @@ class MainWindow(QMainWindow):
                     kinds[w.tags['natural']] = kinds.get(w.tags['natural'], 0) + 1
             for r in got.relations.values():
                 kinds[r.tags['natural']] = kinds.get(r.tags['natural'], 0) + 1
-        kept = (f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
-                if self.gone_from_upstream else '')
         if not kinds:
-            self.statusBar().showMessage(f'no landforms in this working set{kept}')
-            return
+            return steps, 'no landforms in this working set', gone
         what = ', '.join(f'{kinds[k]} {k.replace("_", " ")}' for k in landforms.KINDS if k in kinds)
-        self.statusBar().showMessage(f'imported {what}{kept}. {_undo_hint("")}')
+        return steps, f'imported {what}', gone
 
     def _coast_imported(self, answer, working_set):
         """One coastline import, one step on the history: upstream's way and
@@ -2381,22 +2397,15 @@ class MainWindow(QMainWindow):
         return said
 
     def _heights_imported(self, answer, working_set):
-        """One spot-height import, one step on the history, reconciled as
-        water is: the height set here kept, a held one upstream no longer
-        answers reported and kept."""
-        if working_set is not self.working_set:
-            self.statusBar().showMessage(
-                'the working set changed while the spot heights were fetched - import again')
-            return
-        self.gone_from_upstream = peaks.gone(working_set, answer.nodes)
+        self._terrain_answered('heights', answer, working_set)
+
+    def _height_steps(self, answer, working_set):
+        """A spot-height answer as its steps, reconciled as water is - the
+        height set here kept - what to say of it, the held ones upstream no
+        longer answers, and those it gives another height."""
+        gone = peaks.gone(working_set, answer.nodes)
         differs = peaks.differ(answer.placed, working_set)
         steps = height_commands(answer.placed, working_set)
-        if steps:
-            self.editor.do_across(steps)
-        self.gone_dock.show_report(self.gone_from_upstream, reshaped=[], differs=differs)
-        if self.gone_from_upstream or differs:
-            self.gone_dock.show()
-            self.gone_dock.raise_()
         n = sum(len(v) for v in answer.placed.values())
         kinds = {}
         for v in answer.placed.values():
@@ -2416,12 +2425,7 @@ class MainWindow(QMainWindow):
         if answer.skipped:
             said += (f'; {len(answer.skipped)} skipped, a height that reads as neither metres nor '
                      'feet')
-        if self.gone_from_upstream:
-            said += f'; {len(self.gone_from_upstream)} held no longer upstream, kept'
-        if differs:
-            said += (f"; {len(differs)} the main map gives another height, the square's kept - "
-                     'listed in the report')
-        self.statusBar().showMessage(said + ('. Ctrl+Z takes them all back' if n else ''))
+        return steps, said, gone, differs
 
     def _water_starting(self, working_set):
         # the set the fetch is for, which is not always the one open: a queued

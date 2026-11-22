@@ -138,7 +138,7 @@ def test_every_keyed_map_button_is_told_again(window):
     c = window.controls
     keyed = {b for b, _what, _action in c._tipped}
     assert keyed == {c.select, c.draw, c.spot, c.measure, c.undo, c.redo, c.delete, c.split, c.unglue,
-                     c.magnify, c.water, c.heights}
+                     c.magnify, c.water, c.landforms}
 
 
 def test_an_address_of_spaces_alone_is_the_default(window):

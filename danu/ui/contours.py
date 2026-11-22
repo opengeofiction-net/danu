@@ -52,7 +52,6 @@ from ..core.square import (
     parse_ele,
     water_tags,
 )
-from ..surface import cliff
 from ..surface.ramp import Ramp, spectral
 from . import mercator as m
 from .mapview import box as _bbox
@@ -180,7 +179,7 @@ PLATEAU = QColor(130, 100, 60, 220)
 FILL_ALPHA = 50
 LANDFORM_PENS = {
     'ridge': (CREST, Qt.PenStyle.SolidLine), 'arete': (ARETE, Qt.PenStyle.SolidLine),
-    'valley': (CREST, Qt.PenStyle.DashLine), 'gully': (CREST, Qt.PenStyle.DashLine),
+    'valley': (CREST, Qt.PenStyle.DashLine), 'gully': (CREST, Qt.PenStyle.DotLine),
     'gorge': (CREST, Qt.PenStyle.DashLine),
     'cliff': (CLIFF, Qt.PenStyle.SolidLine), 'earth_bank': (EARTH_BANK, Qt.PenStyle.SolidLine),
     'dry_lake': (DRY_LAKE, Qt.PenStyle.DashLine), 'plateau': (PLATEAU, Qt.PenStyle.DashLine),
@@ -189,6 +188,13 @@ LANDFORM_KINDS = tuple(LANDFORM_PENS)
 # a cliff's teeth, as JOSM's cliff_pattern.svg repeats them: a triangle every
 # 9 px, 5 px along the line and 7 px down from it, on its right - the low side
 TOOTH_SPACING_PX, TOOTH_BASE_PX, TOOTH_LENGTH_PX = 9.0, 5.0, 7.0
+# and the marks on the other lines, JOSM's plain lines given the symbols of a
+# topographic map: a ridge's and an arete's ticks either side, falling away
+# from its crest - an arete's sharper and closer; a gorge's walls, teeth either
+# side hanging in toward its floor. As (spacing, length, base) in pixels
+MARKS = {'cliff': (TOOTH_SPACING_PX, TOOTH_LENGTH_PX, TOOTH_BASE_PX),
+         'earth_bank': (TOOTH_SPACING_PX, TOOTH_LENGTH_PX, TOOTH_BASE_PX),
+         'ridge': (10.0, 4.0, 0.0), 'arete': (6.0, 5.0, 0.0), 'gorge': (12.0, 7.0, 6.0)}
 # what a spot height is said to be, drawn as JOSM draws its icon - a peak's
 # triangle, a saddle's notch, a sinkhole's pit - in the elevation's colour
 SPOT_KINDS = ('peak', 'volcano', 'saddle', 'sinkhole')
@@ -668,7 +674,7 @@ class ContourLayer(QGraphicsItem):
         self.drawn_coast_marks = 0
         # the cliffs and earth banks (#191), whose teeth are drawn over the
         # lines, with or without a height: as a coastline's, and their kind
-        self.cliffs: dict[tuple[SquareName, int], tuple] = {}
+        self.marked: dict[tuple[SquareName, int], tuple] = {}
         self.drawn_teeth = 0
         # how many water ways name each vertex, so a node carrying `ele` can
         # be told apart as a level on a river rather than a spot height. Here
@@ -728,7 +734,7 @@ class ContourLayer(QGraphicsItem):
         # makes not clearing safe, since there is otherwise no eviction.
         self.paths, self.labels, self.index_levels = {}, [], set()
         self._geoms, self._pieces, self.spots, self.water = {}, _Counted(), {}, _Counted()
-        self.fills, self.coasts, self.cliffs = _Counted(), {}, {}
+        self.fills, self.coasts, self.marked = _Counted(), {}, {}
         self.water_fills, self._rel_members = _Counted(), {}
         self._water_refs: dict[tuple[SquareName, int], int] = {}
         if ws is None:
@@ -776,7 +782,7 @@ class ContourLayer(QGraphicsItem):
 
     def _add_geom(self, key, geom) -> None:
         self._add_coast(key, geom)
-        self._add_cliff(key, geom)
+        self._add_marked(key, geom)
         if geom.ele is not None:
             self._add_way(key, geom)
         elif 'danu:fill' in geom.way.tags:
@@ -943,7 +949,7 @@ class ContourLayer(QGraphicsItem):
             self._drop_way(key)
             self.fills.pop(key, None)
             self.coasts.pop(key, None)
-            self.cliffs.pop(key, None)
+            self.marked.pop(key, None)
             old = self._geoms.pop(key, None)
             if self.water.pop(key, None) is not None and old is not None:
                 for r in old.refs:
@@ -1013,7 +1019,7 @@ class ContourLayer(QGraphicsItem):
         before - a node dragged on a contour across the view redrew the view -
         or the whole of it as it was and is. A coastline is whole: its arrows
         are spaced from its start, and one node moved moves them all."""
-        same = (old is not None and new is not None and key not in self.coasts and key not in self.cliffs
+        same = (old is not None and new is not None and key not in self.coasts and key not in self.marked
                 and old.refs == new.refs and len(old.pts) == len(new.pts) and len(old.pts) > 0)
         if not same:
             return [b for g in (old, new) if g is not None for b in (_bbox(g.pts),) if b is not None]
@@ -1348,17 +1354,18 @@ class ContourLayer(QGraphicsItem):
             path.lineTo(x, y)
         self.coasts[key] = (pts, along, rect, path)
 
-    def _add_cliff(self, key: tuple[SquareName, int], g: WayGeom) -> None:
+    def _add_marked(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A cliff's or an earth bank's points and the length along them, for
         its teeth: as a coastline's, drawn whether it has its height or not."""
-        if not cliff.is_cliff(g.way):
+        kind = g.way.tags.get('natural')
+        if kind not in MARKS:
             return
         pts = np.asarray(g.pts, dtype=float)
         along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(pts, axis=0).T))])
         xs, ys = pts[:, 0], pts[:, 1]
         rect = QRectF(float(xs.min()) - 1, float(ys.min()) - 1,
                       float(xs.max() - xs.min()) + 2, float(ys.max() - ys.min()) + 2)
-        self.cliffs[key] = (pts, along, rect, g.way.tags.get('natural'))
+        self.marked[key] = (pts, along, rect, kind)
 
     def _add_fill(self, key: tuple[SquareName, int], g: WayGeom) -> None:
         """A lake's fill line (G7a): drawn faintly over its water, and in
@@ -1855,7 +1862,7 @@ class ContourLayer(QGraphicsItem):
                 for piece in active:
                     for path in piece.drawn(rect, scale):
                         painter.drawPath(path)
-        self._paint_cliffs(painter, near, scale, zoom)
+        self._paint_marks(painter, near, scale, zoom)
         self._paint_coasts(painter, near, scale, zoom)
         self._paint_spots(painter, near, scale, zoom, view)
         if zoom >= ZOOM_LABELS:
@@ -1869,41 +1876,66 @@ class ContourLayer(QGraphicsItem):
         pts, along, _, _ = self.coasts[key]
         return _marks(pts, along, COAST_SPACING_PX / scale, rect)
 
-    def cliff_teeth(self, key, scale: float, rect: QRectF | None = None) -> list:
+    def line_marks(self, key, scale: float, rect: QRectF | None = None) -> list:
         """Where a cliff's teeth go at a scale, as ``coast_marks``: every
         TOOTH_SPACING_PX along it, its low side to the right of (dx, dy)."""
-        pts, along, _, _ = self.cliffs[key]
-        return _marks(pts, along, TOOTH_SPACING_PX / scale, rect)
+        pts, along, _, kind = self.marked[key]
+        return _marks(pts, along, MARKS[kind][0] / scale, rect)
 
-    def _paint_cliffs(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
-        """Each cliff's and earth bank's teeth, as JOSM draws them: filled
-        triangles on its right, its low side, pointing down it - over the
-        contours, as a coastline's marks are, so a cliff drawn as the contour
-        its top makes reads as a cliff. From the zoom every contour is drawn
-        at: below it, teeth 9 px apart are a grey smear."""
+    def _paint_marks(self, painter: QPainter, rect: QRectF, scale: float, zoom: float) -> None:
+        """The marks on the landforms drawn as lines, over the contours as a
+        coastline's are, so one drawn as the contour its top makes still reads
+        as what it is: a cliff's and an earth bank's teeth on its right, its
+        low side, as JOSM draws them; a ridge's and an arete's ticks either
+        side; a gorge's teeth either side hanging in to its floor. From the
+        zoom every contour is drawn at: below it, marks a few pixels apart
+        are a smear."""
         self.drawn_teeth = 0
-        if not self.cliffs or zoom < ZOOM_ALL:
+        if not self.marked or zoom < ZOOM_ALL:
             return
-        b, length = TOOTH_BASE_PX / scale / 2, TOOTH_LENGTH_PX / scale
-        off = 0.5 / scale
-        grown = rect.adjusted(-length, -length, length, length)
-        teeth: dict = {}
-        for key, (_, _, box, kind) in self.cliffs.items():
+        reach = max(m[1] + m[2] for m in MARKS.values()) / scale
+        grown = rect.adjusted(-reach, -reach, reach, reach)
+        teeth: dict = {}                 # filled, by kind
+        ticks: dict = {}                 # stroked, by kind
+        for key, (_, _, box, kind) in self.marked.items():
             if not box.intersects(grown):
                 continue
-            path = teeth.setdefault(kind, QPainterPath())
-            for x, y, dx, dy in self.cliff_teeth(key, scale, grown):
-                nx, ny = -dy, dx                          # the low side
-                bx, by = x + nx * off, y + ny * off
-                path.moveTo(bx - dx * b, by - dy * b)
-                path.lineTo(bx + dx * b, by + dy * b)
-                path.lineTo(x + nx * length, y + ny * length)
-                path.closeSubpath()
+            _step, length, base = (v / scale for v in MARKS[kind])
+            b, off = base / 2, 0.5 / scale
+            filled = kind != 'ridge' and kind != 'arete'
+            path = (teeth if filled else ticks).setdefault(kind, QPainterPath())
+            for x, y, dx, dy in self.line_marks(key, scale, grown):
+                nx, ny = -dy, dx                          # its right
+                if kind == 'gorge':
+                    # a wall either side, a tooth on each hanging in to the floor
+                    for side in (1, -1):
+                        sx, sy = nx * side, ny * side
+                        ox, oy = x + sx * (length + off), y + sy * (length + off)
+                        path.moveTo(ox - dx * b, oy - dy * b)
+                        path.lineTo(ox + dx * b, oy + dy * b)
+                        path.lineTo(x + sx * off * 3, y + sy * off * 3)
+                        path.closeSubpath()
+                elif filled:
+                    bx, by = x + nx * off, y + ny * off
+                    path.moveTo(bx - dx * b, by - dy * b)
+                    path.lineTo(bx + dx * b, by + dy * b)
+                    path.lineTo(x + nx * length, y + ny * length)
+                    path.closeSubpath()
+                else:
+                    path.moveTo(x - nx * length, y - ny * length)
+                    path.lineTo(x + nx * length, y + ny * length)
                 self.drawn_teeth += 1
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         for kind, path in teeth.items():
             painter.setBrush(LANDFORM_PENS[kind][0])
+            painter.drawPath(path)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for kind, path in ticks.items():
+            pen = QPen(LANDFORM_PENS[kind][0], 1.2)
+            pen.setCosmetic(True)
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            painter.setPen(pen)
             painter.drawPath(path)
         painter.restore()
 
