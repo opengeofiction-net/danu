@@ -285,6 +285,50 @@ def test_revert_all_throws_the_others_edits_away_too(w, zone, qtbot):
     qtbot.waitUntil(lambda: 'S24E126 not on the server' in w.statusBar().currentMessage(), timeout=5000)
 
 
+def _newer_there(path):
+    """Somebody else's contour added to the server's copy of a square."""
+    from danu.core import edits
+    from danu.core.square import read_square, write_square
+    sq = read_square(path)
+    alloc = edits.IdAllocator(sq)
+    lon, lat = sq.name.lon + 0.5, sq.name.lat + 0.2
+    edits.AddWay(alloc.take(), [alloc.take(), alloc.take()], [(lon, lat), (lon + 0.1, lat)], {'ele': '888'}).apply(sq)
+    write_square(sq, path)
+
+
+def test_revert_takes_the_servers_newer_copy_of_a_clean_square_beside_it(w, zone, qtbot):
+    """A square of the set with no edits, newer on the server, is not held
+    back by the reverted square's edits: the set is opened again either way
+    (castellan's N35E065 and N36E065, 2026-11-22). The map says what is going
+    on until it has."""
+    east = 'S24E126_Tenmetre.osm.xz'
+    shutil.copy(zone / east, w.there / east)
+    w.import_action.trigger()                                # had from the server, as it is there
+    assert east in mirror.read_manifest(zone)
+    _newer_there(w.there / east)
+    newer = (w.there / east).read_bytes()
+    _edit(w, 'S24E125')
+    seen = []
+    w.importer.message.connect(lambda t: seen.append((t, w.busy_note.isVisible(), w.busy_note.text())))
+    w.sender.ask_revert = lambda square, others: 'one'
+    reopened(w, qtbot, w.drop_actions['drop.revert'].trigger)
+    assert (zone / east).read_bytes() == newer, 'not held back'
+    assert any(shown and note.startswith('reverting S24E125: ') for _, shown, note in seen), seen
+    assert not w.busy_note.isVisible(), 'gone once the set is read again'
+
+
+def test_an_import_holds_back_the_open_sets_clean_squares_while_it_has_edits(w, zone, qtbot):
+    east = 'S24E126_Tenmetre.osm.xz'
+    shutil.copy(zone / east, w.there / east)
+    w.import_action.trigger()
+    _newer_there(w.there / east)
+    before = (zone / east).read_bytes()
+    _edit(w, 'S24E125')
+    w.import_action.trigger()
+    assert (zone / east).read_bytes() == before and w.editor.dirty(), 'held: replacing it would reopen the set'
+    assert not w.busy_note.isVisible()
+
+
 # ------------------------------------------------------------ outside the zone
 
 OUTSIDE = SquareName(125, -25)                  # the set's southern row: pizarrales is S24E124-S23E127
