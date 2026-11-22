@@ -152,9 +152,9 @@ the tools for everything else.
 - **R54** The editor draws every landform with or without a height, each in a
   style of its own after JOSM's, so it can be selected and given one: a
   cliff its top's `ele` and its `height`, a flat area its level.
-- **R55** Every landform can be drawn in the editor as what it is: a line
-  across the contours, a cliff with its low side to its right, a flat area as
-  a closed ring.
+- **R55** Every landform is drawn and edited in the editor as a contour is,
+  as what it is: a line across the contours, a cliff with its low side to its
+  right, a flat area as a closed ring.
 - **R27** Flowing water is never flattened. A river area descends along its
   course.
 - **R40** A second import reconciles rather than duplicates. A feature the

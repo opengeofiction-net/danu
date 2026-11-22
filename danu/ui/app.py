@@ -1873,7 +1873,7 @@ class MainWindow(QMainWindow):
         Not with the draw tool: Ctrl snaps a line there, and a double-click
         ends one - a line drawn with Ctrl held moved the set mid-stroke (#258).
         False, and the double-click is the tool's."""
-        if self.editor.tool == 'draw':
+        if self.editor.tool in ('draw', 'landform'):
             return False
         lon, lat = m.scene_to_lonlat(p.x(), p.y())
         try:

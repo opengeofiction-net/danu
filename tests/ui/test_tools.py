@@ -1244,3 +1244,85 @@ def test_a_ridges_point_is_dragged_and_a_peak_on_it_drawn_as_one(w):
     drag(w, 126.45, -23.62, 0, 40)
     assert square.nodes[ids[1]].lat < -23.621
     assert w.editor.selection.way is square.ways[wid]
+
+
+def a_ridge(w, pts=((126.4, -23.62), (126.45, -23.62), (126.5, -23.62)), tags=None):
+    square = w.working_set.squares[TEN]
+    alloc = w.editor.history.alloc(square)
+    wid, ids = alloc.take(), [alloc.take() for _ in pts]
+    w.editor.do(square, edits.AddWay(wid, ids, list(pts), tags or {'natural': 'ridge'}))
+    return square, square.ways[wid]
+
+
+def shift_drag(w, lon, lat, dx_px, dy_px):
+    pos = at(w, lon, lat)
+    mods = Qt.KeyboardModifier.ShiftModifier
+    w.map.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(pos), w.map.viewport().mapToGlobal(pos),
+                                      Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods))
+    for f in (0.5, 1.0):
+        p = pos + QPoint(round(dx_px * f), round(dy_px * f))
+        w.map.mouseMoveEvent(QMouseEvent(QEvent.Type.MouseMove, QPointF(p), w.map.viewport().mapToGlobal(p),
+                                         Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, mods))
+    p = pos + QPoint(dx_px, dy_px)
+    w.map.mouseReleaseEvent(QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(p), w.map.viewport().mapToGlobal(p),
+                                        Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, mods))
+
+
+def test_a_landform_is_fast_drawn_across_the_contours(w):
+    """#191: drawn as a contour is - a drag lays a stroke - and no contour
+    stops it."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('valley')
+    before = set(square.ways)
+    drag(w, 126.4, -23.95, 0, -400)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    assert square.ways[wid].tags == {'natural': 'valley'} and len(square.ways[wid].refs) >= 2
+
+
+def test_a_ridge_begins_on_a_peak_and_is_continued_from_its_end(w):
+    """A ridge snaps to a peak - where it naturally runs - which becomes its
+    point; begun again on its free end, it goes on."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_tool('spot')
+    w.elevation.set(500)
+    click(w, 126.3, -23.62)
+    (peak,) = [n for n, s in spots_in(w, square).items()]
+    w.editor.do(square, edits.SetNodeTags(peak, dict(square.nodes[peak].tags),
+                                          {**square.nodes[peak].tags, 'natural': 'peak'}))
+    w.editor.set_landform_kind('ridge')
+    before = set(square.ways)
+    click(w, 126.3, -23.62); click(w, 126.35, -23.63)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    ridge = square.ways[wid]
+    assert ridge.refs[0] == peak and len(ridge.refs) == 2
+    end = square.nodes[ridge.refs[-1]]
+    click(w, end.lon, end.lat); click(w, 126.4, -23.64)
+    key(w, Qt.Key.Key_Return)
+    assert set(square.ways) - before == {wid} and len(ridge.refs) == 3
+
+
+def test_a_ridge_is_edited_as_a_contour_is(w):
+    """Double-click puts a point in it, Delete takes one out, P splits it,
+    shift and a drag carries it."""
+    square, ridge = a_ridge(w)
+    w.editor.set_tool('select')
+    double_click(w, 126.425, -23.62)
+    assert len(ridge.refs) == 4
+    mid = ridge.refs[2]
+    n = square.nodes[mid]
+    click(w, n.lon, n.lat)
+    assert w.editor.selection.node == mid and w.editor.selection.way is ridge
+    w.edit_actions['edit.delete'].trigger()
+    assert mid not in square.nodes and len(ridge.refs) == 3
+    n = square.nodes[ridge.refs[1]]
+    click(w, n.lon, n.lat)
+    w.editor.split()
+    assert sum(1 for x in square.ways.values() if x.tags.get('natural') == 'ridge') == 2
+    other = next(x for x in square.ways.values() if x.tags.get('natural') == 'ridge' and x is not ridge)
+    lat0 = square.nodes[other.refs[-1]].lat
+    p = square.nodes[other.refs[-1]]
+    click(w, (p.lon + square.nodes[other.refs[0]].lon) / 2, p.lat)
+    shift_drag(w, (p.lon + square.nodes[other.refs[0]].lon) / 2, p.lat, 0, 60)
+    assert square.nodes[other.refs[-1]].lat < lat0 - 0.001

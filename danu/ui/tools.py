@@ -46,6 +46,16 @@ from .mapview import box as _bbox
 # lines, the cliffs, the areas - those closed as rings
 LANDFORM_TOOL_KINDS = ('ridge', 'arete', 'valley', 'gully', 'gorge', 'cliff', 'earth_bank', 'dry_lake', 'plateau')
 AREA_KINDS = ('dry_lake', 'plateau')
+# the tools that draw lines, alike: a contour, and a landform (#191)
+DRAWING = ('draw', 'landform')
+
+
+def _named(way) -> str:
+    """A line, said: the ridge, the 120 m contour (#191)."""
+    kind = landform_kind(way.tags)
+    if kind is not None:
+        return f'the {kind.replace("_", " ")}'
+    return f'the {format_ele(way.ele)} m contour' if way.ele is not None else 'the way'
 
 SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
@@ -718,15 +728,7 @@ class EditController(QObject):
             return self.measure.mouse_press(event, pos)       # H3b: any map, a set or none
         if self.working_set is None:
             return False
-        if self.tool == 'landform':
-            if event.button() == Qt.MouseButton.LeftButton:
-                self._landform_click(pos)
-                return True
-            if event.button() == Qt.MouseButton.RightButton:
-                self.finish_landform()
-                return True
-            return False
-        if self.tool == 'draw':
+        if self.tool in DRAWING:
             if event.button() == Qt.MouseButton.LeftButton:
                 added = self._draw_click(pos)
                 # if the button stays down and travels, the rest is a stroke
@@ -815,6 +817,12 @@ class EditController(QObject):
                  for sq, way, d in self.layer.pick_lines(pos.x(), pos.y(), tol)]
         outlines = []
         for wet in self.layer.pick_waters(pos.x(), pos.y(), tol):
+            if landform_kind(wet[1].tags) is not None:
+                # a landform is a line as a contour is (#191): selected, carried
+                # with shift, its points dragged - an area's ring the same
+                lines.append((wet[2], ('way', wet[0].name, wet[1].id),
+                              lambda sq=wet[0], way=wet[1]: self._choose_contour(sq, way, whole, pos, mods)))
+                continue
             entry = (wet[2], ('water', wet[0].name, wet[1].id), lambda wet=wet: self._select_water(wet[:5], whole))
             (outlines if wet[5] else lines).append(entry)
         for group in (lines, outlines):
@@ -887,10 +895,7 @@ class EditController(QObject):
             return self.measure.mouse_move(event, pos)
         if self.working_set is None:
             return False
-        if self.tool == 'landform':
-            self.overlay.update()
-            return True
-        if self.tool == 'draw':
+        if self.tool in DRAWING:
             if self._stroke is not None and event.buttons() & Qt.MouseButton.LeftButton:
                 last = self._stroke[-1]
                 if abs(pos.x() - last[0]) + abs(pos.y() - last[1]) >= self._px(FAST_PX):
@@ -1276,26 +1281,29 @@ class EditController(QObject):
         if there is not square:
             return refuse('that end is in another square - a contour joins its neighbour at the '
                           'square\'s edge, not here')
-        mine = [w for w in self._ways_holding(square, nid) if square.ways[w].ele is not None]
-        theirs = [w for w in self._ways_holding(square, target) if square.ways[w].ele is not None]
+        mine = [w for w in self._ways_holding(square, nid) if self._line(square, square.ways[w])]
+        theirs = [w for w in self._ways_holding(square, target) if self._line(square, square.ways[w])]
         if len(mine) != 1 or len(theirs) != 1:
             return refuse('only the end of one contour joins the end of another')
         wid, oid = mine[0], theirs[0]
+        kinds = {landform_kind(square.ways[w].tags) for w in (wid, oid)}
+        if len(kinds) != 1:
+            return refuse('a contour joins a contour, a landform one of its kind (#191)')
         cmd = edits.join_ways(square, wid, nid, oid, target)
         if isinstance(cmd, str):
             return refuse(cmd)
         # R16 for the one segment that changes: from the end's neighbour to
-        # the node it joins
+        # the node it joins - a landform's crossing nothing it can break
         way = square.ways[wid]
         near = way.refs[-2] if way.refs[-1] == nid else way.refs[1]
-        bad = self.layer.crossings(self.layer.node_xy(square, near), self.layer.node_xy(square, target),
-                                   way.ele)
+        bad = [] if kinds != {None} else self.layer.crossings(
+            self.layer.node_xy(square, near), self.layer.node_xy(square, target), way.ele)
         if bad:
             return refuse(self._describe_crossing(bad))
         n.lon, n.lat = before                      # the command does it, so undo has it exact
         self.do(square, cmd)
         self.selection = Selection(square, square.ways[wid])
-        name = f'the {format_ele(way.ele)} m contour'
+        name = _named(way)
         self.message.emit(f'closed {name}' if wid == oid else f'joined {name} to way {oid} - one way now')
         self.overlay.update()
         return True
@@ -1448,7 +1456,7 @@ class EditController(QObject):
         if sel.relation is not None or sel.way is None or sel.node is None:
             return False
         if name == 'edit.split':
-            return (sel.way.ele is not None and (sel.square.name, sel.way.id) not in self.layer.water
+            return (self._line(sel.square, sel.way)
                     and edits.split_refusal(sel.square, sel.way.id, sel.node) is None)
         return edits.unglue_refusal(sel.square, sel.way.id, sel.node) is None
 
@@ -1589,8 +1597,8 @@ class EditController(QObject):
         if sel is None or sel.relation is not None or sel.way is None or sel.node is None:
             self.message.emit('choose a node of a contour, then P splits it there')
             return
-        if sel.way.ele is None or (sel.square.name, sel.way.id) in self.layer.water:
-            self.message.emit('only a contour splits here')
+        if not self._line(sel.square, sel.way):
+            self.message.emit('only a contour or a landform splits here')
             return
         closed = sel.way.closed
         cmd = edits.split_way(sel.square, sel.way.id, sel.node, self.history.alloc(sel.square))
@@ -1599,7 +1607,7 @@ class EditController(QObject):
             return
         self.do(sel.square, cmd)
         self.selection = Selection(sel.square, sel.square.ways[sel.way.id])
-        name = f'the {format_ele(sel.way.ele)} m contour'
+        name = _named(sel.way)
         apart = f'its ends drawn {edits.SPLIT_GAP_M:g} m back either side'
         self.message.emit((f'opened {name} at the node, {apart}' if closed else
                            f'split {name} in two at the node, {apart}')
@@ -1610,8 +1618,7 @@ class EditController(QObject):
         """Whether a press lands on the contour selected whole."""
         sel = self.selection
         if (sel is None or sel.way is None or sel.node is not None or sel.relation is not None
-                or sel.way.id not in sel.square.ways or sel.way.ele is None
-                or (sel.square.name, sel.way.id) in self.layer.water):
+                or sel.way.id not in sel.square.ways or not self._line(sel.square, sel.way)):
             return False
         pts = np.array([self.layer.node_xy(sel.square, r) for r in sel.way.refs if r in sel.square.nodes])
         if len(pts) < 2:
@@ -1637,9 +1644,15 @@ class EditController(QObject):
         key = (square.name, way.id)
         here = [self.layer.node_xy(square, r) for r in way.refs if r in square.nodes]
         there = [f(x, y) for x, y in here]
-        before = self.layer.crossed_by(here, skip=key)
-        after = self.layer.crossed_by(there, skip=key)
-        name = f'the {format_ele(way.ele)} m contour'
+        kind = landform_kind(way.tags)
+        if kind is not None and way.ele is None:
+            # a landform is no contour: it runs across them as it likes (#191)
+            before = after = set()
+            name = f'the {kind.replace("_", " ")}'
+        else:
+            before = self.layer.crossed_by(here, skip=key)
+            after = self.layer.crossed_by(there, skip=key)
+            name = f'the {format_ele(way.ele)} m contour'
         if after and not before:
             sq_name, wid = sorted(after, key=str)[0]
             other = self.working_set.square(sq_name).ways.get(wid)
@@ -1670,8 +1683,8 @@ class EditController(QObject):
         if sel is not None and sel.spot:
             spot = self.layer.spots.get((sel.square.name, sel.node))
             return f'moved the {format_ele(spot.ele)} m spot height' if spot else 'moved a spot height'
-        if sel is not None and sel.way is not None and sel.way.ele is not None:
-            return f'moved a node of the {format_ele(sel.way.ele)} m contour'
+        if sel is not None and sel.way is not None and (sel.way.ele is not None or landform_kind(sel.way.tags)):
+            return f'moved a node of {_named(sel.way)}'
         return 'moved a node'
 
     def _place_spot(self, pos: QPointF) -> None:
@@ -1700,15 +1713,12 @@ class EditController(QObject):
             return self.measure.mouse_double_click(event, pos)
         if self.working_set is None or event.button() != Qt.MouseButton.LeftButton:
             return False
-        if self.tool == 'draw':
+        if self.tool in DRAWING:
             self.finish_line()
-            return True
-        if self.tool == 'landform':
-            self.finish_landform()
             return True
         if self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX)) is not None:
             return True                              # a node: the press selected it
-        hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
+        hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX)) or self._pick_landform(pos)
         if hit is None:
             return False
         square, way, _, seg = hit
@@ -1720,7 +1730,7 @@ class EditController(QObject):
         nid = self.history.alloc(square).take()
         self.do(square, edits.InsertNode(way.id, seg + 1, nid, (lon, lat)))
         self.selection = Selection(square, way, nid)
-        self.message.emit(f'inserted a node into the {format_ele(way.ele)} m contour')
+        self.message.emit(f'inserted a node into {_named(way)}')
         self.overlay.update()
         return True
 
@@ -1766,7 +1776,7 @@ class EditController(QObject):
         if self.tool == 'measure' and self.measure is not None and self.measure.key_press(event):
             return True                              # Esc with no line falls through to the select tool
         if key == Qt.Key.Key_Escape:
-            if self.tool in ('draw', 'landform') and (self.drawing or self.pending):
+            if self.tool in DRAWING and (self.drawing or self.pending):
                 self._stop_drawing()
             else:
                 self.selection = None
@@ -1774,13 +1784,10 @@ class EditController(QObject):
                 self.set_tool('select')
                 self.overlay.update()
             return True
-        if self.tool == 'draw' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if self.tool in DRAWING and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.finish_line()
             return True
-        if self.tool == 'landform' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.finish_landform()
-            return True
-        if self.tool in ('draw', 'landform') and key == Qt.Key.Key_Backspace and self.drawing:
+        if self.tool in DRAWING and key == Qt.Key.Key_Backspace and self.drawing:
             self.undo()
             return True
         return False
@@ -1805,7 +1812,7 @@ class EditController(QObject):
             if cont is not None:
                 square, way, at_end = cont
                 self.drawing = (square, way.id, at_end)
-                self.message.emit(f'continuing the {format_ele(ele)} m contour; right click or Enter ends it')
+                self.message.emit(f'continuing {self._what(ele)}; right click or Enter ends it')
                 self.overlay.update()
                 return False
             square = self.working_set.at(lon, lat)
@@ -1814,11 +1821,13 @@ class EditController(QObject):
                 return False
             node = self.snap[1] if self.snap and self.snap[0] is square else None
             # begun on a contour at this elevation: what follows may be a redraw
-            origin = self._way_at(square, node, ele) if node is not None else None
+            origin = self._way_at(square, node, ele) if node is not None and self._landform() is None else None
             self.redraw_origin = (square, origin.id) if origin is not None else None
             self.pending = (square, node, (lon, lat))
             self.message.emit(f'redrawing the {format_ele(ele)} m contour - end on it with Enter or a right click'
-                              if origin is not None else f'drawing at {format_ele(ele)} m in {square.name}')
+                              if origin is not None else
+                              f'drawing a {self._landform().replace("_", " ")} in {square.name}' if self._landform()
+                              else f'drawing at {format_ele(ele)} m in {square.name}')
             self.overlay.update()
             return False
         if self.pending is not None:
@@ -1834,7 +1843,7 @@ class EditController(QObject):
                 fresh_ids.append(alloc.take()); fresh_coords.append(first_coord)
             if second is None:
                 fresh_ids.append(alloc.take()); fresh_coords.append((lon, lat))
-            cmds.append(edits.AddWay(wid, fresh_ids, fresh_coords, {'ele': tag}))
+            cmds.append(edits.AddWay(wid, fresh_ids, fresh_coords, self._new_tags(tag)))
             if first is not None:
                 cmds.append(edits.ExtendWayWithExisting(wid, False, first))
             if second is not None:
@@ -1860,7 +1869,7 @@ class EditController(QObject):
         way = square.ways[wid]
         if node is not None and node in way.refs and node != way.refs[0 if at_end else -1]:
             # onto its own node other than the far end: a loop, refused
-            self.message.emit('a contour may not cross itself')
+            self.message.emit('a line may not cross itself')
             return False
         if node is not None:
             self._close_onto(square, wid, at_end, node, ele)
@@ -1909,7 +1918,7 @@ class EditController(QObject):
             return
         self.do(square, step)
         if square.ways[wid].closed:
-            self.message.emit(f'closed the {format_ele(ele)} m contour')
+            self.message.emit(f'closed {self._what(ele)}')
             self.redraw_origin = None            # finished, a ring: nothing to take back
             self._stop_drawing()
             return
@@ -1926,11 +1935,11 @@ class EditController(QObject):
         where the sea is. False, and the line shares the node as before."""
         if self.redraw_origin is not None:
             return False
-        ends = [w for w in square.ways.values() if w.id != wid and w.ele == ele and not w.closed
-                and not is_coastline(w) and node in (w.refs[0], w.refs[-1])]
+        ends = [w for w in square.ways.values() if w.id != wid and self._alike(w, ele) and not w.closed
+                and node in (w.refs[0], w.refs[-1])]
         if len(ends) != 1:
             return False
-        other, name = ends[0], f'the {format_ele(ele)} m contour'
+        other, name = ends[0], self._what(ele)
         step.apply(square)                         # join_ways reads the line as it will be
         try:
             drawn = square.ways[wid]
@@ -1961,7 +1970,7 @@ class EditController(QObject):
         # a stroke let go on an existing node ends on it, so that drawing a
         # replacement in one gesture means what the same line clicked means
         square_now = self.drawing[0] if self.drawing else (self.pending[0] if self.pending else None)
-        hit = self.layer.pick_node(stroke[-1][0], stroke[-1][1], self._px(SNAP_PX))
+        hit = self._snap_at(stroke[-1][0], stroke[-1][1])
         end_node = hit[1] if hit is not None and square_now is not None and hit[0] is square_now else None
         if end_node is not None and self.drawing:
             refs = self.drawing[0].ways[self.drawing[1]].refs
@@ -1976,7 +1985,7 @@ class EditController(QObject):
                 # as a click onto it is
                 if self._press_added:
                     self.undo()
-                self.message.emit('stroke not drawn: a contour may not cross itself')
+                self.message.emit('stroke not drawn: a line may not cross itself')
                 return
         if end_node is not None:
             pts = pts[:-1]
@@ -1987,7 +1996,7 @@ class EditController(QObject):
         anchor = self._anchor()
         if anchor is None:
             return
-        for p in pts:
+        for p in pts if self._landform() is None else ():      # a landform crosses what it likes
             found = self.layer.crossings(anchor, p, ele)
             if self.redraw_origin is not None:
                 sq, wid = self.redraw_origin
@@ -2007,9 +2016,9 @@ class EditController(QObject):
             wid = alloc.take()
             if first is None:                     # the press was a fresh point: it leads the way
                 all_coords = [first_coord, *coords]
-                cmds.append(edits.AddWay(wid, [alloc.take() for _ in all_coords], all_coords, {'ele': tag}))
+                cmds.append(edits.AddWay(wid, [alloc.take() for _ in all_coords], all_coords, self._new_tags(tag)))
             else:                                 # the press snapped onto a node: shared, at the start
-                cmds.append(edits.AddWay(wid, [alloc.take() for _ in coords], coords, {'ele': tag}))
+                cmds.append(edits.AddWay(wid, [alloc.take() for _ in coords], coords, self._new_tags(tag)))
                 cmds.append(edits.ExtendWayWithExisting(wid, False, first))
             self.pending = None
             self.drawing = (square, wid, True)
@@ -2018,8 +2027,8 @@ class EditController(QObject):
             alloc = self.history.alloc(square)
             for c in coords:
                 cmds.append(edits.ExtendWay(wid, at_end, alloc.take(), c))
-        self.do(square, edits.Compound(cmds, f'draw {len(pts)} nodes at {tag} m') if len(cmds) > 1 else cmds[0])
-        self.message.emit(f'{len(pts)} nodes from a stroke of {len(stroke)}, at {tag} m')
+        self.do(square, edits.Compound(cmds, f'draw {len(pts)} nodes of {self._what(ele)}') if len(cmds) > 1 else cmds[0])
+        self.message.emit(f'{len(pts)} nodes from a stroke of {len(stroke)}, {self._what(ele)}')
         if end_node is not None:
             self._close_onto(square, self.drawing[1], self.drawing[2], end_node, ele)
         self.overlay.update()
@@ -2085,6 +2094,29 @@ class EditController(QObject):
         way = sq.ways.get(wid)
         return sq is square and way is not None and node in way.refs
 
+    def _landform(self) -> str | None:
+        """What is being drawn, when it is a landform (#191) - the draw
+        tool's machinery is the landform tool's - or None for a contour."""
+        return self.landform_kind if self.tool == 'landform' else None
+
+    def _new_tags(self, tag: str) -> dict:
+        """A new line's tags: a contour's elevation, or what landform it is."""
+        kind = self._landform()
+        return {'natural': kind} if kind is not None else {'ele': tag}
+
+    def _what(self, ele: float) -> str:
+        """The line being drawn, said."""
+        kind = self._landform()
+        return f'the {kind.replace("_", " ")}' if kind is not None else f'the {format_ele(ele)} m contour'
+
+    def _alike(self, way: Way, ele: float) -> bool:
+        """Whether a way is one a line being drawn continues or joins: a
+        contour at its level, never a coastline; a landform of its kind."""
+        kind = self._landform()
+        if kind is not None:
+            return way.tags.get('natural') == kind
+        return way.ele == ele and not is_coastline(way)
+
     def set_landform_kind(self, kind: str) -> None:
         """What the landform tool draws, and the tool taken up to draw it."""
         if kind not in LANDFORM_TOOL_KINDS:
@@ -2093,69 +2125,10 @@ class EditController(QObject):
             self._stop_drawing()
         self.landform_kind = kind
         self.set_tool('landform')
-        self.message.emit(f'drawing a {kind.replace("_", " ")}: click its points, Enter or a right click '
-                          'ends it' + (' and closes it' if kind in AREA_KINDS else '')
+        self.message.emit(f'drawing a {kind.replace("_", " ")}: as a contour is drawn - click or drag, '
+                          'Enter or a right click ends it' + (' and closes it' if kind in AREA_KINDS else '')
                           + (' - its low side on the right' if kind in ('cliff', 'earth_bank') else ''))
         self.landformKindChanged.emit(kind)
-
-    def _landform_click(self, pos: QPointF) -> None:
-        """One click of the landform tool (#191): a point, no snapping and no
-        crossing refused - a ridge or a valley runs across the contours, and
-        a cliff's heights are given it after. A ring for a flat area, closed
-        by a click on its first point or by ending it."""
-        x, y = pos.x(), pos.y()
-        lon, lat = m.scene_to_lonlat(x, y)
-        kind = self.landform_kind
-        if self.drawing is None and self.pending is None:
-            square = self.working_set.at(lon, lat) if self.working_set else None
-            if square is None:
-                self.message.emit('outside the working set')
-                return
-            self.pending = (square, None, (lon, lat))
-            self.overlay.update()
-            return
-        if self.pending is not None:
-            square, _, first = self.pending
-            alloc = self.history.alloc(square)
-            wid = alloc.take()
-            self.pending = None
-            self.drawing = (square, wid, True)
-            self.do(square, edits.AddWay(wid, [alloc.take(), alloc.take()], [first, (lon, lat)],
-                                         {'natural': kind}))
-            self.overlay.update()
-            return
-        square, wid, _ = self.drawing
-        way = square.ways.get(wid)
-        if way is None:
-            self._stop_drawing()
-            return
-        if kind in AREA_KINDS and len(way.refs) >= 3:
-            fx, fy = self.layer.node_xy(square, way.refs[0])
-            if math.hypot(fx - x, fy - y) <= self._px(SNAP_PX):
-                self.finish_landform()
-                return
-        self.do(square, edits.ExtendWay(wid, True, self.history.alloc(square).take(), (lon, lat)))
-        self.overlay.update()
-
-    def finish_landform(self) -> None:
-        """The landform being drawn ended: an area closed onto its first
-        point - three points at least, or it is no area - and selected."""
-        if self.drawing is not None:
-            square, wid, _ = self.drawing
-            way = square.ways.get(wid)
-            kind = self.landform_kind
-            if way is not None and kind in AREA_KINDS and not way.closed:
-                if len(way.refs) < 3:
-                    self.message.emit(f'a {kind.replace("_", " ")} is an area: three points at least')
-                    return
-                self.do(square, edits.ExtendWayWithExisting(wid, True, way.refs[0]))
-            if way is not None and wid in square.ways:
-                self.selection = Selection(square, square.ways[wid])
-                self.message.emit(f'{kind.replace("_", " ")} drawn: give it its '
-                                  + ('top and its height' if kind in ('cliff', 'earth_bank') else
-                                     'level' if kind in AREA_KINDS else
-                                     'heights - grade it, or levels at its points'))
-        self._stop_drawing()
 
     def finish_line(self):
         """End the line. A redraw joins back to the contour it began on if
@@ -2179,6 +2152,22 @@ class EditController(QObject):
                                   'bring the line back near one of its nodes, or Escape drops it')
                 self.overlay.update()
                 return
+        kind = self._landform()
+        if self.drawing is not None and kind is not None:
+            square, wid, _ = self.drawing
+            way = square.ways.get(wid)
+            if way is not None and kind in AREA_KINDS and not way.closed:
+                # an area ends closed (#191): three points at least, or it is none
+                if len(way.refs) < 3:
+                    self.message.emit(f'a {kind.replace("_", " ")} is an area: three points at least')
+                    return
+                self.do(square, edits.ExtendWayWithExisting(wid, True, way.refs[0]))
+            if wid in square.ways:
+                self.selection = Selection(square, square.ways[wid])
+                self.message.emit(f'{kind.replace("_", " ")} drawn: give it its '
+                                  + ('top and its height' if kind in ('cliff', 'earth_bank') else
+                                     'level' if kind in AREA_KINDS else
+                                     'heights - grade it, or levels at its points'))
         self._stop_drawing()
 
     def _nearest_of(self, square: Square, way: Way, point: tuple[float, float], within: float) -> int | None:
@@ -2243,7 +2232,7 @@ class EditController(QObject):
             return None
         square, nid, _, _ = self.snap
         for way in square.ways.values():
-            if way.ele == ele and not way.closed and len(way.refs) >= 2:
+            if self._alike(way, ele) and not way.closed and len(way.refs) >= 2:
                 if way.refs[-1] == nid:
                     return square, way, True
                 if way.refs[0] == nid:
@@ -2278,13 +2267,38 @@ class EditController(QObject):
         self.overlay.update()
 
     def _update_snap(self, pos: QPointF):
-        hit = self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX))
+        hit = self._snap_at(pos.x(), pos.y())
         if hit is None:
             self.snap = None
             return
-        square, nid, _ = hit
-        x, y = self.layer.node_xy(square, nid)
+        square, nid, (x, y) = hit
         self.snap = (square, nid, x, y)
+
+    def _snap_at(self, x: float, y: float):
+        """The node a line being drawn snaps to near a scene point, as
+        (square, id, (x, y)), or None. A contour's: any node of a line. A
+        landform's (#191): a node of a landform - its own to continue or
+        close, another's to meet - or a peak, a saddle, a sinkhole, where a
+        ridge or a valley naturally runs; never a contour's, which would tie
+        the two together."""
+        tol = self._px(SNAP_PX)
+        if self._landform() is None:
+            hit = self.layer.pick_node(x, y, tol)
+            return None if hit is None else (hit[0], hit[1], self.layer.node_xy(hit[0], hit[1]))
+        spot = self.layer.pick_spot(x, y, tol, self.view.zoom)
+        if spot is not None:
+            sq, nid = spot[0], spot[1]
+            node = sq.nodes.get(nid)
+            if node is not None and node.tags.get('natural') in held.SPOT_KINDS:
+                return sq, nid, m.lonlat_to_scene(node.lon, node.lat)
+        for sq, way, _d in self.layer.pick_lines(x, y, tol) + [
+                (w[0], w[1], w[2]) for w in self.layer.pick_waters(x, y, tol)]:
+            if landform_kind(way.tags) is None:
+                continue
+            best = self._nearest_of(sq, way, (x, y), tol)
+            if best is not None:
+                return sq, best, self.layer.node_xy(sq, best)
+        return None
 
     def _point(self, pos: QPointF) -> tuple[float, float]:
         return (self.snap[2], self.snap[3]) if self.snap else (pos.x(), pos.y())
@@ -2305,6 +2319,9 @@ class EditController(QObject):
         a = self._anchor()
         if a is None or self.cursor is None:
             self.crossing = []
+            return
+        if self._landform() is not None:
+            self.crossing = []                         # a ridge runs across the contours
             return
         q = (self.snap[2], self.snap[3]) if self.snap else self.cursor
         self.crossing = self.layer.crossings(a, q, self.elevation.value)
@@ -2401,7 +2418,7 @@ class EditController(QObject):
             self.selection = None
             self.message.emit(f'deleted the {what} m spot height' if what else 'deleted a spot height')
         elif (sel.node is not None and sel.way is not None
-              and (sel.square.name, sel.way.id) in self.layer.water):
+              and (sel.square.name, sel.way.id) in self.layer.water and not self._line(sel.square, sel.way)):
             # a point on a river: Delete takes its level, not the point. The
             # vertex is upstream's and comes back on the next import - G5a -
             # where the level is the mapper's and would not
@@ -2420,7 +2437,10 @@ class EditController(QObject):
         else:
             self.do(sel.square, edits.DeleteWay(sel.way.id))
             self.selection = None
-            self.message.emit(f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None else 'deleted a way')
+            kind = landform_kind(sel.way.tags)
+            self.message.emit(f'deleted the {kind.replace("_", " ")}' if kind else
+                              f'deleted the {format_ele(sel.way.ele)} m contour' if sel.way.ele is not None
+                              else 'deleted a way')
         self.overlay.update()
 
     def _delete_picked(self) -> None:
@@ -2433,7 +2453,7 @@ class EditController(QObject):
             if sq is None:
                 continue
             river = {r for (sn, wid) in self.layer.water if sn == name and wid in sq.ways
-                     for r in sq.ways[wid].refs}
+                     and not self._line(sq, sq.ways[wid]) for r in sq.ways[wid].refs}
             ids = [i for i in sorted(ids) if i in sq.nodes]
             mine = [i for i in ids if i not in river]
             kept += len(ids) - len(mine)
@@ -3581,6 +3601,27 @@ class EditController(QObject):
     def _ways_holding(square: Square, nid: int) -> set[int]:
         return edits.ways_holding(square, nid)
 
+    def _pick_landform(self, pos: QPointF):
+        """The landform nearest a point, as ``layer.pick`` gives a contour:
+        (square, way, distance, segment index) - None for none in reach."""
+        tol = self._px(PICK_PX)
+        for sq, way, d, *_ in self.layer.pick_waters(pos.x(), pos.y(), tol):
+            if landform_kind(way.tags) is None:
+                continue
+            pts = np.array([self.layer.node_xy(sq, r) for r in way.refs if r in sq.nodes], dtype=float)
+            if len(pts) < 2:
+                continue
+            _t, dist = geometry.nearest_point_on_segments((pos.x(), pos.y()), pts[:-1], pts[1:])
+            return sq, way, d, int(dist.argmin())
+        return None
+
+    def _line(self, square: Square, way: Way) -> bool:
+        """A line edited as a contour is (#191): a contour, or a landform - a
+        ridge, a cliff, a dry lake's ring - whatever its heights. Not water,
+        whose course is upstream's (G5a), nor a coastline's direction."""
+        return ((way.ele is not None and (square.name, way.id) not in self.layer.water)
+                or landform_kind(way.tags) is not None)
+
     def _way_holding(self, square: Square, nid: int) -> Way | None:
         """The way a node pressed on is selected and dragged as part of: a
         contour's, or a landform's (#191) - a ridge's points are moved as a
@@ -3712,7 +3753,7 @@ class EditOverlay(QGraphicsItem):
                 out.append(self._way_box(square, square.ways[wid]))
         if ctl.ghost:
             pts += list(ctl.ghost)
-        if ctl.tool in ('draw', 'landform'):
+        if ctl.tool in DRAWING:
             anchor = ctl._anchor()
             if anchor is not None:
                 pts.append(anchor)
@@ -4017,7 +4058,7 @@ class EditOverlay(QGraphicsItem):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(_path(ctl.ghost))
-        if ctl.tool not in ('draw', 'landform'):
+        if ctl.tool not in DRAWING:
             return
         anchor = ctl._anchor()
         target = (ctl.snap[2], ctl.snap[3]) if ctl.snap else ctl.cursor
