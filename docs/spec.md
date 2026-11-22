@@ -168,6 +168,9 @@ Numbered from R36 because the earlier numbers are cited from the code.
   is a vertex of a waterway (R48).
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
+- **R49** A spot height's kind says what the surface makes of it: a saddle is
+  the top of the pass between the valleys either side, and a sinkhole is a pit
+  however deep.
 - **R41** The main map's peaks, volcanoes and saddles with a height are
   imported from Overpass into the squares as spot heights, where the contours
   are; a second import reconciles as R40 says, the height set in the square

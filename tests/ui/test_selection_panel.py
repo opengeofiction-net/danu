@@ -143,6 +143,36 @@ def test_a_spot_heights_value_changes_without_deleting_it(w):
     assert sq.nodes[nid].tags['ele'] == '412.5', 'a spot height was left with no value'
 
 
+def test_a_spot_heights_kind_is_chosen_and_ctrl_z_takes_it_back(w):
+    """#191: a spot height said to be a saddle, then a sinkhole, then plain -
+    its ``natural``, one step each, and only for a spot height."""
+    panel = w.selection_panel
+    sq = w.working_set.squares[HERE]
+    nid = w.editor.history.alloc(sq).take()
+    w.editor.do(sq, edits.AddNode(nid, (125.5, -23.5), {'ele': '400', 'name': 'Col'}))
+    w.editor.selection = Selection(sq, None, nid)
+    assert panel.spot_kind.isVisibleTo(panel)
+    assert panel.spot_kind.currentData() is None
+    for kind in ('saddle', 'sinkhole'):
+        panel.spot_kind.setCurrentIndex(panel.spot_kind.findData(kind))
+        panel.spot_kind.activated.emit(panel.spot_kind.currentIndex())
+        assert sq.nodes[nid].tags == {'ele': '400', 'name': 'Col', 'natural': kind}
+    panel.spot_kind.setCurrentIndex(panel.spot_kind.findData(None))
+    panel.spot_kind.activated.emit(panel.spot_kind.currentIndex())
+    assert sq.nodes[nid].tags == {'ele': '400', 'name': 'Col'}
+    w.editor.undo()
+    assert sq.nodes[nid].tags['natural'] == 'sinkhole'
+    assert panel.spot_kind.currentData() == 'sinkhole'
+    # a kind the list does not offer is shown as it is
+    w.editor.do(sq, edits.SetNodeTags(nid, dict(sq.nodes[nid].tags), {'ele': '400', 'natural': 'hill'}))
+    w.editor.selection = Selection(sq, None, nid)
+    assert panel.spot_kind.currentText() == 'hill'
+    # and a contour has no kind
+    sq2, way = contour(w)
+    w.editor.selection = Selection(sq2, way, None)
+    assert not panel.spot_kind.isVisibleTo(panel)
+
+
 # ----------------------------------------------------------------------- water
 
 def test_a_rivers_point_is_levelled_and_cleared(w):

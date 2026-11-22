@@ -342,3 +342,25 @@ def test_a_spot_height_taken_into_a_way_and_let_go_is_followed():
     del sq.ways[k]
     index.update(sq, {k})
     assert [c.node for c in index.contradictions()] == [c.node for c in spots.find(w)] == [i]
+
+
+def test_a_sinkhole_may_be_as_low_as_it_likes():
+    """#191: a ``natural=sinkhole`` is a pit, dug below whatever ground it is
+    in. Below the hill's top ring, or far below the contours round it in no
+    ring, it is not a contradiction; past the next contour up it still is."""
+    w, sq = ws()
+    hill(sq)
+    spot(sq, 125.5, -22.5, 140, natural='sinkhole')            # in the 150 m ring, below it
+    high = spot(sq, 125.501, -22.5, 190, natural='sinkhole')   # past 175: too high, sinkhole or not
+    (c,) = spots.find(w)
+    assert (c.node, c.kind) == (high, 'above')
+    w2, sq2 = ws()
+    a_ladder(sq2)
+    open_box(sq2, 125.5, -22.5, 0.005, (100, 100, 125, 125))
+    spot(sq2, 125.5, -22.5, 60, natural='sinkhole')            # far below them: a deep pit
+    assert spots.find(w2) == []
+    # and the same height not a sinkhole is still found
+    w3, sq3 = ws()
+    hill(sq3)
+    spot(sq3, 125.5, -22.5, 140, natural='peak')
+    assert len(spots.find(w3)) == 1

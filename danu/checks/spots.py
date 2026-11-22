@@ -268,9 +268,27 @@ def judge_open(square, node, ele, segments, ladder) -> Contradiction | None:
     return None
 
 
+def _too_low(c: Contradiction) -> bool:
+    """Whether a contradiction is of a spot height lower than its ground
+    allows: below the ring of a hill, or past the next contour down in a
+    hollow, or far below the contours round it."""
+    return (c.kind == 'below') != c.hollow if c.ring is not None else c.kind == 'below'
+
+
 def judge(square, node, ele, rings, ladder, segments=None) -> Contradiction | None:
     """One spot height against the rings round it - or, in none, against the
-    contours nearest it."""
+    contours nearest it.
+
+    A ``natural=sinkhole`` is a pit by definition, dug below whatever ground
+    it is in, however deep: nothing it is lower than contradicts it, and only
+    one too high is said (#191)."""
+    c = _judge(square, node, ele, rings, ladder, segments)
+    if c is not None and node.tags.get('natural') == 'sinkhole' and _too_low(c):
+        return None
+    return c
+
+
+def _judge(square, node, ele, rings, ladder, segments=None) -> Contradiction | None:
     x, y = node.lon, node.lat
     round_it = [(area, wid, level) for wid, level, X, Y, (x0, y0, x1, y1), area in rings
                 if x0 <= x <= x1 and y0 <= y <= y1 and _inside(x, y, X, Y)]

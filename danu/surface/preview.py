@@ -46,6 +46,7 @@ LAYER = 'contour'
 LAKES = 'lake'
 SPOTS = 'spot'
 HELD = 'held'
+SADDLES = 'saddle'
 NO_ELEV = -32768.0               # isofill's: a cell nothing holds
 
 
@@ -232,6 +233,32 @@ class Contours:
                     self._spot_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._spot_next = top + 1
 
+        # Each saddle's pass, two lines falling from it, burned between the
+        # lakes and the spot heights as the build burns them (#191). Keyed by
+        # the saddle's node, which has two
+        self.saddles = None
+        self._saddle_fids: dict[tuple, list[int]] = {}
+        self._saddle_next = 0
+        saddle_lyr = src.GetLayer(SADDLES)
+        if saddle_lyr is not None:
+            self._make_saddles(saddle_lyr.GetSpatialRef())
+            sdefn2 = self.saddles.GetLayerDefn()
+            top = 0
+            named = _has_square(saddle_lyr)
+            id_i, sq_i = _indices(saddle_lyr, ('osm_id', 'square'))
+            out_id, = _indices(self.saddles, ('osm_id',))
+            for f in saddle_lyr:
+                fid = f.GetFID()
+                top = max(top, fid)
+                osm_id = _text(f, id_i)
+                g = ogr.Feature(sdefn2)
+                g.SetFID(fid)
+                g.SetGeometry(f.GetGeometryRef())
+                g.SetField(out_id, osm_id)
+                self.saddles.CreateFeature(g)
+                self._saddle_fids.setdefault(_key(_text(f, sq_i) if named else None, osm_id), []).append(fid)
+            self._saddle_next = top + 1
+
         # The graded waterways, held by the second pass and unseen by the
         # first (#372): a raster of their own, burned from this layer as the
         # build burns its. A way can make several runs, so each key has a list
@@ -303,6 +330,52 @@ class Contours:
                                            geom_type=ogr.wkbPolygon)
         self.lakes.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.lakes.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def _make_saddles(self, srs=None) -> None:
+        """The in-memory layer of saddles' passes, empty - made on demand
+        too, for a GeoPackage from a build before saddles were read."""
+        from osgeo import ogr
+        if self.saddles is not None:
+            return
+        self.saddles = self._mem.CreateLayer(SADDLES, srs=srs if srs is not None else self.layer.GetSpatialRef(),
+                                             geom_type=ogr.wkbLineString25D)
+        self.saddles.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def remove_saddle(self, square, node_id) -> bool:
+        """Drop a saddle's pass. False when it had none."""
+        fids = self._saddle_fids.pop(self._of(square, node_id, self._saddle_fids), None)
+        if not fids:
+            return False
+        for fid in fids:
+            self.saddles.DeleteFeature(fid)
+        return True
+
+    def apply_saddle(self, square, node_id, lines) -> None:
+        """Put a saddle's pass in - ``saddle.lines`` - in place of what it
+        had; none, for a saddle the contours round it no longer show as one,
+        takes it out."""
+        from . import saddle
+        self._make_saddles()
+        self.remove_saddle(square, node_id)
+        if not lines:
+            return
+        fids = []
+        for f in saddle.features(self.saddles.GetLayerDefn(), lines, node_id):
+            f.SetFID(self._saddle_next)
+            fids.append(self._saddle_next)
+            self._saddle_next += 1
+            self.saddles.CreateFeature(f)
+        self._saddle_fids[_key(square, node_id)] = fids
+
+    def saddle_lines(self, square, node_id) -> list:
+        """A saddle's pass as the layer has it, as ((lon, lat, ele), (lon,
+        lat, level)) lines."""
+        out = []
+        for fid in self._saddle_fids.get(self._of(square, node_id, self._saddle_fids), ()):
+            f = self.saddles.GetFeature(fid)          # held: the geometry is the feature's
+            g = f.GetGeometryRef()
+            out.append((g.GetPoint(0), g.GetPoint(1)))
+        return out
 
     def _make_held(self, srs=None) -> None:
         """The in-memory layer of graded waterways, empty - made on demand
@@ -504,8 +577,8 @@ class Contours:
     def burn(self, gt: tuple, box: Box, nodata: float, spots: bool = True) -> np.ndarray:
         """The constraints for ``box`` alone, burned as the build burns them:
         all touched, last writer wins, in FID order - the contours, then the
-        lakes held at their level, then the spot heights, so a spot height
-        standing on either wins its cell.
+        lakes held at their level, then the saddles' passes, then the spot
+        heights, so a spot height standing on any of them wins its cell.
 
         The cells a line runs through, as ``rasterise()`` burns them - the
         two must agree cell for cell (R35). ``spots`` False
@@ -522,13 +595,19 @@ class Contours:
         band.Fill(nodata)
         west, south = min(x0, x1), min(y0, y1)
         east, north = max(x0, x1), max(y0, y1)
-        for layer in (self.layer, *((self.lakes, self.spots) if spots else ())):
+        for layer in (self.layer, *((self.lakes, self.saddles, self.spots) if spots else ())):
             if layer is None:
                 continue
             layer.SetSpatialFilterRect(west, south, east, north)
             try:
-                gdal.RasterizeLayer(out, [1], layer,
-                                    options=['ATTRIBUTE=ele', 'ALL_TOUCHED=FALSE'])
+                if layer is self.saddles:
+                    # its height the line's Z, as the build's -3d; burn
+                    # value 0, which RasterizeLayer adds to it
+                    gdal.RasterizeLayer(out, [1], layer, burn_values=[0],
+                                        options=['BURN_VALUE_FROM=Z', 'ALL_TOUCHED=FALSE'])
+                else:
+                    gdal.RasterizeLayer(out, [1], layer,
+                                        options=['ATTRIBUTE=ele', 'ALL_TOUCHED=FALSE'])
             finally:
                 layer.SetSpatialFilter(None)
         return band.ReadAsArray()
