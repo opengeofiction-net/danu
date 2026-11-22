@@ -524,6 +524,8 @@ class MainWindow(QMainWindow):
         self.waiting = Pending(self, self)
         self.waiting.changed.connect(self._show_marks)
         self.importer.finished.connect(lambda *_: self.waiting.refresh())
+        self.importer.finished.connect(lambda *_: self.waiting.check_server())
+        self.waiting.newer_found.connect(self._newer_there)
         self.waiting.refresh()
         # File › Revert square to the server's: the squares whose changes here
         # are being thrown away, until the set opens again without them
@@ -725,11 +727,21 @@ class MainWindow(QMainWindow):
         redo.setText(f'&Redo {h.describe_redo()}' if h.can_redo else '&Redo')
         self._show_marks()
 
+    def _newer_there(self, names) -> None:
+        """The set's squares the server has newer than here, said once the
+        drop has answered - marked ↓ on their frames and the zones map."""
+        ws = self.working_set
+        mine = [str(n) for n in names if ws is not None and n in ws.squares]
+        if mine:
+            self.statusBar().showMessage(
+                f'{", ".join(mine)} {"is" if len(mine) == 1 else "are"} newer on the server (↓) - '
+                f'File › Import brings {"it" if len(mine) == 1 else "them"}')
+
     def _show_marks(self):
         """Each square's marks, on its frame and on the zones map; in the
         title, the set's unsaved edits and the centre's file not uploaded."""
         dirty = {sq.name for sq in self.editor.history.dirty_squares()}
-        got = pending.marks(dirty, self.waiting.unsent, self.waiting.outside)
+        got = pending.marks(dirty, self.waiting.unsent, self.waiting.outside, self.waiting.newer)
         for item in (self.squares, self.zone_editor.item):
             if item.marks != got:
                 old, item.marks = item.marks, got
@@ -1974,6 +1986,7 @@ class MainWindow(QMainWindow):
         self._name_neighbours()
         self._show_marks()
         self.waiting.refresh()                  # the set's folder may be outside the import folder
+        self.waiting.check_server()             # a neighbour's upload to a square of the set, since
         self._ask_extent()
         self._territory.setText('territory: looking…')
         self.territory.refresh()

@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import USER_AGENT
-from .square import SquareName
+from .square import SquareName, list_squares
 
 URL = 'https://data.opengeofiction.net/dem/osm-squares'
 MANIFEST = '.danu-mirror.json'
@@ -253,6 +253,45 @@ def fetch(zone: str, root: Path, base: str = URL, opener=urllib.request.urlopen,
                       and (via == 'published' or _cell(p.name) is not None))
     if report is not None:
         report((len(server), len(server), ''))
+    return out
+
+
+def newer_there(zone_dir: Path, api: str, opener=urllib.request.urlopen,
+                timeout: float = TIMEOUT_S) -> set[SquareName] | None:
+    """The squares the drop has a copy of that this folder hasn't had: the
+    server's listed differently from the copy the manifest says was had, or
+    one not here at all - and not the same bytes as here. A neighbour's
+    upload to a shared square, say, before an import brings it. Only the
+    listing is fetched. None when the drop isn't reached or the folder was
+    never imported to: the published index lists dates, not the hashes the
+    manifest keeps, and can be a day behind."""
+    zone_dir = Path(zone_dir)
+    if not (zone_dir / MANIFEST).exists():
+        return None
+    listed = _drop_listing(api, zone_dir.name, opener, timeout)
+    if listed is None:
+        return None
+    server, _url, _rects = listed
+    manifest = read_manifest(zone_dir)
+    try:
+        here = {c: p.name for c, p in list_squares(zone_dir, compressed_only=True).items()}
+    except FileExistsError:
+        return None                                        # two files for a square: nothing to say
+    out = set()
+    for name, (size, sha) in server.items():
+        cell = _cell(name)
+        if cell is None:
+            continue
+        mine = here.get(cell)
+        if mine is None:
+            out.add(cell)                                  # there, never had here
+            continue
+        known = manifest.get(mine) or {}
+        if known.get('server') == [size, sha]:
+            continue                                       # the copy had is the server's still
+        if _hash_here(zone_dir / mine, known) == sha:
+            continue                                       # the same bytes, however they came
+        out.add(cell)
     return out
 
 

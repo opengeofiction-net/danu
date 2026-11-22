@@ -1,6 +1,10 @@
 """What waits on the mapper, square by square: ``*`` edits not saved, ``^``
 saved but not uploaded - the file is not the version the server has, or
-this folder never had it from the server (``dropclient.unsent``).
+this folder never had it from the server (``dropclient.unsent``) - and
+``↓`` newer on the server than the copy here: a neighbour's upload to a
+square the two share, which an import brings (``mirror.newer_there``).
+Asked of the drop when a set is opened and after an import, never
+otherwise: one request for the zone's listing.
 
 The marks follow each square's grid name, on the open set's frames and on
 the zones map alike; the window's title has ``*`` for the set and ``^`` for
@@ -55,14 +59,20 @@ def scan_all(dirs: list[Path]) -> tuple[dict[SquareName, tuple[Path, bool]], dic
     return out, outside
 
 
-def marks(dirty: set[SquareName], unsent, outside=()) -> dict[SquareName, str]:
-    """Each square's marks: ``*``, and ``^`` - or ``X``, outside the zone."""
+NEWER = '↓'
+
+
+def marks(dirty: set[SquareName], unsent, outside=(), newer=()) -> dict[SquareName, str]:
+    """Each square's marks: ``*``, and ``^`` - or ``X``, outside the zone -
+    and ``↓``, newer on the server."""
     return {c: ('*' if c in dirty else '') + ('X' if c in outside else '^' if c in unsent else '')
-            for c in set(dirty) | set(unsent) | set(outside)}
+            + (NEWER if c in newer and c not in outside else '')
+            for c in set(dirty) | set(unsent) | set(outside) | set(newer)}
 
 
 class Pending(QObject):
     changed = Signal()
+    newer_found = Signal(object)            # the open zone's squares newer on the server, sorted
 
     def __init__(self, window, parent=None):
         super().__init__(parent)
@@ -70,6 +80,8 @@ class Pending(QObject):
         self.runner = QThreadPool.globalInstance().start
         self.unsent: dict[SquareName, tuple[Path, bool]] = {}
         self.outside: dict[SquareName, Path] = {}
+        self.newer: set[SquareName] = set()     # the open zone's, newer on the server
+        self._newer_job = None
         self.job = None
         self._again = False
         self._jobs: list[Job] = []          # every one run, for detach
@@ -111,10 +123,39 @@ class Pending(QObject):
                 self._again = False
                 self.refresh()
         for old in list(self._jobs):        # those answered, let go of here: not in their own signal
-            self._let_go(old)
+            if old is not self._newer_job:
+                self._let_go(old)
         job = self.job = Job(lambda: scan_all(dirs), done, failed)
         self._jobs.append(job)
         self.runner(job)
+
+    def check_server(self) -> None:
+        """The open zone's squares newer on the server, asked of the drop on
+        a worker; not reached, or a folder never imported to, none are."""
+        w = self.window
+        zone_dir = w.zone_dir
+        if zone_dir is None or not (Path(zone_dir) / mirror.MANIFEST).exists():
+            self.newer = set()              # never imported to: not a copy of the server's
+            return
+        api, kw = w.settings.url('drop/url'), w.importer._kw()
+
+        def done(found):
+            if job is not self._newer_job or w.zone_dir != zone_dir:
+                return                      # another zone opened while it asked
+            self._newer_job = None
+            self.newer = found or set()
+            try:
+                self.changed.emit()
+                self.newer_found.emit(sorted(self.newer))
+            except RuntimeError:
+                return                      # the window went while it asked
+        for old in list(self._jobs):        # those answered, let go of here: not in their own signal
+            if old is not self.job:
+                self._let_go(old)
+        job = self._newer_job = Job(lambda: mirror.newer_there(Path(zone_dir), api, **kw), done,
+                                    lambda _why: None)
+        self._jobs.append(job)              # and let go of by detach, the window closing
+        w._drop_runner(job)
 
     def _let_go(self, job: Job) -> None:
         """A job answered, or the window closing: let go of (``Job.release``)."""
@@ -123,6 +164,8 @@ class Pending(QObject):
             self._jobs.remove(job)
         if self.job is job:
             self.job = None
+        if self._newer_job is job:
+            self._newer_job = None
 
     def detach(self) -> None:
         for job in list(self._jobs):
