@@ -1178,3 +1178,51 @@ def test_a_line_begun_at_a_contours_end_continues_it_as_ever(w):
     click(w, *pts[-1]); click(w, 126.50, -23.25)
     key(w, Qt.Key.Key_Return)
     assert w.editor.drawing is None and len(square.ways[wid].refs) == 4
+
+
+def test_a_contour_drawn_is_the_selection_the_panel_shows(w):
+    """Something selected and then a contour drawn: the panel follows the
+    line as it is drawn, as it does a spot height placed - it went on saying
+    what was selected before."""
+    square = w.working_set.squares[TEN]
+    other = next(x for x in square.ways.values() if x.ele == 10)
+    w.editor.selection = Selection(square, other)
+    w.editor.set_tool('draw')
+    w.elevation.set(123)
+    click(w, 126.3, -23.85); click(w, 126.4, -23.86)
+    (way,) = ways_at(square, 123)
+    assert w.editor.selection.way is way
+    assert w.selection_panel.ele.text() == '123'
+    click(w, 126.5, -23.85)
+    key(w, Qt.Key.Key_Return)
+    assert w.editor.selection.way is way and len(way.refs) == 3
+
+
+# ----------------------------------------------------------- landforms
+
+def test_a_ridge_is_drawn_across_the_contours_and_selected(w):
+    """#191: the landform tool draws a line no contour stops - a ridge runs
+    across them - tagged as what it is, with no height, and selected."""
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('ridge')
+    assert w.editor.tool == 'landform' and w.controls.landform.isChecked()
+    before = set(square.ways)
+    click(w, 126.4, -23.95); click(w, 126.41, -23.7); click(w, 126.42, -23.45)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    way = square.ways[wid]
+    assert way.tags == {'natural': 'ridge'} and len(way.refs) == 3 and not way.closed
+    assert w.editor.selection.way is way and w.editor.drawing is None
+    assert w.selection_panel.kind.text() == 'ridge'
+
+
+def test_a_dry_lake_is_drawn_as_a_closed_ring(w):
+    square = w.working_set.squares[TEN]
+    w.editor.set_landform_kind('dry_lake')
+    before = set(square.ways)
+    click(w, 126.3, -23.62); click(w, 126.35, -23.62); click(w, 126.33, -23.58)
+    key(w, Qt.Key.Key_Return)
+    (wid,) = set(square.ways) - before
+    way = square.ways[wid]
+    assert way.closed and len(way.refs) == 4 and way.tags == {'natural': 'dry_lake'}
+    assert w.selection_panel.kind.text() == 'dry lake'

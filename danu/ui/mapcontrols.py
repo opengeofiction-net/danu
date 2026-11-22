@@ -222,6 +222,19 @@ def _peak(p: QPainter, colour: QColor):
     p.drawPolygon([QPointF(10.2, 3.8), QPointF(14.8, 3.8), QPointF(12.5, 6.6)])
 
 
+def _ridge(p: QPainter, colour: QColor):
+    """A ridge as the map draws one - a line with ticks either side - to
+    draw a landform (#191)."""
+    pen = QPen(colour, 1.5)
+    p.setPen(pen)
+    p.drawLine(QPointF(2.5, 14.5), QPointF(15.5, 3.5))
+    pen.setWidthF(1.1)
+    p.setPen(pen)
+    for t in (0.2, 0.4, 0.6, 0.8):
+        x, y = 2.5 + 13 * t, 14.5 - 11 * t
+        p.drawLine(QPointF(x - 2.3, y - 2.7), QPointF(x + 2.3, y + 2.7))
+
+
 def _ruler(p: QPainter, colour: QColor):
     """A ruler laid across - measure, H3b."""
     pen = QPen(colour, 1.4)
@@ -318,6 +331,10 @@ class MapControls(QWidget):
         self.spot = self._button('', self._tip('Place a spot height at the active elevation',
                                                'tool.spot'), column,
                                  checkable=True, paint=_spot, lit=True)
+        # what it draws chosen from its menu, which takes the tool up (#191)
+        self.landform = self._button('', self._tip('Draw a landform - a ridge, a valley, a cliff, a dry lake…',
+                                                   'tool.landform'), column,
+                                     checkable=True, paint=_ridge, lit=True)
         self.measure = self._button('', self._tip('Measure - a line, and the ground along it',
                                                   'tool.measure'), column,
                                     checkable=True, paint=_ruler, lit=True)
@@ -325,6 +342,7 @@ class MapControls(QWidget):
         self.modes.addButton(self.select)
         self.modes.addButton(self.draw)
         self.modes.addButton(self.spot)
+        self.modes.addButton(self.landform)
         self.modes.addButton(self.measure)
         self.select.setChecked(True)
         column.end_group()
@@ -365,6 +383,13 @@ class MapControls(QWidget):
             self.select.clicked.connect(lambda: editor.set_tool('select'))
             self.draw.clicked.connect(lambda: editor.set_tool('draw'))
             self.spot.clicked.connect(lambda: editor.set_tool('spot'))
+            from .tools import LANDFORM_TOOL_KINDS
+            kinds = QMenu(self.landform)
+            for kind in LANDFORM_TOOL_KINDS:
+                a = kinds.addAction(kind.replace('_', ' ').capitalize())
+                a.triggered.connect(lambda _=False, k=kind: editor.set_landform_kind(k))
+            self.landform.setMenu(kinds)
+            self.landform.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             self.measure.clicked.connect(lambda: editor.set_tool('measure'))
             editor.toolChanged.connect(self.tool_changed)
             editor.selectionChanged.connect(self.refresh_edits)
@@ -472,4 +497,5 @@ class MapControls(QWidget):
         self.select.setChecked(name == 'select')
         self.draw.setChecked(name == 'draw')
         self.spot.setChecked(name == 'spot')
+        self.landform.setChecked(name == 'landform')
         self.measure.setChecked(name == 'measure')

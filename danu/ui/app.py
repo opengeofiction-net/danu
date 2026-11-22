@@ -76,7 +76,7 @@ from .start import StartCard
 from .surface import ARCSEC, REBUILD_TIPS, SurfaceBuilder, SurfaceLayer, SurfacePanel
 from .territory import TerritoryFetcher
 from .tiles import TileFetcher, TileLayer
-from .tools import EditController, Selection
+from .tools import LANDFORM_TOOL_KINDS, EditController, Selection
 from .usage import UsageLog
 from .water import (
     Snapshot,
@@ -1276,6 +1276,7 @@ class MainWindow(QMainWindow):
                 ('tool.select', '&Select', lambda: ed.set_tool('select')),
                 ('tool.draw', 'Dr&aw contour', lambda: ed.set_tool('draw')),
                 ('tool.spot', 'Place spot &height', lambda: ed.set_tool('spot')),
+                ('tool.landform', 'Draw &landform', lambda: ed.set_landform_kind(ed.landform_kind)),
                 ('tool.measure', '&Measure', lambda: ed.set_tool('measure')),
                 ('edit.import_water', '&Import', self.import_water),
                 ('edit.import_coastline', '&Import', self.import_coastline),
@@ -1397,7 +1398,22 @@ class MainWindow(QMainWindow):
         coastline = edit.addMenu('&Coastline')
         for name in ('edit.import_coastline', 'edit.mark_coastline', 'edit.reverse_coastline', 'edit.fit_coast'):
             coastline.addAction(e[name])
-        edit.addMenu('&Landforms').addAction(e['edit.import_landforms'])
+        landforms_menu = edit.addMenu('&Landforms')
+        landforms_menu.addAction(e['edit.import_landforms'])
+        landforms_menu.addSeparator()
+        landforms_menu.addAction(e['tool.landform'])
+        # what it draws, one of each (#191): chosen, the tool is taken up
+        self.landform_kinds = QActionGroup(self)
+        draw_as = landforms_menu.addMenu('Draw &as')
+        for kind in LANDFORM_TOOL_KINDS:
+            a = draw_as.addAction(kind.replace('_', ' ').capitalize())
+            a.setCheckable(True)
+            a.setChecked(kind == ed.landform_kind)
+            a.setData(kind)
+            a.triggered.connect(lambda _=False, k=kind: ed.set_landform_kind(k))
+            self.landform_kinds.addAction(a)
+        ed.landformKindChanged.connect(
+            lambda k: [a.setChecked(a.data() == k) for a in self.landform_kinds.actions()])
 
         view = self.menuBar().addMenu('&View')
         view.addAction(e['view.magnify'])

@@ -41,7 +41,10 @@ def test_the_water_work_has_a_menu_of_its_own(window):
     coastline = _menu(edit, 'Coastline')
     assert coastline.actions() == [e['edit.import_coastline'], e['edit.mark_coastline'], e['edit.reverse_coastline'],
                                    e['edit.fit_coast']]
-    assert _menu(edit, 'Landforms').actions() == [e['edit.import_landforms']]
+    landforms = _menu(edit, 'Landforms')
+    assert landforms.actions()[:3:2] == [e['edit.import_landforms'], e['tool.landform']]
+    assert texts(_menu(landforms, 'Draw as')) == ['Ridge', 'Arete', 'Valley', 'Gully', 'Gorge', 'Cliff',
+                                                  'Earth bank', 'Dry lake', 'Plateau']
 
 
 def test_the_surface_in_josm_is_under_surface(window):

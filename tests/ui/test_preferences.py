@@ -39,11 +39,11 @@ def test_the_preferences_are_in_the_file_menu(window):
 
 
 def test_a_key_changed_holds_at_once_on_the_action_and_the_map_button(window, dlg):
-    dlg.edits['tool.draw'].setKeySequence(QKeySequence('D'))
+    dlg.edits['tool.draw'].setKeySequence(QKeySequence('Y'))
     assert ok(window, dlg)
-    assert window.settings.key('tool.draw') == 'D'
-    assert window.edit_actions['tool.draw'].shortcut().toString() == 'D'
-    assert window.controls.draw.toolTip().endswith('(D)')
+    assert window.settings.key('tool.draw') == 'Y'
+    assert window.edit_actions['tool.draw'].shortcut().toString() == 'Y'
+    assert window.controls.draw.toolTip().endswith('(Y)')
 
 
 def test_a_key_two_actions_would_share_is_refused_and_said(window, dlg):
@@ -67,10 +67,10 @@ def test_an_unbound_action_takes_no_key_and_clashes_with_nothing(window, dlg):
 
 
 def test_defaults_put_every_key_back_and_the_ini_holds_none(window, dlg):
-    dlg.edits['tool.draw'].setKeySequence(QKeySequence('D'))
+    dlg.edits['tool.draw'].setKeySequence(QKeySequence('Y'))
     assert ok(window, dlg)
     again = PreferencesDialog(window.settings, window.action_labels(), window)
-    assert again.edits['tool.draw'].keySequence().toString() == 'D'
+    assert again.edits['tool.draw'].keySequence().toString() == 'Y'
     again.default_keys()
     assert ok(window, again)
     assert window.settings.q.value('keys/tool.draw') is None
@@ -137,7 +137,7 @@ def test_every_address_the_dialog_lists_has_a_default():
 def test_every_keyed_map_button_is_told_again(window):
     c = window.controls
     keyed = {b for b, _what, _action in c._tipped}
-    assert keyed == {c.select, c.draw, c.spot, c.measure, c.undo, c.redo, c.delete, c.split, c.unglue,
+    assert keyed == {c.select, c.draw, c.spot, c.landform, c.measure, c.undo, c.redo, c.delete, c.split, c.unglue,
                      c.magnify, c.water, c.landforms}
 
 

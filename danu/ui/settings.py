@@ -37,6 +37,8 @@ DEFAULT_KEYS = {
     # Q, A, Z: the tools are a column under the left hand, as the
     # elevation keys are, and for the same reason
     'tool.spot': 'Z',
+    # a ridge, a valley, a cliff, a dry lake drawn (#191)
+    'tool.landform': 'D',
     # M for measure: a line, and the ground along it - H3b
     'tool.measure': 'M',
     'edit.undo': 'Ctrl+Z',

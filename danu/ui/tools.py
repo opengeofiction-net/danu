@@ -42,6 +42,11 @@ from .contours import ContourLayer, water_feature, water_tags
 from .mapview import MapView, update_around, visible_rect
 from .mapview import box as _bbox
 
+# what the landform tool draws (#191), in the order its menu lists them: the
+# lines, the cliffs, the areas - those closed as rings
+LANDFORM_TOOL_KINDS = ('ridge', 'arete', 'valley', 'gully', 'gorge', 'cliff', 'earth_bank', 'dry_lake', 'plateau')
+AREA_KINDS = ('dry_lake', 'plateau')
+
 SNAP_PX = 10.0                  # a node this close is the one meant
 FINISH_PX = 24.0                # and this close, when a redraw is being finished on its contour
 PICK_PX = 8.0                   # a way this close is the one meant
@@ -462,6 +467,7 @@ class EditController(QObject):
                                                   # square, for the preview
     message = Signal(str)            # for the status line
     toolChanged = Signal(str)
+    landformKindChanged = Signal(str)
     # whenever the selection is set, to anything - the selection panel's cue.
     # Emitted on every assignment rather than on a change, because telling a
     # change means comparing Selections, and a Selection's dataclass equality
@@ -503,6 +509,8 @@ class EditController(QObject):
         self.edited.connect(self._drop_proposal)
         # drawing
         self.drawing: tuple[Square, int, bool] | None = None      # square, way id, at the end
+        # what the landform tool draws (#191): a natural=* of LANDFORM_TOOL_KINDS
+        self.landform_kind = 'ridge'
         self.pending: tuple[Square, int | None, tuple[float, float]] | None = None   # first click
         self.cursor: tuple[float, float] | None = None           # scene
         self.snap: tuple[Square, int, float, float] | None = None  # square, node, x, y
@@ -597,7 +605,7 @@ class EditController(QObject):
         self.edited.emit()
 
     def set_tool(self, name: str):
-        if name not in ('select', 'draw', 'spot', 'measure'):
+        if name not in ('select', 'draw', 'spot', 'measure', 'landform'):
             raise ValueError(name)
         if name != self.tool:
             self._stop_drawing()
@@ -626,6 +634,14 @@ class EditController(QObject):
         self.layer.refresh_spots(square, spots)
         self.editedWays.emit(square, ways, spots)
         self.edited.emit()
+        if self.drawing is not None:
+            # the line being drawn is the selection, as a spot height placed
+            # is: the panel said what was selected before it was begun
+            sq, wid, _ = self.drawing
+            if sq is square and wid in square.ways:
+                sel = self.selection
+                if sel is None or sel.square is not square or sel.way is None or sel.way.id != wid:
+                    self.selection = Selection(square, square.ways[wid])
 
     def undo(self):
         self._history_move(self.history.undo_across(), 'undid')
@@ -701,6 +717,14 @@ class EditController(QObject):
         if self.tool == 'measure' and self.measure is not None:
             return self.measure.mouse_press(event, pos)       # H3b: any map, a set or none
         if self.working_set is None:
+            return False
+        if self.tool == 'landform':
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._landform_click(pos)
+                return True
+            if event.button() == Qt.MouseButton.RightButton:
+                self.finish_landform()
+                return True
             return False
         if self.tool == 'draw':
             if event.button() == Qt.MouseButton.LeftButton:
@@ -863,6 +887,9 @@ class EditController(QObject):
             return self.measure.mouse_move(event, pos)
         if self.working_set is None:
             return False
+        if self.tool == 'landform':
+            self.overlay.update()
+            return True
         if self.tool == 'draw':
             if self._stroke is not None and event.buttons() & Qt.MouseButton.LeftButton:
                 last = self._stroke[-1]
@@ -1676,6 +1703,9 @@ class EditController(QObject):
         if self.tool == 'draw':
             self.finish_line()
             return True
+        if self.tool == 'landform':
+            self.finish_landform()
+            return True
         if self.layer.pick_node(pos.x(), pos.y(), self._px(SNAP_PX)) is not None:
             return True                              # a node: the press selected it
         hit = self.layer.pick(pos.x(), pos.y(), self._px(PICK_PX))
@@ -1736,7 +1766,7 @@ class EditController(QObject):
         if self.tool == 'measure' and self.measure is not None and self.measure.key_press(event):
             return True                              # Esc with no line falls through to the select tool
         if key == Qt.Key.Key_Escape:
-            if self.tool == 'draw' and (self.drawing or self.pending):
+            if self.tool in ('draw', 'landform') and (self.drawing or self.pending):
                 self._stop_drawing()
             else:
                 self.selection = None
@@ -1747,7 +1777,10 @@ class EditController(QObject):
         if self.tool == 'draw' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.finish_line()
             return True
-        if self.tool == 'draw' and key == Qt.Key.Key_Backspace and self.drawing:
+        if self.tool == 'landform' and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.finish_landform()
+            return True
+        if self.tool in ('draw', 'landform') and key == Qt.Key.Key_Backspace and self.drawing:
             self.undo()
             return True
         return False
@@ -2051,6 +2084,78 @@ class EditController(QObject):
         sq, wid = self.redraw_origin
         way = sq.ways.get(wid)
         return sq is square and way is not None and node in way.refs
+
+    def set_landform_kind(self, kind: str) -> None:
+        """What the landform tool draws, and the tool taken up to draw it."""
+        if kind not in LANDFORM_TOOL_KINDS:
+            raise ValueError(kind)
+        if kind != self.landform_kind and self.tool == 'landform':
+            self._stop_drawing()
+        self.landform_kind = kind
+        self.set_tool('landform')
+        self.message.emit(f'drawing a {kind.replace("_", " ")}: click its points, Enter or a right click '
+                          'ends it' + (' and closes it' if kind in AREA_KINDS else '')
+                          + (' - its low side on the right' if kind in ('cliff', 'earth_bank') else ''))
+        self.landformKindChanged.emit(kind)
+
+    def _landform_click(self, pos: QPointF) -> None:
+        """One click of the landform tool (#191): a point, no snapping and no
+        crossing refused - a ridge or a valley runs across the contours, and
+        a cliff's heights are given it after. A ring for a flat area, closed
+        by a click on its first point or by ending it."""
+        x, y = pos.x(), pos.y()
+        lon, lat = m.scene_to_lonlat(x, y)
+        kind = self.landform_kind
+        if self.drawing is None and self.pending is None:
+            square = self.working_set.at(lon, lat) if self.working_set else None
+            if square is None:
+                self.message.emit('outside the working set')
+                return
+            self.pending = (square, None, (lon, lat))
+            self.overlay.update()
+            return
+        if self.pending is not None:
+            square, _, first = self.pending
+            alloc = self.history.alloc(square)
+            wid = alloc.take()
+            self.pending = None
+            self.drawing = (square, wid, True)
+            self.do(square, edits.AddWay(wid, [alloc.take(), alloc.take()], [first, (lon, lat)],
+                                         {'natural': kind}))
+            self.overlay.update()
+            return
+        square, wid, _ = self.drawing
+        way = square.ways.get(wid)
+        if way is None:
+            self._stop_drawing()
+            return
+        if kind in AREA_KINDS and len(way.refs) >= 3:
+            fx, fy = self.layer.node_xy(square, way.refs[0])
+            if math.hypot(fx - x, fy - y) <= self._px(SNAP_PX):
+                self.finish_landform()
+                return
+        self.do(square, edits.ExtendWay(wid, True, self.history.alloc(square).take(), (lon, lat)))
+        self.overlay.update()
+
+    def finish_landform(self) -> None:
+        """The landform being drawn ended: an area closed onto its first
+        point - three points at least, or it is no area - and selected."""
+        if self.drawing is not None:
+            square, wid, _ = self.drawing
+            way = square.ways.get(wid)
+            kind = self.landform_kind
+            if way is not None and kind in AREA_KINDS and not way.closed:
+                if len(way.refs) < 3:
+                    self.message.emit(f'a {kind.replace("_", " ")} is an area: three points at least')
+                    return
+                self.do(square, edits.ExtendWayWithExisting(wid, True, way.refs[0]))
+            if way is not None and wid in square.ways:
+                self.selection = Selection(square, square.ways[wid])
+                self.message.emit(f'{kind.replace("_", " ")} drawn: give it its '
+                                  + ('top and its height' if kind in ('cliff', 'earth_bank') else
+                                     'level' if kind in AREA_KINDS else
+                                     'heights - grade it, or levels at its points'))
+        self._stop_drawing()
 
     def finish_line(self):
         """End the line. A redraw joins back to the contour it began on if
@@ -3600,7 +3705,7 @@ class EditOverlay(QGraphicsItem):
                 out.append(self._way_box(square, square.ways[wid]))
         if ctl.ghost:
             pts += list(ctl.ghost)
-        if ctl.tool == 'draw':
+        if ctl.tool in ('draw', 'landform'):
             anchor = ctl._anchor()
             if anchor is not None:
                 pts.append(anchor)
@@ -3905,7 +4010,7 @@ class EditOverlay(QGraphicsItem):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(_path(ctl.ghost))
-        if ctl.tool != 'draw':
+        if ctl.tool not in ('draw', 'landform'):
             return
         anchor = ctl._anchor()
         target = (ctl.snap[2], ctl.snap[3]) if ctl.snap else ctl.cursor
