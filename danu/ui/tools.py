@@ -38,7 +38,7 @@ from ..surface import cliff, held
 from ..water import burn, coastfit, contradict, flatten, lassofit
 from ..water.overpass import flows
 from . import mercator as m
-from .contours import ContourLayer, water_feature, water_tags
+from .contours import ContourLayer, landform_kind, water_feature, water_tags
 from .mapview import MapView, update_around, visible_rect
 from .mapview import box as _bbox
 
@@ -3582,10 +3582,17 @@ class EditController(QObject):
         return edits.ways_holding(square, nid)
 
     def _way_holding(self, square: Square, nid: int) -> Way | None:
+        """The way a node pressed on is selected and dragged as part of: a
+        contour's, or a landform's (#191) - a ridge's points are moved as a
+        contour's are. Not water's: upstream owns where water is (G5a)."""
+        landform = None
         for w in square.ways.values():
-            if nid in w.refs and w.ele is not None:
-                return w
-        return None
+            if nid in w.refs:
+                if w.ele is not None and (square.name, w.id) not in self.layer.water:
+                    return w
+                if landform is None and landform_kind(w.tags) is not None:
+                    landform = w
+        return landform
 
     def _node_contours_crossed(self, square: Square, nid: int, at=None) -> set:
         """What the contours holding a node cross, the node where it is or

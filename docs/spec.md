@@ -177,7 +177,8 @@ Numbered from R36 because the earlier numbers are cited from the code.
 
 - **R36** Nodes with `ele` inside the squares are first-class and editable.
   A node carrying `ele` is a constraint, the same as a contour way, unless it
-  is a vertex of a waterway or of a landform drawn as a line (R48).
+  is a vertex of a waterway or of a landform drawn as a line (R48) - and a
+  peak, volcano, saddle or sinkhole on one is both.
 - **R37** A spot height is the only thing which shapes a hilltop. Contours
   cannot say how high a hill goes.
 - **R49** A spot height's kind says what the surface makes of it: a saddle is

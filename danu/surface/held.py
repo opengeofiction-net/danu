@@ -107,9 +107,21 @@ def feature(defn, run, way_id, square=None):
     return f
 
 
+# what a node can be said to be that keeps it a spot height on a held line:
+# a peak, a saddle on a ridge - where they naturally are - is still the top of
+# its hill or of its pass, held and a constraint both (#191)
+SPOT_KINDS = ('peak', 'volcano', 'saddle', 'sinkhole')
+
+
+def stays_spot(node) -> bool:
+    """Whether a node with a height on a held line is a spot height too."""
+    return node is not None and node.tags.get('natural') in SPOT_KINDS
+
+
 def graded(square) -> tuple[dict[int, list], set[int]]:
-    """The square's held runs by way id, and the ids of the nodes in them -
-    which are not spot heights, however many other ways they are on."""
+    """The square's held runs by way id, and the ids of the nodes in them
+    that are not spot heights, however many other ways they are on - all but
+    a peak, a saddle and their kind."""
     by_way: dict[int, list] = {}
     nodes: set[int] = set()
     for wid, way in square.ways.items():
@@ -117,5 +129,5 @@ def graded(square) -> tuple[dict[int, list], set[int]]:
         if not got:
             continue
         by_way[wid] = got
-        nodes.update(ref for ref, _node, ele in _vertices(square, way) if ele is not None)
+        nodes.update(ref for ref, node, ele in _vertices(square, way) if ele is not None and not stays_spot(node))
     return by_way, nodes

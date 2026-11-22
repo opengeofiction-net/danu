@@ -894,8 +894,9 @@ class ContourLayer(QGraphicsItem):
             return
         x, y = m.lonlat_to_scene(node.lon, node.lat)
         kind = node.tags.get('natural')
+        # a peak or a saddle on a ridge is drawn as one, not as a level on it
         self.spots[key] = Spot(square, node_id, ele, x, y,
-                               on_water=self._water_refs.get(key, 0) > 0,
+                               on_water=self._water_refs.get(key, 0) > 0 and kind not in SPOT_KINDS,
                                kind=kind if kind in SPOT_KINDS else None)
 
     def refresh_spots(self, square: Square, node_ids) -> None:

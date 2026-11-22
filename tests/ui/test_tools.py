@@ -1226,3 +1226,21 @@ def test_a_dry_lake_is_drawn_as_a_closed_ring(w):
     way = square.ways[wid]
     assert way.closed and len(way.refs) == 4 and way.tags == {'natural': 'dry_lake'}
     assert w.selection_panel.kind.text() == 'dry lake'
+
+
+def test_a_ridges_point_is_dragged_and_a_peak_on_it_drawn_as_one(w):
+    """#191: a landform's points move as a contour's do - water's do not,
+    upstream owns where it is - and a peak that is a ridge's point is drawn
+    as a peak, not as a level on the ridge."""
+    square = w.working_set.squares[TEN]
+    alloc = w.editor.history.alloc(square)
+    wid, ids = alloc.take(), [alloc.take() for _ in range(3)]
+    w.editor.do(square, edits.AddWay(wid, ids, [(126.4, -23.62), (126.45, -23.62), (126.5, -23.62)],
+                                     {'natural': 'ridge'}))
+    w.editor.do(square, edits.SetNodeTags(ids[0], {}, {'natural': 'peak', 'ele': '500'}))
+    spot = w.contours.spots[(TEN, ids[0])]
+    assert spot.kind == 'peak' and not spot.on_water
+    w.editor.set_tool('select')
+    drag(w, 126.45, -23.62, 0, 40)
+    assert square.nodes[ids[1]].lat < -23.621
+    assert w.editor.selection.way is square.ways[wid]

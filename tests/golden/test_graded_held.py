@@ -287,3 +287,22 @@ def test_a_landform_line_is_held_as_a_river_is(tmp_path, kind):
     m, _ = read(r.drawn_mask)
     at = (h != -32768) & (m > 0)
     assert at.sum() > 100 and np.array_equal(s[at], h[at])
+
+
+def test_a_peak_on_a_ridge_is_held_and_a_spot_height_both(tmp_path):
+    """#191: a peak or a saddle is naturally a vertex of its ridge. Tagged so,
+    it stays a spot height - the top of its hill, a constraint - as well as
+    held along the ridge; the ridge's other vertices are held alone."""
+    from osgeo import ogr
+    sq = a_valley()
+    wid, way = next((w, x) for w, x in sq.ways.items() if 'waterway' in x.tags)
+    way.tags = {'natural': 'ridge'}
+    top = sq.nodes[way.refs[0]]
+    top.tags = {**top.tags, 'natural': 'peak'}
+    r = built(sq, tmp_path)
+    ds = ogr.Open(str(r.contours_gpkg))
+    spots = [f.GetField('osm_id') for f in ds.GetLayerByName('spot')]
+    held_n = ds.GetLayerByName('held').GetFeatureCount()
+    del ds
+    assert spots == [str(top.id)]
+    assert held_n == len(RUNS)
