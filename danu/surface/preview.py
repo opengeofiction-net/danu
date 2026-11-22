@@ -47,6 +47,7 @@ LAKES = 'lake'
 SPOTS = 'spot'
 HELD = 'held'
 SADDLES = 'saddle'
+CLIFFS = 'cliff'
 NO_ELEV = -32768.0               # isofill's: a cell nothing holds
 
 
@@ -233,6 +234,32 @@ class Contours:
                     self._spot_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
             self._spot_next = top + 1
 
+        # The cliffs with a top and a height: the top a contour already, the
+        # foot made from these for the grid it is burned on (#191)
+        self.cliffs = None
+        self._cliff_fid: dict[tuple, int] = {}
+        self._cliff_next = 0
+        cliff_lyr = src.GetLayer(CLIFFS)
+        if cliff_lyr is not None:
+            self._make_cliffs(cliff_lyr.GetSpatialRef())
+            cdefn = self.cliffs.GetLayerDefn()
+            top = 0
+            named = _has_square(cliff_lyr)
+            id_i, sq_i, b_i = _indices(cliff_lyr, ('osm_id', 'square', 'bottom'))
+            out_id, out_b = _indices(self.cliffs, ('osm_id', 'bottom'))
+            for f in cliff_lyr:
+                fid = f.GetFID()
+                top = max(top, fid)
+                osm_id = _text(f, id_i)
+                g = ogr.Feature(cdefn)
+                g.SetFID(fid)
+                g.SetGeometry(f.GetGeometryRef())
+                g.SetField(out_id, osm_id)
+                g.SetField(out_b, f.GetField(b_i))
+                self.cliffs.CreateFeature(g)
+                self._cliff_fid[_key(_text(f, sq_i) if named else None, osm_id)] = fid
+            self._cliff_next = top + 1
+
         # Each saddle's pass, two lines falling from it, burned between the
         # lakes and the spot heights as the build burns them (#191). Keyed by
         # the saddle's node, which has two
@@ -330,6 +357,53 @@ class Contours:
                                            geom_type=ogr.wkbPolygon)
         self.lakes.CreateField(ogr.FieldDefn('ele', ogr.OFTReal))
         self.lakes.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+
+    def _make_cliffs(self, srs=None) -> None:
+        """The in-memory layer of cliffs, empty - made on demand too."""
+        from osgeo import ogr
+        if self.cliffs is not None:
+            return
+        self.cliffs = self._mem.CreateLayer(CLIFFS, srs=srs if srs is not None else self.layer.GetSpatialRef(),
+                                            geom_type=ogr.wkbLineString)
+        self.cliffs.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+        self.cliffs.CreateField(ogr.FieldDefn('bottom', ogr.OFTReal))
+
+    def remove_cliff(self, square, way_id) -> bool:
+        """Drop a cliff's foot. False when it had none."""
+        fid = self._cliff_fid.pop(self._of(square, way_id, self._cliff_fid), None)
+        if fid is None:
+            return False
+        self.cliffs.DeleteFeature(fid)
+        return True
+
+    def apply_cliff(self, square, way_id, points, bottom: float | None) -> None:
+        """Put a cliff in - its top edge as drawn and its foot's level - in
+        place of what it had, at its own FID if it had one; None takes it out:
+        a cliff with no top or no height has no foot."""
+        from . import cliff
+        self._make_cliffs()
+        key = self._of(square, way_id, self._cliff_fid)
+        fid = self._cliff_fid.pop(key, None)
+        if fid is not None:
+            self.cliffs.DeleteFeature(fid)
+        if bottom is None or len(points) < 2:
+            return
+        if fid is None:
+            fid = self._cliff_next
+            self._cliff_next += 1
+        f = cliff.feature(self.cliffs.GetLayerDefn(), points, way_id, bottom)
+        f.SetFID(fid)
+        self.cliffs.CreateFeature(f)
+        self._cliff_fid[key] = fid
+
+    def cliff_of(self, square, way_id):
+        """A cliff as the layer has it, as (points, foot level), or None."""
+        fid = self._cliff_fid.get(self._of(square, way_id, self._cliff_fid))
+        if fid is None:
+            return None
+        f = self.cliffs.GetFeature(fid)              # held: the geometry is the feature's
+        g = f.GetGeometryRef()
+        return [g.GetPoint_2D(i) for i in range(g.GetPointCount())], f.GetField('bottom')
 
     def _make_saddles(self, srs=None) -> None:
         """The in-memory layer of saddles' passes, empty - made on demand
@@ -577,8 +651,9 @@ class Contours:
     def burn(self, gt: tuple, box: Box, nodata: float, spots: bool = True) -> np.ndarray:
         """The constraints for ``box`` alone, burned as the build burns them:
         all touched, last writer wins, in FID order - the contours, then the
-        lakes held at their level, then the saddles' passes, then the spot
-        heights, so a spot height standing on any of them wins its cell.
+        lakes held at their level, then the cliffs' feet, then the saddles'
+        passes, then the spot heights, so a spot height standing on any of
+        them wins its cell.
 
         The cells a line runs through, as ``rasterise()`` burns them - the
         two must agree cell for cell (R35). ``spots`` False
@@ -595,12 +670,21 @@ class Contours:
         band.Fill(nodata)
         west, south = min(x0, x1), min(y0, y1)
         east, north = max(x0, x1), max(y0, y1)
-        for layer in (self.layer, *((self.lakes, self.saddles, self.spots) if spots else ())):
+        # the cliffs' feet lie a cell and a half off their tops: a cliff just
+        # outside the box can have its foot inside it
+        reach = 2 * abs(gt[1])
+        for layer in (self.layer, *((self.lakes, self.cliffs, self.saddles, self.spots) if spots else ())):
             if layer is None:
                 continue
-            layer.SetSpatialFilterRect(west, south, east, north)
+            if layer is self.cliffs:
+                layer.SetSpatialFilterRect(west - reach, south - reach, east + reach, north + reach)
+            else:
+                layer.SetSpatialFilterRect(west, south, east, north)
             try:
-                if layer is self.saddles:
+                if layer is self.cliffs:
+                    from . import cliff
+                    cliff.burn_feet(out, layer, abs(gt[5]))
+                elif layer is self.saddles:
                     # its height the line's Z, as the build's -3d; burn
                     # value 0, which RasterizeLayer adds to it
                     gdal.RasterizeLayer(out, [1], layer, burn_values=[0],

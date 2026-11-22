@@ -7097,3 +7097,21 @@ dunes describe the surface's cover, not its height.
 The editor draws a flat area's outline as the contour its level makes; one
 whose level is on the relation alone is not drawn. Both are for the hands-on
 pass to judge.
+
+## A cliff's top and foot (#191)
+
+OSM draws a cliff (`natural=cliff`, and the smaller `earth_bank`) along its top
+edge with the ground below on the way's right, and gives its drop as `height`;
+nothing gives the top a height. Where a mapper has given it `ele` as well
+(R51), the top edge is the contour that `ele` already makes it, and the foot is
+burned beside it on the right at `ele - height` - a cell and a half of the
+grid away (`cliff.foot`), made for the grid it is burned on, so the editor at
+3 arcseconds and the server at 1 each draw the face as steep as they can and
+the two lines never share a cell. `collect` keeps such cliffs in the `cliff`
+layer; `rasterise` and `Contours.burn` both make the feet with
+`cliff.burn_feet`, after the lakes and before the saddles, and the editor puts
+a cliff in again when its way is edited.
+
+A cliff with no `ele` or no `height` burns nothing of its own. The wall the
+fill does not see or diffuse across, for every cliff, is an isofill change
+and comes separately.

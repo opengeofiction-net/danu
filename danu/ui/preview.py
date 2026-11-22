@@ -36,7 +36,7 @@ import time
 from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
 from ..core.square import flat_tags, parse_ele
-from ..surface import held, local, preview, saddle, shade
+from ..surface import cliff, held, local, preview, saddle, shade
 from ..surface.params import Params
 from . import trace as _tracing
 from .trace import grid as _grid
@@ -373,6 +373,7 @@ class PreviewDriver(QObject):
                 # resolve - boxing its geometry would solve ground the edit
                 # cannot have changed, at tens of milliseconds a go
                 self._kept.contours.remove(sq, wid)
+        self._cliffs_edited(square, set(way_ids))
         self._lakes_edited(square, set(way_ids))
         if fresh:
             # nothing local can show this, so there is no sense waiting out the
@@ -381,6 +382,26 @@ class PreviewDriver(QObject):
             self.exact_wanted.emit()
         if self._pending:
             self._gesture.start()
+
+    def _cliffs_edited(self, square, way_ids: set) -> None:
+        """The cliffs an edit touched: each put in again as the square has it
+        - its foot beside its top, where it has a top and a height - or taken
+        out, and its foot boxed where it was and where it is (#191). Its top
+        is a contour, and moves with the contours."""
+        sq = str(square.name)
+        for wid in way_ids:
+            way = square.ways.get(wid)
+            was = self._kept.contours.cliff_of(sq, wid)
+            got = cliff.levels(way) if way is not None else None
+            pts = square.coords(way) if way is not None else []
+            if was is None and got is None:
+                continue
+            self._kept.contours.apply_cliff(sq, wid, pts, got[1] if got else None)
+            moved = (pts if got else []) + (was[0] if was else [])
+            if moved:
+                self._mark_points(moved)
+            if was is not None and got is None:
+                self._removing = True
 
     def _graded_index(self, square) -> tuple[dict, dict]:
         """The square's waterways of the kinds that are held, as node id ->

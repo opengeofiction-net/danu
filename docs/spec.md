@@ -174,6 +174,8 @@ Numbered from R36 because the earlier numbers are cited from the code.
 - **R49** A spot height's kind says what the surface makes of it: a saddle is
   the top of the pass between the valleys either side, and a sinkhole is a pit
   however deep.
+- **R51** A cliff with its top's `ele` and its `height` drops that height to
+  its right, its top at `ele` and its foot beside it at `ele - height`.
 - **R41** The main map's peaks, volcanoes and saddles with a height are
   imported from Overpass into the squares as spot heights, where the contours
   are; a second import reconciles as R40 says, the height set in the square

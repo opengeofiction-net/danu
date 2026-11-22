@@ -58,7 +58,7 @@ from ..core.square import (
     parse_ele,
     read_square,
 )
-from . import NODATA, drawn_mask, held, isofill_lib, land_clamp, saddle, sea_mask
+from . import NODATA, cliff, drawn_mask, held, isofill_lib, land_clamp, saddle, sea_mask
 from .params import Params
 
 gdal.UseExceptions()
@@ -92,6 +92,7 @@ NONNUM = ("NOT ((ele GLOB '[0-9]*' OR ele GLOB '-[0-9]*') "
 CREATE = ['TILED=YES', 'COMPRESS=DEFLATE']
 HELD = 'held'                    # the graded waterways' layer, and their raster's stem
 SADDLE = 'saddle'                # each saddle's pass, as lines burned with the constraints
+CLIFF = 'cliff'                  # each cliff with a top and a height, whose foot is burned
 Log = Callable[[str], None]
 
 
@@ -421,6 +422,21 @@ def saddle_lines(path: Path, name: SquareName | None = None) -> tuple[list, int]
     return out, unread
 
 
+def cliff_lines(path: Path, name: SquareName | None = None) -> list:
+    """The square's cliffs with a top and a height - ``cliff.levels`` - as
+    (way id, points, foot level) (#191)."""
+    if not _holds(path, cliff.WORDS):
+        return []
+    square = _parsed(path, name)
+    out = []
+    for wid, way in sorted(square.ways.items()):
+        got = cliff.levels(way)
+        pts = square.coords(way)
+        if got is not None and len(pts) >= 2:
+            out.append((wid, pts, got[1]))
+    return out
+
+
 def _square_facts(key: tuple, source: Path, name) -> tuple:
     """(way counts, (held lakes, lakes not held), backwards coasts, (graded
     runs, their nodes), (saddles' passes, saddles not read)) for the square,
@@ -429,7 +445,7 @@ def _square_facts(key: tuple, source: Path, name) -> tuple:
     got = _FACTS.get(key)
     if got is None:
         got = (_way_counts(source), lake_rings(source, name), backwards_coasts(source, name),
-               graded_runs(source, name), saddle_lines(source, name))
+               graded_runs(source, name), saddle_lines(source, name), cliff_lines(source, name))
         _FACTS[key] = got
         while len(_FACTS) > _FACTS_KEEP:
             del _FACTS[next(iter(_FACTS))]
@@ -697,6 +713,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     lakes, spanned, backwards = [], 0, []
     graded: list[tuple[str, int, list]] = []
     saddles: list[tuple[str, int, list]] = []
+    cliffs: list[tuple[str, int, list, float]] = []
     saddles_unread = 0
     # where each square's rows begin in the contour and spot layers: the
     # fids past each are that square's, written as ``square`` at the end
@@ -737,7 +754,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             # the guard reads the expanded file, not the archive: a square
             # read or translated afresh is decompressed for it once a build,
             # and one whose reading and piece are both kept is not at all
-            counts, (held_lakes, n), coasts, (runs, graded_nodes), (passes, unread) = \
+            counts, (held_lakes, n), coasts, (runs, graded_nodes), (passes, unread), cliffs_here = \
                 _square_facts(key, source, name)
             ele_ways, ele_loose = check_long_ways(source, log, name=path.name, counts=counts)
             if piece is not None:
@@ -746,6 +763,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
             spanned += n
             graded += [(str(name), wid, run) for wid, run in runs]
             saddles += [(str(name), nid, ls) for nid, ls in passes]
+            cliffs += [(str(name), wid, pts, bottom) for wid, pts, bottom in cliffs_here]
             saddles_unread += unread
             backwards += [f'{name}: {text}' for text in coasts]
             spots_before = _feature_count(gpkg, 'spot')
@@ -830,7 +848,7 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
                 with lzma.open(path, 'rb') as src, open(square, 'wb') as dst:
                     shutil.copyfileobj(src, dst)
                 source = square
-            _counts, (held_lakes, _n), _coasts, _graded, _saddles = _square_facts(key, source, name)
+            _counts, (held_lakes, _n), _coasts, _graded, _saddles, _cliffs = _square_facts(key, source, name)
             lakes += [(str(name), *lake) for lake in held_lakes]
             alongside += len(held_lakes)
             if source == square:
@@ -887,6 +905,15 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
         for f in saddle.features(out.GetLayerDefn(), ls, nid, name):
             out.CreateFeature(f)
     out = None
+    # and the cliffs with a top and a height: their top is the contour their
+    # ele makes them, and their foot is burned beside it (#191)
+    out = ds.CreateLayer(CLIFF, ds.GetLayer('contour').GetSpatialRef(), ogr.wkbLineString)
+    out.CreateField(ogr.FieldDefn('osm_id', ogr.OFTString))
+    out.CreateField(ogr.FieldDefn('square', ogr.OFTString))
+    out.CreateField(ogr.FieldDefn('bottom', ogr.OFTReal))
+    for name, wid, pts, bottom in cliffs:
+        out.CreateFeature(cliff.feature(out.GetLayerDefn(), pts, wid, bottom, name))
+    out = None
     _name_squares(ds, starts)
     _last_parsed = (None, None, None)            # not a square held past the read
     if lakes or spanned:
@@ -915,6 +942,8 @@ def collect(squares: dict[SquareName, Path], work: Path, log: Log = _quiet,
     if graded:
         log(f'  {sum(len(r) for _s, _w, r in graded)} graded waterway vertices held by the second pass, '
             f'{len({(s_, w) for s_, w, _r in graded})} ways')
+    if cliffs:
+        log(f'  {len(cliffs)} cliffs with a top and a height, their feet burned beside them')
     if saddles or saddles_unread:
         log(f'  {len(saddles)} saddles read as passes'
             + (f'; {saddles_unread} not, the contours round them not a saddle\'s' if saddles_unread else ''))
@@ -1068,6 +1097,10 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     a summit inside the top ring is higher than the ring, and a contour burned
     over it would flatten the thing the spot height is there to raise.
 
+    A cliff's foot goes in after the lakes - a line a cell and a half to the
+    right of its top, at its top less its height; the top is a contour already
+    (#191).
+
     Each saddle's pass goes in after the lakes and before the spot heights -
     two lines falling from it, each cell along them at the line's height (-3d)
     - so the saddle itself, a spot height, still wins its own cell (#191).
@@ -1080,7 +1113,7 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
     """
     out = work / 'cont.tif'
     ds = ogr.Open(str(gpkg))
-    layers = [name for name in ('contour', 'lake', SADDLE, 'spot')
+    layers = [name for name in ('contour', 'lake', CLIFF, SADDLE, 'spot')
               if ds.GetLayerByName(name) is not None]
     ds = None
     if not layers:
@@ -1133,6 +1166,14 @@ def rasterise(gpkg: Path, grid: Grid, work: Path) -> Path:
                 drawn_mask.envelopes(str(raw), str(work / 'drawn.geojson'))
             continue
         into = gdal.Open(str(raw), gdal.GA_Update)
+        if name == CLIFF:
+            # a cliff's foot, made for this grid beside its top
+            src = ogr.Open(str(gpkg))
+            cliff.burn_feet(into, src.GetLayerByName(CLIFF), grid.res)
+            src = None
+            into.FlushCache()
+            into = None
+            continue
         # a saddle's pass falls along it, its height the line's Z (-3d)
         by = dict(useZ=True) if name == SADDLE else dict(attribute='ele')
         gdal.Rasterize(into, str(gpkg), options=gdal.RasterizeOptions(

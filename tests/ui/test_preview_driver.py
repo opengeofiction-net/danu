@@ -43,6 +43,9 @@ class Square:
     def contours(self):
         return [w for w in self.ways.values() if w.ele is not None]
 
+    def coords(self, way):
+        return [(self.nodes[r].lon, self.nodes[r].lat) for r in way.refs if r in self.nodes]
+
 
 class FakeContours:
     def __init__(self, collided=()):
@@ -52,6 +55,7 @@ class FakeContours:
         self.lakes = {}
         self.held = {}
         self.saddles = {}
+        self.cliffs = {}
 
     def burn(self, gt, box, nodata):
         import numpy as np
@@ -98,6 +102,16 @@ class FakeContours:
 
     def burn_held(self, gt, box):
         return None
+
+    # cliffs (#191), by (square, way id)
+    def cliff_of(self, square, way_id):
+        return self.cliffs.get((square, way_id))
+
+    def apply_cliff(self, square, way_id, points, bottom):
+        if bottom is None:
+            self.cliffs.pop((square, way_id), None)
+        else:
+            self.cliffs[(square, way_id)] = (list(points), bottom)
 
     # saddles' passes (#191), by (square, node id)
     def saddle_lines(self, square, node_id):
